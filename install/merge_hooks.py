@@ -16,8 +16,6 @@ BASE = "~/.codex/skills/unifable/hooks"
 # unifable's own hook entries, keyed by Codex event name.
 UNIFABLE = {
     "UserPromptSubmit": [
-        {"hooks": [{"type": "command", "command": f"{BASE}/fable-inject.sh",
-                    "statusMessage": "Injecting Fable mode", "timeout": 10}]},
         {"hooks": [{"type": "command", "command": f"bash {BASE}/router.sh",
                     "statusMessage": "unifable: routing task signal to pack", "timeout": 10}]},
         {"hooks": [{"type": "command", "command": f"python3 {BASE}/gate_prompt.py",

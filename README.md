@@ -16,9 +16,14 @@ hosts via Claude-Code-compatible hooks:
 
 | Hook | Script | Role |
 |---|---|---|
-| UserPromptSubmit | `router.sh`, `gate_prompt.py`, `fable-inject.sh` (Codex) | Route task signal to a pack; classify task mode |
+| UserPromptSubmit | `router.sh`, `gate_prompt.py`, `gate_prompt_effort.py` | Route task signal to a pack; classify task mode; effort-gated playbook |
 | PostToolUse | `gate_post_tool.py` | Observe evidence: changed files, verification results, **real** failures |
 | Stop | `gate_stop.py`, `finish-the-work.sh` | Completion verification gate; promise-no-act guard |
+
+The **Fable orchestrator posture** (delegate-first) is delivered as always-on context loaded once
+per session, not re-injected per prompt: on Claude via the **Fable output style**
+(`output-styles/fable.md`, set by `install/claude.sh`), on Codex via an `AGENTS.md` block
+(`setup/orchestrator-block.md`, injected by `install/codex.sh`).
 
 Shared core lives in `scripts/gate/` (ledger, task classifier, tool-result parser, verify-state)
 and `packs/` (investigation protocol, verification-grounding). Multi-story work is tracked by

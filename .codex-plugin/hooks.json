@@ -3,11 +3,6 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/fable-inject.sh", "statusMessage": "Injecting Fable mode", "timeout": 10 }
-        ]
-      },
-      {
-        "hooks": [
           { "type": "command", "command": "bash \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/router.sh\"", "statusMessage": "unifable: routing task signal to pack", "timeout": 10 }
         ]
       },

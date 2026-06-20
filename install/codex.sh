@@ -38,6 +38,9 @@ ts="$(python3 -c 'import time;print(int(time.time()))')"
 codex plugin marketplace add "$SOURCE" >/dev/null 2>&1 \
   && echo "  ✓ marketplace '$MKT' registered" \
   || { echo "  ! 'codex plugin marketplace add $SOURCE' failed — run it manually, then re-run."; exit 1; }
+# `add` no-ops on an already-registered marketplace; `upgrade` refreshes the git snapshot to
+# the latest commit (needed when re-running to pick up a new release).
+codex plugin marketplace upgrade "$MKT" >/dev/null 2>&1 && echo "  ✓ marketplace '$MKT' refreshed to latest" || true
 
 codex plugin add "$KEY" >/dev/null 2>&1 \
   && echo "  ✓ plugin '$KEY' installed (cached under $CODEX_HOME/plugins/cache/$MKT/$PLUG/)" \
@@ -124,8 +127,30 @@ if [ -d "$CODEX_HOME/skills/fablize" ]; then
   echo "  ✓ removed legacy ~/.codex/skills/fablize"
 fi
 
-# 5) Operating block in ~/.codex/AGENTS.md — opt-in. The plugin hooks deliver the gate;
-#    this only adds the always-on routing text. Enable with UNIFABLE_BLOCK=1.
+# 5) Fable orchestrator posture into ~/.codex/AGENTS.md (default-on). This replaces the old
+#    per-prompt fable-inject hook: the posture is loaded ONCE per session via AGENTS.md instead
+#    of re-injected on every prompt. On Claude the Fable output style carries this; Codex has no
+#    output style, so it lives here. Idempotent: strip prior UNIFABLE-ORCH block, re-inject.
+ORCH_TPL="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 3 -name orchestrator-block.md -path '*/setup/*' 2>/dev/null | sort | tail -1)"
+AGENTS="$CODEX_HOME/AGENTS.md"
+if [ -n "$ORCH_TPL" ]; then
+  [ -f "$AGENTS" ] && cp "$AGENTS" "$AGENTS.unifable-bak.$ts"
+  python3 - "$AGENTS" "$ORCH_TPL" <<'PY'
+import sys, re, pathlib
+md, tpl = sys.argv[1], sys.argv[2]
+p = pathlib.Path(md)
+cur = p.read_text(encoding="utf-8") if p.exists() else ""
+block = pathlib.Path(tpl).read_text(encoding="utf-8").strip()
+cur = re.sub(r"<!-- UNIFABLE-ORCH:BEGIN.*?UNIFABLE-ORCH:END -->\n?", "", cur, flags=re.S).rstrip()
+p.write_text((cur + "\n\n" + block + "\n") if cur else (block + "\n"), encoding="utf-8")
+print("  ✓ AGENTS.md: Fable orchestrator posture injected (default; no per-prompt hook)")
+PY
+else
+  echo "  ! orchestrator-block.md not found in cache; posture not injected"
+fi
+
+# 6) Operating block in ~/.codex/AGENTS.md — opt-in. The plugin hooks deliver the gate;
+#    this adds the always-on verify/complete routing text. Enable with UNIFABLE_BLOCK=1.
 CACHE_SETUP="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 2 -name setup.sh -path '*/setup/*' 2>/dev/null | sort | tail -1)"
 if [ "${UNIFABLE_BLOCK:-0}" = "1" ] && [ -n "$CACHE_SETUP" ]; then
   CLAUDE_PLUGIN_ROOT="$(dirname "$(dirname "$CACHE_SETUP")")" bash "$CACHE_SETUP" global codex >/dev/null 2>&1 \
