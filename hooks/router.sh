@@ -45,5 +45,13 @@ case "$low" in
     add "[unifable:subagent-brief] Delegating — use the brief template in $PACKS/subagent-brief.md: objective, context, constraints (incl. 'Do not touch: protected tests'), strict output contract, and the verification the worker must run." ;;
 esac
 
-[ -n "$emit" ] && printf '%s\n' "$emit"
+# Emit as a JSON object — NOT raw text. Codex's UserPromptSubmit parser treats any
+# stdout starting with '[' or '{' as "looks like JSON" and FAILS the hook if it does
+# not parse ("hook returned invalid user prompt submit JSON output"); our pack lines
+# start with "[unifable:...]". Wrapping in hookSpecificOutput.additionalContext parses
+# cleanly on Codex AND is honored by Claude. Empty match -> no stdout (safe on both).
+if [ -n "$emit" ]; then
+  CTX="$emit" python3 -c 'import os, json
+print(json.dumps({"hookSpecificOutput": {"hookEventName": "UserPromptSubmit", "additionalContext": os.environ.get("CTX", "")}}))'
+fi
 exit 0
