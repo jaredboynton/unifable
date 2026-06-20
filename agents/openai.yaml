@@ -1,0 +1,7 @@
+interface:
+  display_name: "unifable"
+  short_description: "Verification + completion harness (Fable mode)"
+  default_prompt: "Use $unifable to see this task through to a verified end."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.DS_Store
+.omc/
+.unifable/
+*.unifable-bak.*
+*.fablize-bak.*
