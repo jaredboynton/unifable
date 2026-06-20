@@ -13,7 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
-from classify_task import classify_prompt, context_for_mode
+from classify_task import classify_prompt, context_for_mode, grade_of
 
 
 def main() -> int:
@@ -23,6 +23,9 @@ def main() -> int:
 
     def apply(ledger):
         ledger["task_mode"] = mode
+        ledger["grade"] = grade_of(mode)
+        ledger["warning_count"] = 0
+        ledger["warnings"] = []
         ledger["changed_files_seen"] = False
         ledger["change_kinds"] = []
         ledger["risk_flags"] = []

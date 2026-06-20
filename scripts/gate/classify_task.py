@@ -24,6 +24,15 @@ NORMAL_RE = re.compile(
     r"(?i)\b(implement|fix|debug|change|edit|create|build|test|lint|review|update)\b|"
     r"구현|수정|고쳐|디버그|작성|생성|테스트|검증"
 )
+# Hedging / uncertainty cues. High-precision only: bare "should" is excluded
+# (it is usually imperative — "you should add a test" — not doubt), so only
+# clear modal-uncertainty phrases like "should probably" are matched.
+AMBIGUOUS_RE = re.compile(
+    r"(?i)(\b(probably|maybe|perhaps|might|i think|i guess|i wonder|unsure|uncertain|"
+    r"unclear|could be|might be|should probably|hard to say|is it possible|"
+    r"not sure|not quite sure|not entirely sure|not certain|i'm not sure)\b)|"
+    r"아마|잘 모르|모르겠|확실하지 않|불확실|애매|긴가민가"
+)
 
 
 def classify_prompt(prompt: str) -> tuple[str, list[str]]:
@@ -39,13 +48,35 @@ def classify_prompt(prompt: str) -> tuple[str, list[str]]:
     if re.search(r"(?i)\b(git\s+push|release|publish)\b|릴리즈|배포", text):
         risks.append("remote-write")
 
-    if DEEP_RE.search(text) or any(flag in risks for flag in ("production", "database", "remote-write")):
+    # Hedging language signals the user lacks a confident answer — which calls for
+    # MORE evidence, not less. It must never land in 'quick' (which waives
+    # verification): float a would-be-quick task up to 'normal' and attach an
+    # 'uncertainty' flag that triggers a research/grounding nudge. It does NOT
+    # force 'deep' (hedging severity varies); genuine deep signals still escalate.
+    ambiguous = bool(AMBIGUOUS_RE.search(text))
+    if ambiguous:
+        risks.append("uncertainty")
+    hard_risks = [r for r in risks if r != "uncertainty"]
+
+    if DEEP_RE.search(text) or any(flag in hard_risks for flag in ("production", "database", "remote-write")):
         return "deep", risks
-    if QUICK_RE.search(text) and not risks:
+    if QUICK_RE.search(text) and not hard_risks:
         return "quick", risks
     if NORMAL_RE.search(text):
         return "normal", risks
+    if ambiguous:
+        return "normal", risks
     return "quick", risks
+
+
+# Map the observation-gate mode onto the spec-gate grade tier. quick work is
+# LIGHT (spec waived), normal is STANDARD (full spec), deep is HEAVY (adds
+# architectural constraints + >=2 rejected alternatives). See scripts/gate/spec.py.
+GRADE_BY_MODE = {"quick": "LIGHT", "normal": "STANDARD", "deep": "HEAVY"}
+
+
+def grade_of(mode: str) -> str:
+    return GRADE_BY_MODE.get(mode, "STANDARD")
 
 
 def context_for_mode(mode: str, risk_flags: list[str]) -> str:
@@ -62,6 +93,12 @@ def context_for_mode(mode: str, risk_flags: list[str]) -> str:
             "If you verified a change or your claims rest on tool results, state the evidence "
             "(and any gaps) in one line; if nothing changed and there is nothing to verify, "
             "skip the verification note."
+        )
+    if "uncertainty" in risk_flags:
+        lines.append(
+            "The prompt hedges (uncertain). Treat it as a research task: gather evidence and "
+            "confirm with tool calls before answering; do not guess. State what you verified and "
+            "what is still unknown."
         )
     lines.append("Never claim verification that was not actually observed in a tool result.")
     return "\n".join(lines[:10])

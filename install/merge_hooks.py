@@ -22,11 +22,21 @@ UNIFABLE = {
                     "statusMessage": "unifable: routing task signal to pack", "timeout": 10}]},
         {"hooks": [{"type": "command", "command": f"python3 {BASE}/gate_prompt.py",
                     "statusMessage": "unifable: classifying task mode", "timeout": 10}]},
+        {"hooks": [{"type": "command", "command": f"python3 {BASE}/gate_prompt_effort.py",
+                    "statusMessage": "unifable: effort-gated playbook injection", "timeout": 10}]},
+    ],
+    "PreToolUse": [
+        {"matcher": "^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$",
+         "hooks": [{"type": "command", "command": f"python3 {BASE}/pre_tool_use.py",
+                    "statusMessage": "unifable: pre-edit spec gate", "timeout": 10}]},
     ],
     "PostToolUse": [
         {"matcher": "^(Bash|apply_patch)$",
          "hooks": [{"type": "command", "command": f"python3 {BASE}/gate_post_tool.py",
                     "statusMessage": "unifable: observing tool evidence", "timeout": 10}]},
+        {"matcher": "^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$",
+         "hooks": [{"type": "command", "command": f"python3 {BASE}/test_after_edit.py",
+                    "statusMessage": "unifable: test-after-edit", "timeout": 75}]},
     ],
     "Stop": [
         {"hooks": [{"type": "command", "command": f"python3 {BASE}/gate_stop.py",

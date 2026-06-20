@@ -21,12 +21,15 @@ from typing import Any, Callable
 
 DEFAULT_LEDGER: dict[str, Any] = {
     "task_mode": "quick",
+    "grade": "",
     "risk_flags": [],
     "changed_files_seen": False,
     "change_kinds": [],
     "verification_commands": [],
     "verification_results": [],
     "failures": [],
+    "warning_count": 0,
+    "warnings": [],
     "stop_blocks": 0,
     "last_updated": "",
 }
@@ -99,7 +102,7 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
     ledger = default_ledger()
     if isinstance(data, dict):
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
-    for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results", "failures"):
+    for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results", "failures", "warnings"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     return ledger
@@ -130,7 +133,7 @@ def trim_ledger(ledger: dict[str, Any]) -> None:
             if value not in values:
                 values.append(value)
         ledger[key] = values[:20]
-    for key in ("verification_commands", "verification_results", "failures"):
+    for key in ("verification_commands", "verification_results", "failures", "warnings"):
         ledger[key] = ledger.get(key, [])[-40:]
 
 

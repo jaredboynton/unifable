@@ -49,12 +49,62 @@ def _log_holdout(input_data: dict, reason: str) -> None:
         pass
 
 
+def ledger_grade(input_data: dict) -> str:
+    """The spec-gate grade recorded for this session by gate_prompt.py."""
+    try:
+        return load_ledger(input_data).get("grade") or "STANDARD"
+    except Exception:
+        return "STANDARD"
+
+
 def main() -> int:
     input_data = read_stdin_json()
     # Respect the loop guard so we never block twice in a row on the same stop.
     if input_data.get("stop_hook_active") is True:
         emit_json({})
         return 0
+
+    cwd = input_data.get("cwd") or os.getcwd()
+
+    # Findings cross-link (opt-in: empty unless .unifable/findings.json exists):
+    # open high/critical findings block completion. Fails open.
+    try:
+        from findings import blocking_findings
+
+        blockers = blocking_findings(cwd)
+    except Exception:
+        blockers = []
+    if blockers:
+        ids = ", ".join(str(f.get("id", "?")) for f in blockers)
+        emit_json(
+            {
+                "decision": "block",
+                "reason": f"{len(blockers)} open high/critical finding(s) to resolve or reject "
+                f"before completing: {ids}. See packs/memory-closure.md.",
+            }
+        )
+        return 0
+
+    # Fake-evidence (opt-in with the spec gate): a present spec must validate at
+    # completion; validate_spec rejects placeholder evidence via FAKE_MARKERS.
+    if os.environ.get("UNIFABLE_SPEC_GATE") == "1":
+        try:
+            from spec import load_spec, validate_spec
+
+            spec = load_spec(cwd, input_data.get("session_id") or "")
+            if spec is not None:
+                ok, reasons = validate_spec(spec, os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data))
+                if not ok:
+                    emit_json(
+                        {
+                            "decision": "block",
+                            "reason": "spec invalid at completion (placeholder/missing evidence): "
+                            + "; ".join(reasons),
+                        }
+                    )
+                    return 0
+        except Exception:
+            pass
 
     ledger = load_ledger(input_data)
     block, reason = should_block_stop(ledger)
@@ -67,7 +117,9 @@ def main() -> int:
             return 0
         ledger["stop_blocks"] = int(ledger.get("stop_blocks") or 0) + 1
         save_ledger(input_data, ledger)
-        emit_json({"decision": "block", "reason": reason})
+        emit_json(
+            {"decision": "block", "reason": reason + " See packs/memory-closure.md for the pre-completion checklist."}
+        )
         return 0
 
     warning = warning_after_max_blocks(ledger)
