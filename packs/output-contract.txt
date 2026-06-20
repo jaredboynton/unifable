@@ -1,0 +1,37 @@
+<!-- unifable pack: output contract and depth-keyed response shape (behavior only; effect grades are in README) -->
+<output_contract>
+Route signal: (always active for normal and deep tasks; injected by router at L2+)
+
+OUTPUT LOCK RULES — apply to every response at depth normal or deep
+
+1. Lead with the outcome. The first sentence states what happened or what was decided. Do not open with context, background, or a restatement of the task.
+2. No narration of internal reasoning. Steps you considered but did not take, intermediate mental states, and process narration are omitted from the response. Record those in a decision trace if durable, not in the output itself.
+3. Reserve markdown. Use headers, tables, and code fences only when the content type requires them (structured comparison, code block, checklist). Prose findings do not get headers. A short outcome does not get a bullet list.
+4. Evidence before assertion. Any claim about what works, what passed, or what is true is followed immediately by the tool result or observed output that supports it. An assertion without evidence is marked explicitly as an assumption.
+5. One next step. End with the single most actionable next step. Do not list multiple options as next steps — decide and name one.
+
+---
+
+FINAL RESPONSE SHAPE BY DEPTH
+
+QUICK (single-step, no file changes, conversational)
+- 1 to 3 lines maximum.
+- Outcome or answer, then the next step if one exists.
+- No headers, no bullets, no evidence table.
+- Example shape: "[Answer or outcome]. Next: [action if applicable]."
+
+NORMAL (multi-step, file changes made, verification run)
+- Outcome sentence.
+- Brief evidence: the verification command run and its result, in one or two lines.
+- Next step: one sentence.
+- No headers. Prose only unless a code block is required to show the command/output.
+- Example shape: "[Outcome]. Verified: `[cmd]` -> [result summary]. Next: [action]."
+
+DEEP (architecture, hard-to-reverse, cross-cutting, or L3-L4 complexity)
+- Outcome sentence.
+- Evidence table: columns — Criterion | Check run | Result. One row per acceptance criterion.
+- Verification line: the final gate command run and its pass/fail status.
+- Residual risks: any assumption unverified in this session, one line each.
+- Next step: one sentence.
+- Headers are permitted at this depth to separate the table and risks sections.
+</output_contract>

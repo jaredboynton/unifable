@@ -1,0 +1,35 @@
+<!-- unifable pack: domain-specific verification (behavior only; effect grades are in README) -->
+<domain_verification>
+Route signal: implement / build / fix / feature / test / software
+
+SOFTWARE ENGINEERING
+- Write or identify the test for each acceptance criterion before marking implementation complete.
+- For every error path in the acceptance criteria, trigger it and confirm the right error fires — a passing happy-path run does not confirm error handling works.
+- Run the full affected test suite after each logical change; a green subset is not sufficient.
+- Confirm that no pre-existing test was weakened, skipped, or deleted. An equally strict corrected test is the only valid replacement.
+- If the acceptance criterion is behavioral ("user sees X"), exercise the behavior in the real environment, not just in a unit mock.
+- A change that makes the test pass without removing the underlying defect is not a fix.
+
+---
+
+Route signal: research / summarize / claims / sources / literature / report / findings
+
+RESEARCH AND KNOWLEDGE WORK
+- Every load-bearing claim must trace to a source you actually opened and read in this session — not recalled from training, not assumed from a title.
+- If a source is paywalled or unreachable, mark the claim explicitly uncertain; do not infer the content.
+- Cross-check quantitative claims against at least two independent sources before treating them as established.
+- When two sources conflict, state the conflict; do not silently prefer one.
+- Do not synthesize a conclusion from sources you have not individually verified support it.
+
+---
+
+Route signal: data / sql / analysis / csv / dataset / query / aggregate / pipeline
+
+DATA ANALYSIS
+- Before computing any aggregate, check: null counts per column, duplicate row counts, and value-range bounds on fields used in filters or joins.
+- Confirm the row count at each transformation step matches expectation; an unexplained drop or gain is a signal, not a side effect to ignore.
+- Verify join cardinality — a many-to-many join that was expected to be one-to-many will silently inflate counts.
+- Run the query or pipeline on a known-small slice first; confirm output shape matches intent before executing at scale.
+- After the final output, spot-check at least three individual records back to the source rows to confirm the transformation is correct end-to-end.
+- A result that looks plausible is not sufficient — verify it is arithmetically reconstructible from the inputs.
+</domain_verification>
