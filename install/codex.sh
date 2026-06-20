@@ -27,9 +27,11 @@ echo "  hooks: $HOOKS_JSON"
 # 1) Copy the skill payload (exclude VCS / caches / host state).
 mkdir -p "$SKILL_DST"
 rsync -a --delete \
-  --exclude '.git' --exclude '__pycache__' --exclude '.omc' --exclude '.DS_Store' \
+  --exclude '.git' --exclude '.gitignore' --exclude '__pycache__' --exclude '.omc' --exclude '.DS_Store' \
+  --exclude '.claude-plugin' --exclude 'commands' --exclude 'docs' \
+  --exclude 'README.md' --exclude 'CHANGELOG.md' \
   "$REPO"/ "$SKILL_DST"/
-echo "  ✓ skill copied"
+echo "  ✓ skill copied (Codex payload: hooks/ scripts/ packs/ agents/ setup/ install/ SKILL.md)"
 
 # 2) Merge hook entries into ~/.codex/hooks.json (backup first).
 ts="$(python3 -c 'import time;print(int(time.time()))')"
@@ -43,11 +45,14 @@ if [ -d "$CODEX_HOME/skills/fablize" ]; then
   echo "  ✓ removed legacy ~/.codex/skills/fablize"
 fi
 
-# 4) Inject the operating block into ~/.codex/AGENTS.md (idempotent).
-if [ -f "$SKILL_DST/setup/setup.sh" ]; then
+# 4) Operating block in ~/.codex/AGENTS.md — opt-in. The hooks alone deliver the
+#    gate; this only adds the always-on routing text. Enable with UNIFABLE_BLOCK=1.
+if [ "${UNIFABLE_BLOCK:-0}" = "1" ] && [ -f "$SKILL_DST/setup/setup.sh" ]; then
   bash "$SKILL_DST/setup/setup.sh" global codex >/dev/null 2>&1 \
     && echo "  ✓ operating block injected into ~/.codex/AGENTS.md" \
-    || echo "  ! setup.sh block injection skipped (run manually if desired)"
+    || echo "  ! setup.sh block injection skipped"
+else
+  echo "  · operating block not injected (set UNIFABLE_BLOCK=1 to add the always-on routing text)"
 fi
 
 echo "unifable: Codex install complete. Trust the new hooks via /hooks on next launch."

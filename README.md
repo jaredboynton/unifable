@@ -82,5 +82,9 @@ python3 tests/test_recovery.py
 ## Credits & license
 
 Based on [`fivetaku/fablize`](https://github.com/fivetaku/fablize) by fivetaku
-(`gptaku.ai@gmail.com`). Original methodology and gate design are theirs; unifable adds dual-host
-packaging and the failure-detection fix. Distributed under the same MIT license — see `LICENSE`.
+(`gptaku.ai@gmail.com`); the methodology and gate design are theirs. unifable adds dual-host
+packaging and the failure-detection fix.
+
+The upstream repository ships **no license** (all rights reserved), so this is a **private
+personal fork — not for redistribution**. Make it public only after obtaining explicit licensing
+terms from the upstream author.
