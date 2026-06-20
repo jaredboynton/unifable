@@ -70,6 +70,7 @@ st_p = f"{claude_dir}/settings.json"; st = load(st_p)
 ep = st.setdefault("enabledPlugins", {})
 ep.pop("fablize@fablize", None)  # remove legacy
 ep[key] = True
+st["alwaysThinkingEnabled"] = True  # unifable: deliberate thinking on by default
 backup_save(st_p, st)
 print(f"  ✓ registered + enabled {key}; legacy fablize removed from plugin state")
 PY
