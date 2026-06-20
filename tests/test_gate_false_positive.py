@@ -36,7 +36,20 @@ CASES = [
         bash("echo x", {"stdout": "the build failed earlier but recovered", "exit_code": 0}), False),
     ("0 tests failed summary", bash("npm test", "Tests: 0 failed, 5 passed"), False),
 
+    # --- file-write tools: content is NOT command output; never infer failure from it ---
+    ("Write a doc that mentions 'exit code 2'",
+        {"tool_name": "Write", "tool_input": {"file_path": "/p/plan.md", "content": "block = exit code 2"},
+         "tool_response": {"type": "create", "filePath": "/p/plan.md", "content": "block = exit code 2"}}, False),
+    ("Edit whose patch text says '3 failed'",
+        {"tool_name": "Edit", "tool_input": {"file_path": "/p/t.py"},
+         "tool_response": {"filePath": "/p/t.py", "content": "assert run() == '3 failed, 1 passed'"}}, False),
+    ("Write content with a Traceback example",
+        {"tool_name": "Write", "tool_input": {"file_path": "/p/d.md"},
+         "tool_response": "Traceback (most recent call last): documenting an error case"}, False),
+
     # --- must still be FLAGGED (real failures) ---
+    ("Bash output 'exit code 2' is STILL a real failure",
+        bash("make", "make: *** [build] Error 2\nexit code 2"), True),
     ("structured exit_code 1", bash("pytest", {"stdout": "boom", "exit_code": 1}), True),
     ("python Traceback (plain string)", bash("python x.py",
         "Traceback (most recent call last):\n  File ...\nValueError: bad"), True),

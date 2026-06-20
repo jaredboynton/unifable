@@ -57,6 +57,10 @@ MUTATING_BASH_RE = re.compile(
     r"npm\s+run\s+build|pnpm\s+build|yarn\s+build)\b"
 )
 
+# File-write tools: tool_response carries written file content, not command
+# output, so failure is never inferred from its text (see detect_failure).
+WRITE_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
+
 
 def response_text(value: Any, limit: int = 4000) -> str:
     parts: list[str] = []
@@ -90,13 +94,15 @@ def command_from_input(input_data: dict[str, Any]) -> str:
     return ""
 
 
-def exit_success(input_data: dict[str, Any], text: str) -> bool | None:
+def exit_success(input_data: dict[str, Any], text: str, scan_text: bool = True) -> bool | None:
     """Return True/False when there is evidence, else None (unknown).
 
     Structured signals are authoritative. When the host gives none (e.g. Codex,
     whose shell tool_response is a bare output string), fall back only to
     high-precision markers — never to weak lexical guesses — so that "unknown"
-    stays unknown instead of being mis-read as a failure.
+    stays unknown instead of being mis-read as a failure. `scan_text=False`
+    disables the lexical fallback entirely (used for file-write tools, whose
+    "output" is arbitrary file content, not command output).
     """
     candidates = [input_data, input_data.get("tool_response")]
     for candidate in candidates:
@@ -112,6 +118,8 @@ def exit_success(input_data: dict[str, Any], text: str) -> bool | None:
                     return value == 0
                 if isinstance(value, str) and value.lstrip("-").isdigit():
                     return int(value) == 0
+    if not scan_text:
+        return None
     # No structured signal: failure takes precedence over success so a mixed
     # "1 failed, 3 passed" summary is correctly a failure.
     if STRONG_FAILURE_RE.search(text):
@@ -131,9 +139,16 @@ def detect_failure(input_data: dict[str, Any]) -> dict[str, Any] | None:
     'Unknown' (no structured signal and no strong marker) is NOT a failure —
     that is the whole fix: a successful command that merely prints the word
     "failure"/"error" must not be flagged.
+
+    File-write tools (Edit/Write/NotebookEdit/MultiEdit) echo the WRITTEN FILE
+    CONTENT as their response. That content legitimately contains strings like
+    "exit code 2" or "3 failed" (e.g. docs, tests, this parser itself), so text
+    scanning is disabled for them — only a structured error signal can mark a
+    write as failed. Command/exec tools (Bash, apply_patch) keep text scanning.
     """
+    tool_name = str(input_data.get("tool_name") or "")
     text = response_text(input_data.get("tool_response", input_data))
-    success = exit_success(input_data, text)
+    success = exit_success(input_data, text, scan_text=tool_name not in WRITE_TOOLS)
     if success is False:
         return {"kind": "tool-result", "summary": redact(text or command_from_input(input_data), 240)}
     return None
