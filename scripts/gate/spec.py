@@ -21,6 +21,11 @@ import sys
 from pathlib import Path
 from typing import Any
 
+try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
+    from atomicio import write_text_atomic
+except ImportError:  # pragma: no cover
+    from scripts.gate.atomicio import write_text_atomic
+
 # ---------------------------------------------------------------------------
 # Schema
 # ---------------------------------------------------------------------------
@@ -187,11 +192,7 @@ def load_spec(root: str | Path, task_id: str) -> dict[str, Any] | None:
 def save_spec(root: str | Path, task_id: str, spec: dict[str, Any]) -> Path:
     """Write *spec* to the canonical path, creating parent directories as needed."""
     path = spec_path(root, task_id)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(spec, indent=2, sort_keys=False), encoding="utf-8")
-    tmp.replace(path)
-    return path
+    return write_text_atomic(path, json.dumps(spec, indent=2, sort_keys=False))
 
 
 def spec_template() -> dict[str, Any]:

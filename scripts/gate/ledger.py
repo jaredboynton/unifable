@@ -18,6 +18,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
+    from atomicio import write_text_atomic
+except ImportError:  # pragma: no cover
+    from scripts.gate.atomicio import write_text_atomic
+
 
 DEFAULT_LEDGER: dict[str, Any] = {
     "task_mode": "quick",
@@ -109,13 +114,16 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_ledger(input_data: dict[str, Any], ledger: dict[str, Any]) -> Path:
+    # Concurrent gate hooks load-modify-save this file last-writer-wins. That is
+    # intentional and unlocked: the ledger is advisory, self-healing (regenerated
+    # from fresh tool input each turn), dedup'd, and trimmed, so a lost update at
+    # worst skips one nag this turn. Locking the per-tool-call hot path would cost
+    # more than it saves. The write itself is atomic (no torn reads). Correctness-
+    # critical state that accumulates (findings) is serialized instead — see
+    # findings._findings_lock.
     path = ledger_path(input_data)
-    path.parent.mkdir(parents=True, exist_ok=True)
     ledger["last_updated"] = utc_now()
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(ledger, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
-    return path
+    return write_text_atomic(path, json.dumps(ledger, indent=2, sort_keys=True))
 
 
 def update_ledger(input_data: dict[str, Any], updater: Callable[[dict[str, Any]], None]) -> dict[str, Any]:

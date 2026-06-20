@@ -15,14 +15,54 @@ The Stop gate imports this function and blocks completion while the list is non-
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
+import os
 import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
+    from atomicio import write_text_atomic
+except ImportError:  # pragma: no cover
+    from scripts.gate.atomicio import write_text_atomic
+
+try:  # POSIX advisory locking; absent on some platforms (e.g. Windows)
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
+
 SEVERITIES = ("low", "medium", "high", "critical")
+
+
+@contextlib.contextmanager
+def _findings_lock(root: str | Path):
+    """Serialize load-modify-save on the findings store.
+
+    findings.json gates Stop completion (blocking_findings); a counter-keyed id
+    plus last-writer-wins means two concurrent add_finding calls can mint the same
+    id and clobber a finding that should block. This exclusive lock on a sibling
+    ``.lock`` file makes the read-modify-write a critical section. Writes here are
+    infrequent (CLI/agent driven, not the per-tool-call hot path), so the lock is
+    free in practice. No-op where fcntl is unavailable.
+    """
+    if fcntl is None:  # pragma: no cover
+        yield
+        return
+    lock_path = Path(str(_findings_path(root)) + ".lock")
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+        except OSError:
+            pass
+        os.close(fd)
 STATUSES = ("open", "blocked", "resolved", "rejected")
 BLOCKING_SEVERITIES = {"high", "critical"}
 BLOCKING_STATUSES = {"open", "blocked"}
@@ -59,11 +99,7 @@ def load_findings(root: str | Path) -> dict[str, Any]:
 
 def save_findings(root: str | Path, data: dict[str, Any]) -> Path:
     path = _findings_path(root)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=2, sort_keys=True), encoding="utf-8")
-    tmp.replace(path)
-    return path
+    return write_text_atomic(path, json.dumps(data, indent=2, sort_keys=True))
 
 
 def add_finding(
@@ -77,23 +113,24 @@ def add_finding(
 ) -> str:
     if severity not in SEVERITIES:
         raise ValueError(f"severity must be one of {SEVERITIES}")
-    data = load_findings(root)
-    data["counter"] = data.get("counter", 0) + 1
-    fid = f"{_slug(title)}-{data['counter']}"
-    data["findings"][fid] = {
-        "id": fid,
-        "title": title,
-        "severity": severity,
-        "source": source,
-        "location": location,
-        "evidence": evidence,
-        "status": "open",
-        "resolution": "",
-        "verify_cmd": "",
-        "verify_evidence": "",
-        "created": _utc_now(),
-    }
-    save_findings(root, data)
+    with _findings_lock(root):
+        data = load_findings(root)
+        data["counter"] = data.get("counter", 0) + 1
+        fid = f"{_slug(title)}-{data['counter']}"
+        data["findings"][fid] = {
+            "id": fid,
+            "title": title,
+            "severity": severity,
+            "source": source,
+            "location": location,
+            "evidence": evidence,
+            "status": "open",
+            "resolution": "",
+            "verify_cmd": "",
+            "verify_evidence": "",
+            "created": _utc_now(),
+        }
+        save_findings(root, data)
     return fid
 
 
@@ -108,18 +145,19 @@ def set_status(
 ) -> dict[str, Any]:
     if status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
-    data = load_findings(root)
-    finding = data["findings"].get(fid)
-    if finding is None:
-        raise KeyError(f"finding {fid!r} not found")
-    finding["status"] = status
-    if resolution is not None:
-        finding["resolution"] = resolution
-    if verify_cmd is not None:
-        finding["verify_cmd"] = verify_cmd
-    if verify_evidence is not None:
-        finding["verify_evidence"] = verify_evidence
-    save_findings(root, data)
+    with _findings_lock(root):
+        data = load_findings(root)
+        finding = data["findings"].get(fid)
+        if finding is None:
+            raise KeyError(f"finding {fid!r} not found")
+        finding["status"] = status
+        if resolution is not None:
+            finding["resolution"] = resolution
+        if verify_cmd is not None:
+            finding["verify_cmd"] = verify_cmd
+        if verify_evidence is not None:
+            finding["verify_evidence"] = verify_evidence
+        save_findings(root, data)
     return finding
 
 
