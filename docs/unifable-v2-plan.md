@@ -30,37 +30,49 @@ is the source of truth for status. Update the Status column as work lands.
 
 | # | Feature | New files (agent-built) | Shared edits (orchestrator) | Default | Status |
 |---|---|---|---|---|---|
-| 1 | Pre-Edit Enforcement | `hooks/pre_tool_use.py` | hooks.json PreToolUse; merge_hooks | OFF (`UNIFABLE_SPEC_GATE`) | todo |
-| 2 | Spec & Contract Artifacts | `scripts/gate/spec.py` | router/UserPromptSubmit contract inject | OFF | todo |
-| 3 | Grade Tiers | — | classify_task.py grade_of | on | todo |
-| 4 | Fake-Evidence Detection | (in spec.py) | gate_stop.py uses check_fake_evidence | on | todo |
-| 5 | Pre-Edit Protected Gate State | (in pre_tool_use.py) | — | with #1 | todo |
-| 6 | Debounced Test-Runner | `hooks/test_after_edit.py` | hooks.json PostToolUse | OFF (`UNIFABLE_TEST_AFTER_EDIT`) | todo |
-| 7 | /ground skill + verifier agent | `skills/ground/SKILL.md`, `agents/grounding-verifier.md` | SKILL refs | on | todo |
-| 8 | Warning Threshold Accumulation | — | ledger.py + gate_post_tool + gate_stop | on | todo |
-| 9 | Find-and-Replace Word-Boundary | — | SKILL.md + block | on | todo |
-| 10 | Confirmed-Before-Flagging | — | SKILL.md + block | on | todo |
-| 11 | Effort-Gated Playbook Inject | `hooks/gate_prompt_effort.py` | hooks.json UserPromptSubmit | on | todo |
-| 12 | Findings Ledger | `scripts/gate/findings.py` | gate_stop.py cross-link | on | todo |
-| 13 | Domain-Specific Verification | `packs/domain-verification.txt` | router.sh signal | on | todo |
-| 14 | alwaysThinkingEnabled on install | — | install/claude.sh, setup.sh | on | todo |
-| 15 | Depth Gate & Output Lock | `packs/output-contract.txt` | block + gate_prompt | on | todo |
-| 16 | Final Response Shape by Depth | — | SKILL.md + block | on | todo |
-| 17 | Local Semantic Memory Layer | `scripts/memory/*` | — | OFF (opt-in CLI) | todo |
-| 18 | Compact Semantic Notes layout | (in scripts/memory) | — | with #17 | todo |
-| 19 | Decision Trace Workflow | `packs/decision-trace.txt` | router.sh | on | todo |
-| 20 | Subagent Brief Files | `packs/subagent-brief.md` | SKILL refs | on | todo |
-| 21 | Multi-Tier Model Variant Skills | `skills/unifable/SKILL.{opus,sonnet,haiku}.md`? | SKILL note | on | todo |
-| 22 | TDD Test Protection Rule | — | SKILL.md + block | on | todo |
-| 23 | Memory Closure Checklist | `packs/memory-closure.md` | gate_stop warning ref | on | todo |
-| 24 | Idempotent Marker Block Upsert | — | setup.sh markers + block | on | todo |
-| 25 | Behavioral Eval Suite + rubric | `docs/evals/*`, `tests/eval_rubric.md` | — | on | todo |
-| 26 | Distribution: Claude + Codex plugin | `.codex-plugin/` or per research | install/*, README | on | todo (needs codex-plugin research) |
+| 1 | Pre-Edit Enforcement | `hooks/pre_tool_use.py` | hooks.json PreToolUse; merge_hooks | OFF (`UNIFABLE_SPEC_GATE`) | done |
+| 2 | Spec & Contract Artifacts | `scripts/gate/spec.py` | router/UserPromptSubmit contract inject | OFF | done (CLI+gate; prompt-inject opt-in) |
+| 3 | Grade Tiers | — | classify_task.py grade_of | on | done |
+| 4 | Fake-Evidence Detection | (in spec.py) | gate_stop.py uses check_fake_evidence | on | done |
+| 5 | Pre-Edit Protected Gate State | (in pre_tool_use.py) | — | with #1 | done |
+| 6 | Debounced Test-Runner | `hooks/test_after_edit.py` | hooks.json PostToolUse | OFF (`UNIFABLE_TEST_AFTER_EDIT`) | done |
+| 7 | /ground skill + verifier agent | `skills/ground/SKILL.md`, `agents/grounding-verifier.md` | SKILL refs | on | done |
+| 8 | Warning Threshold Accumulation | — | ledger.py + gate_post_tool + gate_stop | on | done |
+| 9 | Find-and-Replace Word-Boundary | — | SKILL.md + block | on | done |
+| 10 | Confirmed-Before-Flagging | — | SKILL.md + block | on | done |
+| 11 | Effort-Gated Playbook Inject | `hooks/gate_prompt_effort.py` | hooks.json UserPromptSubmit | on | done |
+| 12 | Findings Ledger | `scripts/gate/findings.py` | gate_stop.py cross-link | on | done |
+| 13 | Domain-Specific Verification | `packs/domain-verification.txt` | router.sh signal | on | done |
+| 14 | alwaysThinkingEnabled on install | — | install/claude.sh, setup.sh | on | done |
+| 15 | Depth Gate & Output Lock | `packs/output-contract.txt` | block + gate_prompt | on | done |
+| 16 | Final Response Shape by Depth | — | SKILL.md + block | on | done |
+| 17 | Local Semantic Memory Layer | `scripts/memory/*` | — | OFF (opt-in CLI) | done |
+| 18 | Compact Semantic Notes layout | (in scripts/memory) | — | with #17 | done |
+| 19 | Decision Trace Workflow | `packs/decision-trace.txt` | router.sh | on | done |
+| 20 | Subagent Brief Files | `packs/subagent-brief.md` | SKILL refs | on | done |
+| 21 | Multi-Tier Model Variant Skills | `skills/unifable/tiers/{opus,sonnet,haiku,README}.md` | SKILL.md pointer | on | done |
+| 22 | TDD Test Protection Rule | — | SKILL.md + block | on | done |
+| 23 | Memory Closure Checklist | `packs/memory-closure.md` | gate_stop warning ref | on | done |
+| 24 | Idempotent Marker Block Upsert | — | setup.sh markers + block | on | done |
+| 25 | Behavioral Eval Suite + rubric | `docs/evals/*`, `tests/{eval_rubric.md,run_evals.py}` | — | on | done |
+| 26 | Distribution: Claude + Codex plugin | `.codex-plugin/{plugin,hooks}.json` | install/codex.sh (native CLI), README | on | done |
 
-## Phasing
+## Phasing (all complete)
 - **P2 (parallel agents, new files):** #1+#2+#5 (spec gate), #6, #7, #11, #12, #13+#19+#20+#23 (packs),
-  #17+#18 (memory), #25 (evals).
-- **P3 (orchestrator, shared files, sequential + verify each):** #3, #4, #8, #9, #10, #14, #15, #16,
-  #21, #22, #24 + wire all new hooks into hooks.json + merge_hooks.py.
-- **P4 (packaging):** #26 once codex-plugin research returns; convert Codex skill->plugin, keep Claude plugin.
-- **P5:** full suite + new tests + e2e gate probes + behavioral evals green; commit; update README/CHANGELOG.
+  #17+#18 (memory), #25 (evals). — done
+- **P3 (orchestrator, shared files):** #3, #4, #8, #9, #10, #14, #15, #16, #21, #22, #24 + wire all new
+  hooks into hooks.json + merge_hooks.py. — done
+- **P4 (packaging):** #26 — Codex is now a NATIVE plugin (`.codex-plugin/plugin.json` ->
+  `.codex-plugin/hooks.json` with `${PLUGIN_ROOT}` paths), installed via the supported
+  `codex plugin marketplace add jaredboynton/unifable` + `codex plugin add unifable@unifable`
+  (`install/codex.sh` reproduces this and migrates off the legacy skill+hooks.json). Claude plugin
+  unchanged. — done
+- **P5:** full suite + new tests + behavioral evals green; commit; README updated. — done
+
+## Verification (this build)
+- Test suites green: `test_classify_ambiguity` 12/12, `test_effort_inject` 14, `test_findings` 25,
+  `test_gate_false_positive` 18/18, `test_gate_robustness` 12, `test_gate` 6/6, `test_memory` 18,
+  `test_recovery`, `test_shadow*` 3, `test_spec_gate` 31, `test_test_after_edit` 48.
+- Codex native plugin: `codex plugin list` shows `unifable@unifable` enabled; cache under
+  `~/.codex/plugins/cache/unifable/unifable/`; legacy `~/.codex/skills/unifable` + hooks.json
+  entries retired (backed up).

@@ -67,3 +67,7 @@ Signals you have hit the model's ceiling: stuck on the same problem 2+ times; op
 ## Install (always-on, optional)
 
 Run once: `bash ${CLAUDE_PLUGIN_ROOT}/setup/setup.sh` → choose local (recommended) or global. Uninstall: `bash ${CLAUDE_PLUGIN_ROOT}/setup/uninstall.sh`. The UserPromptSubmit router hook registers automatically when the plugin is installed.
+
+## Model tiers
+
+This file targets the Opus / Fable tier (full procedure). For Sonnet or Haiku sessions, load the matching posture addendum from `tiers/` — see `tiers/README.md` for selection rules. Each tier file narrows or expands specific sections without replacing this document.

@@ -2,9 +2,9 @@
 
 A harness that makes Opus (or any Claude/Codex model) behave like **Fable** — completion,
 evidence, and verification enforced as *procedure*, auto-routed per task. **One codebase,
-two hosts:** Claude Code (as a plugin marketplace) and Codex (as a skill + hooks).
+two hosts:** Claude Code and Codex, each as a **native plugin** (own manifest + own hooks).
 
-unifable is a fork of [`fivetaku/fablize`](https://github.com/fivetaku/fablize) (MIT). It unifies
+unifable is a fork of [`fivetaku/fablize`](https://github.com/fivetaku/fablize). It unifies
 the Claude-Code plugin and the Codex port into a single installable repo and fixes the
 PostToolUse false-positive failure gate (see [Why this fork](#why-this-fork)).
 
@@ -58,17 +58,35 @@ Hooks register automatically from `hooks/hooks.json` on install.
 
 ## Install — Codex
 
-Codex has no plugin marketplace, so a script copies the skill and merges the hooks
-into `~/.codex/hooks.json` (non-unifable hooks are preserved; re-runnable):
+Codex loads unifable as a **native plugin** (`.codex-plugin/plugin.json` → `.codex-plugin/hooks.json`,
+`${PLUGIN_ROOT}` paths). The supported path mirrors Claude's `/plugin`:
+
+```bash
+codex plugin marketplace add jaredboynton/unifable
+codex plugin add unifable@unifable
+```
+
+`install/codex.sh` reproduces this non-interactively and **migrates off** any legacy install: it
+registers the marketplace, installs + force-enables `unifable@unifable`, then retires the old
+`~/.codex/skills/unifable` copy and strips the old unifable entries from `~/.codex/hooks.json`
+(both backed up). Optional always-on operating block: prefix with `UNIFABLE_BLOCK=1`.
 
 ```bash
 git clone https://github.com/jaredboynton/unifable ~/__devlocal/unifable
 bash ~/__devlocal/unifable/install/codex.sh
 ```
 
-This installs `~/.codex/skills/unifable`, adds the UserPromptSubmit / PostToolUse / Stop entries,
-removes any legacy `~/.codex/skills/fablize`, and injects the operating block into `~/.codex/AGENTS.md`.
-Trust the new hooks via `/hooks` on next launch.
+Restart Codex; the plugin loads its own hooks. Verify with `codex plugin list`.
+
+## More capabilities
+
+Beyond the gate, unifable ships: a `/ground` skill + cold `grounding-verifier` agent for
+hard-to-reverse changes; an opt-in pre-edit spec/contract gate (`UNIFABLE_SPEC_GATE=1`) and
+debounced test-runner (`UNIFABLE_TEST_AFTER_EDIT=1`); a findings ledger and warning-threshold
+accumulation; per-task **grade tiers** and a depth-shaped final response; per-model posture files
+under `skills/unifable/tiers/`; a local semantic memory CLI (`scripts/memory/store.py`); routing
+packs for domain verification, decision traces, subagent briefs, and memory closure; and a
+behavioral eval suite (`docs/evals/`, `tests/eval_rubric.md`).
 
 ## Tests
 
