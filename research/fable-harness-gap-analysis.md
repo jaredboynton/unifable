@@ -174,9 +174,9 @@ unifable (a fork of fivetaku/fablize) is an observation and completion enforceme
 
 **Who does it.** parktaeyang/claude-fable-harness. Evidence: `/tmp/fz-parktaeyang_claude_fable_harness/scripts/fable_findings.py` lines 1-218; `hooks/fable_stop_gate.py` lines 75-77 (no-op if file absent), lines 90-96 (override env), lines 100-126 (round limit + progress reset); `scripts/fable_goals.py` lines 74-84 (blocking_findings()), lines 183-187 (die if blockers on final goal complete).
 
-**unifable status.** No. unifable has no findings concept. gate_stop.py blocks on unverified file changes, not on open findings. There is no severity-rated, human-curated issue store.
+**unifable status.** Done. Implemented at `scripts/gate/findings.py` (a severity-rated open/blocked/resolved/rejected findings store) and wired into `gate_stop.py` (`blocking_findings()` blocks Stop while any high/critical finding is open). It is opt-in exactly as recommended: a no-op when `.unifable/findings.json` is absent, so ordinary sessions are unaffected.
 
-**Applicability.** High. **Effort.** Medium. **Recommendation.** Add `scripts/gate/findings.py` mirroring parktaeyang's fable_findings.py. Extend gate_stop.py to check for .unifable/findings.json and call blocking_findings() before allowing Stop. Wire as opt-in: hook is a no-op if the file does not exist, preserving ordinary-session behavior.
+**Applicability.** High. **Effort.** Medium. **Recommendation (shipped).** Added `scripts/gate/findings.py` mirroring parktaeyang's fable_findings.py; gate_stop.py checks for .unifable/findings.json and calls blocking_findings() before allowing Stop. Opt-in: the hook is a no-op if the file does not exist, preserving ordinary-session behavior.
 
 ---
 

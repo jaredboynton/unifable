@@ -21,6 +21,15 @@ def bash(command: str, tool_response):
     return {"tool_name": "Bash", "tool_input": {"command": command}, "tool_response": tool_response}
 
 
+def bash_struct(stdout="", stderr="", interrupted=False):
+    # The REAL Claude Code Bash tool_response: a dict {stdout, stderr, interrupted}
+    # with NO exit code. PostToolUse runs only on success, so this is a command that
+    # exited 0 -- markers in stdout/stderr are DATA, not the command's own failure.
+    return {"tool_name": "Bash", "tool_input": {"command": "x"},
+            "tool_response": {"stdout": stdout, "stderr": stderr, "interrupted": interrupted,
+                              "isImage": False, "noOutputExpected": False}}
+
+
 # (label, payload, expect_failure)
 CASES = [
     # --- must stay CLEAN (Codex-style plain-string tool_response, success) ---
@@ -47,7 +56,36 @@ CASES = [
         {"tool_name": "Write", "tool_input": {"file_path": "/p/d.md"},
          "tool_response": "Traceback (most recent call last): documenting an error case"}, False),
 
+    # --- content tools: response is DATA (file/page), never infer failure from it.
+    #     Scanning these both emitted a spurious message AND dropped the read/fetch
+    #     from the citation ledger (executed_ok=False), breaking 1.9.0 verification. ---
+    ("Read of a file documenting 'exit code 1' / '2 failed' / Traceback",
+        {"tool_name": "Read", "tool_input": {"file_path": "/p/doc.md"},
+         "tool_response": "the gate emits exit code 1 when 2 failed; Traceback (most recent call last)"}, False),
+    ("WebFetch page mentioning 'tool already failed; exit code 1'",
+        {"tool_name": "WebFetch", "tool_input": {"url": "https://x/y"},
+         "tool_response": "PostToolUse: tool already failed; example exit code 1"}, False),
+    ("Grep result lines containing 'N failed'",
+        {"tool_name": "Grep", "tool_input": {"pattern": "failed", "path": "."},
+         "tool_response": "app.log:3: 2 failed retries logged"}, False),
+
+    # --- REAL Claude Code Bash shape: structured {stdout,stderr,interrupted}, no
+    #     exit code. PostToolUse fires only on success, so markers here are DATA. ---
+    ("CC Bash dict: '1 failed'/Traceback in STDOUT of an exit-0 command",
+        bash_struct(stdout="1 failed, 3 passed\nTraceback (most recent call last)"), False),
+    ("CC Bash dict: marker in STDERR of a command that still succeeded (warning)",
+        bash_struct(stdout="ok", stderr="note: 2 failed retries, recovered"), False),
+    ("CC Bash dict: interrupted command IS a failure",
+        bash_struct(stdout="partial", interrupted=True), True),
+
+    # --- bare-string (Codex / exit-prefix hosts): exit-code text is authoritative ---
+    ("Bash exit-0 prefix string, output prints '1 failed'/Traceback as DATA",
+        bash("python3 diag.py",
+             "Bash exited with code 0\n1 failed, 3 passed\nTraceback (most recent call last)"), False),
+
     # --- must still be FLAGGED (real failures) ---
+    ("Bash 'exited with code 2' prefix is a real failure",
+        bash("make", "Bash exited with code 2\nbuild output"), True),
     ("Bash output 'exit code 2' is STILL a real failure",
         bash("make", "make: *** [build] Error 2\nexit code 2"), True),
     ("structured exit_code 1", bash("pytest", {"stdout": "boom", "exit_code": 1}), True),

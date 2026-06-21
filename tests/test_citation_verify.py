@@ -59,6 +59,14 @@ def test_real_reads_and_fetches_do_register():
     assert fetched_url_targets(_bash("curl -s https://d.io/p")) == ["https://d.io/p"]
 
 
+def test_multiline_script_records_read_and_fetch():
+    # A read/fetch on its OWN line of a multi-line script (program not first token
+    # of the whole command) must still be detected -- segments split on newlines.
+    cmd = "cd /repo\necho start\ncat src/x.py\ncurl -s https://d.io/p"
+    assert "src/x.py" in read_targets(_bash(cmd))
+    assert "https://d.io/p" in fetched_url_targets(_bash(cmd))
+
+
 def test_failed_command_not_recorded():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "CF"

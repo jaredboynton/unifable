@@ -62,6 +62,17 @@ MUTATING_BASH_RE = re.compile(
 # output, so failure is never inferred from its text (see detect_failure).
 WRITE_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 
+# Content tools: tool_response is file/page DATA, not a command result. Their text
+# legitimately contains "failed"/"Traceback"/"exit code N" (docs, source, this very
+# parser), so failure must never be inferred from it -- same reasoning as
+# WRITE_TOOLS. Scanning them was double trouble: a spurious "tool failure" message
+# AND silently dropping the read/fetch from the citation ledger.
+CONTENT_TOOLS = {"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead"}
+
+# A host-reported exit status embedded in command output (Claude Code prefixes Bash
+# output with "Bash exited with code N"). Authoritative when present.
+_EXIT_CODE_RE = re.compile(r"(?i)\bexit(?:ed)?(?: with)? (?:code|status) (\d+)\b")
+
 
 def response_text(value: Any, limit: int = 4000) -> str:
     parts: list[str] = []
@@ -118,25 +129,27 @@ def _tokens(cmd: str) -> list[str]:
         return cmd.split()
 
 
+_SEG_SPLIT_RE = re.compile(r"[\n\r]|&&|\|\||;|\||&")
+
+
 def _command_segments(cmd: str) -> list[list[str]]:
-    """Tokenize a shell command with comments stripped, split into operator-
-    delimited segments (each a token list). `# ...` comments are removed so they
-    can never inject a phantom read/fetch."""
-    try:
-        toks = shlex.split(cmd, comments=True)
-    except ValueError:
-        toks = [t for t in cmd.split() if not t.startswith("#")]
+    """Split a shell command into program-led segments. Splits on NEWLINES and
+    shell operators (&&, ||, ;, |, &) -- so a read/fetch on its own line in a
+    multi-line script is still seen in command position -- then tokenizes each
+    segment with `# ...` comments stripped (so a comment can never inject a
+    phantom read/fetch)."""
     segments: list[list[str]] = []
-    current: list[str] = []
-    for tok in toks:
-        if tok in _SHELL_OPERATORS:
-            if current:
-                segments.append(current)
-                current = []
-        else:
-            current.append(tok)
-    if current:
-        segments.append(current)
+    for raw in _SEG_SPLIT_RE.split(cmd):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            toks = shlex.split(raw, comments=True)
+        except ValueError:
+            toks = [t for t in raw.split() if not t.startswith("#")]
+        toks = [t for t in toks if t not in _SHELL_OPERATORS]
+        if toks:
+            segments.append(toks)
     return segments
 
 
@@ -257,6 +270,20 @@ def exit_success(input_data: dict[str, Any], text: str, scan_text: bool = True) 
                     return int(value) == 0
     if not scan_text:
         return None
+    # Claude Code's shell tool_response is a structured dict {stdout, stderr,
+    # interrupted, ...} with NO exit code, and PostToolUse fires only AFTER a tool
+    # SUCCEEDS -- so this output is from a command that already exited 0. A marker
+    # in it ("1 failed", "Traceback") is DATA the command printed, never the
+    # command's own failure; scanning it was the false-positive source. Only an
+    # explicit interrupt counts as failure for this shape.
+    tr = input_data.get("tool_response")
+    if isinstance(tr, dict) and ("stdout" in tr or "stderr" in tr):
+        return False if tr.get("interrupted") is True else None
+    # Bare output string (e.g. Codex shell): a host-reported exit status embedded
+    # in the text is authoritative ("Exit code N" / "exited with code N").
+    m = _EXIT_CODE_RE.search(text)
+    if m:
+        return int(m.group(1)) == 0
     # No structured signal: failure takes precedence over success so a mixed
     # "1 failed, 3 passed" summary is correctly a failure.
     if STRONG_FAILURE_RE.search(text):
@@ -285,7 +312,10 @@ def detect_failure(input_data: dict[str, Any]) -> dict[str, Any] | None:
     """
     tool_name = str(input_data.get("tool_name") or "")
     text = response_text(input_data.get("tool_response", input_data))
-    success = exit_success(input_data, text, scan_text=tool_name not in WRITE_TOOLS)
+    # Never text-scan file-write or content tools: their response is data, not a
+    # command result. Only a structured error signal can mark them failed.
+    no_scan = tool_name in WRITE_TOOLS or tool_name in CONTENT_TOOLS
+    success = exit_success(input_data, text, scan_text=not no_scan)
     if success is False:
         return {"kind": "tool-result", "summary": redact(text or command_from_input(input_data), 240)}
     return None
