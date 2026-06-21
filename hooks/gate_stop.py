@@ -215,7 +215,7 @@ def main() -> int:
                     return 0
                 emit_json(
                     {"decision": "block",
-                     "reason": ev_reason + " See packs/memory-closure.md for the pre-completion checklist."}
+                     "reason": ev_reason + " See packs/completion-checklist.md for the pre-completion checklist."}
                 )
                 return 0
         except Exception:
@@ -248,7 +248,7 @@ def main() -> int:
             {
                 "decision": "block",
                 "reason": f"{len(blockers)} open high/critical finding(s) to resolve or reject "
-                f"before completing: {ids}. See packs/memory-closure.md.",
+                f"before completing: {ids}. See packs/completion-checklist.md.",
             }
         )
         return 0
@@ -266,7 +266,7 @@ def main() -> int:
             ledger["stop_blocks"] = int(ledger.get("stop_blocks") or 0) + 1
             save_ledger(input_data, ledger)
             emit_json(
-                {"decision": "block", "reason": obs_reason + " See packs/memory-closure.md for the pre-completion checklist."}
+                {"decision": "block", "reason": obs_reason + " See packs/completion-checklist.md for the pre-completion checklist."}
             )
             return 0
 

@@ -293,14 +293,25 @@ def judge_segment(segment: str, judge: JudgeFn | None = None) -> tuple[int, str]
     return verdict, steering
 
 
-def arm_judge(segment: str, judge: JudgeFn | None = None) -> tuple[int, str, str]:
+def arm_judge(
+    segment: str,
+    adjudicated_claims: list[str] | None = None,
+    judge: JudgeFn | None = None,
+) -> tuple[int, str, str]:
     """ARM decision: (verdict, steering, claim). verdict 1 means a confident,
     unproven claim; claim names it for the later release check. Empty segment ->
     (0, '', '')."""
     if not segment.strip():
         return 0, "", ""
     fn = judge or _default_judge
-    obj = fn(_JUDGE_SYSTEM, segment, _JUDGE_SCHEMA)
+    system = _JUDGE_SYSTEM
+    if adjudicated_claims:
+        claims_str = "\n".join(f"- {c}" for c in adjudicated_claims)
+        system += (
+            f"\n\nDo NOT flag any of the following claims as they have already been "
+            f"adjudicated or grounded:\n{claims_str}"
+        )
+    obj = fn(system, segment, _JUDGE_SCHEMA)
     verdict = 1 if int(obj.get("verdict", 0) or 0) == 1 else 0
     steering = str(obj.get("steering", "") or "") if verdict == 1 else ""
     claim = str(obj.get("claim", "") or "") if verdict == 1 else ""
@@ -442,13 +453,38 @@ def evaluate(
                     judge=judge,
                 )
                 if grounded:
+                    claim = str(state.get("breaker_claim") or "")
+                    if claim:
+                        claims = state.get("breaker_adjudicated_claims")
+                        if not isinstance(claims, list):
+                            claims = []
+                        if claim not in claims:
+                            claims.append(claim)
+                        state["breaker_adjudicated_claims"] = claims
                     disarm(state)
                 elif needed:
                     # still blocked: refresh the steering with exactly what is
                     # still missing, so the model sees concrete next steps.
                     state["breaker_steering"] = needed
         elif should_judge(state, key, now):
-            verdict, steering, claim = arm_judge(transcript_segment(input_data), judge=judge)
+            adjudicated = state.get("breaker_adjudicated_claims") or []
+            verdict, steering, claim = arm_judge(
+                transcript_segment(input_data),
+                adjudicated_claims=adjudicated,
+                judge=judge,
+            )
+            if verdict == 1 and claim:
+                normalized_claim = claim.strip().lower()
+                already_done = False
+                for old in adjudicated:
+                    old_norm = old.strip().lower()
+                    if normalized_claim == old_norm or normalized_claim in old_norm or old_norm in normalized_claim:
+                        already_done = True
+                        break
+                if already_done:
+                    verdict = 0
+                    steering = ""
+                    claim = ""
             record_verdict(state, key, now, verdict, steering, claim)
     except Exception:
         return False, ""  # fail open on any judge/transcript failure
@@ -457,6 +493,14 @@ def evaluate(
         state["breaker_block_count"] = count
         if count >= max_blocks():
             _release_log(count)
+            claim = str(state.get("breaker_claim") or "")
+            if claim:
+                claims = state.get("breaker_adjudicated_claims")
+                if not isinstance(claims, list):
+                    claims = []
+                if claim not in claims:
+                    claims.append(claim)
+                state["breaker_adjudicated_claims"] = claims
             disarm(state)  # escape hatch: a misfiring judge can't hard-lock
             return False, ""
         return True, str(state.get("breaker_steering") or "")

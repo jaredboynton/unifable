@@ -64,6 +64,7 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "breaker_armed_at": 0.0,
     "breaker_activity_at_arm": 0,
     "breaker_block_count": 0,
+    "breaker_adjudicated_claims": [],
     "last_updated": "",
 }
 
@@ -136,7 +137,8 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
     if isinstance(data, dict):
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
     for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
-                "failures", "warnings", "read_paths", "fetched_urls", "ran_commands"):
+                "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
+                "breaker_adjudicated_claims"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     return ledger
@@ -164,7 +166,7 @@ def update_ledger(input_data: dict[str, Any], updater: Callable[[dict[str, Any]]
 
 
 def trim_ledger(ledger: dict[str, Any]) -> None:
-    for key in ("risk_flags", "change_kinds"):
+    for key in ("risk_flags", "change_kinds", "breaker_adjudicated_claims"):
         values: list[Any] = []
         for value in ledger.get(key, []):
             if value not in values:

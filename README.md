@@ -100,7 +100,7 @@ Restart Codex; the plugin loads its own hooks. Verify with `codex plugin list`.
 Beyond the gate, unifable ships: a debounced test-runner (`UNIFABLE_TEST_AFTER_EDIT=1`);
 a findings ledger and warning-threshold accumulation; per-task **grade tiers** and a
 depth-shaped final response; per-model posture files under `skills/unifable/tiers/`; routing
-packs for domain verification, decision traces, subagent briefs, and memory closure; and a
+packs for domain verification, decision traces, subagent briefs, and completion checks; and a
 behavioral eval suite (`docs/evals/`, `tests/eval_rubric.md`).
 
 ## Tests

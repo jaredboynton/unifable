@@ -52,7 +52,7 @@ is the source of truth for status. Update the Status column as work lands.
 | 20 | Subagent Brief Files | `packs/subagent-brief.md` | SKILL refs | on | done |
 | 21 | Multi-Tier Model Variant Skills | `skills/unifable/tiers/{opus,sonnet,haiku,README}.md` | SKILL.md pointer | on | done |
 | 22 | TDD Test Protection Rule | — | SKILL.md + block | on | done |
-| 23 | Memory Closure Checklist | `packs/memory-closure.md` | gate_stop warning ref | on | done |
+| 23 | Completion Checklist | `packs/completion-checklist.md` | gate_stop warning ref | on | done |
 | 24 | Idempotent Marker Block Upsert | — | setup.sh markers + block | on | done |
 | 25 | Behavioral Eval Suite + rubric | `docs/evals/*`, `tests/{eval_rubric.md,run_evals.py}` | — | on | done |
 | 26 | Distribution: Claude + Codex plugin | `.codex-plugin/{plugin,hooks}.json` | install/codex.sh (native CLI), README | on | done |

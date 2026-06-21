@@ -304,5 +304,65 @@ def test_transcript_segment_missing_is_empty():
     assert gb.transcript_segment({"transcript_path": "/no/such.jsonl", "session_id": "z", "cwd": "/x"}) == ""
 
 
+# --------------------------------------------------------------------------- Adjudicated Claims memory
+def test_disarm_adds_to_adjudicated_claims(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(arm=(1, "blocked", "claim to disarm"), grounded=1)
+    state = {}
+    
+    # Arm it
+    blocked, _ = gb.evaluate(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
+    assert blocked is True and state["breaker_armed"] is True
+    
+    # Sim activity growth -> disarm
+    state["read_paths"] = ["/repo/foo.py"]
+    blocked, _ = gb.evaluate(_pre("Bash"), state, now=20.0, active_task="P", judge=judge)
+    assert blocked is False and state["breaker_armed"] is False
+    
+    # Verify it is in adjudicated list
+    assert "claim to disarm" in state.get("breaker_adjudicated_claims", [])
+
+
+def test_safety_cap_adds_to_adjudicated_claims(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
+    judge = RoutingJudge(arm=(1, "blocked", "uncapped claim"), grounded=0)
+    state = {}
+    
+    b1, _ = gb.evaluate(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
+    b2, _ = gb.evaluate(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    b3, _ = gb.evaluate(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)
+    assert b1 is True and b2 is True and b3 is False
+    
+    # Verify failed-open claim is also in adjudicated list
+    assert "uncapped claim" in state.get("breaker_adjudicated_claims", [])
+
+
+def test_adjudicated_claims_prevents_re_arm(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    
+    # If the claim is already adjudicated, it should not re-arm (verdict should be overridden/ignored)
+    state = {
+        "breaker_adjudicated_claims": ["my claim"]
+    }
+    
+    # Let the judge return verdict=1 for the same claim
+    called_system_prompt = []
+    def recording_judge(system, user, schema):
+        called_system_prompt.append(system)
+        return {"verdict": 1, "steering": "blocked", "claim": "my claim"}
+        
+    blocked, _ = gb.evaluate(_pre("Edit"), state, now=100.0, active_task="P", judge=recording_judge)
+    
+    # Should not be blocked because the claim was already adjudicated
+    assert blocked is False
+    assert state.get("breaker_armed") is False
+    
+    # Check that system prompt included the adjudicated claims
+    assert len(called_system_prompt) == 1
+    assert "Do NOT flag any of the following claims" in called_system_prompt[0]
+    assert "- my claim" in called_system_prompt[0]
+
+
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-q"]))
