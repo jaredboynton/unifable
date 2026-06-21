@@ -240,7 +240,11 @@ def _standard_spec_with_evidence() -> dict:
         "acceptance_criteria": [
             {"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}
         ],
-        "must_read": ["src/middleware.py:88", "src/router.py:12-20"],
+        "must_read": [
+            {"cite": "src/middleware.py:88", "why": "rate-limit hook attaches here"},
+            {"cite": "src/router.py:12-20", "why": "endpoint registration the middleware wraps"},
+        ],
+        "prior_art": ["https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429"],
     }
 
 
@@ -273,7 +277,7 @@ def test_evidence_standard_passes_with_must_read():
 
 def test_evidence_must_read_malformed_blocks():
     spec = _standard_spec_with_evidence()
-    spec["must_read"] = ["src/middleware.py"]  # missing :line
+    spec["must_read"] = [{"cite": "src/middleware.py", "why": "the hook"}]  # missing :line
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
     assert any("must_read" in r and "path:line" in r for r in reasons)
@@ -281,10 +285,28 @@ def test_evidence_must_read_malformed_blocks():
 
 def test_evidence_must_read_placeholder_blocks():
     spec = _standard_spec_with_evidence()
-    spec["must_read"] = ["src/app.py:1 tbd"]
+    spec["must_read"] = [{"cite": "src/app.py:1", "why": "tbd"}]
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
     assert any("must_read" in r for r in reasons)
+
+
+def test_evidence_must_read_requires_why():
+    """A must_read citation with no 'why' rationale is rejected."""
+    spec = _standard_spec_with_evidence()
+    spec["must_read"] = [{"cite": "src/app.py:42", "why": ""}]
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("must_read" in r and "why" in r for r in reasons)
+
+
+def test_evidence_standard_requires_prior_art():
+    """prior_art (source URL) is required from STANDARD up, not only HEAVY."""
+    spec = _standard_spec_with_evidence()
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r for r in reasons)
 
 
 def test_evidence_light_exempt():
@@ -303,7 +325,7 @@ def test_evidence_heavy_requires_prior_art():
         "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "must_read": ["src/auth.py:30"],
+        "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
         # prior_art missing
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
@@ -317,7 +339,10 @@ def test_evidence_heavy_passes_with_prior_art():
         "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed in 0.2s"}],
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "must_read": ["src/auth.py:30", "src/session.py:5-9"],
+        "must_read": [
+            {"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"},
+            {"cite": "src/session.py:5-9", "why": "session lifecycle the JWT must preserve"},
+        ],
         "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"],
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
@@ -330,7 +355,7 @@ def test_evidence_heavy_prior_art_must_be_url():
         "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "must_read": ["src/auth.py:30"],
+        "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
         "prior_art": ["some blog I read"],
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
@@ -692,7 +717,11 @@ def test_evidence_gate_allows_spec_with_citations():
             "acceptance_criteria": [
                 {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
             ],
-            "must_read": ["src/server.py:10", "src/routes.py:5-8"],
+            "must_read": [
+                {"cite": "src/server.py:10", "why": "app factory where routes mount"},
+                {"cite": "src/routes.py:5-8", "why": "route table the endpoint joins"},
+            ],
+            "prior_art": ["https://datatracker.ietf.org/doc/html/rfc9110"],
         }
         save_spec(cwd, session_id, spec)
         payload = _edit_payload(
@@ -740,6 +769,111 @@ def test_empty_stdin_fails_open():
     assert proc.returncode == 0
     out = json.loads(proc.stdout or "{}")
     assert out == {}
+
+
+# ---------------------------------------------------------------------------
+# Stop gate: evidence spec required at completion (gate_stop.py)
+# ---------------------------------------------------------------------------
+
+def run_stop(
+    payload: dict,
+    *,
+    evidence_gate: str | None = "1",
+    spec_gate: str | None = None,
+    grade: str | None = None,
+    data_dir: str | None = None,
+    env_extra: dict | None = None,
+) -> dict:
+    """Run hooks/gate_stop.py with *payload* on stdin. Returns parsed stdout JSON.
+
+    Inherited gate vars are scrubbed first so the test controls the gate state."""
+    env = dict(os.environ)
+    for k in ("UNIFABLE_SPEC_GATE", "UNIFABLE_EVIDENCE_GATE", "UNIFABLE_GRADE", "UNIFABLE_HOLDOUT"):
+        env.pop(k, None)
+    if evidence_gate is not None:
+        env["UNIFABLE_EVIDENCE_GATE"] = evidence_gate
+    if spec_gate is not None:
+        env["UNIFABLE_SPEC_GATE"] = spec_gate
+    if grade is not None:
+        env["UNIFABLE_GRADE"] = grade
+    if data_dir:
+        env["UNIFABLE_DATA"] = data_dir
+    if env_extra:
+        env.update(env_extra)
+    proc = subprocess.run(
+        [PY, str(HOOKS / "gate_stop.py")],
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    try:
+        return json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return {"_raw": proc.stdout, "_err": proc.stderr}
+
+
+def _blocks(out: dict) -> bool:
+    return out.get("decision") == "block"
+
+
+def test_stop_blocks_when_no_spec_standard():
+    """The agent is required to write evidence back: no spec -> stop blocks."""
+    with tempfile.TemporaryDirectory() as cwd:
+        out = run_stop({"session_id": "st1", "cwd": cwd, "stop_hook_active": False}, grade="STANDARD")
+        assert _blocks(out)
+        assert "no evidence spec" in out.get("reason", "")
+
+
+def test_stop_allows_when_no_spec_light():
+    """LIGHT (quick) tasks are waived from the stop evidence requirement."""
+    with tempfile.TemporaryDirectory() as cwd:
+        out = run_stop({"session_id": "st2", "cwd": cwd, "stop_hook_active": False}, grade="LIGHT")
+        assert not _blocks(out)
+
+
+def test_stop_allows_with_valid_spec():
+    with tempfile.TemporaryDirectory() as cwd:
+        save_spec(cwd, "st3", _standard_spec_with_evidence())
+        out = run_stop({"session_id": "st3", "cwd": cwd, "stop_hook_active": False}, grade="STANDARD")
+        assert not _blocks(out), out
+
+
+def test_stop_blocks_invalid_spec():
+    with tempfile.TemporaryDirectory() as cwd:
+        spec = _standard_spec_with_evidence()
+        spec.pop("prior_art", None)  # invalid at STANDARD under the evidence gate
+        save_spec(cwd, "st4", spec)
+        out = run_stop({"session_id": "st4", "cwd": cwd, "stop_hook_active": False}, grade="STANDARD")
+        assert _blocks(out)
+        assert "invalid" in out.get("reason", "").lower()
+
+
+def test_stop_loop_guard_allows():
+    """stop_hook_active=True must never block (no infinite loop)."""
+    with tempfile.TemporaryDirectory() as cwd:
+        out = run_stop({"session_id": "st5", "cwd": cwd, "stop_hook_active": True}, grade="STANDARD")
+        assert not _blocks(out)
+
+
+def test_stop_cap_releases_after_max():
+    """Nudge at most MAX_STOP_BLOCKS(2) times, then release (never trap)."""
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        p = {"session_id": "st6", "cwd": cwd, "stop_hook_active": False}
+        d1 = _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
+        d2 = _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
+        d3 = _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
+        assert d1 and d2 and not d3
+
+
+def test_stop_escape_hatch_allows_no_spec():
+    """UNIFABLE_EVIDENCE_GATE=0 disables the stop evidence requirement."""
+    with tempfile.TemporaryDirectory() as cwd:
+        out = run_stop(
+            {"session_id": "st7", "cwd": cwd, "stop_hook_active": False},
+            evidence_gate="0", grade="STANDARD",
+        )
+        assert not _blocks(out)
 
 
 # ---------------------------------------------------------------------------

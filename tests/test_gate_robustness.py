@@ -21,6 +21,11 @@ PY = sys.executable
 def run(script, payload, data_dir, raw=False):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
+    # Isolate from the evidence/spec gate: these checks target the OBSERVATION
+    # gate (fail-open, cap, loop guard, precision). The evidence-gate stop
+    # behavior is covered separately in test_spec_gate.py.
+    env["UNIFABLE_EVIDENCE_GATE"] = "0"
+    env["UNIFABLE_SPEC_GATE"] = "0"
     stdin = payload if raw else json.dumps(payload)
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=stdin,
                        capture_output=True, text=True, env=env)

@@ -2,21 +2,30 @@
 """unifable pre-edit enforcement gate — PreToolUse.
 
 Intercepts write tools (Edit / Write / MultiEdit / NotebookEdit / apply_patch)
-and exits with code 2 (block) in two cases:
+and Bash, and exits with code 2 (block) in three cases:
 
   1. PROTECTED_PATHS: the target path resolves inside <cwd>/.unifable/ AND is
      not a spec file the model is allowed to write
      (.unifable/spec/<task_id>.json).  This prevents the model from modifying
      ledger state, goals, findings, or any other gate-internal artifact.
 
-  2. EVIDENCE GATE (default ON): unless the effective grade is LIGHT, a valid
-     spec carrying citation evidence (must_read path:line, acceptance_criteria
-     with live output, prior_art URL at HEAVY) must exist for the current task
-     before any edit is allowed. Authoring the spec file itself is always
-     permitted (the no-brick escape).
+  2. EVIDENCE GATE — writes (default ON): unless the effective grade is LIGHT, a
+     valid spec carrying citation evidence (must_read {cite, why},
+     acceptance_criteria with live output, prior_art URL — all at STANDARD+) must
+     exist for the current task before any edit is allowed. Authoring the spec
+     file itself is always permitted (the no-brick escape).
+
+  3. EVIDENCE GATE — Bash create/mutate lockdown (default ON): in the research
+     phase (grade STANDARD+, no valid spec yet) a Bash command that creates,
+     deletes, moves, or mutates files/state, installs packages, mutates git
+     history, or performs a network-mutating request is blocked. Read, search,
+     web, and test/validation runners stay available so the agent can produce the
+     evidence its spec needs. A valid spec unlocks the action phase (all shell
+     commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
 
 The evidence gate is ON by default. Disable it with UNIFABLE_EVIDENCE_GATE=0.
-UNIFABLE_SPEC_GATE=1 selects the weaker spec-only mode (no citations required).
+UNIFABLE_SPEC_GATE=1 selects the weaker spec-only mode (writes only, no
+citations and no Bash lockdown).
 
 Grade is read from UNIFABLE_GRADE, else the session ledger, else STANDARD
 (LIGHT / STANDARD / HEAVY); quick->LIGHT, normal->STANDARD, deep->HEAVY.
@@ -34,6 +43,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
+from bash_classify import is_mutating_bash
 from ledger import emit_json, load_ledger, read_stdin_json
 from spec import GRADES, contract_string, load_spec, spec_path, validate_spec
 
@@ -177,50 +187,15 @@ def _evidence_gate_active() -> bool:
     return os.environ.get("UNIFABLE_EVIDENCE_GATE", "1").strip() != "0"
 
 
-def main() -> int:
-    input_data = read_stdin_json()
-
-    tool_name = str(input_data.get("tool_name") or "")
-    tool_input = input_data.get("tool_input") or {}
-    cwd = str(input_data.get("cwd") or os.getcwd())
-
-    # Not a write tool — nothing to gate.
-    if tool_name not in WRITE_TOOLS:
-        emit_json({})
-        return 0
-
-    target = _target_path(tool_name, tool_input)
-
-    # --- Guard 1: PROTECTED_PATHS ---
-    if target and _is_protected(target, cwd):
-        return _block(
-            f"write to protected unifable state file '{target}' is not allowed. "
-            "The model must not modify ledger, goals, findings, or state artifacts directly."
-        )
-
-    # --- Guard 2: Spec / evidence gate (opt-in) ---
-    require_evidence = _evidence_gate_active()
-    if not (_spec_gate_active() or require_evidence):
-        emit_json({})
-        return 0
-
-    # No-brick escape: authoring/updating the evidence spec itself is always
-    # allowed, even before one exists — otherwise writing the spec would require
-    # a spec. This is the only write the gate lets through unconditionally.
-    if target and _is_spec_path(target, cwd):
-        emit_json({})
-        return 0
-
+def _enforce_spec(input_data: dict, cwd: str, require_evidence: bool) -> int:
+    """Block a write tool unless a valid spec exists for the task. LIGHT waives."""
     grade = _effective_grade(input_data)
-
-    # LIGHT grade waives the spec requirement entirely.
     if grade == "LIGHT":
         emit_json({})
         return 0
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
-
     if spec is None:
         sp = spec_path(cwd, task_id)
         return _block(
@@ -239,6 +214,86 @@ def main() -> int:
             "Fix the spec before proceeding with edits."
         )
 
+    emit_json({})
+    return 0
+
+
+def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
+    """Create/mutate lockdown for Bash (evidence gate only).
+
+    Research phase (no valid spec): block only create/mutate commands; read,
+    search, web, and test/validation runners stay available so the agent can
+    gather the evidence its spec needs. Action phase (valid spec): all shell
+    commands are allowed. LIGHT waives entirely."""
+    grade = _effective_grade(input_data)
+    if grade == "LIGHT":
+        emit_json({})
+        return 0
+
+    task_id = _task_id(input_data)
+    spec = load_spec(cwd, task_id)
+    if spec is not None:
+        ok, _ = validate_spec(spec, grade, require_evidence=True)
+        if ok:
+            emit_json({})  # action phase unlocked
+            return 0
+
+    command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+    mutating, why = is_mutating_bash(command)
+    if mutating:
+        sp = spec_path(cwd, task_id)
+        return _block(
+            f"'{why}' is a create/mutate action — locked until {sp} documents your evidence "
+            "(must_read {cite,why}, acceptance_criteria with live output, prior_art URL). "
+            "Read/grep/web and test/validation runners stay available: gather evidence, "
+            "write the spec, then retry."
+        )
+
+    emit_json({})
+    return 0
+
+
+def main() -> int:
+    input_data = read_stdin_json()
+
+    tool_name = str(input_data.get("tool_name") or "")
+    tool_input = input_data.get("tool_input") or {}
+    cwd = str(input_data.get("cwd") or os.getcwd())
+
+    require_evidence = _evidence_gate_active()
+    spec_active = _spec_gate_active()
+
+    # --- Write tools: protected paths + spec/evidence gate ---
+    if tool_name in WRITE_TOOLS:
+        target = _target_path(tool_name, tool_input)
+
+        # Guard 1: PROTECTED_PATHS
+        if target and _is_protected(target, cwd):
+            return _block(
+                f"write to protected unifable state file '{target}' is not allowed. "
+                "The model must not modify ledger, goals, findings, or state artifacts directly."
+            )
+
+        # Guard 2: spec / evidence gate
+        if not (spec_active or require_evidence):
+            emit_json({})
+            return 0
+
+        # No-brick escape: authoring/updating the evidence spec itself is always
+        # allowed, even before one exists — otherwise writing the spec would
+        # require a spec. The only write the gate lets through unconditionally.
+        if target and _is_spec_path(target, cwd):
+            emit_json({})
+            return 0
+
+        return _enforce_spec(input_data, cwd, require_evidence)
+
+    # --- Bash: create/mutate lockdown (evidence gate only; spec-only mode does
+    # not gate Bash, preserving its weaker back-compat behaviour) ---
+    if tool_name == "Bash" and require_evidence:
+        return _enforce_bash(input_data, tool_input, cwd)
+
+    # Any other tool — nothing to gate (read/search/web/subagents stay free).
     emit_json({})
     return 0
 

@@ -5,8 +5,8 @@ Runs the REAL hooks/pre_tool_use.py via subprocess across an adversarial
 scenario matrix and asserts each scenario blocks (exit 2) or allows (exit 0)
 exactly as intended. This is the deterministic proof that, when the gate is on,
 "evidence before action" is a hard invariant: no edit reaches the repo until a
-spec carrying citations (must_read path:line, acceptance_criteria with live
-output, prior_art URL for HEAVY) validates.
+spec carrying citations (must_read {cite, why}, acceptance_criteria with live
+output, prior_art URL — all at STANDARD+) validates.
 
 Run:  python3 tests/eval_gate_proof.py
 Exit: 0 if every scenario matches its expectation, 1 otherwise.
@@ -54,12 +54,15 @@ def bash(cwd: str, cmd: str, session_id: str = "sess") -> dict:
 
 # spec fragments -------------------------------------------------------------
 GOOD_ACC = [{"check": "pytest tests/test_x.py -v", "evidence": "5 passed in 0.4s"}]
+MR = [{"cite": "src/mw.py:42", "why": "rate-limit hook"}, {"cite": "src/router.py:10-18", "why": "routes wrapped"}]
+PRIOR = ["https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429"]
 STD_CITED = {"restated_goal": "Add rate limiting.", "acceptance_criteria": GOOD_ACC,
-             "must_read": ["src/mw.py:42", "src/router.py:10-18"]}
+             "must_read": MR, "prior_art": PRIOR}
 HEAVY_FULL = {"restated_goal": "Migrate auth to JWT.", "acceptance_criteria": GOOD_ACC,
               "constraints": ["Keep sessions valid."],
-              "rejected_alternatives": ["cookies — stateful.", "hmac — no expiry."],
-              "must_read": ["src/auth.py:30"], "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"]}
+              "rejected_alternatives": ["cookies stateful.", "hmac no expiry."],
+              "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
+              "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"]}
 
 EV = {"UNIFABLE_EVIDENCE_GATE": "1"}
 SP = {"UNIFABLE_SPEC_GATE": "1", "UNIFABLE_EVIDENCE_GATE": "0"}
@@ -78,9 +81,13 @@ def scenarios(cwd: str):
     yield ("E3", "evidence-gate STANDARD, cited spec", ALLOW, EV, "STANDARD",
            edit(cwd, "src/a.py", with_spec("E3", STD_CITED)))
     yield ("E4", "evidence-gate must_read malformed (no :line)", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E4", {**STD_CITED, "must_read": ["src/mw.py"]})))
-    yield ("E5", "evidence-gate must_read placeholder", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E5", {**STD_CITED, "must_read": ["src/a.py:1 tbd"]})))
+           edit(cwd, "src/a.py", with_spec("E4", {**STD_CITED, "must_read": [{"cite": "src/mw.py", "why": "hook"}]})))
+    yield ("E5", "evidence-gate must_read placeholder why", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E5", {**STD_CITED, "must_read": [{"cite": "src/a.py:1", "why": "tbd"}]})))
+    yield ("E5b", "evidence-gate must_read missing why", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E5b", {**STD_CITED, "must_read": [{"cite": "src/a.py:1", "why": ""}]})))
+    yield ("E6b", "evidence-gate STANDARD missing prior_art", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E6b", {k: v for k, v in STD_CITED.items() if k != "prior_art"})))
     yield ("E6", "evidence-gate acceptance evidence faked", BLOCK, EV, "STANDARD",
            edit(cwd, "src/a.py", with_spec("E6", {**STD_CITED,
                 "acceptance_criteria": [{"check": "pytest", "evidence": "not run"}]})))
@@ -91,11 +98,37 @@ def scenarios(cwd: str):
     yield ("E9", "evidence-gate HEAVY prior_art not a URL", BLOCK, EV, "HEAVY",
            edit(cwd, "src/a.py", with_spec("E9", {**HEAVY_FULL, "prior_art": ["a blog I read"]})))
 
+    # --- Bash create/mutate lockdown (research phase: no valid spec yet) ---
+    yield ("BL1", "bash-lockdown rm blocked pre-spec", BLOCK, EV, "STANDARD", bash(cwd, "rm -rf build", "BL1"))
+    yield ("BL2", "bash-lockdown git commit blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "git commit -m wip", "BL2"))
+    yield ("BL3", "bash-lockdown redirect-to-file blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "echo hi > out.txt", "BL3"))
+    yield ("BL4", "bash-lockdown pip install blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "pip install requests", "BL4"))
+    yield ("BL5", "bash-lockdown sed -i blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "sed -i s/a/b/ f.py", "BL5"))
+    yield ("BL6", "bash-lockdown chained ls && rm blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "ls && rm x", "BL6"))
+    yield ("BL7", "bash-allow validation runner pre-spec (pytest)", ALLOW, EV, "STANDARD",
+           bash(cwd, "pytest tests/ -q", "BL7"))
+    yield ("BL8", "bash-allow read command pre-spec (git diff)", ALLOW, EV, "STANDARD",
+           bash(cwd, "git diff --stat", "BL8"))
+    yield ("BL9", "bash-allow redirect to /dev/null pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "grep -r foo . 2>/dev/null", "BL9"))
+    yield ("BL10", "bash-unlock: valid spec allows mutate (action phase)", ALLOW, EV, "STANDARD",
+           bash(cwd, "rm -rf build", with_spec("BL10", STD_CITED)))
+    yield ("BL11", "bash-lockdown LIGHT waives", ALLOW, EV, "LIGHT", bash(cwd, "rm -rf build", "BL11"))
+    yield ("BL12", "bash-lockdown escape hatch disables", ALLOW, {"UNIFABLE_EVIDENCE_GATE": "0"},
+           "STANDARD", bash(cwd, "rm -rf build", "BL12"))
+    yield ("BL13", "bash spec-only mode does NOT gate Bash (back-compat)", ALLOW, SP, "STANDARD",
+           bash(cwd, "rm -rf build", "BL13"))
+
     # --- no-brick: research/authoring is never blocked ---
     yield ("N1", "no-brick LIGHT (quick) waives spec", ALLOW, EV, "LIGHT", edit(cwd, "src/a.py", "N1"))
     yield ("N2", "no-brick author the spec file itself", ALLOW, EV, "STANDARD",
            edit(cwd, ".unifable/spec/N2.json", "N2"))
-    yield ("N3", "no-brick non-write tool (Bash) under writes-first gate", ALLOW, EV, "STANDARD",
+    yield ("N3", "no-brick read Bash (echo) allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "echo hi", "N3"))
 
     # --- bypass attempts must fail (protected state, traversal) ---

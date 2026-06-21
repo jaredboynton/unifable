@@ -34,6 +34,10 @@ SCEN = [
 def run(script, payload, data_dir):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
+    # This harness tests the OBSERVATION gate (verification-ran logic). Isolate it
+    # from the evidence/spec gate, which has its own dedicated tests.
+    env["UNIFABLE_EVIDENCE_GATE"] = "0"
+    env["UNIFABLE_SPEC_GATE"] = "0"
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=json.dumps(payload),
                        capture_output=True, text=True, env=env)
     try:
