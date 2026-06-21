@@ -3,12 +3,13 @@
 
 Each test maps to a requirement of the breaker:
   R1  block ONLY Write/Edit/Bash; never WebSearch/Read/WebFetch/Grep/Glob
-  R2  the SAME judge both arms (verdict 1) and disarms (verdict 0)
+  R2  arm (strict judge, verdict 1) and disarm (separate claim-bound release judge)
   R5  judge question = "did the model say something confidently w/o backing it up"
   R6  verdict 1 -> steering prompt returned + mutation blocked until evidence read
   R7  verdict 0 -> no steering, model sees nothing (no block)
-  R8  judge on every tool; release grounded in activity (transcript)
-  R9  debounced: <=1 judge call / 15s per session+user-prompt key
+  R8  release gated on NEW grounding activity; release judge bound to the claim
+  R9  arm judge debounced: <=1 call / 15s per session+user-prompt key
+  R10 safety cap: after max_blocks consecutive blocks on one arm, fail open
 Run: python3 -m pytest tests/test_groundedness_breaker.py -q
 """
 from __future__ import annotations
@@ -32,7 +33,28 @@ class FakeJudge:
         self.systems.append(system)
         self.calls += 1
         verdict, steering = self.script[min(self.calls - 1, len(self.script) - 1)]
-        return {"verdict": verdict, "steering": steering}
+        return {"verdict": verdict, "steering": steering, "claim": "claim" if verdict == 1 else ""}
+
+
+# --- a routing judge: ARM system -> {verdict,steering,claim}; DISARM system ->
+#     {grounded}. Counts arm vs disarm calls separately for the release tests. ---
+class RoutingJudge:
+    def __init__(self, arm=(1, "blocked", "the cause is Y"), grounded=1, needed="read foo.py:10 and cite it"):
+        self.arm_ret = arm
+        self.grounded = grounded
+        self.needed = needed
+        self.arm_calls = 0
+        self.disarm_calls = 0
+
+    def __call__(self, system, user, schema):
+        if "release monitor" in system.lower():  # _DISARM_SYSTEM
+            self.disarm_calls += 1
+            if self.grounded:
+                return {"grounded": 1, "needed": ""}
+            return {"grounded": 0, "needed": self.needed}
+        self.arm_calls += 1
+        v, s, c = self.arm_ret
+        return {"verdict": v, "steering": s, "claim": c}
 
 
 def _pre(tool, session="S", transcript="model: clearly the fix is X. (no evidence)"):
@@ -85,29 +107,86 @@ def test_verdict0_no_block_no_steering(monkeypatch):
 
 
 # --------------------------------------------------------------------------- R2/R8
-def test_same_judge_arms_then_disarms(monkeypatch):
+def test_arms_then_disarms_via_release_judge(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
-    judge = FakeJudge([(1, "unproven; blocked"), (0, "")])  # 1st call arms, 2nd disarms
+    judge = RoutingJudge(arm=(1, "unproven; blocked", "the cause is Y"), grounded=1)
     state = {}
     blocked, _ = gb.evaluate(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
-    # past the 15s window -> judge re-runs, sees grounding, disarms
+    assert judge.arm_calls == 1 and judge.disarm_calls == 0
+    # model actually reads evidence -> ledger grounding activity grows
+    state["read_paths"] = ["/repo/foo.py"]
     blocked, steering = gb.evaluate(_pre("Bash"), state, now=20.0, active_task="P", judge=judge)
     assert blocked is False and steering == "" and state["breaker_armed"] is False
-    assert judge.calls == 2
+    assert judge.disarm_calls == 1  # release decided by the dedicated disarm judge
+
+
+def test_armed_with_no_new_activity_stays_blocked_without_judging(monkeypatch):
+    # R8: no new grounding activity -> the disarm judge is NEVER consulted
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=1)
+    state = {}
+    gb.evaluate(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
+    assert state["breaker_armed"] is True
+    # retry with NO activity growth: still blocked, disarm judge not called
+    blocked, _ = gb.evaluate(_pre("Edit"), state, now=99.0, active_task="P", judge=judge)
+    assert blocked is True and state["breaker_armed"] is True
+    assert judge.disarm_calls == 0
+
+
+def test_armed_new_activity_but_not_grounded_stays_blocked(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(
+        arm=(1, "blocked", "claim X"), grounded=0, needed="still missing: read codex_judge.py:54 and cite MODEL"
+    )
+    state = {}
+    gb.evaluate(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
+    state["read_paths"] = ["/repo/unrelated.py"]  # read something, but not grounding the claim
+    blocked, steering = gb.evaluate(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is True and state["breaker_armed"] is True
+    assert judge.disarm_calls == 1
+    assert state["breaker_block_count"] >= 1
+    # the block message refreshes with exactly what is still missing to disarm
+    assert steering == "still missing: read codex_judge.py:54 and cite MODEL"
 
 
 # --------------------------------------------------------------------------- R9
-def test_debounce_at_most_one_judge_call_per_15s_per_key(monkeypatch):
+def test_arm_judge_debounced_at_most_once_per_15s_per_key(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
-    judge = FakeJudge([(1, "blocked")])
+    judge = RoutingJudge(arm=(0, "", ""))  # verdict 0 -> never arms, stays on ARM path
     state = {}
     gb.evaluate(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
     gb.evaluate(_pre("Bash"), state, now=5.0, active_task="P", judge=judge)   # within window
     gb.evaluate(_pre("Bash"), state, now=14.9, active_task="P", judge=judge)  # within window
-    assert judge.calls == 1
+    assert judge.arm_calls == 1
     gb.evaluate(_pre("Bash"), state, now=15.0, active_task="P", judge=judge)  # window elapsed
-    assert judge.calls == 2
+    assert judge.arm_calls == 2
+
+
+# --------------------------------------------------------------------------- R10
+def test_safety_cap_fails_open_after_max_blocks(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
+    judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0)  # never grounds
+    state = {}
+    b1, _ = gb.evaluate(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)  # arm, block count 1
+    b2, _ = gb.evaluate(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)  # block count 2
+    b3, _ = gb.evaluate(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)  # count 3 -> release
+    assert b1 is True and b2 is True
+    assert b3 is False and state["breaker_armed"] is False  # failed open
+
+
+def test_new_user_prompt_drops_stale_arm(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(arm=(0, "", ""))  # under the NEW prompt, no violation
+    state = {}
+    # arm under prompt P1
+    gb.arm(state, gb.breaker_key("S", "P1"), 0.0, "blocked", "claim X")
+    assert state["breaker_armed"] is True
+    # a mutation under a NEW prompt P2 -> stale arm dropped, re-judged clean -> allowed
+    blocked, _ = gb.evaluate(_pre("Edit", session="S"), state, now=1.0, active_task="P2", judge=judge)
+    assert blocked is False and state["breaker_armed"] is False
+    assert judge.arm_calls == 1
 
 
 def test_debounce_key_is_session_plus_user_prompt(monkeypatch):

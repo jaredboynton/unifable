@@ -1,24 +1,37 @@
 #!/usr/bin/env python3
 """Overconfidence / groundedness breaker (unifable).
 
-On every PreToolUse, GPT-realtime-2 judges the recent transcript segment with one
-question: did the model say something CONFIDENTLY WITHOUT BACKING IT UP? If yes
-(verdict 1) the judge returns a steering prompt and the breaker ARMS a block on
-mutation tools -- Write, Edit, Bash -- never on WebSearch or file reads -- until
-the model actually reads evidence. The SAME judge disarms (verdict 0, no steering)
-once the transcript shows real grounding. The judge call rides the PreToolUse
-critical path but is DEBOUNCED to at most once per JUDGE_WINDOW_SECONDS (15s) per
-session + user-prompt key, so it fires at most once every 15 seconds for a key and
-the cached verdict is reused in between.
+Two directional decisions, both by GPT-realtime-2 over the recent transcript:
+
+ARM (while disarmed). On PreToolUse the strict judge asks: did the model say
+something CONFIDENTLY WITHOUT BACKING IT UP? If yes (verdict 1) it returns a
+steering prompt AND names the specific claim; the breaker ARMS a block on mutation
+tools -- Write, Edit, Bash -- never on WebSearch or file reads. The arm judge is
+DEBOUNCED to at most once per JUDGE_WINDOW_SECONDS (15s) per session+prompt key.
+
+DISARM (while armed). The block clears through a SEPARATE, claim-bound decision,
+not by re-running the strict arm prompt (which would keep re-firing on the original
+confident sentence that lives in the transcript forever). When armed:
+  1. Activity gate (deterministic, free): if the ledger shows no NEW grounding
+     activity (read_paths / fetched_urls / ran_commands) since the arm, stay armed,
+     no judge call.
+  2. Disarm judge (only after new activity): given the flagged claim + the
+     transcript, ask whether the model has NOW grounded THAT claim. If yes, disarm.
+The disarm path is NOT throttled by the 15s window, so the model escapes as soon as
+it has actually read the evidence.
+
+SAFETY CAP. After BREAKER_MAX_BLOCKS consecutive blocks on one arm the breaker
+fails open (disarms, logs) so a misfiring judge can never hard-lock a session.
 
 Fails open: any judge or transcript error leaves tools unblocked.
-Disable with UNIFABLE_BREAKER=0.
+Disable with UNIFABLE_BREAKER=0. Cap override: UNIFABLE_BREAKER_MAX_BLOCKS.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any, Callable
 
@@ -27,8 +40,11 @@ from typing import Any, Callable
 # Read, WebFetch, Grep and Glob are NEVER in this set, so they are never blocked.
 MUTATION_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch", "Bash"})
 
-# Debounce: the judge fires at most once per this many seconds per key.
+# Debounce: the ARM judge fires at most once per this many seconds per key.
 JUDGE_WINDOW_SECONDS = 15
+
+# Consecutive blocks on one arm before the breaker fails open (escape hatch).
+BREAKER_MAX_BLOCKS_DEFAULT = 3
 
 # How much recent transcript the judge sees (~30k tokens of tail).
 _SEGMENT_CHARS = 120_000
@@ -44,13 +60,48 @@ _JUDGE_SCHEMA: dict[str, Any] = {
         "steering": {
             "type": "string",
             "description": (
-                "When verdict=1, a 2-3 sentence steering prompt addressed to the model, naming the "
-                "unproven claim and telling it that its mutation tools (Write/Edit/Bash) are blocked "
-                "until it reads the real evidence and cites it. Empty string when verdict=0."
+                "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
+                "unproven claim, say its mutation tools (Write/Edit/Bash) are blocked, and spell out "
+                "EXACTLY what would disarm it: the specific file(s) to read, check(s) to run, or "
+                "file:line / command output to cite that would back up THIS claim. Empty when verdict=0."
+            ),
+        },
+        "claim": {
+            "type": "string",
+            "description": (
+                "When verdict=1, the ONE specific unproven claim, in 1-2 sentences, so a later "
+                "release check can decide whether THAT claim has since been grounded. Empty string "
+                "when verdict=0."
             ),
         },
     },
-    "required": ["verdict", "steering"],
+    "required": ["verdict", "steering", "claim"],
+    "additionalProperties": False,
+}
+
+# Release decision: has the flagged claim NOW been grounded? Separate from the arm
+# judge so the strict arm prompt never re-fires on the immortal original sentence.
+_DISARM_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "grounded": {
+            "type": "integer",
+            "enum": [0, 1],
+            "description": (
+                "1 if the model has now read the source / run the check / cited real evidence for "
+                "the flagged claim; 0 if it still has not actually backed up that claim."
+            ),
+        },
+        "needed": {
+            "type": "string",
+            "description": (
+                "When grounded=0, a 1-2 sentence instruction addressed to the model naming EXACTLY "
+                "what is still missing to disarm: which file(s) to read, check(s) to run, or "
+                "file:line / command output to cite. Empty string when grounded=1."
+            ),
+        },
+    },
+    "required": ["grounded", "needed"],
     "additionalProperties": False,
 }
 
@@ -69,6 +120,18 @@ _JUDGE_SYSTEM = (
     "If no: verdict=0 and steering MUST be the empty string. Call the function exactly once."
 )
 
+_DISARM_SYSTEM = (
+    "You are a groundedness RELEASE monitor for an autonomous coding agent. The agent was earlier "
+    "flagged for ONE confident, unproven claim, given to you below. Look ONLY at what the agent has "
+    "since actually done in the transcript -- the source it read, the checks it ran, the file:line "
+    "or command output it cited. Answer exactly one question: has it NOW grounded THAT specific "
+    "claim with real evidence? If it has read the source / run the check / cited evidence that backs "
+    "up the flagged claim: grounded=1. If it still has not actually backed up that claim: "
+    "grounded=0 AND write `needed`: 1-2 sentences naming EXACTLY what is still missing to disarm "
+    "(which file to read, check to run, or file:line / command output to cite). Judge only the "
+    "named claim, not any new claims. Call the function exactly once."
+)
+
 
 # ---------------------------------------------------------------------------
 # Config
@@ -76,6 +139,14 @@ _JUDGE_SYSTEM = (
 
 def enabled() -> bool:
     return os.environ.get("UNIFABLE_BREAKER", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def max_blocks() -> int:
+    """Consecutive blocks on one arm before the breaker fails open."""
+    try:
+        return max(1, int(os.environ.get("UNIFABLE_BREAKER_MAX_BLOCKS", BREAKER_MAX_BLOCKS_DEFAULT)))
+    except (TypeError, ValueError):
+        return BREAKER_MAX_BLOCKS_DEFAULT
 
 
 def is_mutation_tool(tool_name: str) -> bool:
@@ -174,13 +245,37 @@ def judge_segment(segment: str, judge: JudgeFn | None = None) -> tuple[int, str]
     """Ask the judge whether the model asserted something confidently without
     backing it up. Returns (1, steering) on a violation, else (0, ''). `judge` is
     injectable for tests; default is GPT-realtime-2. Empty segment -> (0, '')."""
+    verdict, steering, _claim = arm_judge(segment, judge=judge)
+    return verdict, steering
+
+
+def arm_judge(segment: str, judge: JudgeFn | None = None) -> tuple[int, str, str]:
+    """ARM decision: (verdict, steering, claim). verdict 1 means a confident,
+    unproven claim; claim names it for the later release check. Empty segment ->
+    (0, '', '')."""
     if not segment.strip():
-        return 0, ""
+        return 0, "", ""
     fn = judge or _default_judge
     obj = fn(_JUDGE_SYSTEM, segment, _JUDGE_SCHEMA)
     verdict = 1 if int(obj.get("verdict", 0) or 0) == 1 else 0
     steering = str(obj.get("steering", "") or "") if verdict == 1 else ""
-    return verdict, steering
+    claim = str(obj.get("claim", "") or "") if verdict == 1 else ""
+    return verdict, steering, claim
+
+
+def disarm_judge(claim: str, segment: str, judge: JudgeFn | None = None) -> tuple[bool, str]:
+    """RELEASE decision: has the flagged `claim` now been grounded by what the
+    model has read/run/cited in `segment`? Returns (grounded, needed). `needed` is
+    guidance on exactly what is still missing when not grounded; '' when grounded.
+    Empty segment -> (False, '') (stay armed)."""
+    if not segment.strip():
+        return False, ""
+    fn = judge or _default_judge
+    user = f"FLAGGED CLAIM:\n{claim}\n\nTRANSCRIPT (what the model has since read/run/cited):\n{segment}"
+    obj = fn(_DISARM_SYSTEM, user, _DISARM_SCHEMA)
+    grounded = int(obj.get("grounded", 0) or 0) == 1
+    needed = str(obj.get("needed", "") or "") if not grounded else ""
+    return grounded, needed
 
 
 # ---------------------------------------------------------------------------
@@ -193,8 +288,9 @@ def breaker_key(session_id: str, active_task: str) -> str:
 
 
 def should_judge(state: dict, key: str, now: float, window: float = JUDGE_WINDOW_SECONDS) -> bool:
-    """Debounce predicate: judge if the key changed (new user prompt) or at least
-    `window` seconds have elapsed since the last judge call for this key."""
+    """Debounce predicate for the ARM judge (only consulted while disarmed): judge
+    if the key changed (new user prompt) or at least `window` seconds have elapsed
+    since the last arm judge call for this key."""
     if state.get("breaker_key") != key:
         return True
     last = state.get("breaker_judged_at") or 0.0
@@ -204,11 +300,56 @@ def should_judge(state: dict, key: str, now: float, window: float = JUDGE_WINDOW
         return True
 
 
-def record_verdict(state: dict, key: str, now: float, verdict: int, steering: str) -> None:
+def activity_total(state: dict) -> int:
+    """Count of grounding actions logged in the ledger (read_paths + fetched_urls
+    + ran_commands). Grows as the model reads, fetches and runs commands."""
+    return (
+        len(state.get("read_paths") or [])
+        + len(state.get("fetched_urls") or [])
+        + len(state.get("ran_commands") or [])
+    )
+
+
+def arm(state: dict, key: str, now: float, steering: str, claim: str) -> None:
+    """Arm the breaker and snapshot the claim + activity baseline."""
     state["breaker_key"] = key
     state["breaker_judged_at"] = now
-    state["breaker_armed"] = bool(verdict == 1)
-    state["breaker_steering"] = steering if verdict == 1 else ""
+    state["breaker_armed"] = True
+    state["breaker_steering"] = steering
+    state["breaker_claim"] = claim
+    state["breaker_armed_at"] = now
+    state["breaker_activity_at_arm"] = activity_total(state)
+    state["breaker_block_count"] = 0
+
+
+def disarm(state: dict) -> None:
+    """Clear all breaker arm state (release the block)."""
+    state["breaker_armed"] = False
+    state["breaker_steering"] = ""
+    state["breaker_claim"] = ""
+    state["breaker_armed_at"] = 0.0
+    state["breaker_activity_at_arm"] = 0
+    state["breaker_block_count"] = 0
+
+
+def record_verdict(state: dict, key: str, now: float, verdict: int, steering: str, claim: str = "") -> None:
+    """ARM-path bookkeeping: arm on verdict 1, else record the judge time and stay
+    disarmed (so the debounce window advances)."""
+    if verdict == 1:
+        arm(state, key, now, steering, claim)
+        return
+    disarm(state)
+    state["breaker_key"] = key
+    state["breaker_judged_at"] = now
+
+
+def _release_log(count: int) -> None:
+    try:
+        sys.stderr.write(
+            f"[unifable breaker] auto-released after {count} consecutive blocks (fail-open)\n"
+        )
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -224,11 +365,16 @@ def evaluate(
 ) -> tuple[bool, str]:
     """Run on every PreToolUse. Returns (block, steering) for the CURRENT tool.
 
-    - The judge fires at most once per JUDGE_WINDOW_SECONDS per session+prompt key
-      (debounced); the verdict is cached in `state` and reused within the window.
+    - While DISARMED: the strict arm judge fires at most once per
+      JUDGE_WINDOW_SECONDS per session+prompt key (debounced). verdict 1 arms and
+      captures the claim + activity baseline.
+    - While ARMED: a separate, claim-bound release check runs (NOT time-throttled).
+      It only calls the disarm judge after NEW grounding activity appears in the
+      ledger; on grounded it disarms. A new user prompt (key change) drops the
+      stale arm and re-evaluates.
     - block is True only when the current tool is a mutation tool (Write/Edit/Bash)
       AND the breaker is armed. WebSearch and file reads are never blocked.
-    - The SAME judge disarms: a later verdict 0 clears `breaker_armed`.
+    - After max_blocks() consecutive blocks on one arm, fail open (disarm + log).
 
     Fails open (returns (False, '')) on any judge or transcript error, and when
     UNIFABLE_BREAKER=0.
@@ -238,11 +384,36 @@ def evaluate(
     tool = str(input_data.get("tool_name") or "")
     key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
     try:
-        if should_judge(state, key, now):
-            verdict, steering = judge_segment(transcript_segment(input_data), judge=judge)
-            record_verdict(state, key, now, verdict, steering)
+        armed = bool(state.get("breaker_armed"))
+        if armed and state.get("breaker_key") != key:
+            disarm(state)  # new user prompt: drop the stale arm, re-evaluate fresh
+            armed = False
+        if armed:
+            # Release path: only consult the disarm judge after NEW grounding
+            # activity, and never throttle it on the debounce window.
+            if activity_total(state) > int(state.get("breaker_activity_at_arm") or 0):
+                grounded, needed = disarm_judge(
+                    str(state.get("breaker_claim") or ""),
+                    transcript_segment(input_data),
+                    judge=judge,
+                )
+                if grounded:
+                    disarm(state)
+                elif needed:
+                    # still blocked: refresh the steering with exactly what is
+                    # still missing, so the model sees concrete next steps.
+                    state["breaker_steering"] = needed
+        elif should_judge(state, key, now):
+            verdict, steering, claim = arm_judge(transcript_segment(input_data), judge=judge)
+            record_verdict(state, key, now, verdict, steering, claim)
     except Exception:
         return False, ""  # fail open on any judge/transcript failure
     if is_mutation_tool(tool) and state.get("breaker_armed"):
+        count = int(state.get("breaker_block_count") or 0) + 1
+        state["breaker_block_count"] = count
+        if count >= max_blocks():
+            _release_log(count)
+            disarm(state)  # escape hatch: a misfiring judge can't hard-lock
+            return False, ""
         return True, str(state.get("breaker_steering") or "")
     return False, ""

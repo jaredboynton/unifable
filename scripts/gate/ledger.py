@@ -48,13 +48,22 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "read_paths": [],
     "fetched_urls": [],
     "ran_commands": [],
-    # Overconfidence/groundedness breaker state (see groundedness.py). Debounced
-    # gpt-realtime-2 verdict, reused within JUDGE_WINDOW_SECONDS per session+prompt
-    # key. breaker_armed gates mutation tools (Write/Edit/Bash) until disarmed.
+    # Overconfidence/groundedness breaker state (see groundedness.py). The strict
+    # ARM judge is debounced per session+prompt key; once armed, a separate
+    # claim-bound release check disarms it after new grounding activity appears.
+    # breaker_armed gates mutation tools (Write/Edit/Bash) until disarmed.
     "breaker_key": "",
     "breaker_judged_at": 0.0,
     "breaker_armed": False,
     "breaker_steering": "",
+    # Captured at arm time so the release check is bound to the flagged claim:
+    # the claim text, when it armed, the activity baseline (len read_paths +
+    # fetched_urls + ran_commands) it must exceed to trigger a release judge, and
+    # the consecutive-block counter for the fail-open safety cap.
+    "breaker_claim": "",
+    "breaker_armed_at": 0.0,
+    "breaker_activity_at_arm": 0,
+    "breaker_block_count": 0,
     "last_updated": "",
 }
 
