@@ -17,10 +17,11 @@
 #                       The orchestrator then drops Gemini and degrades the panel.
 #
 # Config (env):
-#   AGY_MODEL            model name (default "Gemini 3.5 Flash (High)"; see `agy models`).
+#   AGY_MODEL            model name (default "Gemini 3.5 Flash (Medium)"; see `agy models`).
 #   UNIFUSION_AGY_NO_MODEL  set to 1 to omit --model and use agy's configured default
 #                        (escape hatch if --model ever hangs in print mode).
 #   UNIFUSION_TIMEOUT       per-panelist budget in seconds (default 300, from _unifusion_lib.sh).
+# Exa MCP is read from ~/.gemini/config/mcp_config.json (serverUrl or url key).
 
 set -uo pipefail
 
@@ -30,7 +31,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 prompt_file="${1:?usage: run_gemini.sh <prompt_file> <output_file>}"
 output_file="${2:?usage: run_gemini.sh <prompt_file> <output_file>}"
 
-AGY_MODEL="${AGY_MODEL:-Gemini 3.5 Flash (High)}"
+case "$prompt_file" in
+  /*) ;;
+  *) prompt_file="$(pwd -P)/$prompt_file" ;;
+esac
+case "$output_file" in
+  /*) ;;
+  *) output_file="$(pwd -P)/$output_file" ;;
+esac
+
+AGY_MODEL="${AGY_MODEL:-Gemini 3.5 Flash (Medium)}"
 BRAIN_DIR="$HOME/.gemini/antigravity-cli/brain"
 # agy's own print-mode deadline (Go duration); keep the external backstop a bit longer
 # so agy stops itself cleanly first.
@@ -41,10 +51,43 @@ if ! have agy; then
   echo "[run_gemini.sh] agy CLI not installed — skip this panelist." >&2
   exit 127
 fi
+gemini_mcp="${HOME}/.gemini/config/mcp_config.json"
+if [ ! -f "$gemini_mcp" ] || ! grep -q 'mcp\.exa\.ai' "$gemini_mcp" 2>/dev/null; then
+  echo "[run_gemini.sh] warning: exa MCP missing from ~/.gemini/config/mcp_config.json" >&2
+fi
 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/unifusion-gemini.XXXXXX")"
 trap 'rm -rf "$scratch"' EXIT
 ts_marker="$scratch/.t"; : > "$ts_marker"   # everything agy writes after this is "newer"
+
+# Run against a throwaway copy of the repo/workdir (like the other runners), so agy's file writes
+# never touch the live checkout. The copy lives under $scratch and is removed by the EXIT trap.
+workdir="$scratch/workdir"
+source_root="$(pwd -P)"
+source_subdir=""
+if git_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+  source_root="$(cd "$git_root" && pwd -P)"
+  current_dir="$(pwd -P)"
+  case "$current_dir" in
+    "$source_root") source_subdir="" ;;
+    "$source_root"/*) source_subdir="${current_dir#"$source_root"/}" ;;
+    *) source_subdir="" ;;
+  esac
+fi
+mkdir -p "$workdir"
+if command -v rsync >/dev/null 2>&1; then
+  rsync -a \
+    --exclude '.git/index.lock' \
+    --exclude '.git/shallow.lock' \
+    --exclude '.git/worktrees/*/index.lock' \
+    "$source_root"/ "$workdir"/
+else
+  cp -R "$source_root"/. "$workdir"/
+fi
+panel_cwd="$workdir"
+if [ -n "$source_subdir" ]; then
+  panel_cwd="$workdir/$source_subdir"
+fi
 
 # Assemble agy args (model is opt-out via UNIFUSION_AGY_NO_MODEL).
 agy_args=( -p "$(cat "$prompt_file")" --dangerously-skip-permissions --print-timeout "$AGY_PRINT_TIMEOUT" )
@@ -65,7 +108,7 @@ if have python3; then
 else
   pty_runner=( script -q /dev/null )
 fi
-_run_with_timeout "$EXT_TIMEOUT" "${pty_runner[@]}" agy "${agy_args[@]}" \
+( cd "$panel_cwd" && _run_with_timeout "$EXT_TIMEOUT" "${pty_runner[@]}" agy "${agy_args[@]}" ) \
   2> "$scratch/stderr.log" \
   | sed -e 's/\x1b\[[0-9;]*m//g' -e 's/\^D//g' \
   | LC_ALL=C tr -d '\000-\010\013-\037\177' > "$output_file"

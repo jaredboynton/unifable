@@ -40,6 +40,7 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "warning_count": 0,
     "warnings": [],
     "stop_blocks": 0,
+    "goal_stop_blocks": 0,
     # Citation-verification activity log: what the session ACTUALLY did, so the
     # gate can cross-check that a spec's citations are real (see citations.py).
     # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).

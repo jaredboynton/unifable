@@ -30,8 +30,25 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 sys.path.insert(0, str(_HERE.parent / "scripts" / "shadow"))
 
+from atomicio import write_text_atomic
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from verify_state import MAX_STOP_BLOCKS, should_block_stop, warning_after_max_blocks
+
+GOAL_TRANSCRIPT_CHARS = 60_000
+try:
+    GOAL_STOP_BLOCK_CAP = int(os.environ.get("UNIFABLE_GOAL_STOP_BLOCK_CAP", "8"))
+except ValueError:
+    GOAL_STOP_BLOCK_CAP = 8
+GOAL_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "ok": {"type": "boolean"},
+        "impossible": {"type": "boolean"},
+        "reason": {"type": "string"},
+    },
+    "required": ["ok", "reason"],
+    "additionalProperties": False,
+}
 
 
 def _holdout_suppresses(input_data: dict) -> bool:
@@ -105,6 +122,216 @@ def _last_assistant_text_and_tool(transcript_path: str | None) -> tuple[str, boo
                 last_text = "\n".join(texts).strip()
                 last_had_tool = bool(tools)
     return last_text, last_had_tool
+
+
+def _text_from_content(content) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if not isinstance(content, list):
+        return ""
+    parts: list[str] = []
+    for block in content:
+        if not isinstance(block, dict):
+            continue
+        btype = block.get("type")
+        if btype in {"text", "input_text", "output_text"} and block.get("text"):
+            parts.append(str(block.get("text")).strip())
+        elif btype == "tool_use":
+            name = block.get("name") or "tool"
+            parts.append(f"[tool_use: {name}]")
+        elif btype == "tool_result":
+            text = block.get("content") or block.get("text") or ""
+            if text:
+                parts.append(f"[tool_result] {str(text)[:1000]}")
+    return "\n".join(p for p in parts if p)
+
+
+def _transcript_for_goal_judge(transcript_path: str | None, input_data: dict) -> str:
+    lines: list[str] = []
+    path = Path(transcript_path) if transcript_path else None
+    if path and path.is_file():
+        with path.open(encoding="utf-8") as fh:
+            for raw in fh:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                msg = obj.get("message", obj)
+                role = msg.get("role") or obj.get("type") or "entry"
+                text = _text_from_content(msg.get("content"))
+                if text:
+                    lines.append(f"{role}: {text}")
+    elif input_data.get("last_assistant_message"):
+        lines.append(f"assistant: {input_data.get('last_assistant_message')}")
+    text = "\n\n".join(lines).strip() or "(no transcript available)"
+    if len(text) > GOAL_TRANSCRIPT_CHARS:
+        text = "[transcript truncated to recent messages]\n" + text[-GOAL_TRANSCRIPT_CHARS:]
+    return text
+
+
+def _goals_path(cwd: str | Path) -> Path:
+    return Path(cwd).resolve() / ".unifable" / "goals.json"
+
+
+def _load_goal_plan(cwd: str | Path) -> dict | None:
+    path = _goals_path(cwd)
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _current_goal(plan: dict) -> dict | None:
+    goals = plan.get("goals")
+    if not isinstance(goals, list):
+        return None
+    for goal in goals:
+        if isinstance(goal, dict) and goal.get("status") == "in_progress":
+            return goal
+    for goal in goals:
+        if isinstance(goal, dict) and goal.get("status") == "pending":
+            return goal
+    return None
+
+
+def _remaining_goals(plan: dict) -> list[dict]:
+    goals = plan.get("goals")
+    if not isinstance(goals, list):
+        return []
+    return [
+        goal for goal in goals
+        if isinstance(goal, dict) and goal.get("status") in {"pending", "in_progress"}
+    ]
+
+
+def _goal_condition(plan: dict, goal: dict) -> str:
+    brief = str(plan.get("brief") or "").strip()
+    title = str(goal.get("title") or "").strip()
+    objective = str(goal.get("objective") or "").strip()
+    gid = str(goal.get("id") or "?").strip()
+    return (
+        f"Plan brief: {brief or '(none)'}\n"
+        f"Current goal {gid} {title}: {objective}\n"
+        "The condition is satisfied only if the transcript contains clear evidence "
+        "that this current goal is complete."
+    )
+
+
+def _goal_hook_arguments(input_data: dict) -> dict:
+    keys = (
+        "session_id", "transcript_path", "cwd", "permission_mode", "effort",
+        "hook_event_name", "stop_hook_active", "last_assistant_message",
+        "background_tasks", "session_crons",
+    )
+    return {key: input_data.get(key) for key in keys if key in input_data}
+
+
+def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> dict:
+    from codex_judge import ask_structured
+
+    system = (
+        "You are evaluating a stop-condition hook in unifable. Read the conversation "
+        "transcript carefully, then judge whether the user-provided condition is satisfied. "
+        "Your response must be a JSON object with one of these shapes:\n"
+        '- {"ok": true, "reason": "<quote evidence from the transcript that satisfies the condition>"}\n'
+        '- {"ok": false, "reason": "<quote what is missing or what blocks the condition>"}\n'
+        '- {"ok": false, "impossible": true, "reason": "<explain why the condition can never be satisfied>"}\n'
+        'Always include a "reason" field, quoting specific text from the transcript whenever possible. '
+        'If the transcript does not contain clear evidence that the condition is satisfied, return '
+        '{"ok": false, "reason": "insufficient evidence in transcript"}. Only use '
+        '{"ok": false, "impossible": true} when the condition is genuinely unachievable in this session.'
+    )
+    args = json.dumps(_goal_hook_arguments(input_data), ensure_ascii=False, sort_keys=True)
+    user = (
+        "Conversation transcript:\n"
+        f"{transcript}\n\n"
+        "Based on the conversation transcript above, has the following stopping condition been "
+        "satisfied? Answer based on transcript evidence only.\n"
+        f"Condition: {condition}\n\n"
+        f"ARGUMENTS: {args}"
+    )
+    return ask_structured(system, user, GOAL_JUDGE_SCHEMA, schema_name="goal_stop")
+
+
+def _mark_goal(cwd: str | Path, plan: dict, goal_id: str, status: str, reason: str) -> None:
+    changed = False
+    for goal in plan.get("goals", []):
+        if isinstance(goal, dict) and str(goal.get("id")) == goal_id:
+            goal["status"] = status
+            goal["evidence"] = reason
+            goal["stop_judge_reason"] = reason
+            changed = True
+            break
+    if changed:
+        write_text_atomic(_goals_path(cwd), json.dumps(plan, ensure_ascii=False, indent=1))
+
+
+def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
+    """Evaluate the active goals.py goal like Cursor's prompt Stop hook, using
+    gpt-realtime-2 through codex_judge. Returns a Stop payload or None to allow."""
+    if not input_data or input_data.get("_parse_error"):
+        return None
+    if not (
+        input_data.get("session_id")
+        or input_data.get("transcript_path")
+        or input_data.get("last_assistant_message")
+    ):
+        return None
+    plan = _load_goal_plan(cwd)
+    if not plan:
+        return None
+    goal = _current_goal(plan)
+    if not goal:
+        return None
+
+    ledger = load_ledger(input_data)
+    if int(ledger.get("goal_stop_blocks") or 0) >= GOAL_STOP_BLOCK_CAP:
+        return {
+            "systemMessage": (
+                "unifable goal stop hook block cap reached; allowing stop with "
+                "an incomplete goals.py plan."
+            )
+        }
+
+    condition = _goal_condition(plan, goal)
+    transcript = _transcript_for_goal_judge(input_data.get("transcript_path"), input_data)
+    gid = str(goal.get("id") or "?")
+    try:
+        verdict = _judge_goal_condition(condition, transcript, input_data)
+    except Exception as exc:  # noqa: BLE001
+        verdict = {"ok": False, "reason": f"goal judge unavailable: {exc}"}
+
+    reason = str(verdict.get("reason") or "insufficient evidence in transcript")
+    if verdict.get("ok") is True:
+        _mark_goal(cwd, plan, gid, "complete", reason)
+        ledger["goal_stop_blocks"] = 0
+        save_ledger(input_data, ledger)
+        if _remaining_goals(plan):
+            return {
+                "decision": "block",
+                "reason": (
+                    f"Stop hook feedback:\n[{gid}] {reason}\n"
+                    "The current goal is complete, but the goals.py plan still has "
+                    "remaining goals. Continue with `python3 scripts/goals.py next`."
+                ),
+            }
+        return None
+
+    if verdict.get("impossible") is True:
+        _mark_goal(cwd, plan, gid, "failed", reason)
+        ledger["goal_stop_blocks"] = 0
+        save_ledger(input_data, ledger)
+        return {"systemMessage": f"unifable goal failed and was cleared from Stop blocking: [{gid}] {reason}"}
+
+    ledger["goal_stop_blocks"] = int(ledger.get("goal_stop_blocks") or 0) + 1
+    save_ledger(input_data, ledger)
+    return {"decision": "block", "reason": f"Stop hook feedback:\n[{gid}] {reason}"}
 
 
 def promise_no_act_reason(input_data: dict) -> str:
@@ -221,20 +448,30 @@ def main() -> int:
         except Exception:
             pass  # fail open — a gate bug never interrupts the host
 
-    # 2. Loop guard for the softer gates below (findings + observation): never
+    # 2. Goal-mode prompt Stop hook. mirrors Cursor's prompt hook shape, but uses
+    #    gpt-realtime-2 through codex_judge instead of Haiku.
+    try:
+        goal_payload = goal_stop_decision(input_data, cwd)
+        if goal_payload:
+            emit_json(goal_payload)
+            return 0
+    except Exception:
+        pass  # fail open
+
+    # 3. Loop guard for the softer gates below (findings + observation): never
     #    block twice in a row on the same stop.
     if input_data.get("stop_hook_active") is True:
         emit_json({})
         return 0
 
-    # 3. Promise-no-act guard: if the agent's final text promises future action
+    # 4. Promise-no-act guard: if the agent's final text promises future action
     #    without a tool call or user handoff question, force one continuation.
     reason = promise_no_act_reason(input_data)
     if reason:
         emit_json({"decision": "block", "reason": reason})
         return 0
 
-    # 4. Findings cross-link (opt-in: empty unless .unifable/findings.json exists):
+    # 5. Findings cross-link (opt-in: empty unless .unifable/findings.json exists):
     #    open high/critical findings block completion. Fails open.
     try:
         from findings import blocking_findings
@@ -253,7 +490,7 @@ def main() -> int:
         )
         return 0
 
-    # 5. Observation gate — should_block_stop (deep changed-but-unverified). This
+    # 6. Observation gate — should_block_stop (deep changed-but-unverified). This
     #    softer nudge keeps the MAX_STOP_BLOCKS cap + holdout, so it never traps.
     ledger = load_ledger(input_data)
     block, obs_reason = should_block_stop(ledger)

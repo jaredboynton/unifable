@@ -15,7 +15,8 @@
 #   argument-length and shell-quoting limits). `--output-format text` writes only the final answer
 #   to stdout.
 # - `--model opus` pins Opus; override with UNIFUSION_OPUS_MODEL.
-# - `--safe-mode` disables plugins, MCP, hooks, and skills for this run.
+# - Clean-room: isolated CLAUDE_CONFIG_DIR (no hooks/plugins) + `--mcp-config` with Exa only
+#   (`--strict-mcp-config`). Exa is the one MCP server panelists get.
 # - The panelist runs against a throwaway copy of the current repo/workdir, so its file writes do
 #   not touch your live checkout, while still letting it inspect the repo for codebase evidence.
 # - macOS has no `timeout`; the run is wrapped in the perl helper from _unifusion_lib.sh
@@ -84,8 +85,15 @@ if [ -n "$source_subdir" ]; then
   panel_cwd="$workdir/$source_subdir"
 fi
 
-( cd "$panel_cwd" && _run_with_timeout "$UNIFUSION_TIMEOUT" \
-    cb -p --model "$OPUS_MODEL" --safe-mode --output-format text < "$prompt_file" ) \
+claude_home="$scratch/claudehome"
+mkdir -p "$claude_home"
+printf '%s\n' '{"hooks":{},"enabledPlugins":{}}' > "$claude_home/settings.json"
+exa_mcp="$scratch/exa.mcp.json"
+_unifusion_write_claude_exa_mcp "$exa_mcp"
+
+( cd "$panel_cwd" && CLAUDE_CONFIG_DIR="$claude_home" _run_with_timeout "$UNIFUSION_TIMEOUT" \
+    cb -p --model "$OPUS_MODEL" --output-format text \
+    --mcp-config "$exa_mcp" --strict-mcp-config < "$prompt_file" ) \
   > "$scratch/raw.out" 2> "$scratch/stream.log"
 status=$?
 

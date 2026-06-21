@@ -46,7 +46,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/goals.py checkpoint --id G001 --status com
 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/goals.py status       # first command when resuming
 ```
 
-Rules: `complete` requires non-empty evidence; the final goal cannot complete without a verify command and its result (the engine refuses). If blocked, record `--status blocked` and report. Single-step tasks skip this loop.
+Rules: `complete` requires non-empty evidence; the Stop hook also judges the active goal from transcript evidence with `gpt-realtime-2` and blocks stopping until that goal is satisfied, impossible, or capped. If blocked, record `--status blocked` and report. Single-step tasks skip this loop.
 
 ## 2. Deep investigation (debugging / unknown cause / review)
 

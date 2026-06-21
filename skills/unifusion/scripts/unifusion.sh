@@ -33,6 +33,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+. "$SCRIPT_DIR/_unifusion_lib.sh"
 
 question_file="${1:?usage: unifusion.sh <question_file> [run_dir]}"
 case "$question_file" in
@@ -55,14 +56,10 @@ case "$run_dir" in
   *) run_dir="$(cd "$run_dir" && pwd -P)" ;;
 esac
 
-have() { command -v "$1" >/dev/null 2>&1; }
-
-# ---- 1. detect panelists --------------------------------------------------------------------------
-cb_ok=false; codex_ok=false; agy_ok=false; kimi_ok=false; devin_ok=false
 have cb    && cb_ok=true
 have codex && codex_ok=true
 have agy   && agy_ok=true
-have kimi  && kimi_ok=true
+have_kimi  && kimi_ok=true
 have devin && devin_ok=true
 
 # ---- 2. best-effort shared session-context brief --------------------------------------------------
@@ -87,6 +84,10 @@ panel_prompt="$run_dir/panel_prompt.md"
 You are one of several independent experts answering the same question in parallel. You will not see the
 others' answers. Research with web search and your local bash/tools, then return a complete, self-contained
 answer in the user's language.
+
+Web search:
+- Search queries should be filtered to the past 60 days unless no good results are found.
+- Prefer Exa MCP tools over native web search when Exa is available.
 
 Ground every claim in evidence you actually gathered this run:
 - For any claim about this codebase or local system, cite the concrete file path and line, or the command

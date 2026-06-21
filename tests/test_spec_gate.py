@@ -37,6 +37,9 @@ from spec import (  # noqa: E402
     validate_spec,
 )
 
+sys.path.insert(0, str(HOOKS))
+import gate_stop  # noqa: E402
+
 
 # ---------------------------------------------------------------------------
 # Helper: run pre_tool_use.py via subprocess
@@ -1013,6 +1016,89 @@ def test_stop_escape_hatch_removed():
             evidence_gate="0", grade="STANDARD",
         )
         assert _blocks(out)
+
+
+def _write_goals_plan(cwd: str, status: str = "in_progress") -> Path:
+    path = Path(cwd) / ".unifable" / "goals.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "brief": "ship goal mode",
+                "goals": [
+                    {
+                        "id": "G001",
+                        "title": "wire stop hook",
+                        "objective": "judge the active goal from transcript evidence",
+                        "status": status,
+                        "evidence": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return path
+
+
+def test_goal_stop_uses_prompt_judge_and_blocks_when_unsatisfied():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd, tempfile.TemporaryDirectory() as td:
+        _write_goals_plan(cwd)
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(transcript, [{"type": "text", "text": "I have not run the check yet."}])
+        payload = {"session_id": "goal1", "cwd": cwd, "transcript_path": str(transcript), "hook_event_name": "Stop"}
+        old_env = os.environ.get("UNIFABLE_DATA")
+        old_judge = gate_stop._judge_goal_condition
+
+        def fake_judge(condition, transcript_text, input_data):
+            assert "Current goal G001 wire stop hook" in condition
+            assert "I have not run the check yet" in transcript_text
+            assert input_data["hook_event_name"] == "Stop"
+            return {"ok": False, "reason": "missing check output in transcript"}
+
+        try:
+            os.environ["UNIFABLE_DATA"] = dd
+            gate_stop._judge_goal_condition = fake_judge
+            out = gate_stop.goal_stop_decision(payload, cwd)
+        finally:
+            gate_stop._judge_goal_condition = old_judge
+            if old_env is None:
+                os.environ.pop("UNIFABLE_DATA", None)
+            else:
+                os.environ["UNIFABLE_DATA"] = old_env
+
+        assert out and out.get("decision") == "block"
+        assert "Stop hook feedback" in out.get("reason", "")
+        assert "missing check output" in out.get("reason", "")
+
+
+def test_goal_stop_marks_current_goal_complete_when_judge_passes():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd, tempfile.TemporaryDirectory() as td:
+        path = _write_goals_plan(cwd)
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(transcript, [{"type": "text", "text": "The active goal is complete; pytest passed."}])
+        payload = {"session_id": "goal2", "cwd": cwd, "transcript_path": str(transcript), "hook_event_name": "Stop"}
+        old_env = os.environ.get("UNIFABLE_DATA")
+        old_judge = gate_stop._judge_goal_condition
+
+        def fake_judge(condition, transcript_text, input_data):
+            return {"ok": True, "reason": '"pytest passed" satisfies the current goal'}
+
+        try:
+            os.environ["UNIFABLE_DATA"] = dd
+            gate_stop._judge_goal_condition = fake_judge
+            out = gate_stop.goal_stop_decision(payload, cwd)
+        finally:
+            gate_stop._judge_goal_condition = old_judge
+            if old_env is None:
+                os.environ.pop("UNIFABLE_DATA", None)
+            else:
+                os.environ["UNIFABLE_DATA"] = old_env
+
+        assert out is None
+        plan = json.loads(path.read_text(encoding="utf-8"))
+        assert plan["goals"][0]["status"] == "complete"
+        assert "pytest passed" in plan["goals"][0]["evidence"]
 
 
 # ---------------------------------------------------------------------------

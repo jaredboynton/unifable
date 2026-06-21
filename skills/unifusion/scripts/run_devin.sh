@@ -13,7 +13,8 @@
 # - `--permission-mode dangerous` auto-approves every tool, so web search and bash both run.
 #   Devin's web search is native and needs no extra flag.
 # - `--config <throwaway>` uses a minimal config derived from ~/.config/devin/config.json.
-#   Model is GLM-5.2 (override with DEVIN_MODEL).
+#   Model is GLM-5.2 (override with DEVIN_MODEL). Hooks/plugins/rules/skills are stripped;
+#   `mcpServers` is replaced with Exa only (no localhost proxy MCPs).
 # - The panelist runs against a throwaway copy of the current repo/workdir, so its file writes do
 #   not touch your live checkout, while still letting it inspect the repo for codebase evidence.
 # - macOS has no `timeout`; the run is wrapped in the perl helper from _unifusion_lib.sh
@@ -84,8 +85,8 @@ fi
 devin_config="$scratch/devin_min.json"
 real_config="${DEVIN_CONFIG:-$HOME/.config/devin/config.json}"
 if command -v python3 >/dev/null 2>&1; then
-  python3 - "$real_config" "$devin_config" "$DEVIN_MODEL" <<'PY' || printf '{"agent":{"model":"%s"}}' "$DEVIN_MODEL" > "$devin_config"
-import json, sys
+  UNIFUSION_EXA_MCP_URL="$UNIFUSION_EXA_MCP_URL" python3 - "$real_config" "$devin_config" "$DEVIN_MODEL" <<'PY' || printf '{"agent":{"model":"%s"}}' "$DEVIN_MODEL" > "$devin_config"
+import json, os, sys
 src, dst, model = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     d = json.load(open(src))
@@ -96,10 +97,14 @@ for k in ("hooks", "plugins", "rules", "skills"):
 d.setdefault("agent", {})["model"] = model
 d["skip_workspace_trust"] = True
 d["skip_home_directory_warning"] = True
+exa_url = os.environ.get("UNIFUSION_EXA_MCP_URL", "")
+if exa_url:
+    d["mcpServers"] = {"exa": {"url": exa_url, "transport": "http"}}
 json.dump(d, open(dst, "w"))
 PY
 else
-  printf '{"agent":{"model":"%s"},"skip_workspace_trust":true,"skip_home_directory_warning":true}' "$DEVIN_MODEL" > "$devin_config"
+  printf '{"agent":{"model":"%s"},"skip_workspace_trust":true,"skip_home_directory_warning":true,"mcpServers":{"exa":{"url":"%s","transport":"http"}}}' \
+    "$DEVIN_MODEL" "$UNIFUSION_EXA_MCP_URL" > "$devin_config"
 fi
 
 devin_args=( --config "$devin_config" --print --prompt-file "$prompt_file" --permission-mode dangerous )

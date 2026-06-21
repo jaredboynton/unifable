@@ -54,10 +54,8 @@ completion gate for load-bearing behavior.
 ## Commands
 
 ```bash
-# full gate suite (one module self-exits at import; run it standalone)
-python3 -m pytest tests/ -q --ignore=tests/test_gate_robustness.py
-python3 tests/test_gate_robustness.py
-python3 tests/eval_gate_proof.py
+# full gate suite is run by pre-commit; do not run these individually before commit
+# unless debugging a specific failing check.
 
 # a single gate's tests
 python3 -m pytest tests/test_groundedness_breaker.py -q

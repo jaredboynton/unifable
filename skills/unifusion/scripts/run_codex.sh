@@ -15,7 +15,7 @@
 # - `--dangerously-bypass-approvals-and-sandbox` intentionally gives the panelist the same local tool
 #   access as a normal trusted Codex CLI run. This is needed for macOS keychain-backed tools like `gh`.
 # - `-c tools.web_search=true` enables the web search tool.
-# - Runs under an isolated CODEX_HOME (minimal config.toml + copied auth.json).
+# - Runs under an isolated CODEX_HOME (minimal config.toml + copied auth.json + Exa MCP only).
 # - The throwaway copy is deleted when the panelist exits.
 # - There is no `timeout`/`gtimeout` on stock macOS, so the codex run is wrapped in a self-contained
 #   perl timeout helper (UNIFUSION_TIMEOUT, default 300s — see _unifusion_lib.sh). On timeout the runner
@@ -100,6 +100,9 @@ include_apps_instructions = false
 personality = "none"
 model = "$codex_model"
 model_reasoning_effort = "$effort"
+
+[mcp_servers.exa]
+url = "$UNIFUSION_EXA_MCP_URL"
 EOF
 
 CODEX_HOME="$codex_home" _run_with_timeout "$UNIFUSION_TIMEOUT" codex exec \

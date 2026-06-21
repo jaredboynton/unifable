@@ -1,12 +1,12 @@
 {
   "name": "unifable",
-  "version": "1.9.5",
+  "version": "1.9.6",
   "description": "unifable — run Opus (or any model) like Fable: completion, evidence, and verification enforced as procedure, auto-routed per task.",
   "owner": { "name": "Jared Boynton", "email": "jared.boynton@gmail.com" },
   "plugins": [
     {
       "name": "unifable",
-      "version": "1.9.5",
+      "version": "1.9.6",
       "description": "A harness that makes the model behave like Fable: enforces completion, evidence, and verification as procedure; auto-routes render-output verification, a multi-story evidence gate, an investigation protocol, and an early-stop guard.",
       "source": ".",
       "category": "workflow"

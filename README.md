@@ -19,7 +19,7 @@ hosts via Claude-Code-compatible hooks:
 | UserPromptSubmit | `router.sh`, `gate_prompt.py`, `gate_prompt_effort.py` | Route task signal to a pack; classify task mode; effort-gated playbook |
 | PreToolUse | `pre_tool_use.py`, `bash_classify.py` | **Evidence gate** (always on): block edits, delegation, and non-whitelisted research Bash until a valid spec proves the homework; protect gate state |
 | PostToolUse | `gate_post_tool.py` | Observe evidence: changed files, verification results, **real** failures |
-| Stop | `gate_stop.py` | Completion gate: require the evidence spec; verification-ran check; promise-no-act guard |
+| Stop | `gate_stop.py` | Completion gate: require the evidence spec; judge active goals; verification-ran check; promise-no-act guard |
 
 ### Evidence gate
 
@@ -39,7 +39,8 @@ per session, not re-injected per prompt: on Claude via the **Fable output style*
 
 Shared core lives in `scripts/gate/` (ledger, task classifier, tool-result parser, verify-state)
 and `packs/` (investigation protocol, verification-grounding). Multi-story work is tracked by
-`scripts/goals.py` with state under `./.unifable/`.
+`scripts/goals.py` with state under `./.unifable/`; the Stop hook evaluates the active goal from
+the transcript through `gpt-realtime-2`.
 
 ## Why this fork
 

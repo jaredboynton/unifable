@@ -14,7 +14,38 @@
 # Default per-panelist budget in seconds; override with UNIFUSION_TIMEOUT.
 UNIFUSION_TIMEOUT="${UNIFUSION_TIMEOUT:-300}"
 
+# Exa MCP endpoint injected into clean-room panelist configs (cb/codex/devin throwaways).
+# Override with UNIFUSION_EXA_MCP_URL when rotating keys.
+UNIFUSION_EXA_MCP_URL="${UNIFUSION_EXA_MCP_URL:-https://mcp.exa.ai/mcp?exaApiKey=93b180fe-b949-451c-afd0-47c6bcca335f}"
+
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# _unifusion_write_claude_exa_mcp <json_path> — Claude `--mcp-config` file (exa only).
+_unifusion_write_claude_exa_mcp() {
+  local path="${1:?path required}"
+  mkdir -p "$(dirname "$path")"
+  printf '%s\n' "{\"mcpServers\":{\"exa\":{\"type\":\"http\",\"url\":\"${UNIFUSION_EXA_MCP_URL}\"}}}" > "$path"
+}
+
+# _kimi_bin — print the path to the real kimi binary, never the shell alias (often `kimi --yolo`,
+# which conflicts with print mode: "Cannot combine --prompt with --yolo").
+# Precedence: UNIFUSION_KIMI_BIN > ~/.kimi-code/bin/kimi > command -P kimi (bash, ignores aliases).
+_kimi_bin() {
+  if [ -n "${UNIFUSION_KIMI_BIN:-}" ] && [ -x "${UNIFUSION_KIMI_BIN:-}" ]; then
+    printf '%s\n' "$UNIFUSION_KIMI_BIN"
+    return 0
+  fi
+  if [ -x "${HOME}/.kimi-code/bin/kimi" ]; then
+    printf '%s\n' "${HOME}/.kimi-code/bin/kimi"
+    return 0
+  fi
+  if command -P kimi >/dev/null 2>&1; then
+    command -P kimi
+    return 0
+  fi
+  return 1
+}
+have_kimi() { _kimi_bin >/dev/null 2>&1; }
 
 # _run_with_timeout SECONDS cmd [args...]
 # Exit status = the command's own status, or 124 if it was killed for timing out.
