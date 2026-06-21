@@ -96,7 +96,7 @@ Highest-leverage, in-control moves:
   whether the response (or ledger) carries the required evidence signal (file:line / `cmd->output` / URL);
   block-with-reminder if missing. NOTE: gate_stop deliberately does NOT read response text today, and the
   repo was previously burned by a false-positive nag removed for firing on ~1/3 of deep turns
-  (`verify_state.py:42-45`). So F-B needs the shadow/holdout measurement harness (docs/MEASUREMENT_PROTOCOL.md)
+  (`verify_state.py:42-45`). So F-B needs the shadow/holdout measurement harness (scripts/shadow/ + UNIFABLE_HOLDOUT=1)
   before it ships on by default.
 - F-C [text, low risk] Per-host tuning: a `<citation_rules>` XML contract at the top of the Claude
   output-style; a terse developer-style citation rule placed first in the Codex AGENTS.md block; both at

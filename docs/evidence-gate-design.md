@@ -66,7 +66,7 @@ Classify the `Bash` command string in the research phase:
   wfb's edit-only gate. Mitigations: (a) opt-in + default OFF + fail-open (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
   bricked — it can always satisfy the gate; (c) `WFB_BYPASS`-style one-off env escape; (d) ship behind
-  the holdout harness (`docs/MEASUREMENT_PROTOCOL.md`) and measure block-rate / false-positive-rate
+  the holdout harness (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate
   before any default-on.
 
 ## Rollout

@@ -42,7 +42,7 @@ def should_block_stop(ledger: dict[str, Any]) -> tuple[bool, str]:
     # Block only when a DEEP turn actually changed something and ran no observed
     # verification. A deep turn that changed nothing (analysis/planning/reading)
     # has nothing to verify, so it is NOT blocked — the old "add observable proof"
-    # nag was a false-positive on ~1/3 of deep firings (docs/MEASUREMENT_PROTOCOL.md).
+    # nag was a false-positive on ~1/3 of deep read-only firings (measured).
     if mode == "deep" and changed and not verified:
         return True, "unifable gate: run the narrowest verification command for the changed behavior before final response, or record why none applies."
     # deep-only: normal mode no longer hard-blocks; it keeps an advisory prompt nudge.

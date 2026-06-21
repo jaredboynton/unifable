@@ -45,17 +45,28 @@ from spec import (  # noqa: E402
 def run_pre_tool(
     payload: dict,
     *,
-    spec_gate: str = "0",
+    spec_gate: str | None = "0",
+    evidence_gate: str | None = "0",
     grade: str = "STANDARD",
     env_extra: dict | None = None,
     tmp_root: str | None = None,
 ) -> tuple[int, dict, str]:
     """Run hooks/pre_tool_use.py with *payload* on stdin.
 
+    Inherited UNIFABLE_SPEC_GATE / UNIFABLE_EVIDENCE_GATE are scrubbed first so a
+    test is deterministic regardless of the runner's environment. Pass a gate as
+    None to leave it unset (exercising the production default — evidence gate ON).
+    The evidence gate defaults to "0" here so spec-gate-focused tests are isolated.
+
     Returns (returncode, parsed-stdout-json, stderr).
     """
     env = dict(os.environ)
-    env["UNIFABLE_SPEC_GATE"] = spec_gate
+    env.pop("UNIFABLE_SPEC_GATE", None)
+    env.pop("UNIFABLE_EVIDENCE_GATE", None)
+    if spec_gate is not None:
+        env["UNIFABLE_SPEC_GATE"] = spec_gate
+    if evidence_gate is not None:
+        env["UNIFABLE_EVIDENCE_GATE"] = evidence_gate
     env["UNIFABLE_GRADE"] = grade
     if tmp_root:
         env["UNIFABLE_DATA"] = tmp_root
@@ -602,6 +613,53 @@ def test_bash_not_blocked_by_spec_gate():
 # --- Fail open on bad input ---
 
 # --- Evidence gate (UNIFABLE_EVIDENCE_GATE=1) integration ---
+
+def test_evidence_gate_allows_spec_authoring_when_none_exists():
+    """No-brick: writing the evidence spec file is always allowed under the gate,
+    even before a spec exists — otherwise the gate would brick (writing the spec
+    would itself require a spec)."""
+    with tempfile.TemporaryDirectory() as cwd:
+        payload = _edit_payload(
+            os.path.join(cwd, ".unifable", "spec", "brick-sess.json"),
+            session_id="brick-sess", cwd=cwd,
+        )
+        rc, out, _ = run_pre_tool(
+            payload, spec_gate="0", grade="STANDARD",
+            env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
+        )
+        assert rc == 0, "authoring the spec under the evidence gate must not be blocked"
+        assert out == {}
+
+
+def test_evidence_gate_default_on_blocks_uncited_edit():
+    """Production default (no gate env set): an uncited edit on a STANDARD task is
+    blocked. Proves the gate is ON by default."""
+    with tempfile.TemporaryDirectory() as cwd:
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
+                                session_id="default-on-sess", cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, spec_gate=None, evidence_gate=None, grade="STANDARD")
+        assert rc == 2, "evidence gate must block uncited edits by default"
+        assert "must_read" in stderr or "spec" in stderr.lower()
+
+
+def test_evidence_gate_escape_hatch_disables():
+    """UNIFABLE_EVIDENCE_GATE=0 is the explicit escape hatch: edits pass unenforced."""
+    with tempfile.TemporaryDirectory() as cwd:
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
+                                session_id="escape-sess", cwd=cwd)
+        rc, out, _ = run_pre_tool(payload, spec_gate=None, evidence_gate="0", grade="STANDARD")
+        assert rc == 0
+        assert out == {}
+
+
+def test_evidence_gate_default_on_light_waived():
+    """Default-on still waives LIGHT (quick) tasks — trivial edits are not over-gated."""
+    with tempfile.TemporaryDirectory() as cwd:
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
+                                session_id="light-sess", cwd=cwd)
+        rc, out, _ = run_pre_tool(payload, spec_gate=None, evidence_gate=None, grade="LIGHT")
+        assert rc == 0
+
 
 def test_evidence_gate_blocks_valid_spec_without_must_read():
     """A spec that passes the spec gate is still blocked by the evidence gate when

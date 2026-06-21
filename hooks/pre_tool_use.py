@@ -9,14 +9,17 @@ and exits with code 2 (block) in two cases:
      (.unifable/spec/<task_id>.json).  This prevents the model from modifying
      ledger state, goals, findings, or any other gate-internal artifact.
 
-  2. SPEC GATE: when UNIFABLE_SPEC_GATE=1 and the effective grade is not LIGHT,
-     a valid spec must exist for the current task before any edit is allowed.
+  2. EVIDENCE GATE (default ON): unless the effective grade is LIGHT, a valid
+     spec carrying citation evidence (must_read path:line, acceptance_criteria
+     with live output, prior_art URL at HEAVY) must exist for the current task
+     before any edit is allowed. Authoring the spec file itself is always
+     permitted (the no-brick escape).
 
-Opt-in via UNIFABLE_SPEC_GATE=1.  Default is OFF (emit {} exit 0) so
-existing sessions are unaffected.
+The evidence gate is ON by default. Disable it with UNIFABLE_EVIDENCE_GATE=0.
+UNIFABLE_SPEC_GATE=1 selects the weaker spec-only mode (no citations required).
 
-Grade is read from UNIFABLE_GRADE (LIGHT / STANDARD / HEAVY); defaults to
-STANDARD.  Map quick->LIGHT, normal->STANDARD, deep->HEAVY in classify_task.py.
+Grade is read from UNIFABLE_GRADE, else the session ledger, else STANDARD
+(LIGHT / STANDARD / HEAVY); quick->LIGHT, normal->STANDARD, deep->HEAVY.
 
 Fails open on any exception: emits {} and exits 0 so the host is never
 interrupted by gate errors.
@@ -31,7 +34,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
-from ledger import emit_json, read_stdin_json
+from ledger import emit_json, load_ledger, read_stdin_json
 from spec import GRADES, contract_string, load_spec, spec_path, validate_spec
 
 # ---------------------------------------------------------------------------
@@ -80,6 +83,21 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
 
     # Everything else under .unifable/ is protected
     return True
+
+
+def _is_spec_path(target: str | Path, cwd: str | Path) -> bool:
+    """Return True when *target* is the model's evidence spec under .unifable/spec/.
+
+    The model must always be able to author or update its spec, even before one
+    exists — otherwise the gate bricks (writing the spec would itself require a
+    spec). This is the no-brick escape that lets the agent satisfy the gate.
+    """
+    try:
+        resolved = Path(target).resolve()
+        resolved.relative_to(_unifable_dir(cwd) / "spec")
+        return True
+    except (ValueError, OSError):
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -131,19 +149,32 @@ def _block(reason: str) -> int:
 # Main gate logic
 # ---------------------------------------------------------------------------
 
-def _effective_grade() -> str:
-    grade = os.environ.get("UNIFABLE_GRADE", "STANDARD").upper().strip()
+def _effective_grade(input_data: dict | None = None) -> str:
+    """Grade from UNIFABLE_GRADE, else this session's ledger, else STANDARD.
+
+    Reading the ledger (written by gate_prompt.py at UserPromptSubmit) lets the
+    default-on gate respect the task classification: a quick task graded LIGHT is
+    waived, so trivial edits are not over-gated."""
+    grade = os.environ.get("UNIFABLE_GRADE", "").upper().strip()
+    if grade not in GRADES and input_data is not None:
+        try:
+            grade = (load_ledger(input_data).get("grade") or "").upper().strip()
+        except Exception:
+            grade = ""
     return grade if grade in GRADES else "STANDARD"
 
 
 def _spec_gate_active() -> bool:
+    """Weaker opt-in mode: spec required, citations not. Subsumed by the evidence
+    gate when that is on (the default)."""
     return os.environ.get("UNIFABLE_SPEC_GATE", "0").strip() == "1"
 
 
 def _evidence_gate_active() -> bool:
-    """The evidence gate (superset of the spec gate): same spec validation plus
-    required citation evidence (must_read code citations, prior_art URLs)."""
-    return os.environ.get("UNIFABLE_EVIDENCE_GATE", "0").strip() == "1"
+    """The evidence gate (superset of the spec gate): spec validation plus required
+    citation evidence (must_read code citations, prior_art URLs). ON by default;
+    disable with UNIFABLE_EVIDENCE_GATE=0 (the explicit escape hatch)."""
+    return os.environ.get("UNIFABLE_EVIDENCE_GATE", "1").strip() != "0"
 
 
 def main() -> int:
@@ -173,7 +204,14 @@ def main() -> int:
         emit_json({})
         return 0
 
-    grade = _effective_grade()
+    # No-brick escape: authoring/updating the evidence spec itself is always
+    # allowed, even before one exists — otherwise writing the spec would require
+    # a spec. This is the only write the gate lets through unconditionally.
+    if target and _is_spec_path(target, cwd):
+        emit_json({})
+        return 0
+
+    grade = _effective_grade(input_data)
 
     # LIGHT grade waives the spec requirement entirely.
     if grade == "LIGHT":

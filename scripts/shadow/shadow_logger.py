@@ -6,8 +6,8 @@ Writes measurement events to ~/.unifable/history/events.jsonl (append-only).
 OUT-OF-BAND GUARANTEE: this module is invoked only by out-of-band tooling
 (the post-hoc collector / future side-effect callers). It NEVER emits to the
 model — no additionalContext, no systemMessage, no stdout the gate reads. It
-only appends to events.jsonl outside the repo. See docs/MEASUREMENT_PROTOCOL.md
-(§3 out-of-band, §4 holdout, §7 sunset).
+only appends to events.jsonl outside the repo. Holdout is deterministic per
+session_id (20% off arm); instrumentation sunsets after ~50 sessions with no signal.
 """
 from __future__ import annotations
 

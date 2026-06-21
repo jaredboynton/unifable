@@ -85,19 +85,21 @@ def main() -> int:
         )
         return 0
 
-    # Fake-evidence (opt-in with the spec gate): a present spec must validate at
-    # completion; validate_spec rejects placeholder evidence via FAKE_MARKERS.
-    if os.environ.get("UNIFABLE_SPEC_GATE") == "1" or os.environ.get("UNIFABLE_EVIDENCE_GATE") == "1":
+    # Evidence/spec gate at completion: a present spec must validate, and (when the
+    # evidence gate is on, the default) carry citation evidence. validate_spec
+    # rejects placeholder evidence via FAKE_MARKERS. Disable with UNIFABLE_EVIDENCE_GATE=0.
+    evidence_on = os.environ.get("UNIFABLE_EVIDENCE_GATE", "1") != "0"
+    spec_on = os.environ.get("UNIFABLE_SPEC_GATE") == "1"
+    if evidence_on or spec_on:
         try:
             from spec import load_spec, validate_spec
 
             spec = load_spec(cwd, input_data.get("session_id") or "")
             if spec is not None:
-                require_evidence = os.environ.get("UNIFABLE_EVIDENCE_GATE") == "1"
                 ok, reasons = validate_spec(
                     spec,
                     os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data),
-                    require_evidence=require_evidence,
+                    require_evidence=evidence_on,
                 )
                 if not ok:
                     emit_json(

@@ -6,7 +6,7 @@ emits measurement events to events.jsonl. Runs as a SEPARATE process: it does
 not import or modify any gate hook, so gate behavior and the 16/16 regression
 are structurally unchanged. Idempotent — dedupes by (ledger_key, last_updated).
 
-Events per ledger snapshot (see docs/MEASUREMENT_PROTOCOL.md §2, §8):
+Events per ledger snapshot:
   - classify         : task_mode + risk_flags + change_kinds
   - gate_fire        : would the Stop gate have fired? (stop_blocks, changed, verified)
   - effort_candidate : shadow label only (placeholder basis; real signal is HOLD)
