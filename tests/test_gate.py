@@ -63,6 +63,9 @@ def write_spec(cwd, sid):
 def run(script, payload, data_dir):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
+    # Observation-gate harness: citation truth-checking is exercised separately in
+    # tests/test_citation_verify.py, so disable it here to isolate this gate.
+    env["UNIFABLE_VERIFY_CITATIONS"] = "0"
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=json.dumps(payload),
                        capture_output=True, text=True, env=env)
     try:

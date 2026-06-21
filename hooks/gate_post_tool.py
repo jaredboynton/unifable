@@ -8,6 +8,7 @@ succeeded or failed. Fails open.
 
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -18,17 +19,39 @@ from parse_tool_result import (
     changed_kinds,
     command_from_input,
     detect_failure,
+    fetched_url_targets,
+    ran_command,
+    read_targets,
     repeated_failure,
     verification_record,
 )
 
 
+def _abs(path: str, cwd: str) -> str:
+    try:
+        p = Path(path)
+        if not p.is_absolute():
+            p = Path(cwd) / p
+        return str(p.resolve())
+    except (OSError, ValueError):
+        return path
+
+
 def main() -> int:
     input_data = read_stdin_json()
+    cwd = str(input_data.get("cwd") or os.getcwd())
     kinds = changed_kinds(input_data)
     failure = detect_failure(input_data)
     verification = verification_record(input_data)
     command = command_from_input(input_data)
+    # Citation-verification activity: what this call actually read/fetched/ran.
+    # Only record when the call did NOT observably fail (failure is None means
+    # success or unknown) -- so a failed `grep missing.py` or a non-zero check is
+    # never credited as real activity backing a citation.
+    executed_ok = failure is None
+    reads = [_abs(p, cwd) for p in read_targets(input_data)] if executed_ok else []
+    fetched = fetched_url_targets(input_data) if executed_ok else []
+    ran = ran_command(input_data) if executed_ok else None
 
     def apply(ledger):
         if kinds:
@@ -40,6 +63,12 @@ def main() -> int:
                 ledger["verification_commands"].append(verification["command"])
         if failure:
             ledger["failures"].append(failure)
+        if reads:
+            add_unique(ledger, "read_paths", reads)
+        if fetched:
+            add_unique(ledger, "fetched_urls", fetched)
+        if ran:
+            add_unique(ledger, "ran_commands", [ran])
 
     ledger = update_ledger(input_data, apply)
 

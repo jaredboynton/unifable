@@ -63,6 +63,9 @@ def run_pre_tool(
     env = dict(os.environ)
     env.pop("UNIFABLE_SPEC_GATE", None)
     env.pop("UNIFABLE_EVIDENCE_GATE", None)
+    # These tests prove the FORMAT evidence gate; citation truth-checking (activity
+    # backs the citations) is covered in tests/test_citation_verify.py.
+    env["UNIFABLE_VERIFY_CITATIONS"] = "0"
     if spec_gate is not None:
         env["UNIFABLE_SPEC_GATE"] = spec_gate
     if evidence_gate is not None:
@@ -816,6 +819,9 @@ def run_stop(
     env = dict(os.environ)
     for k in ("UNIFABLE_SPEC_GATE", "UNIFABLE_EVIDENCE_GATE", "UNIFABLE_GRADE", "UNIFABLE_HOLDOUT"):
         env.pop(k, None)
+    # Citation truth-checking has its own suite (tests/test_citation_verify.py);
+    # the Stop-gate tests here isolate the format/breaker behavior.
+    env["UNIFABLE_VERIFY_CITATIONS"] = "0"
     if evidence_gate is not None:
         env["UNIFABLE_EVIDENCE_GATE"] = evidence_gate
     if spec_gate is not None:

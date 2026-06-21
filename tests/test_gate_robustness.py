@@ -34,6 +34,9 @@ def run(script, payload, data_dir, raw=False):
     # cannot resolve a real session (and load a real spec) from the runner's env.
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.pop("CODEX_THREAD_ID", None)
+    # Citation truth-checking is covered in tests/test_citation_verify.py; this
+    # robustness harness isolates the observation/evidence gates.
+    env["UNIFABLE_VERIFY_CITATIONS"] = "0"
     stdin = payload if raw else json.dumps(payload)
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=stdin,
                        capture_output=True, text=True, env=env)

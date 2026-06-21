@@ -135,6 +135,20 @@ def _block(reason: str) -> int:
     return 2
 
 
+def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: bool) -> list[str]:
+    """Reasons the spec's citations are not backed by real session tool activity.
+    Empty when the cross-check is disabled or anything fails (fail open)."""
+    try:
+        from citations import activity_from_ledger, enabled, verify_citations
+
+        if not enabled():
+            return []
+        activity = activity_from_ledger(load_ledger(input_data))
+        return verify_citations(spec, activity, cwd, require_commands=require_commands)
+    except Exception:
+        return []
+
+
 # ---------------------------------------------------------------------------
 # Main gate logic
 # ---------------------------------------------------------------------------
@@ -186,6 +200,13 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             "Fix the spec before proceeding with edits."
         )
 
+    cited = _citation_reasons(spec, input_data, cwd, require_commands=False)
+    if cited:
+        return _block(
+            "spec citations are not backed by real activity this session: "
+            + "; ".join(cited)
+        )
+
     emit_json({})
     return 0
 
@@ -206,7 +227,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     spec = load_spec(cwd, task_id)
     if spec is not None:
         ok, _ = validate_spec(spec, grade, require_evidence=True)
-        if ok:
+        if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             emit_json({})  # action phase unlocked
             return 0
 

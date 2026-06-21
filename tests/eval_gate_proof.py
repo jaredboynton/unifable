@@ -35,6 +35,9 @@ def run(payload: dict, env_extra: dict, grade: str) -> str:
     # an empty env_extra therefore exercises the production default (gate ON).
     env.pop("UNIFABLE_SPEC_GATE", None)
     env.pop("UNIFABLE_EVIDENCE_GATE", None)
+    # This harness proves the FORMAT/structure evidence gate; citation truth-checking
+    # (does the activity back the citations?) has its own suite, tests/test_citation_verify.py.
+    env["UNIFABLE_VERIFY_CITATIONS"] = "0"
     env["UNIFABLE_GRADE"] = grade
     env.update(env_extra)
     proc = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(payload),

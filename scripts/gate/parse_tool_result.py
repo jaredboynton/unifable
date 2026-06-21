@@ -18,6 +18,7 @@ exit_code.
 from __future__ import annotations
 
 import re
+import shlex
 from typing import Any
 
 from ledger import classify_path_kind, redact
@@ -83,6 +84,142 @@ def response_text(value: Any, limit: int = 4000) -> str:
 
     walk(value)
     return redact(" ".join(parts), limit)
+
+
+# ---------------------------------------------------------------------------
+# Citation-verification activity extractors (what the session ACTUALLY accessed)
+# ---------------------------------------------------------------------------
+# Used by gate_post_tool (live, into the ledger) AND citations.scan_transcript
+# (replaying a transcript). The structured tools (Read/Grep/Glob/WebFetch) are
+# trusted directly. Bash parsing is HARDENED against fabrication: comments are
+# stripped, and a read/fetch program only counts when it is the COMMAND of a
+# shell segment (its first token) -- never a string mentioned anywhere. So
+# `# cat secret.py`, `echo https://x`, and `awk 'BEGIN{print "/p"}'` register
+# NOTHING, while `cat f`, `cd x && grep p f`, `curl https://x` register the real
+# target. gate_post_tool additionally drops anything from a command that failed.
+
+# read-style programs with a clean `prog [flags] FILE...` shape. Script-taking
+# readers (awk/sed/jq/yq) are deliberately excluded: their first arg is code,
+# not a file, so path extraction would be fabricable.
+_READ_PROGS = {"cat", "bat", "head", "tail", "nl", "less", "more",
+               "grep", "egrep", "fgrep", "rg", "ag", "ack", "xmllint"}
+# grep-family: the first non-flag arg is the PATTERN, not a file -- skip it.
+_GREP_FAMILY = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
+# fetch-style programs (URL retrievers). Matched in command position only.
+_FETCH_PROGS = {"curl", "wget", "xh", "http", "https", "httpie", "lynx", "w3m"}
+_URL_IN_TEXT_RE = re.compile(r"https?://[^\s'\"|>;)]+", re.IGNORECASE)
+_SHELL_OPERATORS = {";", "|", "||", "&&", "&", ">", ">>", "<", "2>", "2>&1"}
+
+
+def _tokens(cmd: str) -> list[str]:
+    try:
+        return shlex.split(cmd)
+    except ValueError:
+        return cmd.split()
+
+
+def _command_segments(cmd: str) -> list[list[str]]:
+    """Tokenize a shell command with comments stripped, split into operator-
+    delimited segments (each a token list). `# ...` comments are removed so they
+    can never inject a phantom read/fetch."""
+    try:
+        toks = shlex.split(cmd, comments=True)
+    except ValueError:
+        toks = [t for t in cmd.split() if not t.startswith("#")]
+    segments: list[list[str]] = []
+    current: list[str] = []
+    for tok in toks:
+        if tok in _SHELL_OPERATORS:
+            if current:
+                segments.append(current)
+                current = []
+        else:
+            current.append(tok)
+    if current:
+        segments.append(current)
+    return segments
+
+
+def _bash_read_files(cmd: str) -> list[str]:
+    """File arguments of read-style commands, only when the program is in command
+    position. grep-family: the pattern arg is skipped. Flags, URLs, and code-shaped
+    tokens are ignored."""
+    out: list[str] = []
+    for seg in _command_segments(cmd):
+        if not seg:
+            continue
+        prog = seg[0].rsplit("/", 1)[-1]
+        if prog not in _READ_PROGS:
+            continue
+        skip_pattern = prog in _GREP_FAMILY
+        for arg in seg[1:]:
+            if arg.startswith("-") or arg in _SHELL_OPERATORS:
+                continue
+            if skip_pattern:
+                skip_pattern = False  # this token is the search pattern, not a file
+                continue
+            if "://" in arg:
+                continue
+            if "/" in arg or "." in arg:
+                out.append(arg)
+    return out
+
+
+def _bash_fetch_urls(cmd: str) -> list[str]:
+    """URLs of fetch-style commands, only when the program is in command position."""
+    out: list[str] = []
+    for seg in _command_segments(cmd):
+        if not seg:
+            continue
+        prog = seg[0].rsplit("/", 1)[-1]
+        if prog not in _FETCH_PROGS:
+            continue
+        for arg in seg[1:]:
+            out.extend(_URL_IN_TEXT_RE.findall(arg))
+    return out
+
+
+def read_targets(input_data: dict[str, Any]) -> list[str]:
+    """Files this tool call actually read: Read.file_path, Grep/Glob.path,
+    NotebookRead.notebook_path, and command-position read-style Bash."""
+    tool = str(input_data.get("tool_name") or "")
+    ti = input_data.get("tool_input")
+    out: list[str] = []
+    if isinstance(ti, dict):
+        if tool in ("Read", "Grep", "Glob", "NotebookRead"):
+            for key in ("file_path", "path", "notebook_path"):
+                value = ti.get(key)
+                if value:
+                    out.append(str(value))
+        if tool == "Bash":
+            out.extend(_bash_read_files(str(ti.get("command") or "")))
+    elif isinstance(ti, str) and tool == "Bash":
+        out.extend(_bash_read_files(ti))
+    return [p for p in out if p]
+
+
+def fetched_url_targets(input_data: dict[str, Any]) -> list[str]:
+    """URLs this tool call actually fetched: WebFetch.url + command-position fetch
+    Bash. WebSearch is excluded: a query is not proof a source was read."""
+    tool = str(input_data.get("tool_name") or "")
+    ti = input_data.get("tool_input")
+    out: list[str] = []
+    if isinstance(ti, dict):
+        if tool == "WebFetch" and ti.get("url"):
+            out.append(str(ti.get("url")))
+        if tool == "Bash":
+            out.extend(_bash_fetch_urls(str(ti.get("command") or "")))
+    elif isinstance(ti, str) and tool == "Bash":
+        out.extend(_bash_fetch_urls(ti))
+    return [u for u in out if u]
+
+
+def ran_command(input_data: dict[str, Any]) -> str | None:
+    """The Bash command this tool call executed (normalized), else None."""
+    if str(input_data.get("tool_name") or "") != "Bash":
+        return None
+    cmd = command_from_input(input_data).strip()
+    return cmd or None
 
 
 def command_from_input(input_data: dict[str, Any]) -> str:

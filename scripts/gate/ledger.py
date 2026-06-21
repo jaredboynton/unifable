@@ -40,6 +40,14 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "warning_count": 0,
     "warnings": [],
     "stop_blocks": 0,
+    # Citation-verification activity log: what the session ACTUALLY did, so the
+    # gate can cross-check that a spec's citations are real (see citations.py).
+    # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).
+    # fetched_urls: URLs actually fetched (WebFetch + curl/wget Bash).
+    # ran_commands: Bash commands actually executed.
+    "read_paths": [],
+    "fetched_urls": [],
+    "ran_commands": [],
     "last_updated": "",
 }
 
@@ -111,7 +119,8 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
     ledger = default_ledger()
     if isinstance(data, dict):
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
-    for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results", "failures", "warnings"):
+    for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
+                "failures", "warnings", "read_paths", "fetched_urls", "ran_commands"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     return ledger
@@ -147,6 +156,10 @@ def trim_ledger(ledger: dict[str, Any]) -> None:
         ledger[key] = values[:20]
     for key in ("verification_commands", "verification_results", "failures", "warnings"):
         ledger[key] = ledger.get(key, [])[-40:]
+    # Activity log: keep many more (citation cross-check needs the full session's
+    # reads/fetches/commands), but still bound it. Newest-last, dedup'd at write.
+    for key in ("read_paths", "fetched_urls", "ran_commands"):
+        ledger[key] = ledger.get(key, [])[-500:]
 
 
 def add_unique(ledger: dict[str, Any], key: str, values: list[str]) -> None:

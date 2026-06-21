@@ -28,6 +28,9 @@ def _key(prompt: str) -> str:
 def _run(hook: str, payload: dict, data_dir: str, grade: str | None = None) -> tuple[int, dict, str]:
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
+    # Breaker/keying harness: citation truth-checking is covered in
+    # tests/test_citation_verify.py; isolate it here.
+    env["UNIFABLE_VERIFY_CITATIONS"] = "0"
     if grade:
         env["UNIFABLE_GRADE"] = grade
     p = subprocess.run(

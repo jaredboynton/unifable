@@ -115,6 +115,26 @@ def main() -> int:
                     ok, reasons = validate_spec(spec, grade, require_evidence=True)
                     if not ok:
                         ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
+                    else:
+                        # Citation truth-check: every must_read / prior_art / acceptance
+                        # citation must be backed by real session activity, sourced from
+                        # the ledger UNION the transcript (which recurses sub-agent
+                        # transcripts, so research delegated to sub-agents counts).
+                        # require_commands=True: at completion the checks must have run.
+                        try:
+                            from citations import (activity_from_ledger, enabled,
+                                                   merge_activity, scan_transcript,
+                                                   verify_citations)
+                            if enabled():
+                                activity = merge_activity(
+                                    activity_from_ledger(load_ledger(input_data)),
+                                    scan_transcript(input_data.get("transcript_path")),
+                                )
+                                cited = verify_citations(spec, activity, cwd, require_commands=True)
+                                if cited:
+                                    ev_reason = "spec citations not backed by real activity: " + "; ".join(cited)
+                        except Exception:
+                            pass  # fail open
             if ev_reason:
                 # M3 holdout (env-gated, default off): 'off' arm skips the gate so
                 # the gate's effect can be measured against a pure baseline.
