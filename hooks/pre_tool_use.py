@@ -246,12 +246,47 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     return 0
 
 
+def _enforce_breaker(input_data: dict) -> int | None:
+    """Overconfidence/groundedness breaker. Runs the debounced gpt-realtime-2 judge
+    (<=1 call / 15s per session+prompt key) over the recent transcript. Returns a
+    _block() exit code carrying the steering prompt when a mutation tool
+    (Write/Edit/Bash) is blocked because the model asserted something confidently
+    without backing it up; returns None otherwise (reads/web are never blocked).
+    Fails open (returns None) on any error."""
+    try:
+        import time
+
+        from groundedness import evaluate as breaker_evaluate
+        from ledger import save_ledger
+
+        ledger = load_ledger(input_data)
+        active = str(ledger.get("active_task") or "")
+        block, steering = breaker_evaluate(input_data, ledger, time.time(), active)
+        save_ledger(input_data, ledger)
+        if block:
+            return _block(steering or (
+                "Groundedness breaker: you asserted something confidently without "
+                "backing it up. Your mutation tools (Write/Edit/Bash) are blocked "
+                "until you read the real evidence and cite it."
+            ))
+    except Exception:
+        return None  # fail open on any breaker/judge failure
+    return None
+
+
 def main() -> int:
     input_data = read_stdin_json()
 
     tool_name = str(input_data.get("tool_name") or "")
     tool_input = input_data.get("tool_input") or {}
     cwd = str(input_data.get("cwd") or os.getcwd())
+
+    # --- Overconfidence/groundedness breaker (runs on EVERY tool; judge debounced
+    #     to <=1 call / 15s per session+prompt). Blocks ONLY mutation tools when
+    #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free. ---
+    breaker_block = _enforce_breaker(input_data)
+    if breaker_block is not None:
+        return breaker_block
 
     # --- Write tools: protected paths + evidence gate (unconditional) ---
     if tool_name in WRITE_TOOLS:

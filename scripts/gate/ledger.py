@@ -48,6 +48,13 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "read_paths": [],
     "fetched_urls": [],
     "ran_commands": [],
+    # Overconfidence/groundedness breaker state (see groundedness.py). Debounced
+    # gpt-realtime-2 verdict, reused within JUDGE_WINDOW_SECONDS per session+prompt
+    # key. breaker_armed gates mutation tools (Write/Edit/Bash) until disarmed.
+    "breaker_key": "",
+    "breaker_judged_at": 0.0,
+    "breaker_armed": False,
+    "breaker_steering": "",
     "last_updated": "",
 }
 
