@@ -23,6 +23,7 @@ from citations import (  # noqa: E402
     url_was_fetched,
     verify_citations,
 )
+from groundedness import activity_total  # noqa: E402
 from ledger import load_ledger  # noqa: E402
 from parse_tool_result import fetched_url_targets, read_targets  # noqa: E402
 
@@ -134,6 +135,25 @@ def _run(hook, payload, data_dir, grade="STANDARD"):
 def _record(data_dir, sess, cwd, tool, tool_input):
     _run("gate_post_tool.py", {"tool_name": tool, "tool_input": tool_input,
                                "session_id": sess, "cwd": cwd}, data_dir)
+
+
+def test_post_tool_records_generic_tool_result_activity():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        sess = "GENERIC"
+        payload = {
+            "tool_name": "mcp__octocode__githubGetFileContent",
+            "tool_input": {"queries": [{"path": "src/x.py"}]},
+            "tool_response": {"content": [{"text": "LLMModelFactory registers gemma4_text"}]},
+            "session_id": sess,
+            "cwd": cwd,
+        }
+        rc, _out, err = _run("gate_post_tool.py", payload, dd)
+        assert rc == 0, err
+        os.environ["UNIFABLE_DATA"] = dd
+        ledger = load_ledger({"session_id": sess, "cwd": cwd})
+        observed = ledger.get("observed_tool_results", [])
+        assert any("mcp__octocode__githubGetFileContent" in item for item in observed)
+        assert activity_total(ledger) == 1
 
 
 def _create_spec(cwd, task_id, repo_context, prior_art):

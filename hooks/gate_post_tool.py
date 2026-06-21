@@ -23,6 +23,7 @@ from parse_tool_result import (
     ran_command,
     read_targets,
     repeated_failure,
+    response_text,
     verification_record,
 )
 
@@ -52,6 +53,11 @@ def main() -> int:
     reads = [_abs(p, cwd) for p in read_targets(input_data)] if executed_ok else []
     fetched = fetched_url_targets(input_data) if executed_ok else []
     ran = ran_command(input_data) if executed_ok else None
+    tool_name = str(input_data.get("tool_name") or "unknown")
+    observed = (
+        f"{tool_name}: {response_text(input_data.get('tool_response', input_data), 180)}"
+        if executed_ok else ""
+    )
 
     def apply(ledger):
         if kinds:
@@ -69,6 +75,8 @@ def main() -> int:
             add_unique(ledger, "fetched_urls", fetched)
         if ran:
             add_unique(ledger, "ran_commands", [ran])
+        if observed:
+            ledger["observed_tool_results"].append(observed)
 
     ledger = update_ledger(input_data, apply)
 

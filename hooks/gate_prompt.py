@@ -16,13 +16,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
 from classify_task import classify_prompt, context_for_mode, grade_of
-from spec import all_tasks_validated, load_spec
+from spec import all_tasks_validated, load_spec, save_spec, spec_path, spec_template
 
 
 def _prompt_key(prompt: str) -> str:
     """Stable per-task key = sha256(prompt) prefix. Specs are keyed by this, so a
     distinct prompt seeds a distinct spec (multiple specs per session)."""
     return hashlib.sha256(prompt.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _seed_goal(prompt: str, limit: int = 280) -> str:
+    """Best-effort restated_goal for the scaffold: the trimmed prompt. The agent
+    refines it; the gate only requires a non-empty string."""
+    g = " ".join((prompt or "").split())
+    return g[:limit]
+
+
+def _ensure_spec_scaffold(cwd: str, key: str, prompt: str) -> str:
+    """Auto-create the evidence spec (the agent never runs `create`). Writes a
+    scaffold with `requires_tasks` so an empty spec is not completable, seeds the
+    goal from the prompt, and returns the spec path for injection. Fail-open:
+    returns "" on any error and never raises into the hook."""
+    try:
+        path = spec_path(cwd, key)
+        if not path.exists():
+            s = spec_template()
+            s["restated_goal"] = _seed_goal(prompt)
+            s["acceptance_criteria"] = []
+            s["repo_context"] = []
+            s["prior_art"] = []
+            s["tasks"] = []
+            s["requires_tasks"] = True  # empty spec must gain >=1 requirement to complete
+            save_spec(cwd, key, s)
+        return str(path)
+    except Exception:
+        return ""
 
 
 def main() -> int:
@@ -60,13 +88,35 @@ def main() -> int:
         ledger["stop_blocks"] = 0
         add_unique(ledger, "risk_flags", risks)
 
-    update_ledger(input_data, apply)
+    ledger = update_ledger(input_data, apply)
+
+    context = context_for_mode(mode, risks)
+
+    # Auto-create the evidence spec on the hook path for non-trivial work, and tell
+    # the agent how to drive it (append-only: add requirements + evidence; dispute
+    # the impossible; never edit the JSON). LIGHT work is waived (no spec).
+    if grade_of(mode) != "LIGHT":
+        key = ledger.get("active_task") or new_key
+        path = _ensure_spec_scaffold(cwd, key, prompt)
+        if path:
+            context += (
+                f"\n\nunifable: evidence spec auto-created at {path}. Drive it via the "
+                f"append-only CLI (never edit the JSON):\n"
+                f"  - add a requirement: python3 scripts/gate/spec.py add-task --task-id {key} "
+                f"--title '<requirement>' --check '<runnable check>'\n"
+                f"  - add evidence: python3 scripts/gate/spec.py cite --task-id {key} "
+                f"--repo-context 'path:line::why' --prior-art '<url>::why'\n"
+                f"  - submit a requirement: python3 scripts/gate/spec.py deliver --task-id {key} --task <id>; "
+                f"then validate-task --task-id {key} --task <id> (the judge decides)\n"
+                f"  - if a requirement is genuinely impossible: python3 scripts/gate/spec.py dispute "
+                f"--task-id {key} --task <id> --evidence '<proof>' (the judge adjudicates; only it can retract)"
+            )
 
     emit_json(
         {
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
-                "additionalContext": context_for_mode(mode, risks),
+                "additionalContext": context,
             }
         }
     )

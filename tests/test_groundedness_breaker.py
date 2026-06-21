@@ -298,6 +298,53 @@ def test_transcript_segment_reads_path(tmp_path):
     )
     seg = gb.transcript_segment({"transcript_path": str(f)})
     assert "the fix is X" in seg and "ran probe" in seg
+    assert '<record line="000001" type="assistant" role="assistant"' in seg
+    assert "[tool_result]" in seg
+
+
+def test_transcript_segment_preserves_full_tool_call_and_result(tmp_path):
+    import json
+    f = tmp_path / "t.jsonl"
+    tool_input_tail = "INPUT_TAIL_" + ("x" * 700)
+    tool_result_tail = "RESULT_TAIL_" + ("y" * 900)
+    f.write_text(
+        json.dumps({
+            "type": "assistant",
+            "message": {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "tool_use",
+                        "name": "Bash",
+                        "input": {"command": "echo " + tool_input_tail},
+                    }
+                ],
+            },
+        }) + "\n" +
+        json.dumps({
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [
+                    {"type": "tool_result", "content": "output " + tool_result_tail}
+                ],
+            },
+        }) + "\n",
+        encoding="utf-8",
+    )
+    seg = gb.transcript_segment({"transcript_path": str(f)})
+    assert "[tool_use name=Bash]" in seg
+    assert "[tool_result]" in seg
+    assert tool_input_tail in seg
+    assert tool_result_tail in seg
+
+
+def test_transcript_segment_tails_by_token_budget(tmp_path):
+    f = tmp_path / "t.jsonl"
+    f.write_text("old0 old1 old2 keep3 keep4 keep5", encoding="utf-8")
+    seg = gb.transcript_segment({"transcript_path": str(f)}, max_tokens=5)
+    assert "old0" not in seg
+    assert "keep5" in seg
 
 
 def test_transcript_segment_missing_is_empty():

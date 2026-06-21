@@ -68,6 +68,10 @@ CASES = [
     ("Grep result lines containing 'N failed'",
         {"tool_name": "Grep", "tool_input": {"pattern": "failed", "path": "."},
          "tool_response": "app.log:3: 2 failed retries logged"}, False),
+    ("MCP tool output mentioning Traceback and exit code 1 as data",
+        {"tool_name": "mcp__octocode__githubGetFileContent",
+         "tool_input": {"queries": [{"path": "README.md"}]},
+         "tool_response": "docs show Traceback (most recent call last) and exit code 1 examples"}, False),
 
     # --- REAL Claude Code Bash shape: structured {stdout,stderr,interrupted}, no
     #     exit code. PostToolUse fires only on success, so markers here are DATA. ---

@@ -29,11 +29,12 @@ Disable with UNIFABLE_BREAKER=0. Cap override: UNIFABLE_BREAKER_MAX_BLOCKS.
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
 from typing import Any, Callable
+
+from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
 
 # Mutation tools the breaker can block: writes, edits, bash (both hosts: Claude
 # Code Edit/Write/MultiEdit/NotebookEdit + Bash, Codex apply_patch). WebSearch,
@@ -46,8 +47,10 @@ JUDGE_WINDOW_SECONDS = 15
 # Consecutive blocks on one arm before the breaker fails open (escape hatch).
 BREAKER_MAX_BLOCKS_DEFAULT = 3
 
-# How much recent transcript the judge sees (~30k tokens of tail).
-_SEGMENT_CHARS = 120_000
+# How much recent transcript the judge sees. Render the host JSONL into stripped
+# line-addressed records so the judge sees user messages, assistant messages,
+# tool calls, and tool results without raw JSON clutter or per-field truncation.
+_TRANSCRIPT_TOKEN_BUDGET = TRANSCRIPT_TOKEN_BUDGET
 
 _JUDGE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -223,53 +226,17 @@ def locate_transcript(input_data: dict) -> str | None:
     return None
 
 
-def _flatten_content(content: Any) -> str:
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        out: list[str] = []
-        for block in content:
-            if isinstance(block, str):
-                out.append(block)
-            elif isinstance(block, dict):
-                btype = block.get("type")
-                if btype == "text" and block.get("text"):
-                    out.append(str(block["text"]))
-                elif btype == "tool_use":
-                    out.append(f"<tool_use {block.get('name')} {json.dumps(block.get('input', {}))[:300]}>")
-                elif btype == "tool_result":
-                    out.append(f"<tool_result {_flatten_content(block.get('content'))[:600]}>")
-        return " ".join(out)
-    return ""
+def transcript_segment(input_data: dict, max_tokens: int = _TRANSCRIPT_TOKEN_BUDGET) -> str:
+    """Stripped tail of the session transcript. Empty string on any miss.
 
-
-def transcript_segment(input_data: dict, max_chars: int = _SEGMENT_CHARS) -> str:
-    """The tail of the session transcript as text. Empty string on any miss."""
+    The breaker judges a readable rendering of the host transcript:
+    user/assistant messages, tool calls, tool results, and host metadata stay in
+    view up to the last 50k tokens without raw JSON framing.
+    """
     path = locate_transcript(input_data)
     if not path:
         return ""
-    parts: list[str] = []
-    try:
-        raw = Path(path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
-    for line in raw.splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            entry = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(entry, dict):
-            continue
-        msg = entry.get("message")
-        role = entry.get("type") or (msg.get("role") if isinstance(msg, dict) else "") or "?"
-        content = msg.get("content") if isinstance(msg, dict) else None
-        text = _flatten_content(content)
-        if text.strip():
-            parts.append(f"[{role}] {text}")
-    return "\n".join(parts)[-max_chars:]
+    return stripped_transcript_tail(path, max_tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -357,11 +324,13 @@ def should_judge(state: dict, key: str, now: float, window: float = JUDGE_WINDOW
 
 def activity_total(state: dict) -> int:
     """Count of grounding actions logged in the ledger (read_paths + fetched_urls
-    + ran_commands). Grows as the model reads, fetches and runs commands."""
+    + ran_commands + observed_tool_results). Grows as the model reads, fetches,
+    runs commands, or receives successful plugin/MCP/app tool results."""
     return (
         len(state.get("read_paths") or [])
         + len(state.get("fetched_urls") or [])
         + len(state.get("ran_commands") or [])
+        + len(state.get("observed_tool_results") or [])
     )
 
 

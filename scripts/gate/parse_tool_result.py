@@ -68,6 +68,7 @@ WRITE_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 # WRITE_TOOLS. Scanning them was double trouble: a spurious "tool failure" message
 # AND silently dropping the read/fetch from the citation ledger.
 CONTENT_TOOLS = {"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead"}
+COMMAND_RESULT_TOOLS = {"Bash", "apply_patch"}
 
 # A host-reported exit status embedded in command output (Claude Code prefixes Bash
 # output with "Bash exited with code N"). Authoritative when present.
@@ -314,7 +315,7 @@ def detect_failure(input_data: dict[str, Any]) -> dict[str, Any] | None:
     text = response_text(input_data.get("tool_response", input_data))
     # Never text-scan file-write or content tools: their response is data, not a
     # command result. Only a structured error signal can mark them failed.
-    no_scan = tool_name in WRITE_TOOLS or tool_name in CONTENT_TOOLS
+    no_scan = tool_name in WRITE_TOOLS or tool_name in CONTENT_TOOLS or tool_name not in COMMAND_RESULT_TOOLS
     success = exit_success(input_data, text, scan_text=not no_scan)
     if success is False:
         return {"kind": "tool-result", "summary": redact(text or command_from_input(input_data), 240)}

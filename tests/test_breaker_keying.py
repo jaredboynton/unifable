@@ -114,27 +114,32 @@ def test_breaker_blocks_until_validated():
         assert "breaker" not in (out2.get("reason") or "").lower()
 
 
-def test_impl_edit_allowed_after_cli_create():
-    """No-brick: spec.py create authors a gate-valid task-spec, then an impl edit
-    on the active task is allowed (rc 0)."""
+def test_impl_edit_allowed_after_appendonly_spec():
+    """No-brick: the hook auto-creates the spec; the agent fills it append-only
+    (add-task + cite) into a gate-valid task-spec, then an impl edit on the active
+    task is allowed (rc 0). Creation is the hook's job -- the agent never runs create."""
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess, prompt = "S3", "fix the parser bug"
         _run("gate_prompt.py", {"prompt": prompt, "session_id": sess, "cwd": cwd}, dd)
         key = _key(prompt)
-        r = subprocess.run(
-            [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), "create",
-             "--root", cwd, "--task-id", key, "--goal", "fix the parser bug",
-             "--task", "parser handles empty input::true",
-             "--repo-context", "src/parser.py:10::where parsing starts",
-             "--prior-art", "http://example.com/grammar::grammar reference"],
-            capture_output=True, text=True,
-        )
-        assert r.returncode == 0, r.stderr
+
+        def _spec(*a):
+            return subprocess.run(
+                [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), *a,
+                 "--root", cwd, "--task-id", key],
+                capture_output=True, text=True,
+            )
+
+        r1 = _spec("add-task", "--title", "parser handles empty input", "--check", "true")
+        assert r1.returncode == 0, r1.stderr
+        r2 = _spec("cite", "--repo-context", "src/parser.py:10::where parsing starts",
+                   "--prior-art", "http://example.com/grammar::grammar reference")
+        assert r2.returncode == 0, r2.stderr
         payload = {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
                    "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py"),
                                   "old_string": "a", "new_string": "b"}}
         rc, out, stderr = _run("pre_tool_use.py", payload, dd, grade="STANDARD")
-        assert rc == 0, f"impl edit should be allowed after CLI spec create; stderr={stderr}"
+        assert rc == 0, f"impl edit should be allowed after append-only spec authoring; stderr={stderr}"
 
 
 if __name__ == "__main__":

@@ -46,9 +46,12 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).
     # fetched_urls: URLs actually fetched (WebFetch + curl/wget Bash).
     # ran_commands: Bash commands actually executed.
+    # observed_tool_results: successful PostToolUse events not otherwise captured;
+    # used only as breaker release activity for plugin/MCP/app tools.
     "read_paths": [],
     "fetched_urls": [],
     "ran_commands": [],
+    "observed_tool_results": [],
     # Overconfidence/groundedness breaker state (see groundedness.py). The strict
     # ARM judge is debounced per session+prompt key; once armed, a separate
     # claim-bound release check disarms it after new grounding activity appears.
@@ -139,7 +142,7 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
     for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
                 "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
-                "breaker_adjudicated_claims"):
+                "observed_tool_results", "breaker_adjudicated_claims"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     return ledger
@@ -177,7 +180,7 @@ def trim_ledger(ledger: dict[str, Any]) -> None:
         ledger[key] = ledger.get(key, [])[-40:]
     # Activity log: keep many more (citation cross-check needs the full session's
     # reads/fetches/commands), but still bound it. Newest-last, dedup'd at write.
-    for key in ("read_paths", "fetched_urls", "ran_commands"):
+    for key in ("read_paths", "fetched_urls", "ran_commands", "observed_tool_results"):
         ledger[key] = ledger.get(key, [])[-500:]
 
 

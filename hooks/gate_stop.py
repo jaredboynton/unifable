@@ -32,9 +32,10 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "shadow"))
 
 from atomicio import write_text_atomic
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
+from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
 from verify_state import MAX_STOP_BLOCKS, should_block_stop, warning_after_max_blocks
 
-GOAL_TRANSCRIPT_CHARS = 60_000
+GOAL_TRANSCRIPT_TOKENS = TRANSCRIPT_TOKEN_BUDGET
 try:
     GOAL_STOP_BLOCK_CAP = int(os.environ.get("UNIFABLE_GOAL_STOP_BLOCK_CAP", "8"))
 except ValueError:
@@ -124,52 +125,13 @@ def _last_assistant_text_and_tool(transcript_path: str | None) -> tuple[str, boo
     return last_text, last_had_tool
 
 
-def _text_from_content(content) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    if not isinstance(content, list):
-        return ""
-    parts: list[str] = []
-    for block in content:
-        if not isinstance(block, dict):
-            continue
-        btype = block.get("type")
-        if btype in {"text", "input_text", "output_text"} and block.get("text"):
-            parts.append(str(block.get("text")).strip())
-        elif btype == "tool_use":
-            name = block.get("name") or "tool"
-            parts.append(f"[tool_use: {name}]")
-        elif btype == "tool_result":
-            text = block.get("content") or block.get("text") or ""
-            if text:
-                parts.append(f"[tool_result] {str(text)[:1000]}")
-    return "\n".join(p for p in parts if p)
-
-
 def _transcript_for_goal_judge(transcript_path: str | None, input_data: dict) -> str:
-    lines: list[str] = []
-    path = Path(transcript_path) if transcript_path else None
-    if path and path.is_file():
-        with path.open(encoding="utf-8") as fh:
-            for raw in fh:
-                raw = raw.strip()
-                if not raw:
-                    continue
-                try:
-                    obj = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                msg = obj.get("message", obj)
-                role = msg.get("role") or obj.get("type") or "entry"
-                text = _text_from_content(msg.get("content"))
-                if text:
-                    lines.append(f"{role}: {text}")
-    elif input_data.get("last_assistant_message"):
-        lines.append(f"assistant: {input_data.get('last_assistant_message')}")
-    text = "\n\n".join(lines).strip() or "(no transcript available)"
-    if len(text) > GOAL_TRANSCRIPT_CHARS:
-        text = "[transcript truncated to recent messages]\n" + text[-GOAL_TRANSCRIPT_CHARS:]
-    return text
+    text = stripped_transcript_tail(transcript_path, GOAL_TRANSCRIPT_TOKENS)
+    if text.strip():
+        return text
+    if input_data.get("last_assistant_message"):
+        return f"assistant: {input_data.get('last_assistant_message')}"
+    return "(no transcript available)"
 
 
 def _goals_path(cwd: str | Path) -> Path:

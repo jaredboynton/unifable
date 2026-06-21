@@ -28,6 +28,15 @@ ALLOWED = [
     "env FOO=bar ./trace.sh",
     "ls && rg foo",
     "ls | rg foo",
+    # Append-only spec CLI: the agent drives the evidence spec through these
+    # subcommands before the gate unlocks. Creation is automatic (hook) and
+    # removal is judge-only, so create/init/--force are NOT allowed (see BLOCKED).
+    "python3 scripts/gate/spec.py add-task --task-id x --title t --check true",
+    "python3 ./scripts/gate/spec.py validate-task --task-id x --task T1",
+    "python3 scripts/gate/spec.py dispute --task-id x --task T1 --evidence proof",
+    "python3 scripts/gate/spec.py status --task-id x",
+    "python3 scripts/gate/spec.py cite --task-id x --repo-context a.py:1::why",
+    "python3 /Users/me/repo/scripts/gate/spec.py validate --task-id x --grade STANDARD",
 ]
 
 BLOCKED = [
@@ -37,7 +46,15 @@ BLOCKED = [
     "head -20 f",
     "grep -r foo .",
     "find . -name '*.py'",
-    "python3 scripts/gate/spec.py create --task-id x",
+    # Forbidden spec CLI: creation is automatic, removal is judge-only.
+    "python3 scripts/gate/spec.py create --task-id x --goal g",
+    "python3 scripts/gate/spec.py init --task-id x",
+    "python3 scripts/gate/spec.py add-task --task-id x --force",
+    # Scoped to the gate's own spec.py; an arbitrary python script stays blocked.
+    "python3 evil.py",
+    "python3 scripts/gate/other.py status",
+    "python3 /tmp/spec.py validate-task --task-id x --task T1",
+    "python3 scripts/gate/spec.py validate-task --task-id x && cat /etc/passwd",
     "pytest tests/ -q",
     "npm test",
     "git diff --stat",

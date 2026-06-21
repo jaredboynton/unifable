@@ -462,7 +462,7 @@ def test_non_whitelisted_bash_blocks_without_spec():
     assert rc == 2
     assert "Allowed before unlock" in stderr
     assert "ls, glob, rg" in stderr
-    assert "valid task spec" in stderr
+    assert "append-only" in stderr
 
 
 def test_task_agent_block_without_spec():
@@ -1070,6 +1070,27 @@ def test_goal_stop_uses_prompt_judge_and_blocks_when_unsatisfied():
         assert out and out.get("decision") == "block"
         assert "Stop hook feedback" in out.get("reason", "")
         assert "missing check output" in out.get("reason", "")
+
+
+def test_goal_judge_transcript_preserves_stripped_tool_call_and_result():
+    with tempfile.TemporaryDirectory() as td:
+        transcript = Path(td) / "session.jsonl"
+        long_input = "GOAL_INPUT_TAIL_" + ("i" * 700)
+        long_result = "GOAL_RESULT_TAIL_" + ("r" * 1200)
+        _write_transcript(
+            transcript,
+            [
+                {"type": "text", "text": "Running the final check."},
+                {"type": "tool_use", "id": "tool-1", "name": "Bash", "input": {"command": "echo " + long_input}},
+                {"type": "tool_result", "content": "check output " + long_result},
+            ],
+        )
+
+        text = gate_stop._transcript_for_goal_judge(str(transcript), {})
+        assert long_input in text
+        assert long_result in text
+        assert '<record line="000001" type="assistant" role="assistant"' in text
+        assert "[tool_use name=Bash]" in text and "[tool_result]" in text
 
 
 def test_goal_stop_marks_current_goal_complete_when_judge_passes():

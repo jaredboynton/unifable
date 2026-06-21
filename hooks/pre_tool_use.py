@@ -186,12 +186,13 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
     if spec is None:
-        sp = spec_path(cwd, task_id)
         return _block(
-            f"no spec artifact found for task '{task_id}' (grade={grade}). "
-            "Specs are CLI-only -- create one with: python3 scripts/gate/spec.py "
-            f"create --task-id {task_id} --goal '<restated goal>' "
-            "--task 'title::<runnable check>' --repo-context 'path:line::why' --prior-art '<url>::why'. "
+            f"no evidence spec for task '{task_id}' (grade={grade}). The spec is "
+            "auto-created on the hook path; build it through the append-only CLI "
+            "(never edit the JSON, never run create):\n"
+            f"  python3 scripts/gate/spec.py add-task --task-id {task_id} --title '<requirement>' --check '<runnable check>'\n"
+            f"  python3 scripts/gate/spec.py cite --task-id {task_id} --repo-context 'path:line::why' --prior-art '<url>::why'\n"
+            f"  python3 scripts/gate/spec.py deliver --task-id {task_id} --task <id>; then validate-task (the judge decides). "
             f"{contract_string(grade, True)}"
         )
 
@@ -241,9 +242,9 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
         return _block(
             f"Bash command blocked before evidence spec validation: {why}. "
             f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
-            f"To unblock other Bash commands, create a valid task spec at {sp} through the trusted "
-            "spec workflow, with repo_context {cite,why}, acceptance_criteria with live output, "
-            "and prior_art {cite,why}; once that spec validates, retry the command."
+            f"To unblock other Bash, fill the auto-created spec at {sp} through the append-only "
+            f"CLI: add-task (>=1 requirement), cite (repo_context + prior_art), then deliver + "
+            "validate-task until the judge validates it. Never edit the JSON; never run create."
         )
 
     emit_json({})
@@ -270,9 +271,8 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         f"{tool_name} is blocked before evidence spec validation so delegated work cannot bypass "
         "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
         f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
-        f"Bash, create a valid task spec at {sp} through the trusted spec workflow, with repo_context "
-        "{cite,why}, acceptance_criteria with live output, and prior_art {cite,why}; once that spec "
-        "validates, retry."
+        f"Bash, fill the auto-created spec at {sp} through the append-only CLI (add-task, cite, "
+        "deliver, validate-task) until the judge validates it; never edit the JSON, never run create."
     )
 
 

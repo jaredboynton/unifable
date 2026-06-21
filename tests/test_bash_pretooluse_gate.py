@@ -131,6 +131,20 @@ def test_test_after_edit_does_not_match_bash():
         assert not re.match(matcher, "Bash"), f"{host}: test_after_edit wrongly matches 'Bash'"
 
 
+def test_both_manifests_route_all_post_tool_results_to_gate_post_tool():
+    """gate_post_tool must see every successful tool result, including MCP tool
+    output, or the breaker/judge can miss evidence that already appeared in the
+    transcript."""
+    for host, path in MANIFESTS.items():
+        matcher = _post_tool_matcher(path, "gate_post_tool.py")
+        assert matcher is not None, f"{host}: gate_post_tool is not wired on PostToolUse"
+        for tool in ("Read", "WebFetch", "Bash", "mcp__octocode__githubGetFileContent"):
+            assert re.match(matcher, tool), (
+                f"{host}: gate_post_tool matcher {matcher!r} drops {tool!r} -- "
+                "tool results from that tool will not log"
+            )
+
+
 # ---------------------------------------------------------------------------
 # Behavior: the deny survives YOLO and is permission-mode independent
 # ---------------------------------------------------------------------------

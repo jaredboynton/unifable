@@ -40,7 +40,7 @@ from parse_tool_result import (
     ran_command,
     read_targets,
 )
-from spec import repo_context_parts, prior_art_parts
+from spec import repo_context_parts, prior_art_parts, repo_context_of
 
 try:
     from urllib.parse import urlsplit
@@ -183,7 +183,7 @@ def verify_citations(
     fetched = activity.get("fetched_urls", []) or []
     ran = activity.get("ran_commands", []) or []
 
-    for i, item in enumerate(spec.get("repo_context") or []):
+    for i, item in enumerate(repo_context_of(spec)):
         cite, _why = repo_context_parts(item)
         if cite and not path_was_read(cite, read_paths, cwd):
             reasons.append(

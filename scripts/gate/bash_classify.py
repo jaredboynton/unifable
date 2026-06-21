@@ -13,10 +13,21 @@ from __future__ import annotations
 import re
 import shlex
 
-ALLOWED_RESEARCH_BASH = "ls, glob, rg, or running any file named trace.sh"
+ALLOWED_RESEARCH_BASH = (
+    "ls, glob, rg, running any file named trace.sh, or the append-only spec CLI "
+    "(python3 scripts/gate/spec.py add-task|cite|deliver|validate-task|dispute|status|validate|contract)"
+)
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
+_PY_INTERPRETERS = frozenset({"python", "python3"})
+# The agent may drive the evidence spec ONLY through these append-only subcommands.
+# Creation is automatic (the gate_prompt hook), and removal is judge-only, so
+# `create`/`init` and any `--force` are NOT here -- they would let the agent
+# overwrite or wipe a spec. dispute records an impossibility claim (judge-adjudicated).
+_SPEC_APPEND_SUBCMDS = frozenset({
+    "add-task", "cite", "deliver", "validate-task", "dispute", "status", "validate", "contract",
+})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _SPLIT_RE = re.compile(r"\|\||&&|\||;|\n")
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -53,6 +64,45 @@ def _trace_target_from_interpreter(rest: list[str]) -> str:
     return ""
 
 
+def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
+    """Classify a `python[3] ...` segment that may invoke the gate's spec CLI.
+
+    rest = tokens after the interpreter. Returns:
+      (True, "")        -> an append-only scripts/gate/spec.py invocation: allow.
+      (False, <reason>) -> it IS scripts/gate/spec.py but a forbidden subcommand
+                           or carries --force: block with a specific reason.
+      (False, "")       -> not the spec CLI at all: caller blocks generically.
+    """
+    # The script path is the first non-flag token after the interpreter.
+    script = ""
+    script_idx = -1
+    for i, tok in enumerate(rest):
+        if tok == "--" or tok.startswith("-"):
+            continue
+        script, script_idx = tok, i
+        break
+    if not script.replace("\\", "/").endswith("scripts/gate/spec.py"):
+        return False, ""  # not the spec CLI
+
+    if "--force" in rest:
+        return False, ("spec.py --force is not allowed: the agent cannot overwrite or "
+                       "remove a spec (creation is automatic, removal is judge-only).")
+    # Subcommand = first non-flag token after the script path.
+    sub = ""
+    for tok in rest[script_idx + 1:]:
+        if tok.startswith("-"):
+            continue
+        sub = tok
+        break
+    if sub in _SPEC_APPEND_SUBCMDS:
+        return True, ""
+    return False, (
+        f"spec.py '{sub or '<none>'}' is not an append-only subcommand "
+        "(creation is automatic, removal is judge-only). Allowed: "
+        f"{', '.join(sorted(_SPEC_APPEND_SUBCMDS))}."
+    )
+
+
 def _allowed_segment(seg: str) -> tuple[bool, str]:
     try:
         tokens = shlex.split(seg)
@@ -72,6 +122,12 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
         return True, ""
     if base in _TRACE_INTERPRETERS and _basename(_trace_target_from_interpreter(rest)) == "trace.sh":
         return True, ""
+    if base in _PY_INTERPRETERS:
+        ok, reason = _spec_cli_segment(rest)
+        if ok:
+            return True, ""
+        if reason:  # it is the spec CLI, but a forbidden invocation
+            return False, reason
     return False, f"{base} is not in the Bash research whitelist"
 
 
