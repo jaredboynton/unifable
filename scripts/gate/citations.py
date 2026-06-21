@@ -3,7 +3,7 @@
 
 validate_spec (spec.py) checks citation FORMAT (path:line, url, why, no fake
 markers). This module checks their TRUTH against what the session actually did:
-- must_read 'path:line'   -> that file was actually Read/grepped this session
+- repo_context 'path:line'   -> that file was actually Read/grepped this session
 - prior_art 'url'         -> that URL was actually fetched (WebFetch/curl) this session
 - acceptance 'check' cmd  -> that command was actually executed (Bash) this session
 
@@ -40,7 +40,7 @@ from parse_tool_result import (
     ran_command,
     read_targets,
 )
-from spec import must_read_parts, prior_art_parts
+from spec import repo_context_parts, prior_art_parts
 
 try:
     from urllib.parse import urlsplit
@@ -183,11 +183,11 @@ def verify_citations(
     fetched = activity.get("fetched_urls", []) or []
     ran = activity.get("ran_commands", []) or []
 
-    for i, item in enumerate(spec.get("must_read") or []):
-        cite, _why = must_read_parts(item)
+    for i, item in enumerate(spec.get("repo_context") or []):
+        cite, _why = repo_context_parts(item)
         if cite and not path_was_read(cite, read_paths, cwd):
             reasons.append(
-                f"must_read[{i}] cites {cite!r} but that file was never read this session -- "
+                f"repo_context[{i}] cites {cite!r} but that file was never read this session -- "
                 "read it (Read/grep) before citing it (the gate verifies citations against "
                 "actual tool activity; you cannot cite what you did not open)."
             )

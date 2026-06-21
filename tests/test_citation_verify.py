@@ -102,7 +102,7 @@ def test_command_match_segments_and_token_prefix():
 
 def test_verify_citations_all_backed_and_none_backed():
     spec = {
-        "must_read": [{"cite": "a.py:1", "why": "x"}],
+        "repo_context": [{"cite": "a.py:1", "why": "x"}],
         "prior_art": [{"cite": "https://d.io/p", "why": "y"}],
         "acceptance_criteria": [{"check": "pytest -q", "evidence": "ok"}],
     }
@@ -136,10 +136,10 @@ def _record(data_dir, sess, cwd, tool, tool_input):
                                "session_id": sess, "cwd": cwd}, data_dir)
 
 
-def _create_spec(cwd, task_id, must_read, prior_art):
+def _create_spec(cwd, task_id, repo_context, prior_art):
     args = [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), "create",
             "--root", cwd, "--task-id", task_id, "--goal", "wire citation verify",
-            "--task", "smoke::true", "--must-read", must_read, "--prior-art", prior_art]
+            "--task", "smoke::true", "--repo-context", repo_context, "--prior-art", prior_art]
     return subprocess.run(args, capture_output=True, text=True)
 
 
@@ -163,7 +163,7 @@ def test_pre_tool_use_allows_when_citations_backed():
         assert rc == 0, f"backed citations should allow the edit; stderr={err}"
 
 
-def test_pre_tool_use_blocks_unread_must_read():
+def test_pre_tool_use_blocks_unread_repo_context():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "CBM"
         url = "https://docs.example.com/guide"
@@ -173,7 +173,7 @@ def test_pre_tool_use_blocks_unread_must_read():
         rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
                              "tool_input": {"file_path": str(Path(cwd) / "impl.py"),
                                             "old_string": "a", "new_string": "b"}}, dd)
-        assert rc == 2, "unread must_read citation must block the edit"
+        assert rc == 2, "unread repo_context citation must block the edit"
         assert "never read" in err.lower(), err
 
 

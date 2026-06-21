@@ -67,7 +67,7 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
         "description": "What is explicitly out of scope.",
     },
     # evidence-gate citation fields (required only when require_evidence=True)
-    "must_read": {
+    "repo_context": {
         "type": list,
         "required": False,
         "description": "CODE evidence: 'path:line' citations the model actually read before deciding.",
@@ -161,8 +161,8 @@ def is_source_url(s: str) -> bool:
     return isinstance(s, str) and bool(_URL_RE.match(s.strip()))
 
 
-def must_read_parts(item: Any) -> tuple[str, str]:
-    """Return (cite, why) for a must_read entry.
+def repo_context_parts(item: Any) -> tuple[str, str]:
+    """Return (cite, why) for a repo_context entry.
 
     Accepts the required object form {'cite': 'path:line', 'why': '<why relevant>'}.
     A bare 'path:line' string yields (string, '') so the missing-why check fires."""
@@ -195,7 +195,7 @@ def validate_spec(
     """Validate *spec* against the requirements for *grade*.
 
     When *require_evidence* is True (how the hooks always call it), the spec must
-    also carry citation evidence at STANDARD+: 'must_read' (>=1 {cite: 'path:line',
+    also carry citation evidence at STANDARD+: 'repo_context' (>=1 {cite: 'path:line',
     why: '<why relevant>'}) and 'prior_art' (>=1 {cite: 'http(s)://...', why:
     '<why relevant>'}). This makes the spec the documented evidence that unlocks action.
 
@@ -259,42 +259,42 @@ def validate_spec(
             reasons.append("HEAVY grade requires 'rejected_alternatives' (list, >=2 items).")
 
     # Evidence gate: citation fields become required at STANDARD+ (LIGHT is exempt
-    # because LIGHT waives the spec entirely upstream). Each must_read citation must
+    # because LIGHT waives the spec entirely upstream). Each repo_context citation must
     # carry a 'why relevant' rationale, and prior_art (research/frontier evidence) is
     # required from STANDARD up.
     if require_evidence and grade in ("STANDARD", "HEAVY"):
-        must_read = spec.get("must_read")
-        if not isinstance(must_read, list) or not must_read:
+        repo_context = spec.get("repo_context")
+        if not isinstance(repo_context, list) or not repo_context:
             reasons.append(
-                "evidence gate: 'must_read' is required (list, >=1 "
+                "evidence gate: 'repo_context' is required (list, >=1 "
                 "{cite: 'path:line', why: 'why this passage is relevant'})."
             )
         else:
-            for idx, item in enumerate(must_read):
-                cite, why = must_read_parts(item)
+            for idx, item in enumerate(repo_context):
+                cite, why = repo_context_parts(item)
                 if not is_path_line(cite):
                     reasons.append(
-                        f"must_read[{idx}].cite must be a 'path:line' code citation "
+                        f"repo_context[{idx}].cite must be a 'path:line' code citation "
                         f"(e.g. src/app.py:42), got {item!r}."
                     )
                 elif check_fake_evidence(cite):
                     reasons.append(
-                        f"must_read[{idx}].cite is an unproven assumption/placeholder ({cite!r}). "
+                        f"repo_context[{idx}].cite is an unproven assumption/placeholder ({cite!r}). "
                         "The gate rejects assumptions -- cite a real path:line you read."
                     )
                 if not why.strip():
                     reasons.append(
-                        f"must_read[{idx}] needs a non-empty 'why' (why the passage is relevant); "
+                        f"repo_context[{idx}] needs a non-empty 'why' (why the passage is relevant); "
                         f"use {{'cite': '{cite or 'path:line'}', 'why': '...'}}."
                     )
                 elif check_fake_evidence(why):
                     reasons.append(
-                        f"must_read[{idx}].why is an unproven assumption/placeholder ({why!r}). "
+                        f"repo_context[{idx}].why is an unproven assumption/placeholder ({why!r}). "
                         "The gate rejects assumptions -- prove why the passage is relevant."
                     )
 
         # prior_art — required from STANDARD up. Each entry must carry a source URL
-        # AND a 'why relevant' rationale (mirrors must_read): a bare URL is rejected.
+        # AND a 'why relevant' rationale (mirrors repo_context): a bare URL is rejected.
         prior_art = spec.get("prior_art")
         if not isinstance(prior_art, list) or not prior_art:
             reasons.append(
@@ -468,7 +468,7 @@ def spec_template() -> dict[str, Any]:
         "acceptance_criteria": [
             {"check": "", "evidence": ""}
         ],
-        "must_read": [
+        "repo_context": [
             {"cite": "", "why": ""}
         ],
         "prior_art": [],
@@ -511,13 +511,13 @@ def contract_string(grade: str, require_evidence: bool = False) -> str:
     """Return the pass-conditions for *grade* as a short additionalContext string.
 
     When *require_evidence* is True, append the evidence-gate citation requirements
-    (must_read with why-rationale + prior_art, both at STANDARD+).
+    (repo_context with why-rationale + prior_art, both at STANDARD+).
     """
     grade = (grade or "STANDARD").upper()
     base = _CONTRACT.get(grade, _CONTRACT["STANDARD"])
     if require_evidence and grade != "LIGHT":
         base = base + (
-            " Evidence gate: also include 'must_read' (>=1 {cite:'path:line', why:'why it's "
+            " Evidence gate: also include 'repo_context' (>=1 {cite:'path:line', why:'why it's "
             "relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'})."
         )
     return base
@@ -585,14 +585,14 @@ def _cmd_create(args: argparse.Namespace) -> int:
     spec = spec_template()
     spec["restated_goal"] = args.goal
     spec["acceptance_criteria"] = []  # tasks stand in for acceptance_criteria
-    spec["must_read"] = []
+    spec["repo_context"] = []
     spec["prior_art"] = []
     spec["constraints"] = list(getattr(args, "constraint", None) or [])
     spec["rejected_alternatives"] = list(getattr(args, "rejected", None) or [])
     spec["tasks"] = []
-    for mr in (getattr(args, "must_read", None) or []):
-        cite, _sep, why = mr.partition("::")
-        spec["must_read"].append({"cite": cite.strip(), "why": why.strip()})
+    for entry in (getattr(args, "repo_context", None) or []):
+        cite, _sep, why = entry.partition("::")
+        spec["repo_context"].append({"cite": cite.strip(), "why": why.strip()})
     for pa in (getattr(args, "prior_art", None) or []):
         cite, _sep, why = pa.partition("::")
         spec["prior_art"].append({"cite": cite.strip(), "why": why.strip()})
@@ -679,7 +679,7 @@ def main(argv: list[str] | None = None) -> int:
     p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
     p_validate.add_argument("--task-id", required=True, dest="task_id", help="Task ID for the spec file.")
     p_validate.add_argument("--require-evidence", action="store_true", dest="require_evidence",
-                            help="Also require citation evidence (must_read, prior_art).")
+                            help="Also require citation evidence (repo_context, prior_art).")
 
     p_init = sub.add_parser("init", help="Write a blank spec template.")
     p_init.add_argument("--root", default=".", help="Project root (default: cwd).")
@@ -695,7 +695,7 @@ def main(argv: list[str] | None = None) -> int:
     p_create.add_argument("--task-id", required=True, dest="task_id")
     p_create.add_argument("--goal", required=True, help="Restated goal in your own words.")
     p_create.add_argument("--task", action="append", default=[], help="Task as 'title::check command' (repeatable).")
-    p_create.add_argument("--must-read", action="append", default=[], dest="must_read",
+    p_create.add_argument("--repo-context", action="append", default=[], dest="repo_context",
                           help="Evidence citation 'path:line::why' (repeatable).")
     p_create.add_argument("--prior-art", action="append", default=[], dest="prior_art",
                           help="Prior-art citation 'http(s)://...::why it backs the approach' (repeatable).")

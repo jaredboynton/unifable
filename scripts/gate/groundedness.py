@@ -61,9 +61,15 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
-                "unproven claim, say its mutation tools (Write/Edit/Bash) are blocked, and spell out "
-                "EXACTLY what would disarm it: the specific file(s) to read, check(s) to run, or "
-                "file:line / command output to cite that would back up THIS claim. Empty when verdict=0."
+                "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
+                "WebFetch, Grep, Glob) until it grounds the claim, and describe "
+                "the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do "
+                "not invent file paths. For a claim about THIS repo's code/config, say what kind of "
+                "source would settle it (the code/config that defines the behavior, or a command that "
+                "proves it) and let the model find it; for a claim about EXTERNAL or platform behavior "
+                "(a host feature, third-party/framework API, or library semantics), say to fetch the "
+                "authoritative external documentation via web search / WebFetch -- NOT a repo file. "
+                "Name a specific path only if it already appears in the transcript. Empty when verdict=0."
             ),
         },
         "claim": {
@@ -98,8 +104,9 @@ _DISARM_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": (
                 "When grounded=0, a 1-2 sentence instruction addressed to the model naming EXACTLY "
-                "what is still missing to disarm: which file(s) to read, check(s) to run, or "
-                "file:line / command output to cite. Empty string when grounded=1."
+                "what is still missing to disarm, matched to the claim: for a repo claim, which "
+                "file(s) to read or check(s) to run; for an external/platform/API claim, the official "
+                "documentation to fetch (web search / WebFetch). Empty string when grounded=1."
             ),
         },
     },
@@ -116,14 +123,28 @@ _JUDGE_SYSTEM = (
     "A normal hypothesis the model is about to test is NOT a violation; only a confident, unproven "
     "assertion is. Use the tool output already in the transcript to judge grounding: if the evidence "
     "for the claim is now actually present, there is no violation. "
+    "MATCH the grounding source to the claim's nature. A claim about THIS repo's code or config is "
+    "grounded by reading the repo source or running the check. A claim about EXTERNAL or platform "
+    "behavior -- how a host feature works (slash commands, hooks, skills), a third-party or framework "
+    "API, or library semantics -- is grounded by AUTHORITATIVE EXTERNAL DOCUMENTATION the model fetches "
+    "via web search / WebFetch; for such a claim the correct steering points at the official "
+    "documentation to fetch, NOT at a repo file like AGENTS.md (a repo file cannot settle how an "
+    "external system behaves). Never demand repo-internal evidence for a claim whose truth lives in "
+    "external docs. You do NOT have a repo file listing -- describe the KIND of source that would "
+    "settle the claim and let the model find the file; do not invent specific paths (name a path only "
+    "if it already appears in the transcript). You can see the tool responses in the transcript: judge "
+    "whether what the model actually read or fetched SUPPORTS the claim -- if it read/fetched the "
+    "source but its content does not say what the model claims, that is still a violation. Do not "
+    "require the model to re-quote what you can already see; reading the source is enough when the "
+    "content backs the claim. "
     "Do NOT arm when: the model is retracting or correcting the claim (a withdrawn claim is not an "
     "assertion); the claim is a passing aside it is not relying on for its next action; or the claim "
     "is a negative/absence claim it has already backed with a reasonable bounded search (e.g. a grep "
     "over the relevant checkout plus reading the registry). Only arm a confident, LOAD-BEARING, "
     "unproven assertion the model is acting on. "
     "If yes: verdict=1 and write a 2-3 sentence steering prompt, addressed to the model, naming the "
-    "unproven claim and telling it that its mutation tools (Write/Edit/Bash) are blocked until it "
-    "reads the real evidence and cites it. Be blunt. "
+    "unproven claim and telling it that its tools are restricted to read-only ones (Read, WebSearch, "
+    "WebFetch, Grep, Glob) until it grounds the claim. Be blunt. "
     "If no: verdict=0 and steering MUST be the empty string. Call the function exactly once."
 )
 
@@ -137,12 +158,22 @@ _DISARM_SYSTEM = (
     "RETRACTED or corrected the claim (a withdrawn claim is no longer asserted -- release it); "
     "(c) the claim is a NEGATIVE or absence claim ('no X', 'nothing does Y') and the model has done "
     "a REASONABLE bounded search -- e.g. a grep/rg over the relevant checkout plus reading the "
-    "registry/loader -- and cited that absence. You MUST NOT demand proof of a universal negative "
-    "beyond a reasonable search; a bounded search that cites absence grounds a negative claim. "
+    "registry/loader -- and cited that absence; "
+    "(d) the claim is about EXTERNAL or platform behavior (a host feature, third-party/framework API, "
+    "or library semantics) and the model has FETCHED authoritative external documentation via web "
+    "search / WebFetch whose content supports it -- official docs ground an external claim. "
+    "You can see the tool responses in the transcript: judge whether what the model read or fetched "
+    "ACTUALLY supports the claim. You do not need the model to re-quote it -- reading/fetching the "
+    "source is enough when its content backs the claim. But if the model read/fetched the source and "
+    "the content does NOT say what it claims, stay armed and say so in `needed`. "
+    "You MUST NOT demand proof of a universal negative beyond a reasonable search; a bounded search "
+    "that cites absence grounds a negative claim. You MUST NOT demand a repo file (e.g. AGENTS.md) "
+    "for a claim whose truth lives in external documentation -- fetched official docs ground it. "
     "Judge whether the claim is still an unbacked assertion, NOT whether it is universally proven. "
     "Set grounded=0 only if the claim is still being relied on AND genuinely unbacked; then write "
-    "`needed`: 1-2 sentences naming EXACTLY what is still missing (which file to read, check to run, "
-    "or file:line / command output to cite). Judge only the named claim. Call the function once."
+    "`needed`: 1-2 sentences naming EXACTLY what is still missing -- for a repo claim, which file to "
+    "read or check to run; for an external/platform claim, the official documentation to fetch. "
+    "Judge only the named claim. Call the function once."
 )
 
 

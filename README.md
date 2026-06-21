@@ -26,7 +26,7 @@ hosts via Claude-Code-compatible hooks:
 On any non-trivial task (grade STANDARD+), the agent cannot edit a file, delegate with
 `Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, or `trace.sh`), or finish until
 `./.unifable/spec/<task>.json` validates. The spec must carry:
-`must_read` (`{cite: path:line, why}` it actually read), `acceptance_criteria` (a runnable `check`
+`repo_context` (`{cite: path:line, why}` it actually read), `acceptance_criteria` (a runnable `check`
 plus its live `evidence` output — placeholders are rejected), and `prior_art` (a source URL). Read,
 search, web, and `trace.sh` exploration stay available so the agent can gather that evidence; a
 valid spec unlocks the action phase. Quick/LIGHT tasks are waived. The gate is always on (no env
@@ -99,10 +99,9 @@ Restart Codex; the plugin loads its own hooks. Verify with `codex plugin list`.
 
 Beyond the gate, unifable ships: a debounced test-runner (`UNIFABLE_TEST_AFTER_EDIT=1`);
 a findings ledger and warning-threshold accumulation; per-task **grade tiers** and a
-depth-shaped final response; per-model posture files under `skills/unifable/tiers/`; a local
-semantic memory CLI (`scripts/memory/store.py`); routing packs for domain verification,
-decision traces, subagent briefs, and memory closure; and a behavioral eval suite
-(`docs/evals/`, `tests/eval_rubric.md`).
+depth-shaped final response; per-model posture files under `skills/unifable/tiers/`; routing
+packs for domain verification, decision traces, subagent briefs, and memory closure; and a
+behavioral eval suite (`docs/evals/`, `tests/eval_rubric.md`).
 
 ## Tests
 

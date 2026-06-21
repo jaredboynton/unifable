@@ -48,8 +48,6 @@ is the source of truth for status. Update the Status column as work lands.
 | 14 | alwaysThinkingEnabled on install | — | install/claude.sh, setup.sh | on | done |
 | 15 | Depth Gate & Output Lock | `packs/output-contract.txt` | block + gate_prompt | on | done |
 | 16 | Final Response Shape by Depth | — | SKILL.md + block | on | done |
-| 17 | Local Semantic Memory Layer | `scripts/memory/*` | — | OFF (opt-in CLI) | done |
-| 18 | Compact Semantic Notes layout | (in scripts/memory) | — | with #17 | done |
 | 19 | Decision Trace Workflow | `packs/decision-trace.txt` | router.sh | on | done |
 | 20 | Subagent Brief Files | `packs/subagent-brief.md` | SKILL refs | on | done |
 | 21 | Multi-Tier Model Variant Skills | `skills/unifable/tiers/{opus,sonnet,haiku,README}.md` | SKILL.md pointer | on | done |
@@ -61,7 +59,7 @@ is the source of truth for status. Update the Status column as work lands.
 
 ## Phasing (all complete)
 - **P2 (parallel agents, new files):** #1+#2+#5 (spec gate), #6, #7, #11, #12, #13+#19+#20+#23 (packs),
-  #17+#18 (memory), #25 (evals). — done
+  #25 (evals). — done
 - **P3 (orchestrator, shared files):** #3, #4, #8, #9, #10, #14, #15, #16, #21, #22, #24 + wire all new
   hooks into hooks.json + merge_hooks.py. — done
 - **P4 (packaging):** #26 — Codex is now a NATIVE plugin (`.codex-plugin/plugin.json` ->
@@ -73,7 +71,7 @@ is the source of truth for status. Update the Status column as work lands.
 
 ## Verification (this build)
 - Test suites green: `test_classify_ambiguity` 12/12, `test_effort_inject` 14, `test_findings` 25,
-  `test_gate_false_positive` 18/18, `test_gate_robustness` 12, `test_gate` 6/6, `test_memory` 18,
+  `test_gate_false_positive` 18/18, `test_gate_robustness` 12, `test_gate` 6/6,
   `test_recovery`, `test_shadow*` 3, `test_spec_gate` 31, `test_test_after_edit` 48.
 - Codex native plugin: `codex plugin list` shows `unifable@unifable` enabled; cache under
   `~/.codex/plugins/cache/unifable/unifable/`; legacy `~/.codex/skills/unifable` + hooks.json

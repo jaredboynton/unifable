@@ -46,7 +46,7 @@ SCEN = [
 VALID_SPEC = {
     "restated_goal": "Observation-gate harness fixture.",
     "acceptance_criteria": [{"check": "pytest -q", "evidence": "5 passed in 0.4s"}],
-    "must_read": [{"cite": "src/x.py:1", "why": "fixture passage"}],
+    "repo_context": [{"cite": "src/x.py:1", "why": "fixture passage"}],
     "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
     "constraints": ["fixture constraint"],
     "rejected_alternatives": ["alt a rejected: reason.", "alt b rejected: reason."],

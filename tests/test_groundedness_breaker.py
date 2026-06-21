@@ -229,7 +229,9 @@ def test_judge_system_prompt_asks_the_confidence_question():
     gb.judge_segment(seg, judge=judge)
     sysp = judge.systems[0].lower()
     assert "confidently without backing it up" in sysp
-    assert "write/edit/bash" in sysp
+    # steering names the allowed read-only set, not the blocked mutation tools
+    assert "restricted to read-only" in sysp
+    assert "read, websearch, webfetch, grep, glob" in sysp
 
 
 def test_arm_prompt_does_not_arm_on_retraction_or_aside():
@@ -247,6 +249,27 @@ def test_disarm_prompt_releases_on_retraction_and_bounded_negative():
     assert "retract" in sysp
     assert "negative" in sysp and "bounded search" in sysp
     assert "universal negative" in sysp
+
+
+def test_arm_prompt_steers_external_claims_to_documentation():
+    # A claim about host/platform/API behavior is grounded by authoritative external
+    # docs (web search / WebFetch), NOT by a repo file like AGENTS.md. The arm prompt
+    # must tell the judge to match the source to the claim and steer accordingly.
+    sysp = gb._JUDGE_SYSTEM.lower()
+    assert "external" in sysp and "documentation" in sysp
+    assert "web search" in sysp or "webfetch" in sysp
+    # the schema's steering field must offer the external-doc source class too
+    desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
+    assert "documentation" in desc
+
+
+def test_disarm_prompt_releases_on_fetched_external_documentation():
+    # The release prompt must accept fetched + quoted authoritative external docs as
+    # grounding for an external/platform claim, and must not demand a repo file:line
+    # for a claim whose truth lives in external documentation.
+    sysp = gb._DISARM_SYSTEM.lower()
+    assert "external" in sysp and "documentation" in sysp
+    assert "fetch" in sysp
 
 
 def test_empty_segment_is_not_a_violation():

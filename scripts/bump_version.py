@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Bump the unifable plugin version across every manifest and setup/setup.sh.
+"""Bump the unifable plugin version across every manifest, setup/setup.sh, and
+the `just version` example in AGENTS.md.
 
 This is the single enforcement point for the version-bump convention in
 AGENTS.md: the version string lives in four plugin dirs (each a plugin.json plus
-a marketplace.json) and in setup/setup.sh's progress.json writer. This sets them
-all to one target value in a single pass and refuses to finish if any straggler
-of the old version survives in the managed set.
+a marketplace.json), in setup/setup.sh's progress.json writer, and in AGENTS.md's
+concrete `just version X.Y.Z` example. This sets them all to one target value in
+a single pass and refuses to finish if any managed pattern still reads the old
+version.
 
 Usage:
     python3 scripts/bump_version.py 1.9.4    # set an explicit version
@@ -25,27 +27,34 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 
-# Every file that carries the plugin version. The codex/devin marketplace.json
-# files have no version key today; they are listed anyway so the set stays
-# complete if one is added later -- the regex simply no-ops on a file without a
-# version field.
-TARGETS = [
-    ".claude-plugin/plugin.json",
-    ".claude-plugin/marketplace.json",
-    ".codex-plugin/plugin.json",
-    ".codex-plugin/marketplace.json",
-    ".devin-plugin/plugin.json",
-    ".devin-plugin/marketplace.json",
-    ".factory-plugin/plugin.json",
-    ".factory-plugin/marketplace.json",
-    "setup/setup.sh",
-]
-
 CANONICAL = ".claude-plugin/plugin.json"  # source of the current version
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
-# Matches a JSON-style version field with a plain semver value, in both .json
-# manifests and the "version": "X.Y.Z" literal inside setup/setup.sh's heredoc.
-VERSION_FIELD = re.compile(r'("version"\s*:\s*")\d+\.\d+\.\d+(")')
+
+# Each pattern captures the semver in group(2) so the post-bump check is uniform.
+# VERSION_FIELD: a JSON "version": "X.Y.Z" field -- also matches the literal
+# inside setup/setup.sh's heredoc. JUST_VERSION: the concrete `just version X.Y.Z`
+# example in AGENTS.md; the `just version <X.Y.Z>` angle-bracket form and the
+# patch|minor|major forms carry no semver, so they are left untouched.
+VERSION_FIELD = re.compile(r'("version"\s*:\s*")(\d+\.\d+\.\d+)(")')
+JUST_VERSION = re.compile(r"(\bjust version )(\d+\.\d+\.\d+)\b")
+
+# (path, pattern, replacement template). {new} is filled per run; the template
+# uses the pattern's own capture groups. The codex/devin marketplace.json files
+# have no version key today but stay listed so the set is complete if one is
+# added later -- the pattern simply no-ops on a file with no match.
+TARGETS: list[tuple[str, "re.Pattern[str]", str]] = [
+    (".claude-plugin/plugin.json",       VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".claude-plugin/marketplace.json",  VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".codex-plugin/plugin.json",        VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".codex-plugin/marketplace.json",   VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".devin-plugin/plugin.json",        VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".devin-plugin/marketplace.json",   VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".factory-plugin/plugin.json",      VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".factory-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    ("setup/setup.sh",                   VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    ("AGENTS.md",                        JUST_VERSION,  r"\g<1>{new}"),
+]
+MANAGED = {rel for rel, _, _ in TARGETS}
 
 
 def current_version() -> str:
@@ -77,12 +86,12 @@ def main(argv: list[str]) -> int:
 
     total = 0
     changed: list[tuple[str, int]] = []
-    for rel in TARGETS:
+    for rel, pat, repl in TARGETS:
         p = REPO / rel
         if not p.exists():
             continue
         text = p.read_text()
-        new_text, n = VERSION_FIELD.subn(rf"\g<1>{new}\g<2>", text)
+        new_text, n = pat.subn(repl.format(new=new), text)
         if n and new_text != text:
             p.write_text(new_text)
             changed.append((rel, n))
@@ -98,20 +107,21 @@ def main(argv: list[str]) -> int:
     if total == 0:
         sys.exit(f"bump_version: no version fields matched; nothing changed (old={old})")
 
-    # Hard check: no managed target may still pin the old version.
-    for rel in TARGETS:
+    # Hard check: every version a managed pattern captures now reads `new`.
+    for rel, pat, _ in TARGETS:
         p = REPO / rel
         if not p.exists():
             continue
-        if re.search(rf'"version"\s*:\s*"{re.escape(old)}"', p.read_text()):
-            sys.exit(f"bump_version: {rel} still pins old version {old}")
+        for m in pat.finditer(p.read_text()):
+            if m.group(2) != new:
+                sys.exit(f"bump_version: {rel} still has version {m.group(2)} (expected {new})")
 
     # Soft warn: the old version lingering elsewhere (README, docs) that this tool
     # does not manage -- surfaced, never silently left.
     strays: list[str] = []
     for f in REPO.rglob("*"):
         rel = str(f.relative_to(REPO))
-        if not f.is_file() or rel in TARGETS:
+        if not f.is_file() or rel in MANAGED:
             continue
         # Skip VCS, deps, build caches, and the gate's own per-task state under
         # .unifable/ (specs/ledgers echo run output and are not shippable source).

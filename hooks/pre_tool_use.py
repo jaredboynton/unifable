@@ -11,7 +11,7 @@ four cases:
      ledger state, goals, findings, or any other gate-internal artifact.
 
   2. EVIDENCE GATE — writes (unconditional): unless the effective grade is LIGHT,
-     a valid spec carrying citation evidence (must_read {cite, why},
+     a valid spec carrying citation evidence (repo_context {cite, why},
      acceptance_criteria with live output, prior_art {cite, why} — all at STANDARD+) must
      exist for the current task before any edit is allowed. Authoring the spec
      file itself is always permitted (the no-brick escape).
@@ -176,7 +176,7 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
     """Block a write tool unless a valid evidence spec exists for the task.
 
     The evidence gate is unconditional — there is no env disable. A valid spec
-    carrying citation evidence (must_read {cite, why}, acceptance_criteria with
+    carrying citation evidence (repo_context {cite, why}, acceptance_criteria with
     live output, prior_art {cite, why}) must exist for any STANDARD+ task. LIGHT waives."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
@@ -191,7 +191,7 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             f"no spec artifact found for task '{task_id}' (grade={grade}). "
             "Specs are CLI-only -- create one with: python3 scripts/gate/spec.py "
             f"create --task-id {task_id} --goal '<restated goal>' "
-            "--task 'title::<runnable check>' --must-read 'path:line::why' --prior-art '<url>::why'. "
+            "--task 'title::<runnable check>' --repo-context 'path:line::why' --prior-art '<url>::why'. "
             f"{contract_string(grade, True)}"
         )
 
@@ -242,7 +242,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
             f"Bash command blocked before evidence spec validation: {why}. "
             f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
             f"To unblock other Bash commands, create a valid task spec at {sp} through the trusted "
-            "spec workflow, with must_read {cite,why}, acceptance_criteria with live output, "
+            "spec workflow, with repo_context {cite,why}, acceptance_criteria with live output, "
             "and prior_art {cite,why}; once that spec validates, retry the command."
         )
 
@@ -270,7 +270,7 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         f"{tool_name} is blocked before evidence spec validation so delegated work cannot bypass "
         "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
         f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
-        f"Bash, create a valid task spec at {sp} through the trusted spec workflow, with must_read "
+        f"Bash, create a valid task spec at {sp} through the trusted spec workflow, with repo_context "
         "{cite,why}, acceptance_criteria with live output, and prior_art {cite,why}; once that spec "
         "validates, retry."
     )
@@ -296,8 +296,8 @@ def _enforce_breaker(input_data: dict) -> int | None:
         if block:
             return _block(steering or (
                 "Groundedness breaker: you asserted something confidently without "
-                "backing it up. Your mutation tools (Write/Edit/Bash) are blocked "
-                "until you read the real evidence and cite it."
+                "backing it up. Your tools are restricted to read-only ones (Read, "
+                "WebSearch, WebFetch, Grep, Glob) until you ground the claim."
             ))
     except Exception:
         return None  # fail open on any breaker/judge failure

@@ -19,7 +19,7 @@ def _spec(evidence: str = "5 passed in 0.4s", why: str = "where routes register"
     return {
         "restated_goal": "Add a health endpoint.",
         "acceptance_criteria": [{"check": "pytest -q", "evidence": evidence}],
-        "must_read": [{"cite": "src/app.py:10", "why": why}],
+        "repo_context": [{"cite": "src/app.py:10", "why": why}],
         "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
         "constraints": ["c"], "rejected_alternatives": ["a: x", "b: y"],
     }
@@ -39,7 +39,7 @@ def test_assumption_in_evidence_rejected():
     assert any("prove it" in r.lower() for r in reasons), reasons
 
 
-def test_assumption_in_must_read_why_rejected():
+def test_assumption_in_repo_context_why_rejected():
     ok, reasons = validate_spec(_spec(why="presumably this is where it happens"),
                                 "STANDARD", require_evidence=True)
     assert not ok

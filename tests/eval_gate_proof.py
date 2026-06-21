@@ -5,7 +5,7 @@ Runs the REAL hooks/pre_tool_use.py via subprocess across an adversarial
 scenario matrix and asserts each scenario blocks (exit 2) or allows (exit 0)
 exactly as intended. This is the deterministic proof that, when the gate is on,
 "evidence before action" is a hard invariant: no edit reaches the repo until a
-spec carrying citations (must_read {cite, why}, acceptance_criteria with live
+spec carrying citations (repo_context {cite, why}, acceptance_criteria with live
 output, prior_art URL — all at STANDARD+) validates.
 
 Run:  python3 tests/eval_gate_proof.py
@@ -69,11 +69,11 @@ GOOD_ACC = [{"check": "pytest tests/test_x.py -v", "evidence": "5 passed in 0.4s
 MR = [{"cite": "src/mw.py:42", "why": "rate-limit hook"}, {"cite": "src/router.py:10-18", "why": "routes wrapped"}]
 PRIOR = [{"cite": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429", "why": "429 retry semantics"}]
 STD_CITED = {"restated_goal": "Add rate limiting.", "acceptance_criteria": GOOD_ACC,
-             "must_read": MR, "prior_art": PRIOR}
+             "repo_context": MR, "prior_art": PRIOR}
 HEAVY_FULL = {"restated_goal": "Migrate auth to JWT.", "acceptance_criteria": GOOD_ACC,
               "constraints": ["Keep sessions valid."],
               "rejected_alternatives": ["cookies stateful.", "hmac no expiry."],
-              "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
+              "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
               "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT spec"}]}
 
 # The evidence gate is unconditional (no env disable). EV is empty: with the gate
@@ -91,16 +91,16 @@ def scenarios(cwd: str):
 
     # --- evidence gate: forces citations before an edit ---
     yield ("E1", "evidence-gate STANDARD, no spec", BLOCK, EV, "STANDARD", edit(cwd, "src/a.py", "E1"))
-    yield ("E2", "evidence-gate STANDARD, spec missing must_read", BLOCK, EV, "STANDARD",
+    yield ("E2", "evidence-gate STANDARD, spec missing repo_context", BLOCK, EV, "STANDARD",
            edit(cwd, "src/a.py", with_spec("E2", {"restated_goal": "x", "acceptance_criteria": GOOD_ACC})))
     yield ("E3", "evidence-gate STANDARD, cited spec", ALLOW, EV, "STANDARD",
            edit(cwd, "src/a.py", with_spec("E3", STD_CITED)))
-    yield ("E4", "evidence-gate must_read malformed (no :line)", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E4", {**STD_CITED, "must_read": [{"cite": "src/mw.py", "why": "hook"}]})))
-    yield ("E5", "evidence-gate must_read placeholder why", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E5", {**STD_CITED, "must_read": [{"cite": "src/a.py:1", "why": "tbd"}]})))
-    yield ("E5b", "evidence-gate must_read missing why", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E5b", {**STD_CITED, "must_read": [{"cite": "src/a.py:1", "why": ""}]})))
+    yield ("E4", "evidence-gate repo_context malformed (no :line)", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E4", {**STD_CITED, "repo_context": [{"cite": "src/mw.py", "why": "hook"}]})))
+    yield ("E5", "evidence-gate repo_context placeholder why", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E5", {**STD_CITED, "repo_context": [{"cite": "src/a.py:1", "why": "tbd"}]})))
+    yield ("E5b", "evidence-gate repo_context missing why", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E5b", {**STD_CITED, "repo_context": [{"cite": "src/a.py:1", "why": ""}]})))
     yield ("E6b", "evidence-gate STANDARD missing prior_art", BLOCK, EV, "STANDARD",
            edit(cwd, "src/a.py", with_spec("E6b", {k: v for k, v in STD_CITED.items() if k != "prior_art"})))
     yield ("E6", "evidence-gate acceptance evidence faked", BLOCK, EV, "STANDARD",

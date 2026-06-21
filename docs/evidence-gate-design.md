@@ -46,7 +46,7 @@ env disable.
 ## Delta 2 — citation fields in the unlock predicate (spec.py SPEC_SCHEMA)
 
 Add, so the spec literally *is* the three evidence types:
-- `must_read`: list of `path:line` strings the model read (CODE evidence). Validate each matches
+- `repo_context`: list of `path:line` strings the model read (CODE evidence). Validate each matches
   `\S+:\d+`; optionally existence-check the file. Required >=1 at STANDARD+.
 - `prior_art`: list of source URLs/repo refs (RESEARCH evidence). Required >=1 at HEAVY (architecture).
 - `acceptance_criteria[{check, evidence}]` — TOOL-OUTPUT evidence (already present; FAKE_MARKERS enforced).
@@ -60,7 +60,7 @@ Classify the `Bash` command string in the research phase:
 - ALLOW only if every command segment is `ls`, `glob`, `rg`, or invokes a file whose basename is
   `trace.sh` (directly or through `sh`/`bash`/`zsh`) by absolute or repo-relative path.
 - BLOCK otherwise, with a message that names the allowed commands and says broader Bash unlocks only
-  after a valid task spec exists with must_read citations, acceptance evidence, and prior_art.
+  after a valid task spec exists with repo_context citations, acceptance evidence, and prior_art.
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than
   wfb's edit-only gate. Mitigations: (a) unconditional + fail-open on malformed input (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
@@ -70,7 +70,7 @@ Classify the `Bash` command string in the research phase:
 ## Rollout
 
 Unconditional (always on, no env disable), fail-open on malformed input. Graded: LIGHT waives;
-STANDARD = must_read + acceptance_criteria; HEAVY adds prior_art + rejected_alternatives. Both
+STANDARD = repo_context + acceptance_criteria; HEAVY adds prior_art + rejected_alternatives. Both
 hosts: Claude native hooks + Codex (same `pre_tool_use.py`, both list `apply_patch`). Tests:
 extend `tests/test_spec_gate.py` + add a Bash-classifier test (allow/block matrix, malformed,
 no-brick), mirroring wfb's 35/35 adversarial set.

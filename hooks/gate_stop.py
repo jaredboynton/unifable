@@ -5,7 +5,7 @@ Blocks completion in priority order; fails open on malformed input:
 
   1. Evidence gate (INFINITE, no env disable): on a non-LIGHT task the evidence
      spec must EXIST and validate before finishing (restated_goal,
-     acceptance_criteria with live output, must_read {cite,why}, prior_art {cite,why}).
+     acceptance_criteria with live output, repo_context {cite,why}, prior_art {cite,why}).
      No spec, or a placeholder/invalid one, blocks EVERY stop — ignoring the loop
      guard (stop_hook_active) and the stop-block cap — until a valid spec exists.
      The agent is unconditionally required to write its evidence back. Releases
@@ -144,7 +144,7 @@ def main() -> int:
     grade = (os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data) or "STANDARD").upper().strip()
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
-    #    and validate (must_read {cite,why}, acceptance_criteria with live output,
+    #    and validate (repo_context {cite,why}, acceptance_criteria with live output,
     #    prior_art {cite,why}) before completion. This blocks EVERY stop — ignoring both
     #    the loop guard (stop_hook_active) and the stop-block cap — until a valid
     #    spec exists; the agent is unconditionally required to write its evidence
@@ -169,7 +169,7 @@ def main() -> int:
                 ev_reason = (
                     "no evidence spec for this task: create one with `python3 scripts/gate/spec.py "
                     f"create --task-id {task_key} --goal '<goal>' --task 'title::<check>' "
-                    "--must-read 'path:line::why' --prior-art '<url>::why'` before finishing."
+                    "--repo-context 'path:line::why' --prior-art '<url>::why'` before finishing."
                 )
             elif spec is not None:
                 # Breaker: a task-spec must have EVERY task validated (its check ran
@@ -187,7 +187,7 @@ def main() -> int:
                     if not ok:
                         ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
                     else:
-                        # Citation truth-check: every must_read / prior_art / acceptance
+                        # Citation truth-check: every repo_context / prior_art / acceptance
                         # citation must be backed by real session activity, sourced from
                         # the ledger UNION the transcript (which recurses sub-agent
                         # transcripts, so research delegated to sub-agents counts).

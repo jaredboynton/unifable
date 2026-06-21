@@ -243,7 +243,7 @@ def _standard_spec_with_evidence() -> dict:
         "acceptance_criteria": [
             {"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}
         ],
-        "must_read": [
+        "repo_context": [
             {"cite": "src/middleware.py:88", "why": "rate-limit hook attaches here"},
             {"cite": "src/router.py:12-20", "why": "endpoint registration the middleware wraps"},
         ],
@@ -252,7 +252,7 @@ def _standard_spec_with_evidence() -> dict:
 
 
 def test_evidence_off_is_backward_compatible():
-    """require_evidence defaults False: a spec with no must_read still passes."""
+    """require_evidence defaults False: a spec with no repo_context still passes."""
     spec = {
         "restated_goal": "Add a flag.",
         "acceptance_criteria": [{"check": "echo ok", "evidence": "ok"}],
@@ -263,44 +263,44 @@ def test_evidence_off_is_backward_compatible():
     assert ok2
 
 
-def test_evidence_standard_requires_must_read():
+def test_evidence_standard_requires_repo_context():
     spec = {
         "restated_goal": "Add a flag.",
         "acceptance_criteria": [{"check": "echo ok", "evidence": "ok"}],
     }
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
-    assert any("must_read" in r for r in reasons)
+    assert any("repo_context" in r for r in reasons)
 
 
-def test_evidence_standard_passes_with_must_read():
+def test_evidence_standard_passes_with_repo_context():
     ok, reasons = validate_spec(_standard_spec_with_evidence(), "STANDARD", require_evidence=True)
     assert ok, reasons
 
 
-def test_evidence_must_read_malformed_blocks():
+def test_evidence_repo_context_malformed_blocks():
     spec = _standard_spec_with_evidence()
-    spec["must_read"] = [{"cite": "src/middleware.py", "why": "the hook"}]  # missing :line
+    spec["repo_context"] = [{"cite": "src/middleware.py", "why": "the hook"}]  # missing :line
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
-    assert any("must_read" in r and "path:line" in r for r in reasons)
+    assert any("repo_context" in r and "path:line" in r for r in reasons)
 
 
-def test_evidence_must_read_placeholder_blocks():
+def test_evidence_repo_context_placeholder_blocks():
     spec = _standard_spec_with_evidence()
-    spec["must_read"] = [{"cite": "src/app.py:1", "why": "tbd"}]
+    spec["repo_context"] = [{"cite": "src/app.py:1", "why": "tbd"}]
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
-    assert any("must_read" in r for r in reasons)
+    assert any("repo_context" in r for r in reasons)
 
 
-def test_evidence_must_read_requires_why():
-    """A must_read citation with no 'why' rationale is rejected."""
+def test_evidence_repo_context_requires_why():
+    """A repo_context citation with no 'why' rationale is rejected."""
     spec = _standard_spec_with_evidence()
-    spec["must_read"] = [{"cite": "src/app.py:42", "why": ""}]
+    spec["repo_context"] = [{"cite": "src/app.py:42", "why": ""}]
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
-    assert any("must_read" in r and "why" in r for r in reasons)
+    assert any("repo_context" in r and "why" in r for r in reasons)
 
 
 def test_evidence_standard_requires_prior_art():
@@ -328,7 +328,7 @@ def test_evidence_heavy_requires_prior_art():
         "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
+        "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
         # prior_art missing
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
@@ -342,7 +342,7 @@ def test_evidence_heavy_passes_with_prior_art():
         "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed in 0.2s"}],
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "must_read": [
+        "repo_context": [
             {"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"},
             {"cite": "src/session.py:5-9", "why": "session lifecycle the JWT must preserve"},
         ],
@@ -358,7 +358,7 @@ def test_evidence_heavy_prior_art_must_be_url():
         "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
+        "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
         "prior_art": [{"cite": "some blog I read", "why": "background"}],
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
@@ -367,7 +367,7 @@ def test_evidence_heavy_prior_art_must_be_url():
 
 
 def test_evidence_prior_art_requires_why():
-    """A bare prior_art URL (no 'why') is rejected, mirroring must_read."""
+    """A bare prior_art URL (no 'why') is rejected, mirroring repo_context."""
     spec = _standard_spec_with_evidence()
     spec["prior_art"] = [{"cite": "https://example.com/doc", "why": ""}]
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
@@ -597,7 +597,7 @@ def test_standard_valid_spec_allows():
                     "evidence": '"ok"',
                 }
             ],
-            "must_read": [{"cite": "src/server.py:12", "why": "where routes register"}],
+            "repo_context": [{"cite": "src/server.py:12", "why": "where routes register"}],
             "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc9110", "why": "HTTP semantics for the endpoint"}],
         }
         save_spec(cwd, session_id, good_spec)
@@ -671,7 +671,7 @@ def test_heavy_valid_spec_allows():
                 "Separate table — rejected: join overhead.",
                 "Nullable boolean — rejected: loses timestamp.",
             ],
-            "must_read": [{"cite": "migrations/0001.py:1", "why": "prior migration this extends"}],
+            "repo_context": [{"cite": "migrations/0001.py:1", "why": "prior migration this extends"}],
             "prior_art": [{"cite": "https://docs.djangoproject.com/en/stable/topics/migrations/", "why": "migration framework reference"}],
         }
         save_spec(cwd, session_id, spec)
@@ -734,7 +734,7 @@ def test_evidence_gate_default_on_blocks_uncited_edit():
                                 session_id="default-on-sess", cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate=None, evidence_gate=None, grade="STANDARD")
         assert rc == 2, "evidence gate must block uncited edits by default"
-        assert "must_read" in stderr or "spec" in stderr.lower()
+        assert "repo_context" in stderr or "spec" in stderr.lower()
 
 
 def test_evidence_gate_escape_hatch_removed():
@@ -757,9 +757,9 @@ def test_evidence_gate_default_on_light_waived():
         assert rc == 0
 
 
-def test_evidence_gate_blocks_valid_spec_without_must_read():
+def test_evidence_gate_blocks_valid_spec_without_repo_context():
     """A spec that passes the spec gate is still blocked by the evidence gate when
-    it lacks must_read citations."""
+    it lacks repo_context citations."""
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "ev-session-001"
         spec = {
@@ -777,7 +777,7 @@ def test_evidence_gate_blocks_valid_spec_without_must_read():
             env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
         )
         assert rc == 2
-        assert "must_read" in stderr
+        assert "repo_context" in stderr
 
 
 def test_evidence_gate_allows_spec_with_citations():
@@ -788,7 +788,7 @@ def test_evidence_gate_allows_spec_with_citations():
             "acceptance_criteria": [
                 {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
             ],
-            "must_read": [
+            "repo_context": [
                 {"cite": "src/server.py:10", "why": "app factory where routes mount"},
                 {"cite": "src/routes.py:5-8", "why": "route table the endpoint joins"},
             ],
@@ -808,7 +808,7 @@ def test_evidence_gate_allows_spec_with_citations():
 
 def test_spec_only_env_does_not_downgrade():
     """The spec-only mode is removed: UNIFABLE_SPEC_GATE=1 no longer downgrades the
-    gate. A citationless spec is still rejected (must_read required)."""
+    gate. A citationless spec is still rejected (repo_context required)."""
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "ev-session-003"
         spec = {
@@ -823,7 +823,7 @@ def test_spec_only_env_does_not_downgrade():
         )
         rc, _, stderr = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
         assert rc == 2
-        assert "must_read" in stderr
+        assert "repo_context" in stderr
 
 
 def test_empty_stdin_fails_open():
