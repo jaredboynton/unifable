@@ -55,14 +55,14 @@ def bash(cwd: str, cmd: str, session_id: str = "sess") -> dict:
 # spec fragments -------------------------------------------------------------
 GOOD_ACC = [{"check": "pytest tests/test_x.py -v", "evidence": "5 passed in 0.4s"}]
 MR = [{"cite": "src/mw.py:42", "why": "rate-limit hook"}, {"cite": "src/router.py:10-18", "why": "routes wrapped"}]
-PRIOR = ["https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429"]
+PRIOR = [{"cite": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429", "why": "429 retry semantics"}]
 STD_CITED = {"restated_goal": "Add rate limiting.", "acceptance_criteria": GOOD_ACC,
              "must_read": MR, "prior_art": PRIOR}
 HEAVY_FULL = {"restated_goal": "Migrate auth to JWT.", "acceptance_criteria": GOOD_ACC,
               "constraints": ["Keep sessions valid."],
               "rejected_alternatives": ["cookies stateful.", "hmac no expiry."],
               "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
-              "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"]}
+              "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT spec"}]}
 
 # The evidence gate is unconditional (no env disable). EV is empty: with the gate
 # vars scrubbed in run(), the production default (gate ON) is exercised. OFF keeps the
@@ -96,10 +96,12 @@ def scenarios(cwd: str):
                 "acceptance_criteria": [{"check": "pytest", "evidence": "not run"}]})))
     yield ("E7", "evidence-gate HEAVY missing prior_art", BLOCK, EV, "HEAVY",
            edit(cwd, "src/a.py", with_spec("E7", {k: v for k, v in HEAVY_FULL.items() if k != "prior_art"})))
-    yield ("E8", "evidence-gate HEAVY full (incl prior_art URL)", ALLOW, EV, "HEAVY",
+    yield ("E8", "evidence-gate HEAVY full (incl prior_art {cite,why})", ALLOW, EV, "HEAVY",
            edit(cwd, "src/a.py", with_spec("E8", HEAVY_FULL)))
     yield ("E9", "evidence-gate HEAVY prior_art not a URL", BLOCK, EV, "HEAVY",
-           edit(cwd, "src/a.py", with_spec("E9", {**HEAVY_FULL, "prior_art": ["a blog I read"]})))
+           edit(cwd, "src/a.py", with_spec("E9", {**HEAVY_FULL, "prior_art": [{"cite": "a blog I read", "why": "context"}]})))
+    yield ("E9b", "evidence-gate prior_art missing why", BLOCK, EV, "STANDARD",
+           edit(cwd, "src/a.py", with_spec("E9b", {**STD_CITED, "prior_art": [{"cite": "https://example.com/doc", "why": ""}]})))
 
     # --- Bash create/mutate lockdown (research phase: no valid spec yet) ---
     yield ("BL1", "bash-lockdown rm blocked pre-spec", BLOCK, EV, "STANDARD", bash(cwd, "rm -rf build", "BL1"))

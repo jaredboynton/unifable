@@ -11,7 +11,7 @@ and Bash, and exits with code 2 (block) in three cases:
 
   2. EVIDENCE GATE — writes (unconditional): unless the effective grade is LIGHT,
      a valid spec carrying citation evidence (must_read {cite, why},
-     acceptance_criteria with live output, prior_art URL — all at STANDARD+) must
+     acceptance_criteria with live output, prior_art {cite, why} — all at STANDARD+) must
      exist for the current task before any edit is allowed. Authoring the spec
      file itself is always permitted (the no-brick escape).
 
@@ -159,7 +159,7 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
 
     The evidence gate is unconditional — there is no env disable. A valid spec
     carrying citation evidence (must_read {cite, why}, acceptance_criteria with
-    live output, prior_art URL) must exist for any STANDARD+ task. LIGHT waives."""
+    live output, prior_art {cite, why}) must exist for any STANDARD+ task. LIGHT waives."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
         emit_json({})
@@ -173,7 +173,7 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             f"no spec artifact found for task '{task_id}' (grade={grade}). "
             "Specs are CLI-only -- create one with: python3 scripts/gate/spec.py "
             f"create --task-id {task_id} --goal '<restated goal>' "
-            "--task 'title::<runnable check>' --must-read 'path:line::why' --prior-art '<url>'. "
+            "--task 'title::<runnable check>' --must-read 'path:line::why' --prior-art '<url>::why'. "
             f"{contract_string(grade, True)}"
         )
 
@@ -216,7 +216,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
         sp = spec_path(cwd, task_id)
         return _block(
             f"'{why}' is a create/mutate action — locked until {sp} documents your evidence "
-            "(must_read {cite,why}, acceptance_criteria with live output, prior_art URL). "
+            "(must_read {cite,why}, acceptance_criteria with live output, prior_art {cite,why}). "
             "Read/grep/web and test/validation runners stay available: gather evidence, "
             "write the spec, then retry."
         )

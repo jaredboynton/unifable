@@ -20,7 +20,7 @@ def _spec(evidence: str = "5 passed in 0.4s", why: str = "where routes register"
         "restated_goal": "Add a health endpoint.",
         "acceptance_criteria": [{"check": "pytest -q", "evidence": evidence}],
         "must_read": [{"cite": "src/app.py:10", "why": why}],
-        "prior_art": ["https://example.com/doc"],
+        "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
         "constraints": ["c"], "rejected_alternatives": ["a: x", "b: y"],
     }
 

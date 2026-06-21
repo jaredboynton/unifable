@@ -75,7 +75,7 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
     "prior_art": {
         "type": list,
         "required": False,
-        "description": "RESEARCH evidence: source URLs (docs/repos/papers) backing the chosen approach.",
+        "description": "RESEARCH evidence: each {cite: 'http(s)://...', why: '<why it backs the approach>'} (docs/repos/papers).",
     },
     # CLI-managed task list. Each task carries a runnable `check`; a task becomes
     # `validated` only when the check runs AND the codex judge confirms the output
@@ -173,6 +173,18 @@ def must_read_parts(item: Any) -> tuple[str, str]:
     return "", ""
 
 
+def prior_art_parts(item: Any) -> tuple[str, str]:
+    """Return (cite, why) for a prior_art entry.
+
+    Accepts the required object form {'cite': 'http(s)://...', 'why': '<why relevant>'}.
+    A bare URL string yields (url, '') so the missing-why check fires."""
+    if isinstance(item, dict):
+        return str(item.get("cite") or item.get("url") or ""), str(item.get("why") or "")
+    if isinstance(item, str):
+        return item, ""
+    return "", ""
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -184,8 +196,8 @@ def validate_spec(
 
     When *require_evidence* is True (how the hooks always call it), the spec must
     also carry citation evidence at STANDARD+: 'must_read' (>=1 {cite: 'path:line',
-    why: '<why relevant>'}) and 'prior_art' (>=1 source URL). This makes the spec
-    the documented, verifiable evidence that unlocks action.
+    why: '<why relevant>'}) and 'prior_art' (>=1 {cite: 'http(s)://...', why:
+    '<why relevant>'}). This makes the spec the documented evidence that unlocks action.
 
     Returns (ok, reasons) where reasons is empty when ok is True.
     """
@@ -281,18 +293,30 @@ def validate_spec(
                         "The gate rejects assumptions -- prove why the passage is relevant."
                     )
 
-        # prior_art — required from STANDARD up (source URLs for prior art / frontier research)
+        # prior_art — required from STANDARD up. Each entry must carry a source URL
+        # AND a 'why relevant' rationale (mirrors must_read): a bare URL is rejected.
         prior_art = spec.get("prior_art")
         if not isinstance(prior_art, list) or not prior_art:
             reasons.append(
-                "evidence gate: 'prior_art' is required (list, >=1 source URL for prior art "
-                "/ frontier research backing the approach)."
+                "evidence gate: 'prior_art' is required (list, >=1 "
+                "{cite: 'http(s)://...', why: 'why this source backs the approach'})."
             )
         else:
             for idx, item in enumerate(prior_art):
-                if not is_source_url(item):
+                cite, why = prior_art_parts(item)
+                if not is_source_url(cite):
                     reasons.append(
-                        f"prior_art[{idx}] must be a source URL (http(s)://...), got {item!r}."
+                        f"prior_art[{idx}].cite must be a source URL (http(s)://...), got {item!r}."
+                    )
+                if not why.strip():
+                    reasons.append(
+                        f"prior_art[{idx}] needs a non-empty 'why' (why this source backs the "
+                        f"approach); use {{'cite': '{cite or 'http(s)://...'}', 'why': '...'}}."
+                    )
+                elif check_fake_evidence(why):
+                    reasons.append(
+                        f"prior_art[{idx}].why is an unproven assumption/placeholder ({why!r}). "
+                        "The gate rejects assumptions -- prove why this source is relevant."
                     )
 
     return not reasons, reasons
@@ -494,7 +518,7 @@ def contract_string(grade: str, require_evidence: bool = False) -> str:
     if require_evidence and grade != "LIGHT":
         base = base + (
             " Evidence gate: also include 'must_read' (>=1 {cite:'path:line', why:'why it's "
-            "relevant'}) and 'prior_art' (>=1 source URL for prior art / frontier research)."
+            "relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'})."
         )
     return base
 
@@ -562,13 +586,16 @@ def _cmd_create(args: argparse.Namespace) -> int:
     spec["restated_goal"] = args.goal
     spec["acceptance_criteria"] = []  # tasks stand in for acceptance_criteria
     spec["must_read"] = []
-    spec["prior_art"] = list(getattr(args, "prior_art", None) or [])
+    spec["prior_art"] = []
     spec["constraints"] = list(getattr(args, "constraint", None) or [])
     spec["rejected_alternatives"] = list(getattr(args, "rejected", None) or [])
     spec["tasks"] = []
     for mr in (getattr(args, "must_read", None) or []):
         cite, _sep, why = mr.partition("::")
         spec["must_read"].append({"cite": cite.strip(), "why": why.strip()})
+    for pa in (getattr(args, "prior_art", None) or []):
+        cite, _sep, why = pa.partition("::")
+        spec["prior_art"].append({"cite": cite.strip(), "why": why.strip()})
     for pair in (args.task or []):
         if "::" not in pair:
             print(f"--task must be 'title::check command' -- invalid: {pair}", file=sys.stderr)
@@ -671,7 +698,7 @@ def main(argv: list[str] | None = None) -> int:
     p_create.add_argument("--must-read", action="append", default=[], dest="must_read",
                           help="Evidence citation 'path:line::why' (repeatable).")
     p_create.add_argument("--prior-art", action="append", default=[], dest="prior_art",
-                          help="Source URL backing the approach (repeatable).")
+                          help="Prior-art citation 'http(s)://...::why it backs the approach' (repeatable).")
     p_create.add_argument("--constraint", action="append", default=[],
                           help="Architectural/operational constraint (repeatable; >=1 required at HEAVY).")
     p_create.add_argument("--rejected", action="append", default=[],

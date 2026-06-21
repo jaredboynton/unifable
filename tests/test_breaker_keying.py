@@ -62,7 +62,7 @@ def _write_spec(cwd: str, key: str, task_status: str) -> None:
         "tasks": [{"id": "T1", "title": "t1", "check": "true", "status": task_status,
                    "exit": 0, "output": "ok", "judge_verdict": 1, "judge_reason": "ok"}],
         "must_read": [{"cite": "a.py:1", "why": "why it matters"}],
-        "prior_art": ["http://example.com/doc"],
+        "prior_art": [{"cite": "http://example.com/doc", "why": "fixture source"}],
         "constraints": [], "rejected_alternatives": [],
     }
     (d / f"{key}.json").write_text(json.dumps(spec), encoding="utf-8")
@@ -123,7 +123,7 @@ def test_impl_edit_allowed_after_cli_create():
              "--root", cwd, "--task-id", key, "--goal", "fix the parser bug",
              "--task", "parser handles empty input::true",
              "--must-read", "src/parser.py:10::where parsing starts",
-             "--prior-art", "http://example.com/grammar"],
+             "--prior-art", "http://example.com/grammar::grammar reference"],
             capture_output=True, text=True,
         )
         assert r.returncode == 0, r.stderr

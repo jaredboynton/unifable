@@ -5,7 +5,7 @@ Blocks completion in priority order; fails open on malformed input:
 
   1. Evidence gate (INFINITE, no env disable): on a non-LIGHT task the evidence
      spec must EXIST and validate before finishing (restated_goal,
-     acceptance_criteria with live output, must_read {cite,why}, prior_art URL).
+     acceptance_criteria with live output, must_read {cite,why}, prior_art {cite,why}).
      No spec, or a placeholder/invalid one, blocks EVERY stop — ignoring the loop
      guard (stop_hook_active) and the stop-block cap — until a valid spec exists.
      The agent is unconditionally required to write its evidence back. Releases
@@ -74,7 +74,7 @@ def main() -> int:
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
     #    and validate (must_read {cite,why}, acceptance_criteria with live output,
-    #    prior_art URL) before completion. This blocks EVERY stop — ignoring both
+    #    prior_art {cite,why}) before completion. This blocks EVERY stop — ignoring both
     #    the loop guard (stop_hook_active) and the stop-block cap — until a valid
     #    spec exists; the agent is unconditionally required to write its evidence
     #    back. The only releases: a valid spec, LIGHT grade, no resolvable session
@@ -98,7 +98,7 @@ def main() -> int:
                 ev_reason = (
                     "no evidence spec for this task: create one with `python3 scripts/gate/spec.py "
                     f"create --task-id {task_key} --goal '<goal>' --task 'title::<check>' "
-                    "--must-read 'path:line::why' --prior-art '<url>'` before finishing."
+                    "--must-read 'path:line::why' --prior-art '<url>::why'` before finishing."
                 )
             elif spec is not None:
                 # Breaker: a task-spec must have EVERY task validated (its check ran

@@ -29,6 +29,11 @@ def spec_key(sid, cwd, data_dir):
 def run(script, payload, data_dir, raw=False):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
+    # Hermetic: every check supplies its own session_id in the payload. Scrub the
+    # developer's ambient session identity so the empty/bad-stdin fail-open checks
+    # cannot resolve a real session (and load a real spec) from the runner's env.
+    env.pop("CLAUDE_CODE_SESSION_ID", None)
+    env.pop("CODEX_THREAD_ID", None)
     stdin = payload if raw else json.dumps(payload)
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=stdin,
                        capture_output=True, text=True, env=env)
@@ -41,7 +46,7 @@ VALID_SPEC = {
     "restated_goal": "Robustness harness fixture.",
     "acceptance_criteria": [{"check": "pytest -q", "evidence": "5 passed in 0.4s"}],
     "must_read": [{"cite": "src/x.py:1", "why": "fixture passage"}],
-    "prior_art": ["https://example.com/doc"],
+    "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
     "constraints": ["fixture constraint"],
     "rejected_alternatives": ["alt a rejected: reason.", "alt b rejected: reason."],
 }

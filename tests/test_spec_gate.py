@@ -244,7 +244,7 @@ def _standard_spec_with_evidence() -> dict:
             {"cite": "src/middleware.py:88", "why": "rate-limit hook attaches here"},
             {"cite": "src/router.py:12-20", "why": "endpoint registration the middleware wraps"},
         ],
-        "prior_art": ["https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429"],
+        "prior_art": [{"cite": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429", "why": "429 retry semantics for the limiter"}],
     }
 
 
@@ -343,7 +343,7 @@ def test_evidence_heavy_passes_with_prior_art():
             {"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"},
             {"cite": "src/session.py:5-9", "why": "session lifecycle the JWT must preserve"},
         ],
-        "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"],
+        "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT claims spec"}],
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
     assert ok, reasons
@@ -356,11 +356,20 @@ def test_evidence_heavy_prior_art_must_be_url():
         "constraints": ["Must not break existing sessions."],
         "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
         "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
-        "prior_art": ["some blog I read"],
+        "prior_art": [{"cite": "some blog I read", "why": "background"}],
     }
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
     assert not ok
     assert any("prior_art" in r and "URL" in r for r in reasons)
+
+
+def test_evidence_prior_art_requires_why():
+    """A bare prior_art URL (no 'why') is rejected, mirroring must_read."""
+    spec = _standard_spec_with_evidence()
+    spec["prior_art"] = [{"cite": "https://example.com/doc", "why": ""}]
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r and "why" in r for r in reasons), reasons
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +564,7 @@ def test_standard_valid_spec_allows():
                 }
             ],
             "must_read": [{"cite": "src/server.py:12", "why": "where routes register"}],
-            "prior_art": ["https://datatracker.ietf.org/doc/html/rfc9110"],
+            "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc9110", "why": "HTTP semantics for the endpoint"}],
         }
         save_spec(cwd, session_id, good_spec)
         payload = _edit_payload(
@@ -629,7 +638,7 @@ def test_heavy_valid_spec_allows():
                 "Nullable boolean — rejected: loses timestamp.",
             ],
             "must_read": [{"cite": "migrations/0001.py:1", "why": "prior migration this extends"}],
-            "prior_art": ["https://docs.djangoproject.com/en/stable/topics/migrations/"],
+            "prior_art": [{"cite": "https://docs.djangoproject.com/en/stable/topics/migrations/", "why": "migration framework reference"}],
         }
         save_spec(cwd, session_id, spec)
         payload = _edit_payload(
@@ -737,7 +746,7 @@ def test_evidence_gate_allows_spec_with_citations():
                 {"cite": "src/server.py:10", "why": "app factory where routes mount"},
                 {"cite": "src/routes.py:5-8", "why": "route table the endpoint joins"},
             ],
-            "prior_art": ["https://datatracker.ietf.org/doc/html/rfc9110"],
+            "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc9110", "why": "HTTP semantics for the endpoint"}],
         }
         save_spec(cwd, session_id, spec)
         payload = _edit_payload(
