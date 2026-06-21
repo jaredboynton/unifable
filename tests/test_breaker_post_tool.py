@@ -27,8 +27,8 @@ class ScriptedReleaseJudge:
     def __call__(self, system, user, schema):
         self.calls += 1
         if self.grounded:
-            return {"grounded": 1, "needed": ""}
-        return {"grounded": 0, "needed": self.needed}
+            return {"grounded": 1, "needed": "", "load_bearing": 1}
+        return {"grounded": 0, "needed": self.needed, "load_bearing": 1}
 
 
 def _armed_breaker(data_dir: str, sess: str, cwd: str, claim: str = "unproven root cause"):

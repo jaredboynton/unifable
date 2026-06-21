@@ -56,11 +56,11 @@ def _ledger_active(session: str, cwd: str, data_dir: str) -> str | None:
             os.environ["UNIFABLE_DATA"] = old
 
 
-def _write_spec(cwd: str, key: str, task_status: str) -> None:
-    d = Path(cwd) / ".unifable" / "spec"
-    d.mkdir(parents=True, exist_ok=True)
+def _write_spec(cwd: str, key: str, task_status: str, data_dir: str) -> None:
+    """Seed a session spec at the keyed global path (key = the session id)."""
     spec = {
         "restated_goal": "do the thing",
+        "goal_seeded": False,
         "acceptance_criteria": [],
         "tasks": [{"id": "T1", "title": "t1", "check": "true", "status": task_status,
                    "exit": 0, "output": "ok", "judge_verdict": 1, "judge_reason": "ok"}],
@@ -68,24 +68,49 @@ def _write_spec(cwd: str, key: str, task_status: str) -> None:
         "prior_art": [{"cite": "http://example.com/doc", "why": "fixture source"}],
         "constraints": [], "rejected_alternatives": [],
     }
-    (d / f"{key}.json").write_text(json.dumps(spec), encoding="utf-8")
+    old = os.environ.get("UNIFABLE_DATA")
+    os.environ["UNIFABLE_DATA"] = data_dir
+    try:
+        from spec import save_spec
+        save_spec(cwd, key, spec)
+    finally:
+        if old is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = old
 
 
-def test_keying_lock_and_unlock():
+def _spec_exists(cwd: str, key: str, data_dir: str) -> bool:
+    old = os.environ.get("UNIFABLE_DATA")
+    os.environ["UNIFABLE_DATA"] = data_dir
+    try:
+        from spec import load_spec
+        return load_spec(cwd, key) is not None
+    finally:
+        if old is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = old
+
+
+def test_session_keying_one_spec_per_session():
+    """The spec is keyed by session, not prompt: two different prompts in the same
+    session share ONE spec (at the session key), and `active_task` tracks the latest
+    prompt hash for the breaker debounce -- it no longer keys the spec."""
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "S1"
-        p1, p2 = "first task please", "second different task"
-        # First prompt -> active = key(p1)
+        # Non-LIGHT prompts so the hook auto-creates the scaffold.
+        p1, p2 = "implement the parser feature", "refactor the auth module"
         _run("gate_prompt.py", {"prompt": p1, "session_id": sess, "cwd": cwd}, dd)
+        # The auto-created scaffold is at the SESSION key, not the prompt hash.
+        assert _spec_exists(cwd, sess, dd)
+        assert not _spec_exists(cwd, _key(p1), dd)
         assert _ledger_active(sess, cwd, dd) == _key(p1)
-        # An incomplete spec at key(p1) LOCKS the active task across a new prompt.
-        _write_spec(cwd, _key(p1), "pending")
+        # A new prompt in the same session reuses the same spec and re-points
+        # active_task to the new prompt hash (breaker debounce key).
         _run("gate_prompt.py", {"prompt": p2, "session_id": sess, "cwd": cwd}, dd)
-        assert _ledger_active(sess, cwd, dd) == _key(p1), "must stay locked while tasks unvalidated"
-        # Once the active spec is fully validated, the next prompt seeds a new spec.
-        _write_spec(cwd, _key(p1), "validated")
-        _run("gate_prompt.py", {"prompt": p2, "session_id": sess, "cwd": cwd}, dd)
-        assert _ledger_active(sess, cwd, dd) == _key(p2), "breaker open -> new prompt seeds new spec"
+        assert _ledger_active(sess, cwd, dd) == _key(p2)
+        assert _spec_exists(cwd, sess, dd)
 
 
 def test_spec_files_are_cli_only():
@@ -102,14 +127,14 @@ def test_breaker_blocks_until_validated():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess, prompt = "S2", "implement the breaker task"
         _run("gate_prompt.py", {"prompt": prompt, "session_id": sess, "cwd": cwd}, dd)
-        key = _key(prompt)
+        key = sess  # spec is keyed by session now
         # Pending task -> breaker CLOSED -> Stop blocked.
-        _write_spec(cwd, key, "pending")
+        _write_spec(cwd, key, "pending", dd)
         rc, out, _ = _run("gate_stop.py", {"session_id": sess, "cwd": cwd, "stop_hook_active": False}, dd, grade="STANDARD")
         assert out.get("decision") == "block"
         assert "breaker" in (out.get("reason") or "").lower()
         # Validated task -> breaker not the blocker anymore.
-        _write_spec(cwd, key, "validated")
+        _write_spec(cwd, key, "validated", dd)
         rc2, out2, _ = _run("gate_stop.py", {"session_id": sess, "cwd": cwd, "stop_hook_active": False}, dd, grade="STANDARD")
         assert "breaker" not in (out2.get("reason") or "").lower()
 
@@ -121,13 +146,15 @@ def test_impl_edit_allowed_after_appendonly_spec():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess, prompt = "S3", "fix the parser bug"
         _run("gate_prompt.py", {"prompt": prompt, "session_id": sess, "cwd": cwd}, dd)
-        key = _key(prompt)
+        key = sess  # the agent drives the spec at the session key
 
         def _spec(*a):
+            env = dict(os.environ)
+            env["UNIFABLE_DATA"] = dd  # CLI must write where the gate reads
             return subprocess.run(
                 [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), *a,
                  "--root", cwd, "--task-id", key],
-                capture_output=True, text=True,
+                capture_output=True, text=True, env=env,
             )
 
         # FIRST action: restate the seeded goal in the agent's own words (the gate

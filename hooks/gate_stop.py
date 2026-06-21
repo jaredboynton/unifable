@@ -31,6 +31,7 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 sys.path.insert(0, str(_HERE.parent / "scripts" / "shadow"))
 
 from atomicio import write_text_atomic
+from evidence_policy import resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
 from verify_state import MAX_STOP_BLOCKS, should_block_stop, warning_after_max_blocks
@@ -79,9 +80,13 @@ def _log_holdout(input_data: dict, reason: str) -> None:
 
 
 def ledger_grade(input_data: dict) -> str:
-    """The spec-gate grade recorded for this session by gate_prompt.py."""
+    """The effective enforcement grade for this session (env-blind).
+
+    Routed through evidence_policy.resolve_grade so the precedence rule lives in
+    one place: active task's task_mode -> derived grade, else legacy ledger grade,
+    else STANDARD."""
     try:
-        return load_ledger(input_data).get("grade") or "STANDARD"
+        return resolve_grade(load_ledger(input_data), None)
     except Exception:
         return "STANDARD"
 
@@ -134,12 +139,15 @@ def _transcript_for_goal_judge(transcript_path: str | None, input_data: dict) ->
     return "(no transcript available)"
 
 
-def _goals_path(cwd: str | Path) -> Path:
-    return Path(cwd).resolve() / ".unifable" / "goals.json"
+def _goals_path(cwd: str | Path, session_id: str | None) -> Path:
+    # The goals plan lives beside the spec in the per-(directory, session) dir, so a
+    # new session never inherits a prior session's plan (the stale-plan bleed fix).
+    from spec import session_dir
+    return session_dir(cwd, session_id) / "goals.json"
 
 
-def _load_goal_plan(cwd: str | Path) -> dict | None:
-    path = _goals_path(cwd)
+def _load_goal_plan(cwd: str | Path, session_id: str | None) -> dict | None:
+    path = _goals_path(cwd, session_id)
     if not path.is_file():
         return None
     try:
@@ -221,7 +229,7 @@ def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> 
     return ask_structured(system, user, GOAL_JUDGE_SCHEMA, schema_name="goal_stop")
 
 
-def _mark_goal(cwd: str | Path, plan: dict, goal_id: str, status: str, reason: str) -> None:
+def _mark_goal(cwd: str | Path, session_id: str | None, plan: dict, goal_id: str, status: str, reason: str) -> None:
     changed = False
     for goal in plan.get("goals", []):
         if isinstance(goal, dict) and str(goal.get("id")) == goal_id:
@@ -231,7 +239,7 @@ def _mark_goal(cwd: str | Path, plan: dict, goal_id: str, status: str, reason: s
             changed = True
             break
     if changed:
-        write_text_atomic(_goals_path(cwd), json.dumps(plan, ensure_ascii=False, indent=1))
+        write_text_atomic(_goals_path(cwd, session_id), json.dumps(plan, ensure_ascii=False, indent=1))
 
 
 def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
@@ -245,7 +253,9 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
         or input_data.get("last_assistant_message")
     ):
         return None
-    plan = _load_goal_plan(cwd)
+    from spec import resolve_session_id
+    session_id = resolve_session_id(input_data, default=None)
+    plan = _load_goal_plan(cwd, session_id)
     if not plan:
         return None
     goal = _current_goal(plan)
@@ -271,7 +281,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
 
     reason = str(verdict.get("reason") or "insufficient evidence in transcript")
     if verdict.get("ok") is True:
-        _mark_goal(cwd, plan, gid, "complete", reason)
+        _mark_goal(cwd, session_id, plan, gid, "complete", reason)
         ledger["goal_stop_blocks"] = 0
         save_ledger(input_data, ledger)
         if _remaining_goals(plan):
@@ -286,7 +296,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
         return None
 
     if verdict.get("impossible") is True:
-        _mark_goal(cwd, plan, gid, "failed", reason)
+        _mark_goal(cwd, session_id, plan, gid, "failed", reason)
         ledger["goal_stop_blocks"] = 0
         save_ledger(input_data, ledger)
         return {"systemMessage": f"unifable goal failed and was cleared from Stop blocking: [{gid}] {reason}"}
@@ -330,7 +340,7 @@ def promise_no_act_reason(input_data: dict) -> str:
 def main() -> int:
     input_data = read_stdin_json()
     cwd = input_data.get("cwd") or os.getcwd()
-    grade = (os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data) or "STANDARD").upper().strip()
+    grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
     #    and validate (repo_context {cite,why}, acceptance_criteria with live output,
@@ -343,22 +353,17 @@ def main() -> int:
         try:
             from spec import all_tasks_validated, load_spec, resolve_session_id, validate_spec
 
-            # Active spec key: the prompt-hash task gate_prompt.py pinned in the
-            # ledger (locked until complete), else session_id / host env. None ->
+            # Spec key = the session (one spec per directory+session). None ->
             # nothing resolvable -> fail open (skip the gate).
-            try:
-                task_key = load_ledger(input_data).get("active_task")
-            except Exception:
-                task_key = None
-            if not task_key:
-                task_key = resolve_session_id(input_data, default=None)
+            task_key = resolve_session_id(input_data, default=None)
             spec = load_spec(cwd, task_key) if task_key else None
             ev_reason = ""
             if task_key and spec is None:
                 ev_reason = (
-                    "no evidence spec for this task: create one with `python3 scripts/gate/spec.py "
-                    f"create --task-id {task_key} --goal '<goal>' --task 'title::<check>' "
-                    "--repo-context 'path:line::why' --prior-art '<url>::why'` before finishing."
+                    "no evidence spec for this session (the prompt hook auto-creates one for "
+                    "non-trivial work). Add a requirement with `python3 scripts/gate/spec.py "
+                    f"add-task --task-id {task_key} --title '<requirement>' --check '<runnable check>'`, "
+                    "then deliver + validate-task it before finishing."
                 )
             elif spec is not None:
                 # Breaker: a task-spec must have EVERY task validated (its check ran
@@ -455,7 +460,7 @@ def main() -> int:
     # 6. Observation gate — should_block_stop (deep changed-but-unverified). This
     #    softer nudge keeps the MAX_STOP_BLOCKS cap + holdout, so it never traps.
     ledger = load_ledger(input_data)
-    block, obs_reason = should_block_stop(ledger)
+    block, obs_reason = should_block_stop(ledger, grade)
     if block:
         if _holdout_suppresses(input_data):
             _log_holdout(input_data, obs_reason)

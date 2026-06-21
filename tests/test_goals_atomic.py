@@ -1,15 +1,19 @@
 #!/usr/bin/env python3
-"""goals.py writes goals.json atomically.
+"""goals.py writes its plan atomically, at the global per-(directory, session) path.
 
 Regression for the race where two goals.py invocations writing goals.json at
 once could leave a torn/half-written file (scripts/goals.py save() used a plain
 Path.write_text). save() now routes through the gate's write_text_atomic
 (scripts/gate/atomicio.py), so a concurrent reader always sees a complete file.
 
+The plan now lives at <UNIFABLE_DATA>/specs/<dir_hash(cwd)>/<session>/goals.json,
+keyed by directory + session, so a new session never inherits a prior plan.
+
 Runs under pytest or standalone (python3 tests/test_goals_atomic.py).
 """
 import concurrent.futures as cf
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -17,29 +21,53 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 GOALS_PY = str(REPO / "scripts" / "goals.py")
+sys.path.insert(0, str(REPO / "scripts" / "gate"))
+
+SESSION = "goals-atomic-test"
 
 
-def _run(args, cwd):
+def _env(data_dir):
+    env = dict(os.environ)
+    env["UNIFABLE_DATA"] = data_dir
+    env["CLAUDE_CODE_SESSION_ID"] = SESSION
+    return env
+
+
+def _goals_path(cwd, data_dir):
+    # Resolve the same keyed path the CLI writes, with UNIFABLE_DATA pointed at data_dir.
+    old = os.environ.get("UNIFABLE_DATA")
+    os.environ["UNIFABLE_DATA"] = data_dir
+    try:
+        from spec import session_dir
+        return session_dir(cwd, SESSION) / "goals.json"
+    finally:
+        if old is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = old
+
+
+def _run(args, cwd, data_dir):
     return subprocess.run([sys.executable, GOALS_PY, *args], cwd=cwd,
-                          capture_output=True, text=True)
+                          capture_output=True, text=True, env=_env(data_dir))
 
 
 def test_save_uses_atomic_writer():
     """The plain write is gone; save() goes through write_text_atomic."""
     src = (REPO / "scripts" / "goals.py").read_text(encoding="utf-8")
     assert "from atomicio import write_text_atomic" in src
-    assert "write_text_atomic(GOALS" in src
-    assert "GOALS.write_text(" not in src
+    assert "write_text_atomic(_goals_file()" in src
+    assert ".write_text(" not in src
 
 
 def test_concurrent_writers_keep_valid_json():
     """Many concurrent `create --force` writers + readers: every read parses."""
-    with tempfile.TemporaryDirectory() as d:
-        assert _run(["create", "--brief", "b", "--goal", "t::o"], d).returncode == 0
-        gpath = Path(d) / ".unifable" / "goals.json"
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as data:
+        assert _run(["create", "--brief", "b", "--goal", "t::o"], d, data).returncode == 0
+        gpath = _goals_path(d, data)
 
         def writer(i):
-            return _run(["create", "--force", "--brief", f"b{i}", "--goal", f"t{i}::o{i}"], d).returncode
+            return _run(["create", "--force", "--brief", f"b{i}", "--goal", f"t{i}::o{i}"], d, data).returncode
 
         def reader(_):
             try:
@@ -61,14 +89,14 @@ def test_concurrent_writers_keep_valid_json():
 
 def test_create_next_checkpoint_flow():
     """The multi-story loop still works end to end after the atomic change."""
-    with tempfile.TemporaryDirectory() as d:
-        assert _run(["create", "--brief", "b", "--goal", "only::do it"], d).returncode == 0
-        assert _run(["next"], d).returncode == 0
+    with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as data:
+        assert _run(["create", "--brief", "b", "--goal", "only::do it"], d, data).returncode == 0
+        assert _run(["next"], d, data).returncode == 0
         r = _run(["checkpoint", "--id", "G001", "--status", "complete",
-                  "--evidence", "done", "--verify-cmd", "true", "--verify-evidence", "ok"], d)
+                  "--evidence", "done", "--verify-cmd", "true", "--verify-evidence", "ok"], d, data)
         assert r.returncode == 0, r.stderr
-        data = json.loads((Path(d) / ".unifable" / "goals.json").read_text(encoding="utf-8"))
-        assert data["goals"][0]["status"] == "complete"
+        data_json = json.loads(_goals_path(d, data).read_text(encoding="utf-8"))
+        assert data_json["goals"][0]["status"] == "complete"
 
 
 if __name__ == "__main__":

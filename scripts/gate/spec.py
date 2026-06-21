@@ -6,16 +6,21 @@ Provides:
   - FAKE_MARKERS: tuple of placeholder strings that indicate fabricated evidence
   - validate_spec(spec, grade) -> (ok, reasons)
   - check_fake_evidence(text) -> list[str]
-  - spec_path(root, task_id) -> Path
-  - load_spec(root, task_id) -> dict | None
-  - save_spec(root, task_id, spec) -> Path
+  - spec_path(cwd, session_id) -> Path   (global, keyed: <data_root>/specs/<dir_hash>/<session>/spec.json)
+  - load_spec(cwd, session_id) -> dict | None
+  - save_spec(cwd, session_id, spec) -> Path
   - spec_template() -> dict
-  - CLI: validate / init / contract subcommands
+  - CLI: validate / contract / add-task / cite / deliver / validate-task / dispute / restate / status
+
+State is one spec.json per (directory, session), so a new session never inherits a
+prior one's spec and two repos sharing a session id do not collide. The CLI's
+`--root` is the cwd (dir hash) and `--task-id` is the session id (resolve_session_id).
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -385,14 +390,40 @@ def resolve_session_id(input_data: dict | None = None, default: str | None = "de
     return default
 
 
-def spec_path(root: str | Path, task_id: str) -> Path:
-    """Return the canonical path for a spec artifact: <root>/.unifable/spec/<task_id>.json"""
-    return Path(root).resolve() / ".unifable" / "spec" / f"{task_id}.json"
+_SAFE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
-def load_spec(root: str | Path, task_id: str) -> dict[str, Any] | None:
-    """Load and parse a spec artifact, returning None on any error."""
-    path = spec_path(root, task_id)
+def dir_hash(cwd: str | Path) -> str:
+    """Stable 16-hex digest of the resolved working directory. Keys spec state by
+    project so two repos sharing a session id (or the 'default' fallback) never
+    collide."""
+    resolved = str(Path(cwd).resolve())
+    return hashlib.sha256(resolved.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def _safe_session(session_id: str | None) -> str:
+    """Filesystem-safe session segment. A raw UUID / CODEX_THREAD_ID passes
+    through unchanged; anything unsafe is collapsed; empty falls back to 'default'."""
+    s = _SAFE_KEY_RE.sub("-", str(session_id or "").strip()).strip("-")
+    return s or "default"
+
+
+def session_dir(cwd: str | Path, session_id: str | None) -> Path:
+    """Per-(directory, session) state directory:
+    <data_root>/specs/<dir_hash(cwd)>/<session>/  (data_root honors $UNIFABLE_DATA,
+    same global root as the gate ledger). Holds spec.json plus the goals plan."""
+    return data_root() / "specs" / dir_hash(cwd) / _safe_session(session_id)
+
+
+def spec_path(cwd: str | Path, session_id: str | None) -> Path:
+    """Canonical path for the session's single evidence spec:
+    <data_root>/specs/<dir_hash(cwd)>/<session>/spec.json"""
+    return session_dir(cwd, session_id) / "spec.json"
+
+
+def load_spec(cwd: str | Path, session_id: str | None) -> dict[str, Any] | None:
+    """Load and parse the session's spec artifact, returning None on any error."""
+    path = spec_path(cwd, session_id)
     if not path.exists():
         return None
     try:
@@ -402,9 +433,9 @@ def load_spec(root: str | Path, task_id: str) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
-def save_spec(root: str | Path, task_id: str, spec: dict[str, Any]) -> Path:
-    """Write *spec* to the canonical path, creating parent directories as needed."""
-    path = spec_path(root, task_id)
+def save_spec(cwd: str | Path, session_id: str | None, spec: dict[str, Any]) -> Path:
+    """Write *spec* to the session's canonical path, creating parents as needed."""
+    path = spec_path(cwd, session_id)
     return write_text_atomic(path, json.dumps(spec, indent=2, sort_keys=False))
 
 

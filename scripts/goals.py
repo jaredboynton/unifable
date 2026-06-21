@@ -17,6 +17,7 @@ State directory: ./.unifable/ (run from the repo root)
 """
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -28,10 +29,23 @@ from pathlib import Path
 # what the caller's cwd is.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "gate"))
 from atomicio import write_text_atomic
+from spec import resolve_session_id, session_dir
 
-DIR = Path(".unifable")
-GOALS = DIR / "goals.json"
-LEDGER = DIR / "ledger.jsonl"
+
+# State is keyed per (directory, session): <data_root>/specs/<dir_hash(cwd)>/<session>/.
+# The plan (goals.json) sits beside the evidence spec, so a new session never
+# inherits a prior session's plan. resolve_session_id reads CLAUDE_CODE_SESSION_ID /
+# CODEX_THREAD_ID from the env (this CLI gets no stdin), matching the hook's key.
+def _state_dir() -> Path:
+    return session_dir(os.getcwd(), resolve_session_id(None, default="default"))
+
+
+def _goals_file() -> Path:
+    return _state_dir() / "goals.json"
+
+
+def _ledger_file() -> Path:
+    return _state_dir() / "goals-ledger.jsonl"
 
 
 def now():
@@ -39,26 +53,28 @@ def now():
 
 
 def log(event, **kw):
-    DIR.mkdir(exist_ok=True)
-    with open(LEDGER, "a", encoding="utf-8") as f:
+    d = _state_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    with open(_ledger_file(), "a", encoding="utf-8") as f:
         f.write(json.dumps({"ts": now(), "event": event, **kw}, ensure_ascii=False) + "\n")
 
 
 def load():
-    if not GOALS.exists():
+    goals = _goals_file()
+    if not goals.exists():
         sys.exit("unifable: no plan — run `create` from the repo root first.")
-    return json.loads(GOALS.read_text(encoding="utf-8"))
+    return json.loads(goals.read_text(encoding="utf-8"))
 
 
 def save(plan):
     # Atomic: a concurrent reader sees either the old goals.json or the complete
     # new one, never a truncated file; concurrent writers are last-writer-wins
-    # with no torn state. write_text_atomic creates .unifable/ if missing.
-    write_text_atomic(GOALS, json.dumps(plan, ensure_ascii=False, indent=1))
+    # with no torn state. write_text_atomic creates the session dir if missing.
+    write_text_atomic(_goals_file(), json.dumps(plan, ensure_ascii=False, indent=1))
 
 
 def cmd_create(a):
-    if GOALS.exists() and not a.force:
+    if _goals_file().exists() and not a.force:
         sys.exit("unifable: a plan already exists. Check it with `status`, or replace it with --force.")
     goals = []
     for i, g in enumerate(a.goal, 1):

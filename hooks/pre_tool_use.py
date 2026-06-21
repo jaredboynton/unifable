@@ -47,8 +47,9 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
 from bash_classify import ALLOWED_RESEARCH_BASH, is_allowed_research_bash
-from ledger import emit_json, load_ledger, read_stdin_json
-from spec import GRADES, contract_string, load_spec, resolve_session_id, spec_path, validate_spec
+from evidence_policy import resolve_grade
+from ledger import data_root, emit_json, load_ledger, read_stdin_json
+from spec import contract_string, load_spec, resolve_session_id, spec_path, validate_spec
 
 # ---------------------------------------------------------------------------
 # Tool names across both hosts (Claude Code and Codex)
@@ -70,19 +71,27 @@ def _unifable_dir(cwd: str | Path) -> Path:
 
 
 def _is_protected(target: str | Path, cwd: str | Path) -> bool:
-    """Return True when *target* is ANY path under <cwd>/.unifable/.
+    """Return True when *target* is under the repo-local <cwd>/.unifable/ OR under
+    the global keyed spec store (<data_root>/specs/).
 
-    Specs are CLI-only: the model mutates them via spec.py (create / add-task /
-    deliver / validate-task), never with Edit/Write. Hand-editing the spec JSON is
-    blocked so an agent cannot delete tasks or fake a validated status. ledger,
-    goals, findings, and state were already protected; spec/ now joins them.
+    Specs are CLI-only: the model mutates them via spec.py (restate / add-task /
+    cite / deliver / validate-task / dispute), never with Edit/Write. Hand-editing
+    the spec JSON is blocked so an agent cannot delete tasks or fake a validated
+    status. The spec now lives globally under <data_root>/specs/<dir>/<session>/,
+    so that root is protected too; the repo-local .unifable/ (findings, residual
+    state) stays protected as before.
     """
     try:
         resolved = Path(target).resolve()
-        resolved.relative_to(_unifable_dir(cwd))
     except (ValueError, OSError):
-        return False  # not under .unifable/ — not protected
-    return True
+        return False
+    for root in (_unifable_dir(cwd), data_root() / "specs"):
+        try:
+            resolved.relative_to(root)
+            return True
+        except (ValueError, OSError):
+            continue
+    return False
 
 
 # ---------------------------------------------------------------------------
@@ -117,16 +126,10 @@ def _target_path(tool_name: str, tool_input: dict) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _task_id(input_data: dict) -> str:
-    """Derive the active spec key. Prefer the ledger's `active_task` (the prompt
-    hash gate_prompt.py pinned, locked-until-complete) so the gate looks at the
-    spec for the task in flight. Fall back to stdin session_id, then host env
-    (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID), then 'default'."""
-    try:
-        active = load_ledger(input_data).get("active_task")
-        if active:
-            return str(active)
-    except Exception:
-        pass
+    """Derive the spec key. The evidence spec is one per (directory, session), so
+    the key is the resolved session id -- stdin session_id, then host env
+    (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID), then 'default'. (The ledger's
+    `active_task` is now the per-prompt hash for the breaker, not the spec key.)"""
     return resolve_session_id(input_data, default="default") or "default"
 
 
@@ -160,16 +163,19 @@ def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: 
 def _effective_grade(input_data: dict | None = None) -> str:
     """Grade from UNIFABLE_GRADE, else this session's ledger, else STANDARD.
 
-    Reading the ledger (written by gate_prompt.py at UserPromptSubmit) lets the
-    default-on gate respect the task classification: a quick task graded LIGHT is
-    waived, so trivial edits are not over-gated."""
-    grade = os.environ.get("UNIFABLE_GRADE", "").upper().strip()
-    if grade not in GRADES and input_data is not None:
+    Resolution and precedence live in evidence_policy.resolve_grade (the single
+    policy boundary): valid UNIFABLE_GRADE > active task's task_mode -> derived
+    grade > legacy ledger grade > STANDARD. Reading the ledger (written by
+    gate_prompt.py at UserPromptSubmit) lets the default-on gate respect the task
+    classification: a quick task graded LIGHT is waived, so trivial edits are not
+    over-gated."""
+    ledger: dict = {}
+    if input_data is not None:
         try:
-            grade = (load_ledger(input_data).get("grade") or "").upper().strip()
+            ledger = load_ledger(input_data)
         except Exception:
-            grade = ""
-    return grade if grade in GRADES else "STANDARD"
+            ledger = {}
+    return resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
 
 
 def _enforce_spec(input_data: dict, cwd: str) -> int:

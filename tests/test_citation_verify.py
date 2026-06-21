@@ -155,11 +155,13 @@ def test_post_tool_records_generic_tool_result_activity():
         assert len(observed) == 1
 
 
-def _create_spec(cwd, task_id, repo_context, prior_art):
+def _create_spec(cwd, task_id, repo_context, prior_art, data_dir):
     args = [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), "create",
             "--root", cwd, "--task-id", task_id, "--goal", "wire citation verify",
             "--task", "smoke::true", "--repo-context", repo_context, "--prior-art", prior_art]
-    return subprocess.run(args, capture_output=True, text=True)
+    env = dict(os.environ)
+    env["UNIFABLE_DATA"] = data_dir  # write where the gate (UNIFABLE_DATA=dd) reads
+    return subprocess.run(args, capture_output=True, text=True, env=env)
 
 
 def test_pre_tool_use_allows_when_citations_backed():
@@ -175,7 +177,7 @@ def test_pre_tool_use_allows_when_citations_backed():
         os.environ["UNIFABLE_DATA"] = dd  # so load_ledger below reads the seeded ledger
         recorded = load_ledger({"session_id": sess, "cwd": cwd}).get("read_paths", [])
         assert str(Path(x).resolve()) in recorded, f"Read should be recorded (resolved); got {recorded}"
-        r = _create_spec(cwd, sess, f"src/mod.py:1::the module under change", f"{url}::guide backs it")
+        r = _create_spec(cwd, sess, f"src/mod.py:1::the module under change", f"{url}::guide backs it", dd)
         assert r.returncode == 0, r.stderr
         rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
                              "tool_input": {"file_path": x, "old_string": "a", "new_string": "b"}}, dd)
@@ -187,7 +189,7 @@ def test_pre_tool_use_blocks_unread_repo_context():
         sess = "CBM"
         url = "https://docs.example.com/guide"
         _record(dd, sess, cwd, "WebFetch", {"url": url})  # fetched the url, but never read the cited file
-        r = _create_spec(cwd, sess, "src/never_read.py:10::claimed but unread", f"{url}::guide")
+        r = _create_spec(cwd, sess, "src/never_read.py:10::claimed but unread", f"{url}::guide", dd)
         assert r.returncode == 0, r.stderr
         rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
                              "tool_input": {"file_path": str(Path(cwd) / "impl.py"),
@@ -202,7 +204,7 @@ def test_pre_tool_use_blocks_unfetched_prior_art():
         x = str(Path(cwd) / "a.py")
         Path(x).write_text("x\n")
         _record(dd, sess, cwd, "Read", {"file_path": x})  # read the file, but never fetched the url
-        r = _create_spec(cwd, sess, "a.py:1::read it", "https://unfetched.example.com/x::never fetched")
+        r = _create_spec(cwd, sess, "a.py:1::read it", "https://unfetched.example.com/x::never fetched", dd)
         assert r.returncode == 0, r.stderr
         rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
                              "tool_input": {"file_path": x, "old_string": "a", "new_string": "b"}}, dd)
@@ -213,7 +215,7 @@ def test_pre_tool_use_blocks_unfetched_prior_art():
 def test_disable_env_escape_hatch():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "CBD"
-        r = _create_spec(cwd, sess, "src/unread.py:1::unread", "https://unfetched.example.com/x::unfetched")
+        r = _create_spec(cwd, sess, "src/unread.py:1::unread", "https://unfetched.example.com/x::unfetched", dd)
         assert r.returncode == 0, r.stderr
         env = dict(os.environ)
         env.update({"UNIFABLE_DATA": dd, "UNIFABLE_GRADE": "STANDARD", "UNIFABLE_VERIFY_CITATIONS": "0"})

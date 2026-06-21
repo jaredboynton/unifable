@@ -20,7 +20,7 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-from spec import repo_context_of, validate_spec  # noqa: E402
+from spec import load_spec, repo_context_of, validate_spec  # noqa: E402
 from citations import empty_activity, verify_citations  # noqa: E402
 
 
@@ -76,7 +76,11 @@ def test_citation_check_reads_must_read_field():
 def test_cli_must_read_flag_populates_repo_context(tmp_path):
     """`--must-read` is accepted as an alias and lands in `repo_context`, so an
     external caller using the old flag name still authors a valid spec."""
-    root = str(tmp_path)
+    root = str(tmp_path / "repo")
+    Path(root).mkdir()
+    data = str(tmp_path / "data")
+    env = dict(os.environ)
+    env["UNIFABLE_DATA"] = data
     subprocess.run(
         [
             sys.executable, str(GATE / "spec.py"), "create",
@@ -85,8 +89,18 @@ def test_cli_must_read_flag_populates_repo_context(tmp_path):
             "--must-read", "a.py:1::why it matters",
             "--prior-art", "https://example.com::why",
         ],
-        check=True,
+        check=True, env=env,
     )
-    spec = json.loads(Path(root, ".unifable", "spec", "T.json").read_text())
+    # spec.json now lives at the keyed global path; read it back via load_spec.
+    old = os.environ.get("UNIFABLE_DATA")
+    os.environ["UNIFABLE_DATA"] = data
+    try:
+        spec = load_spec(root, "T")
+    finally:
+        if old is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = old
+    assert spec is not None
     assert spec["repo_context"] == [{"cite": "a.py:1", "why": "why it matters"}]
     assert "must_read" not in spec  # canonical key only on write

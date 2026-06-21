@@ -8,6 +8,7 @@ pattern used by test_gate.py for the other hooks.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -1003,7 +1004,8 @@ def test_stop_valid_spec_releases():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         p = {"session_id": "st6b", "cwd": cwd, "stop_hook_active": False}
         assert _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
-        save_spec(cwd, "st6b", _standard_spec_with_evidence())
+        with _data_env(dd):
+            save_spec(cwd, "st6b", _standard_spec_with_evidence())
         assert not _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
 
 
@@ -1018,8 +1020,25 @@ def test_stop_escape_hatch_removed():
         assert _blocks(out)
 
 
-def _write_goals_plan(cwd: str, status: str = "in_progress") -> Path:
-    path = Path(cwd) / ".unifable" / "goals.json"
+@contextlib.contextmanager
+def _data_env(dd: str):
+    """Point UNIFABLE_DATA at *dd* in-process (so save_spec / keyed-path helpers
+    land where the subprocess gate reads), restoring the prior value after."""
+    old = os.environ.get("UNIFABLE_DATA")
+    os.environ["UNIFABLE_DATA"] = dd
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = old
+
+
+def _write_goals_plan(cwd: str, session_id: str, status: str = "in_progress") -> Path:
+    # Goals plan now lives at the keyed path (<data_root>/specs/<dir>/<session>/goals.json);
+    # caller must have UNIFABLE_DATA pointed at the gate's data dir.
+    path = gate_stop._goals_path(cwd, session_id)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps(
@@ -1043,7 +1062,6 @@ def _write_goals_plan(cwd: str, status: str = "in_progress") -> Path:
 
 def test_goal_stop_uses_prompt_judge_and_blocks_when_unsatisfied():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd, tempfile.TemporaryDirectory() as td:
-        _write_goals_plan(cwd)
         transcript = Path(td) / "session.jsonl"
         _write_transcript(transcript, [{"type": "text", "text": "I have not run the check yet."}])
         payload = {"session_id": "goal1", "cwd": cwd, "transcript_path": str(transcript), "hook_event_name": "Stop"}
@@ -1058,6 +1076,7 @@ def test_goal_stop_uses_prompt_judge_and_blocks_when_unsatisfied():
 
         try:
             os.environ["UNIFABLE_DATA"] = dd
+            _write_goals_plan(cwd, "goal1")
             gate_stop._judge_goal_condition = fake_judge
             out = gate_stop.goal_stop_decision(payload, cwd)
         finally:
@@ -1095,7 +1114,6 @@ def test_goal_judge_transcript_preserves_stripped_tool_call_and_result():
 
 def test_goal_stop_marks_current_goal_complete_when_judge_passes():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd, tempfile.TemporaryDirectory() as td:
-        path = _write_goals_plan(cwd)
         transcript = Path(td) / "session.jsonl"
         _write_transcript(transcript, [{"type": "text", "text": "The active goal is complete; pytest passed."}])
         payload = {"session_id": "goal2", "cwd": cwd, "transcript_path": str(transcript), "hook_event_name": "Stop"}
@@ -1107,6 +1125,7 @@ def test_goal_stop_marks_current_goal_complete_when_judge_passes():
 
         try:
             os.environ["UNIFABLE_DATA"] = dd
+            path = _write_goals_plan(cwd, "goal2")
             gate_stop._judge_goal_condition = fake_judge
             out = gate_stop.goal_stop_decision(payload, cwd)
         finally:

@@ -4,19 +4,19 @@
 Two directional decisions, both by GPT-realtime-2 over merged transcript material
 (host JSONL tail + prior breaker-event records + optional fresh PostToolUse output):
 
-ARM (while disarmed). On PreToolUse the strict judge asks: did the model say
-something CONFIDENTLY WITHOUT BACKING IT UP? If yes (verdict 1) it returns a
-steering prompt AND names the specific claim; the breaker ARMS a block on mutation
-tools -- Write, Edit, Bash -- never on WebSearch or file reads. The arm judge is
-DEBOUNCED to at most once per JUDGE_WINDOW_SECONDS (15s) per session+prompt key.
+ARM (while disarmed). On PreToolUse the strict judge asks two questions from the
+transcript: (1) did the model say something CONFIDENTLY WITHOUT BACKING IT UP, and
+(2) is that assertion LOAD-BEARING for the work currently in progress (the user
+request, the imminent edit/check, the decision driving the next tool)? Only when
+both hold (verdict 1) does the breaker arm and block mutation tools. The arm judge
+is DEBOUNCED to at most once per JUDGE_WINDOW_SECONDS (15s) per session+prompt key.
 Prior DISARM/FAIL_OPEN events in the injected breaker records prevent re-arming
 the same claim.
 
 DISARM (while armed). On PostToolUse after Read/WebFetch/WebSearch/Grep/Glob/
-NotebookRead, a separate claim-bound release judge asks whether the flagged claim
-is now grounded, using the transcript plus the fresh tool output from that call.
-If grounded, the hook injects a breaker-open message and clears the arm. Release
-does NOT use ledger activity counters.
+NotebookRead, and on any PreToolUse while still armed, a claim-bound release judge
+asks whether the flagged claim is grounded, retracted, or no longer load-bearing
+for the work in progress. If any release condition holds, the breaker disarms.
 
 SAFETY CAP. After BREAKER_MAX_BLOCKS consecutive blocks on one arm the breaker
 fails open (disarms, logs) so a misfiring judge can never hard-lock a session.
@@ -59,10 +59,25 @@ _TRANSCRIPT_TOKEN_BUDGET = TRANSCRIPT_TOKEN_BUDGET
 _JUDGE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "load_bearing": {
+            "type": "integer",
+            "enum": [0, 1],
+            "description": (
+                "1 only if any unproven assertion is LOAD-BEARING for the work currently in progress "
+                "in the transcript -- the user's request, the file/check the model is about to mutate "
+                "or run, or a fact the model must treat as settled to proceed with THAT work. 0 for "
+                "narration, background explanations, speculative root-cause stories about host/tool "
+                "errors the model is not using to drive the immediate action, passing asides, or "
+                "claims the model retracted or labeled uncertain. When load_bearing=0, verdict MUST be 0."
+            ),
+        },
         "verdict": {
             "type": "integer",
             "enum": [0, 1],
-            "description": "1 if the model stated something confidently without backing it up; else 0.",
+            "description": (
+                "1 ONLY if load_bearing=1 AND the model stated something confidently without backing "
+                "it up; else 0."
+            ),
         },
         "steering": {
             "type": "string",
@@ -88,21 +103,32 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             ),
         },
     },
-    "required": ["verdict", "steering", "claim"],
+    "required": ["verdict", "steering", "claim", "load_bearing"],
     "additionalProperties": False,
 }
 
 _DISARM_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
+        "load_bearing": {
+            "type": "integer",
+            "enum": [0, 1],
+            "description": (
+                "1 if the flagged claim is still LOAD-BEARING for the work currently in progress in "
+                "the transcript (the user's request, the file being edited, the check being run). "
+                "0 if the claim is narration, a retracted/corrected aside, speculative host-error "
+                "storytelling not driving the immediate action, or otherwise not needed for the "
+                "current work. When load_bearing=0, grounded MUST be 1 and needed MUST be empty."
+            ),
+        },
         "grounded": {
             "type": "integer",
             "enum": [0, 1],
             "description": (
-                "1 if the flagged claim is no longer an unbacked assertion -- it has been cited, "
-                "RETRACTED, or (for a negative/absence claim) backed by a reasonable bounded search. "
-                "0 only if it is still relied on AND genuinely unbacked. Never demand proof of a "
-                "universal negative."
+                "1 if the breaker should release: the claim is grounded by evidence, RETRACTED, "
+                "backed by a reasonable bounded search (negative/absence claims), OR load_bearing=0 "
+                "(no longer blocks the current work). 0 only if load_bearing=1 AND the claim is still "
+                "relied on AND genuinely unbacked. Never demand proof of a universal negative."
             ),
         },
         "needed": {
@@ -115,7 +141,7 @@ _DISARM_SCHEMA: dict[str, Any] = {
             ),
         },
     },
-    "required": ["grounded", "needed"],
+    "required": ["load_bearing", "grounded", "needed"],
     "additionalProperties": False,
 }
 
@@ -125,65 +151,56 @@ _JUDGE_SYSTEM = (
     "unifable_breaker gate records (event=ARM, event=DISARM, event=FAIL_OPEN) from earlier judge "
     "decisions. Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN for the same or "
     "substantially the same claim in those breaker records. "
-    "Answer exactly one question: did the model say something CONFIDENTLY WITHOUT BACKING IT UP -- "
-    "assert a root cause, a fix, or a fact as settled when it has not read the source, run the "
-    "check, or cited evidence for it (especially after repeated failed attempts, or about an API, "
-    "config, or file it never actually read)? "
-    "A normal hypothesis the model is about to test is NOT a violation; only a confident, unproven "
-    "assertion is. Use the tool output already in the transcript to judge grounding: if the evidence "
-    "for the claim is now actually present, there is no violation. "
+    "Answer TWO questions in order; set load_bearing and verdict accordingly: "
+    "(A) LOAD-BEARING FOR CURRENT WORK? Read the transcript for what the user asked and what the "
+    "model is doing NOW (the tool about to run, the file being edited, the test being fixed). "
+    "Set load_bearing=1 only if an unproven assertion, if any, would change or justify the IMMEDIATE "
+    "next action on THAT work. Set load_bearing=0 when the confident-sounding text is narration, "
+    "background, or explanatory speculation NOT needed for the current edit/check -- e.g. inventing "
+    "a root cause for a host TaskUpdate/TaskList 'not found' or plugin-reload message while the "
+    "actual work is an unrelated repo change; a post-mortem about a prior error; status commentary; "
+    "or a hypothesis the model marks as uncertain or retracts. If the model says the aside is not "
+    "load-bearing or retracts the claim, load_bearing=0. "
+    "(B) UNGROUNDED CONFIDENT ASSERTION? Only if load_bearing=1, ask whether the model asserted a "
+    "root cause, fix, or fact as SETTLED without reading the source, running the check, or citing "
+    "evidence (especially about an API, config, or file it never actually read). A normal hypothesis "
+    "the model is about to test is NOT a violation. Use tool output already in the transcript: if "
+    "evidence for the claim is present, verdict=0. "
     "MATCH the grounding source to the claim's nature. A claim about THIS repo's code or config is "
     "grounded by reading the repo source or running the check. A claim about EXTERNAL or platform "
-    "behavior -- how a host feature works (slash commands, hooks, skills), a third-party or framework "
-    "API, or library semantics -- is grounded by AUTHORITATIVE EXTERNAL DOCUMENTATION the model fetches "
-    "via web search / WebFetch; for such a claim the correct steering points at the official "
-    "documentation to fetch, NOT at a repo file like AGENTS.md (a repo file cannot settle how an "
-    "external system behaves). Never demand repo-internal evidence for a claim whose truth lives in "
-    "external docs. You do NOT have a repo file listing -- describe the KIND of source that would "
-    "settle the claim and let the model find the file; do not invent specific paths (name a path only "
-    "if it already appears in the transcript). You can see the tool responses in the transcript: judge "
-    "whether what the model actually read or fetched SUPPORTS the claim -- if it read/fetched the "
-    "source but its content does not say what the model claims, that is still a violation. Do not "
-    "require the model to re-quote what you can already see; reading the source is enough when the "
-    "content backs the claim. "
-    "Do NOT arm when: the model is retracting or correcting the claim (a withdrawn claim is not an "
-    "assertion); the claim is a passing aside it is not relying on for its next action; or the claim "
-    "is a negative/absence claim it has already backed with a reasonable bounded search (e.g. a grep "
-    "over the relevant checkout plus reading the registry). Only arm a confident, LOAD-BEARING, "
-    "unproven assertion the model is acting on. "
-    "If yes: verdict=1 and write a 2-3 sentence steering prompt, addressed to the model, naming the "
-    "unproven claim and telling it that its tools are restricted to read-only ones (Read, WebSearch, "
-    "WebFetch, Grep, Glob) until it grounds the claim. Be blunt. "
-    "If no: verdict=0 and steering MUST be the empty string. Call the function exactly once."
+    "behavior -- how a host feature works (slash commands, hooks, skills, Task tools), a third-party "
+    "or framework API, or library semantics -- is grounded by AUTHORITATIVE EXTERNAL DOCUMENTATION the "
+    "model fetches via web search / WebFetch; for such a claim the correct steering points at the "
+    "official documentation to fetch, NOT at a repo file like AGENTS.md. Never demand repo-internal "
+    "evidence for a claim whose truth lives in external docs. You do NOT have a repo file listing -- "
+    "describe the KIND of source that would settle the claim; name a path only if it already appears "
+    "in the transcript. Judge whether what the model read or fetched SUPPORTS the claim. "
+    "ARM ONLY when load_bearing=1 AND the assertion is genuinely ungrounded: verdict=1, name the "
+    "claim, write a 2-3 sentence steering prompt telling the model its tools are restricted to "
+    "read-only ones (Read, WebSearch, WebFetch, Grep, Glob) until it grounds THAT claim. "
+    "Otherwise verdict=0, load_bearing=0 or 1 as appropriate, steering MUST be empty string, claim "
+    "MUST be empty. Call the function exactly once."
 )
 
 _DISARM_SYSTEM = (
     "You are a groundedness RELEASE monitor for an autonomous coding agent. The agent was earlier "
-    "flagged for ONE confident, unproven claim, given to you below. Look ONLY at what the agent has "
-    "since actually done in the transcript -- the source it read, the checks it ran, the file:line "
-    "or command output it cited, including any FRESH TOOL OUTPUT block appended at the end. "
-    "Answer exactly one question: is the flagged claim NO LONGER an unbacked confident assertion? "
-    "Set grounded=1 if ANY of these now hold: (a) it has read the source / run the check / cited "
-    "file:line or command output that backs the claim; (b) it has RETRACTED or corrected the claim "
-    "(a withdrawn claim is no longer asserted -- release it); "
-    "(c) the claim is a NEGATIVE or absence claim ('no X', 'nothing does Y') and the model has done "
-    "a REASONABLE bounded search -- e.g. a grep/rg over the relevant checkout plus reading the "
-    "registry/loader -- and cited that absence; "
-    "(d) the claim is about EXTERNAL or platform behavior (a host feature, third-party/framework API, "
-    "or library semantics) and the model has FETCHED authoritative external documentation via web "
-    "search / WebFetch whose content supports it -- official docs ground an external claim. "
-    "You can see the tool responses in the transcript: judge whether what the model read or fetched "
-    "ACTUALLY supports the claim. You do not need the model to re-quote it -- reading/fetching the "
-    "source is enough when its content backs the claim. But if the model read/fetched the source and "
-    "the content does NOT say what it claims, stay armed and say so in `needed`. "
-    "You MUST NOT demand proof of a universal negative beyond a reasonable search; a bounded search "
-    "that cites absence grounds a negative claim. You MUST NOT demand a repo file (e.g. AGENTS.md) "
-    "for a claim whose truth lives in external documentation -- fetched official docs ground it. "
-    "Judge whether the claim is still an unbacked assertion, NOT whether it is universally proven. "
-    "Set grounded=0 only if the claim is still being relied on AND genuinely unbacked; then write "
-    "`needed`: 1-2 sentences naming EXACTLY what is still missing -- for a repo claim, which file to "
-    "read or check to run; for an external/platform claim, the official documentation to fetch. "
-    "Judge only the named claim. Call the function once."
+    "flagged for ONE confident, unproven claim, given to you below. Look at what the agent has "
+    "since done in the transcript -- reads, checks, retractions, and the work currently in progress "
+    "(user request, file being edited, tool about to run), including any FRESH TOOL OUTPUT block. "
+    "Answer TWO questions; set load_bearing and grounded accordingly: "
+    "(A) IS THE FLAGGED CLAIM STILL LOAD-BEARING FOR CURRENT WORK? Set load_bearing=0 when the "
+    "claim is narration, a retracted/corrected aside, speculative root-cause storytelling about "
+    "host/tool errors (TaskUpdate 'not found', plugin reload) that the model is NOT using to drive "
+    "the immediate repo edit/check, or otherwise not needed for the work NOW in the transcript. "
+    "Set load_bearing=1 only if the model still relies on that claim for the immediate next action. "
+    "(B) SHOULD THE BREAKER RELEASE? Set grounded=1 if ANY hold: (1) load_bearing=0 -- release "
+    "without requiring further evidence; (2) the claim was RETRACTED or corrected; (3) the model "
+    "read the source / ran the check / cited file:line or command output that backs the claim; "
+    "(4) negative/absence claim backed by a reasonable bounded search; (5) external/platform claim "
+    "backed by fetched authoritative documentation. When load_bearing=0, grounded MUST be 1. "
+    "Set grounded=0 ONLY when load_bearing=1 AND the claim is still relied on AND genuinely "
+    "unbacked; then write `needed` naming exactly what is still missing. When grounded=1, needed "
+    "MUST be empty. Judge only the named claim. Call the function once."
 )
 
 
@@ -287,7 +304,10 @@ def arm_judge(
             f"adjudicated or grounded:\n{claims_str}"
         )
     obj = fn(system, segment, _JUDGE_SCHEMA)
+    load_bearing = int(obj.get("load_bearing", 0) or 0) == 1
     verdict = 1 if int(obj.get("verdict", 0) or 0) == 1 else 0
+    if verdict == 1 and not load_bearing:
+        verdict = 0
     steering = str(obj.get("steering", "") or "") if verdict == 1 else ""
     claim = str(obj.get("claim", "") or "") if verdict == 1 else ""
     return verdict, steering, claim
@@ -299,9 +319,29 @@ def disarm_judge(claim: str, segment: str, judge: JudgeFn | None = None) -> tupl
     fn = judge or _default_judge
     user = f"FLAGGED CLAIM:\n{claim}\n\nTRANSCRIPT (what the model has since read/run/cited):\n{segment}"
     obj = fn(_DISARM_SYSTEM, user, _DISARM_SCHEMA)
+    load_bearing = int(obj.get("load_bearing", 1) or 0) == 1
     grounded = int(obj.get("grounded", 0) or 0) == 1
+    if not load_bearing:
+        grounded = True
     needed = str(obj.get("needed", "") or "") if not grounded else ""
     return grounded, needed
+
+
+def _apply_release(
+    state: dict,
+    claim: str,
+    grounded: bool,
+    needed: str,
+) -> bool:
+    """Record release outcome on `state`. Returns True if disarmed."""
+    if grounded:
+        append_event(state, "DISARM", claim=claim, grounded=True)
+        disarm(state)
+        return True
+    if needed:
+        append_event(state, "NEEDED", claim=claim, needed=needed)
+        state["breaker_steering"] = needed
+    return False
 
 
 def breaker_key(session_id: str, active_task: str) -> str:
@@ -380,6 +420,11 @@ def evaluate_pre_tool(
             if verdict == 1 and claim and claim_already_adjudicated(claim, events):
                 verdict, steering, claim = 0, "", ""
             record_verdict(state, key, now, verdict, steering, claim)
+        elif armed:
+            claim = str(state.get("breaker_claim") or "")
+            if claim:
+                segment = judge_transcript(input_data, events)
+                _apply_release(state, claim, *disarm_judge(claim, segment, judge=judge))
     except Exception:
         return False, ""
     if is_mutation_tool(tool) and state.get("breaker_armed"):
@@ -416,16 +461,12 @@ def evaluate_post_tool_release(
     try:
         segment = judge_transcript(input_data, events, fresh_tool=fresh_tool)
         grounded, needed = disarm_judge(claim, segment, judge=judge)
-        if grounded:
-            append_event(state, "DISARM", claim=claim, grounded=True)
-            disarm(state)
+        if _apply_release(state, claim, grounded, needed):
             return True, "", (
                 "unifable breaker open: the flagged claim is grounded. "
                 "Write/Edit/Bash are unrestricted again."
             )
         if needed:
-            append_event(state, "NEEDED", claim=claim, needed=needed)
-            state["breaker_steering"] = needed
             return False, needed, f"unifable breaker: still armed. {needed}"
     except Exception:
         return False, "", ""

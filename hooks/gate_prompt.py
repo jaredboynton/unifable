@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
 from classify_task import classify_prompt, context_for_mode, grade_of
-from spec import all_tasks_validated, load_spec, save_spec, spec_path, spec_template
+from spec import resolve_session_id, save_spec, spec_path, spec_template
 
 
 def _prompt_key(prompt: str) -> str:
@@ -59,23 +59,18 @@ def main() -> int:
     prompt = str(input_data.get("prompt") or input_data.get("user_prompt") or "")
     mode, risks = classify_prompt(prompt)
     cwd = input_data.get("cwd") or os.getcwd()
+    # The evidence spec is now ONE per (directory, session) -- keyed by the session,
+    # not the prompt -- so a new session never inherits a prior one's spec. The
+    # per-prompt hash still feeds the groundedness breaker's debounce key, so keep
+    # it in `active_task`; it no longer keys the spec.
     new_key = _prompt_key(prompt)
+    session_key = resolve_session_id(input_data, default="default") or "default"
 
     def apply(ledger):
-        # Active spec key (locked-until-complete): keep the current active spec
-        # while it still has unvalidated tasks; otherwise this prompt seeds a new
-        # one. A missing/complete/no-task active spec is not a lock.
-        active = ledger.get("active_task")
-        locked = False
-        if active:
-            try:
-                spec = load_spec(cwd, active)
-                if spec is not None and not all_tasks_validated(spec)[0]:
-                    locked = True
-            except Exception:
-                locked = False
-        if not locked:
-            ledger["active_task"] = new_key
+        # `active_task` = the current prompt hash, for the breaker debounce only.
+        # There is one session spec, so a new prompt cannot escape the gate by
+        # re-pointing a key -- the spec is found by session, not by this value.
+        ledger["active_task"] = new_key
         ledger["task_mode"] = mode
         ledger["grade"] = grade_of(mode)
         ledger["warning_count"] = 0
@@ -97,7 +92,7 @@ def main() -> int:
     # the agent how to drive it (append-only: add requirements + evidence; dispute
     # the impossible; never edit the JSON). LIGHT work is waived (no spec).
     if grade_of(mode) != "LIGHT":
-        key = ledger.get("active_task") or new_key
+        key = session_key  # one spec per session; CLI --task-id carries the session id
         path = _ensure_spec_scaffold(cwd, key, prompt)
         if path:
             context += (

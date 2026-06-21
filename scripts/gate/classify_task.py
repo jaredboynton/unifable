@@ -71,12 +71,17 @@ def classify_prompt(prompt: str) -> tuple[str, list[str]]:
 
 # Map the observation-gate mode onto the spec-gate grade tier. quick work is
 # LIGHT (spec waived), normal is STANDARD (full spec), deep is HEAVY (adds
-# architectural constraints + >=2 rejected alternatives). See scripts/gate/spec.py.
-GRADE_BY_MODE = {"quick": "LIGHT", "normal": "STANDARD", "deep": "HEAVY"}
+# architectural constraints + >=2 rejected alternatives). The mapping itself now
+# lives in scripts/gate/evidence_policy.py (the single policy boundary); these are
+# back-compat shims so existing importers (hooks, tests) keep working.
+try:  # bare import on sys.path (hooks + tests); package import otherwise
+    from evidence_policy import MODE_TO_GRADE as GRADE_BY_MODE, grade_for_mode
+except ImportError:  # pragma: no cover
+    from scripts.gate.evidence_policy import MODE_TO_GRADE as GRADE_BY_MODE, grade_for_mode
 
 
 def grade_of(mode: str) -> str:
-    return GRADE_BY_MODE.get(mode, "STANDARD")
+    return grade_for_mode(mode)
 
 
 def context_for_mode(mode: str, risk_flags: list[str]) -> str:

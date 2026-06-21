@@ -32,27 +32,47 @@ class FakeJudge:
     def __call__(self, system, user, schema):
         self.systems.append(system)
         self.calls += 1
-        verdict, steering = self.script[min(self.calls - 1, len(self.script) - 1)]
-        return {"verdict": verdict, "steering": steering, "claim": "claim" if verdict == 1 else ""}
+        entry = self.script[min(self.calls - 1, len(self.script) - 1)]
+        if len(entry) == 3:
+            verdict, steering, load_bearing = entry
+        else:
+            verdict, steering = entry
+            load_bearing = 1 if verdict == 1 else 0
+        return {
+            "verdict": verdict,
+            "steering": steering,
+            "claim": "claim" if verdict == 1 else "",
+            "load_bearing": load_bearing,
+        }
 
 
 class RoutingJudge:
-    def __init__(self, arm=(1, "blocked", "the cause is Y"), grounded=1, needed="read foo.py:10 and cite it"):
+    def __init__(
+        self,
+        arm=(1, "blocked", "the cause is Y"),
+        grounded=1,
+        needed="read foo.py:10 and cite it",
+        load_bearing=1,
+        release_load_bearing=1,
+    ):
         self.arm_ret = arm
         self.grounded = grounded
         self.needed = needed
+        self.load_bearing = load_bearing
+        self.release_load_bearing = release_load_bearing
         self.arm_calls = 0
         self.disarm_calls = 0
 
     def __call__(self, system, user, schema):
         if "release monitor" in system.lower():
             self.disarm_calls += 1
+            lb = self.release_load_bearing
             if self.grounded:
-                return {"grounded": 1, "needed": ""}
-            return {"grounded": 0, "needed": self.needed}
+                return {"grounded": 1, "needed": "", "load_bearing": lb}
+            return {"grounded": 0, "needed": self.needed, "load_bearing": lb}
         self.arm_calls += 1
         v, s, c = self.arm_ret
-        return {"verdict": v, "steering": s, "claim": c}
+        return {"verdict": v, "steering": s, "claim": c, "load_bearing": self.load_bearing if v == 1 else 0}
 
 
 def _pre(tool, session="S"):
@@ -122,13 +142,13 @@ def test_arms_then_disarms_via_post_tool_release(monkeypatch):
 
 def test_armed_stays_blocked_on_mutation_without_post_tool_release(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
-    judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=1)
+    judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0, release_load_bearing=1)
     state = _state()
     gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
     assert state["breaker_armed"] is True
     blocked, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=99.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
-    assert judge.disarm_calls == 0
+    assert judge.disarm_calls == 1
 
 
 def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
@@ -221,8 +241,8 @@ def test_judge_system_prompt_asks_the_confidence_question():
     judge = FakeJudge([(1, "x")])
     gb.judge_segment(seg, judge=judge)
     sysp = judge.systems[0].lower()
-    assert "confidently without backing it up" in sysp
-    assert "unifable_breaker" in sysp
+    assert "ungrounded" in sysp and "confident" in sysp
+    assert "load_bearing" in sysp or "load-bearing" in sysp
     assert "restricted to read-only" in sysp
     assert "read, websearch, webfetch, grep, glob" in sysp
 
@@ -230,14 +250,75 @@ def test_judge_system_prompt_asks_the_confidence_question():
 def test_arm_prompt_does_not_arm_on_retraction_or_aside():
     sysp = gb._JUDGE_SYSTEM.lower()
     assert "retract" in sysp
-    assert "load-bearing" in sysp
+    assert "load-bearing" in sysp or "load_bearing" in sysp
+    assert "work currently in progress" in sysp or "current work" in sysp
+
+
+def test_arm_prompt_skips_host_error_speculation_while_editing_repo():
+    sysp = gb._JUDGE_SYSTEM.lower()
+    assert "taskupdate" in sysp or "task" in sysp
+    assert "not load-bearing" in sysp or "load_bearing=0" in sysp
+
+
+def test_non_load_bearing_explanation_does_not_arm(monkeypatch):
+    monkeypatch.setattr(
+        gb,
+        "transcript_segment",
+        lambda d, **k: (
+            "user: update spec.py session keying\n"
+            "assistant: TaskUpdate failed because the task list reset after plugin reload."
+        ),
+    )
+    judge = RoutingJudge(
+        arm=(1, "blocked", "task list reset caused TaskUpdate failure"),
+        load_bearing=0,
+    )
+    state = _state()
+    blocked, steering = gb.evaluate_pre_tool(_pre("Edit"), state, now=10.0, active_task="P", judge=judge)
+    assert blocked is False and steering == ""
+    assert state["breaker_armed"] is False
+
+
+def test_arm_judge_forces_verdict0_when_load_bearing_false():
+    def bad_judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "blocked",
+            "claim": "speculative aside",
+            "load_bearing": 0,
+        }
+
+    verdict, steering, claim = gb.arm_judge("segment", judge=bad_judge)
+    assert verdict == 0 and steering == "" and claim == ""
+
+
+def test_disarm_judge_releases_when_not_load_bearing():
+    def release_judge(system, user, schema):
+        return {"grounded": 0, "needed": "should be ignored", "load_bearing": 0}
+
+    grounded, needed = gb.disarm_judge("speculative host error", "transcript", judge=release_judge)
+    assert grounded is True and needed == ""
+
+
+def test_pre_tool_disarms_when_release_judge_says_not_load_bearing(monkeypatch):
+    monkeypatch.setattr(
+        gb,
+        "transcript_segment",
+        lambda d, **k: "assistant: I retract that claim; it is not load-bearing for this edit.",
+    )
+    state = _state()
+    gb.arm(state, gb.breaker_key("S", "P"), 0.0, "blocked", "TaskUpdate failed due to plugin reload")
+    judge = RoutingJudge(grounded=0, release_load_bearing=0)
+    blocked, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is False and state["breaker_armed"] is False
+    assert judge.disarm_calls == 1
 
 
 def test_disarm_prompt_releases_on_retraction_and_bounded_negative():
     sysp = gb._DISARM_SYSTEM.lower()
     assert "retract" in sysp
-    assert "negative" in sysp and "bounded search" in sysp
-    assert "universal negative" in sysp
+    assert "load_bearing" in sysp or "load-bearing" in sysp
+    assert "load_bearing=0" in sysp or "not load-bearing" in sysp
 
 
 def test_arm_prompt_steers_external_claims_to_documentation():
@@ -389,7 +470,12 @@ def test_adjudicated_events_prevent_re_arm(monkeypatch):
 
     def recording_judge(system, user, schema):
         called_system_prompt.append(system)
-        return {"verdict": 1, "steering": "blocked", "claim": "my claim"}
+        return {
+            "verdict": 1,
+            "steering": "blocked",
+            "claim": "my claim",
+            "load_bearing": 1,
+        }
 
     blocked, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=100.0, active_task="P", judge=recording_judge)
     assert blocked is False
