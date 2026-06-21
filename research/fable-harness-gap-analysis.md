@@ -44,7 +44,7 @@ unifable (a fork of fivetaku/fablize) is an observation and completion enforceme
 
 **unifable status.** No. unifable's gate_post_tool.py is a passive observer activated after tools run; gate_stop.py enforces at completion. There is no mechanism that blocks a first edit.
 
-**Applicability.** High. **Effort.** Large. **Recommendation.** Add a PreToolUse hook (hooks/pre_tool_use.py) that checks for a per-task spec file in .unifable/spec/ before allowing edits. Can start with a lighter variant — require only a restated_goal and acceptance_criteria field — and build toward wfb's full eight-axis schema. Gate can be opt-in at HEAVY grade initially.
+**Applicability.** High. **Effort.** Large. **Recommendation.** Add a PreToolUse hook (hooks/pre_tool_use.py) that checks for a per-task spec file in .unifable/spec/ before allowing edits. Can start with a lighter variant — require only a restated_goal and acceptance_criteria field — and build toward wfb's full eight-axis schema. Gate is unconditional (always on, no env disable), graded: LIGHT waives, STANDARD+ enforces.
 
 ---
 

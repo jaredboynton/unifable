@@ -17,12 +17,13 @@ agent thrashes through edits first and only "cites" at the end.
   "blocked" (README "Benchmarks"). Rules were derived from 42 recorded real engineering sessions
   generalized to 8 decision axes (README "Where the rules came from"). This validates the pattern;
   note wfb gates *edits only*, not Bash — gating Bash (below) is beyond the proven prior art.
-- In-repo substrate (we extend, not greenfield): `hooks/pre_tool_use.py:143-198` is already a PreToolUse
-  gate that blocks `WRITE_TOOLS` until a spec validates (opt-in `UNIFABLE_SPEC_GATE=1`, default off,
-  fail-open). `scripts/gate/spec.py:116-168` validates `restated_goal` + `acceptance_criteria[{check,
-  evidence}]` and rejects placeholder evidence via `FAKE_MARKERS` (`spec.py:78-99`); HEAVY adds
-  `constraints` + `>=2 rejected_alternatives`. `scripts/gate/classify_task.py:75` maps
-  quick->LIGHT / normal->STANDARD / deep->HEAVY. The lockdown is three deltas on this.
+- In-repo substrate (we extend, not greenfield): `hooks/pre_tool_use.py:157-190` is a PreToolUse
+  gate that blocks `WRITE_TOOLS` until a spec validates (unconditional — no env disable, fail-open
+  on malformed input). `scripts/gate/spec.py:116-168` validates `restated_goal` +
+  `acceptance_criteria[{check, evidence}]` and rejects placeholder evidence via `FAKE_MARKERS`
+  (`spec.py:78-99`); HEAVY adds `constraints` + `>=2 rejected_alternatives`.
+  `scripts/gate/classify_task.py:75` maps quick->LIGHT / normal->STANDARD / deep->HEAVY. The
+  lockdown is three deltas on this.
 
 ## The two phases
 
@@ -38,9 +39,10 @@ agent thrashes through edits first and only "cites" at the end.
 
 ## Delta 1 — broaden the locked surface (pre_tool_use.py)
 
-Today guard 2 only fires for `tool_name in WRITE_TOOLS`. Add an evidence-gate guard (opt-in
-`UNIFABLE_EVIDENCE_GATE=1`) that also fires for `Bash` (classified, below) and treats the spec as the
-unlock. Reuse `_block()` (exit 2) and the grade machinery. LIGHT (quick) waives entirely.
+Today guard 2 only fires for `tool_name in WRITE_TOOLS`. Add an evidence-gate guard that also
+fires for `Bash` (classified, below) and treats the spec as the unlock. Reuse `_block()` (exit 2)
+and the grade machinery. LIGHT (quick) waives entirely. The gate is unconditional — there is no
+env disable.
 
 ## Delta 2 — citation fields in the unlock predicate (spec.py SPEC_SCHEMA)
 
@@ -63,23 +65,21 @@ Classify the `Bash` command string in the research phase:
   tools are locked until `.unifable/spec/<task>.json` documents your evidence (must_read path:line,
   acceptance_criteria with live output, prior_art URL for HEAVY). Research with Read/Grep/web first."
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than
-  wfb's edit-only gate. Mitigations: (a) opt-in + default OFF + fail-open (matches
+  wfb's edit-only gate. Mitigations: (a) unconditional + fail-open on malformed input (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
-  bricked — it can always satisfy the gate; (c) `WFB_BYPASS`-style one-off env escape; (d) ship behind
-  the holdout harness (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate
-  before any default-on.
+  bricked — it can always satisfy the gate; (c) ship behind the holdout harness
+  (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate.
 
 ## Rollout
 
-Opt-in `UNIFABLE_EVIDENCE_GATE=1`, default OFF, fail-open — zero effect on existing sessions until
-enabled. Graded: LIGHT waives; STANDARD = must_read + acceptance_criteria; HEAVY adds prior_art +
-rejected_alternatives. Both hosts: Claude native hooks + Codex (same `pre_tool_use.py`, both list
-`apply_patch`). Tests: extend `tests/test_spec_gate.py` + add a Bash-classifier test (allow/block
-matrix, malformed, bypass, no-brick), mirroring wfb's 35/35 adversarial set.
+Unconditional (always on, no env disable), fail-open on malformed input. Graded: LIGHT waives;
+STANDARD = must_read + acceptance_criteria; HEAVY adds prior_art + rejected_alternatives. Both
+hosts: Claude native hooks + Codex (same `pre_tool_use.py`, both list `apply_patch`). Tests:
+extend `tests/test_spec_gate.py` + add a Bash-classifier test (allow/block matrix, malformed,
+no-brick), mirroring wfb's 35/35 adversarial set.
 
 ## Open forks for the user
 
 1. Bash gating scope: full lockdown now (writes + Bash allowlist, the stated intent, highest leverage,
    highest false-positive risk) vs. writes-first then add Bash gating after measuring.
-2. Default: opt-in + measure (recommended, matches repo's fail-open history) vs. default-on.
-3. Allowlist contents: confirm the read-only verb set + which scripts (trace.sh, fusion, others).
+2. Allowlist contents: confirm the read-only verb set + which scripts (trace.sh, fusion, others).

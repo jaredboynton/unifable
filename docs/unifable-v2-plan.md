@@ -5,8 +5,10 @@ Source: `research/fable-harness-gap-analysis.md`. Goal: implement all 26 gaps, d
 is the source of truth for status. Update the Status column as work lands.
 
 ## Principles
-- **New blocking/running hooks ship opt-in (default OFF)** via env/config, so installing v2 never
-  suddenly blocks edits or auto-runs tests. Prompt/pack rules are always-on (low risk).
+- **Blocking hooks ship always-on** (the evidence/spec gate is unconditional — no env disable,
+  fail-open on malformed input), so installing v2 enforces citation-before-action by default.
+  Non-gate running hooks (e.g. test-after-edit, memory) ship opt-in (default OFF). Prompt/pack
+  rules are always-on (low risk).
 - **File ownership to avoid conflicts:** subagents create only NEW files; the shared core files
   (`hooks/hooks.json`, `skills/unifable/SKILL.md`, top-level `SKILL.md`, `setup/unifable-block.md`,
   `scripts/gate/classify_task.py`, `hooks/gate_stop.py`, `hooks/gate_post_tool.py`,
@@ -30,8 +32,8 @@ is the source of truth for status. Update the Status column as work lands.
 
 | # | Feature | New files (agent-built) | Shared edits (orchestrator) | Default | Status |
 |---|---|---|---|---|---|
-| 1 | Pre-Edit Enforcement | `hooks/pre_tool_use.py` | hooks.json PreToolUse; merge_hooks | OFF (`UNIFABLE_SPEC_GATE`) | done |
-| 2 | Spec & Contract Artifacts | `scripts/gate/spec.py` | router/UserPromptSubmit contract inject | OFF | done (CLI+gate; prompt-inject opt-in) |
+| 1 | Pre-Edit Enforcement | `hooks/pre_tool_use.py` | hooks.json PreToolUse; merge_hooks | on (unconditional) | done |
+| 2 | Spec & Contract Artifacts | `scripts/gate/spec.py` | router/UserPromptSubmit contract inject | on (CLI+gate; prompt-inject opt-in) | done |
 | 3 | Grade Tiers | — | classify_task.py grade_of | on | done |
 | 4 | Fake-Evidence Detection | (in spec.py) | gate_stop.py uses check_fake_evidence | on | done |
 | 5 | Pre-Edit Protected Gate State | (in pre_tool_use.py) | — | with #1 | done |
