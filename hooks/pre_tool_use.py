@@ -32,7 +32,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
 from ledger import emit_json, read_stdin_json
-from spec import GRADES, load_spec, spec_path, validate_spec
+from spec import GRADES, contract_string, load_spec, spec_path, validate_spec
 
 # ---------------------------------------------------------------------------
 # Write-tool names across both hosts (Claude Code and Codex)
@@ -140,6 +140,12 @@ def _spec_gate_active() -> bool:
     return os.environ.get("UNIFABLE_SPEC_GATE", "0").strip() == "1"
 
 
+def _evidence_gate_active() -> bool:
+    """The evidence gate (superset of the spec gate): same spec validation plus
+    required citation evidence (must_read code citations, prior_art URLs)."""
+    return os.environ.get("UNIFABLE_EVIDENCE_GATE", "0").strip() == "1"
+
+
 def main() -> int:
     input_data = read_stdin_json()
 
@@ -161,8 +167,9 @@ def main() -> int:
             "The model must not modify ledger, goals, findings, or state artifacts directly."
         )
 
-    # --- Guard 2: Spec gate (opt-in) ---
-    if not _spec_gate_active():
+    # --- Guard 2: Spec / evidence gate (opt-in) ---
+    require_evidence = _evidence_gate_active()
+    if not (_spec_gate_active() or require_evidence):
         emit_json({})
         return 0
 
@@ -180,12 +187,12 @@ def main() -> int:
         sp = spec_path(cwd, task_id)
         return _block(
             f"no spec artifact found for task '{task_id}' (grade={grade}). "
-            f"Write {sp} with at minimum 'restated_goal' and one 'acceptance_criteria' entry "
-            "before editing implementation files. "
-            "See: python3 scripts/gate/spec.py init --task-id <task-id>."
+            f"Write {sp} before editing implementation files. "
+            f"{contract_string(grade, require_evidence)} "
+            "Init: python3 scripts/gate/spec.py init --task-id <task-id>."
         )
 
-    ok, reasons = validate_spec(spec, grade)
+    ok, reasons = validate_spec(spec, grade, require_evidence=require_evidence)
     if not ok:
         sp = spec_path(cwd, task_id)
         detail = "; ".join(reasons)

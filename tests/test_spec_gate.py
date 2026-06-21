@@ -28,6 +28,8 @@ PY = sys.executable
 sys.path.insert(0, str(SCRIPTS_GATE))
 from spec import (  # noqa: E402
     check_fake_evidence,
+    is_path_line,
+    is_source_url,
     load_spec,
     save_spec,
     spec_path,
@@ -193,6 +195,136 @@ def test_validate_unknown_grade():
     ok, reasons = validate_spec(spec, "EXTREME")
     assert not ok
     assert any("Unknown grade" in r for r in reasons)
+
+
+# ---------------------------------------------------------------------------
+# Citation-format helpers
+# ---------------------------------------------------------------------------
+
+def test_is_path_line():
+    assert is_path_line("src/app.py:42")
+    assert is_path_line("a/b/c.py:10-20")
+    assert is_path_line("hooks/gate_stop.py:5")
+    assert not is_path_line("src/app.py")            # no line number
+    assert not is_path_line("https://example.com:8080")  # URL, not a code citation
+    assert not is_path_line("")
+    assert not is_path_line(None)
+
+
+def test_is_source_url():
+    assert is_source_url("https://arxiv.org/abs/2309.11495")
+    assert is_source_url("http://example.com/x")
+    assert not is_source_url("src/app.py:42")
+    assert not is_source_url("example.com")
+    assert not is_source_url("")
+
+
+# ---------------------------------------------------------------------------
+# Evidence gate: validate_spec(require_evidence=True)
+# ---------------------------------------------------------------------------
+
+def _standard_spec_with_evidence() -> dict:
+    return {
+        "restated_goal": "Add rate-limiting middleware to /api endpoints.",
+        "acceptance_criteria": [
+            {"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}
+        ],
+        "must_read": ["src/middleware.py:88", "src/router.py:12-20"],
+    }
+
+
+def test_evidence_off_is_backward_compatible():
+    """require_evidence defaults False: a spec with no must_read still passes."""
+    spec = {
+        "restated_goal": "Add a flag.",
+        "acceptance_criteria": [{"check": "echo ok", "evidence": "ok"}],
+    }
+    ok, reasons = validate_spec(spec, "STANDARD")
+    assert ok, reasons
+    ok2, _ = validate_spec(spec, "STANDARD", require_evidence=False)
+    assert ok2
+
+
+def test_evidence_standard_requires_must_read():
+    spec = {
+        "restated_goal": "Add a flag.",
+        "acceptance_criteria": [{"check": "echo ok", "evidence": "ok"}],
+    }
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("must_read" in r for r in reasons)
+
+
+def test_evidence_standard_passes_with_must_read():
+    ok, reasons = validate_spec(_standard_spec_with_evidence(), "STANDARD", require_evidence=True)
+    assert ok, reasons
+
+
+def test_evidence_must_read_malformed_blocks():
+    spec = _standard_spec_with_evidence()
+    spec["must_read"] = ["src/middleware.py"]  # missing :line
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("must_read" in r and "path:line" in r for r in reasons)
+
+
+def test_evidence_must_read_placeholder_blocks():
+    spec = _standard_spec_with_evidence()
+    spec["must_read"] = ["src/app.py:1 tbd"]
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("must_read" in r for r in reasons)
+
+
+def test_evidence_light_exempt():
+    """LIGHT is exempt from citation requirements even when require_evidence=True."""
+    spec = {
+        "restated_goal": "Fix a typo.",
+        "acceptance_criteria": [{"check": "echo ok", "evidence": "ok"}],
+    }
+    ok, reasons = validate_spec(spec, "LIGHT", require_evidence=True)
+    assert ok, reasons
+
+
+def test_evidence_heavy_requires_prior_art():
+    spec = {
+        "restated_goal": "Rewrite auth to use JWT.",
+        "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
+        "constraints": ["Must not break existing sessions."],
+        "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
+        "must_read": ["src/auth.py:30"],
+        # prior_art missing
+    }
+    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r for r in reasons)
+
+
+def test_evidence_heavy_passes_with_prior_art():
+    spec = {
+        "restated_goal": "Rewrite auth to use JWT.",
+        "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed in 0.2s"}],
+        "constraints": ["Must not break existing sessions."],
+        "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
+        "must_read": ["src/auth.py:30", "src/session.py:5-9"],
+        "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"],
+    }
+    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
+    assert ok, reasons
+
+
+def test_evidence_heavy_prior_art_must_be_url():
+    spec = {
+        "restated_goal": "Rewrite auth to use JWT.",
+        "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
+        "constraints": ["Must not break existing sessions."],
+        "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
+        "must_read": ["src/auth.py:30"],
+        "prior_art": ["some blog I read"],
+    }
+    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r and "URL" in r for r in reasons)
 
 
 # ---------------------------------------------------------------------------
@@ -468,6 +600,72 @@ def test_bash_not_blocked_by_spec_gate():
 
 
 # --- Fail open on bad input ---
+
+# --- Evidence gate (UNIFABLE_EVIDENCE_GATE=1) integration ---
+
+def test_evidence_gate_blocks_valid_spec_without_must_read():
+    """A spec that passes the spec gate is still blocked by the evidence gate when
+    it lacks must_read citations."""
+    with tempfile.TemporaryDirectory() as cwd:
+        session_id = "ev-session-001"
+        spec = {
+            "restated_goal": "Add health-check endpoint.",
+            "acceptance_criteria": [
+                {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
+            ],
+        }
+        save_spec(cwd, session_id, spec)
+        payload = _edit_payload(
+            os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
+        )
+        rc, _, stderr = run_pre_tool(
+            payload, spec_gate="0", grade="STANDARD",
+            env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
+        )
+        assert rc == 2
+        assert "must_read" in stderr
+
+
+def test_evidence_gate_allows_spec_with_citations():
+    with tempfile.TemporaryDirectory() as cwd:
+        session_id = "ev-session-002"
+        spec = {
+            "restated_goal": "Add health-check endpoint.",
+            "acceptance_criteria": [
+                {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
+            ],
+            "must_read": ["src/server.py:10", "src/routes.py:5-8"],
+        }
+        save_spec(cwd, session_id, spec)
+        payload = _edit_payload(
+            os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
+        )
+        rc, out, _ = run_pre_tool(
+            payload, spec_gate="0", grade="STANDARD",
+            env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
+        )
+        assert rc == 0
+        assert out == {}
+
+
+def test_spec_gate_alone_ignores_missing_must_read():
+    """Backward-compat: the plain spec gate (no evidence gate) does not require must_read."""
+    with tempfile.TemporaryDirectory() as cwd:
+        session_id = "ev-session-003"
+        spec = {
+            "restated_goal": "Add health-check endpoint.",
+            "acceptance_criteria": [
+                {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
+            ],
+        }
+        save_spec(cwd, session_id, spec)
+        payload = _edit_payload(
+            os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
+        )
+        rc, out, _ = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
+        assert rc == 0
+        assert out == {}
+
 
 def test_empty_stdin_fails_open():
     """Empty / malformed JSON must not crash the hook."""

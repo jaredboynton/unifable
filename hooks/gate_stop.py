@@ -87,13 +87,18 @@ def main() -> int:
 
     # Fake-evidence (opt-in with the spec gate): a present spec must validate at
     # completion; validate_spec rejects placeholder evidence via FAKE_MARKERS.
-    if os.environ.get("UNIFABLE_SPEC_GATE") == "1":
+    if os.environ.get("UNIFABLE_SPEC_GATE") == "1" or os.environ.get("UNIFABLE_EVIDENCE_GATE") == "1":
         try:
             from spec import load_spec, validate_spec
 
             spec = load_spec(cwd, input_data.get("session_id") or "")
             if spec is not None:
-                ok, reasons = validate_spec(spec, os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data))
+                require_evidence = os.environ.get("UNIFABLE_EVIDENCE_GATE") == "1"
+                ok, reasons = validate_spec(
+                    spec,
+                    os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data),
+                    require_evidence=require_evidence,
+                )
                 if not ok:
                     emit_json(
                         {

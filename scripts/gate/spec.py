@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,17 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
         "type": list,
         "required": False,
         "description": "What is explicitly out of scope.",
+    },
+    # evidence-gate citation fields (required only when require_evidence=True)
+    "must_read": {
+        "type": list,
+        "required": False,
+        "description": "CODE evidence: 'path:line' citations the model actually read before deciding.",
+    },
+    "prior_art": {
+        "type": list,
+        "required": False,
+        "description": "RESEARCH evidence: source URLs (docs/repos/papers) backing the chosen approach.",
     },
 }
 
@@ -110,11 +122,43 @@ def check_fake_evidence(text: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Citation-format detection (evidence gate)
+# ---------------------------------------------------------------------------
+
+# A 'path:line' or 'path:start-end' code citation (e.g. src/app.py:42, a/b.py:10-20).
+_PATH_LINE_RE = re.compile(r"^.+:\d+(?:-\d+)?$")
+# A source URL.
+_URL_RE = re.compile(r"^https?://\S+$", re.IGNORECASE)
+
+
+def is_path_line(s: str) -> bool:
+    """True when *s* looks like a 'path:line' code citation (not a URL)."""
+    if not isinstance(s, str):
+        return False
+    s = s.strip()
+    if s.lower().startswith(("http://", "https://")):
+        return False
+    return bool(_PATH_LINE_RE.match(s))
+
+
+def is_source_url(s: str) -> bool:
+    """True when *s* is an http(s) URL."""
+    return isinstance(s, str) and bool(_URL_RE.match(s.strip()))
+
+
+# ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
 
-def validate_spec(spec: dict[str, Any], grade: str) -> tuple[bool, list[str]]:
+def validate_spec(
+    spec: dict[str, Any], grade: str, require_evidence: bool = False
+) -> tuple[bool, list[str]]:
     """Validate *spec* against the requirements for *grade*.
+
+    When *require_evidence* is True (the evidence gate, UNIFABLE_EVIDENCE_GATE=1),
+    the spec must also carry citation evidence: 'must_read' (>=1 'path:line' code
+    citation) at STANDARD+, and 'prior_art' (>=1 source URL) at HEAVY. This makes
+    the spec the documented, verifiable evidence that unlocks the action tools.
 
     Returns (ok, reasons) where reasons is empty when ok is True.
     """
@@ -165,6 +209,39 @@ def validate_spec(spec: dict[str, Any], grade: str) -> tuple[bool, list[str]]:
         if not isinstance(rejected, list) or len(rejected) < 2:
             reasons.append("HEAVY grade requires 'rejected_alternatives' (list, >=2 items).")
 
+    # Evidence gate: citation fields become required (STANDARD waives nothing here;
+    # LIGHT is exempt because LIGHT waives the spec entirely upstream).
+    if require_evidence and grade in ("STANDARD", "HEAVY"):
+        must_read = spec.get("must_read")
+        if not isinstance(must_read, list) or not must_read:
+            reasons.append(
+                "evidence gate: 'must_read' is required (list, >=1 'path:line' code citation "
+                "you actually read before deciding)."
+            )
+        else:
+            for idx, item in enumerate(must_read):
+                if not is_path_line(item):
+                    reasons.append(
+                        f"must_read[{idx}] must be a 'path:line' code citation "
+                        f"(e.g. src/app.py:42), got {item!r}."
+                    )
+                elif check_fake_evidence(item):
+                    reasons.append(f"must_read[{idx}] contains placeholder language: {item!r}.")
+
+        if grade == "HEAVY":
+            prior_art = spec.get("prior_art")
+            if not isinstance(prior_art, list) or not prior_art:
+                reasons.append(
+                    "evidence gate (HEAVY): 'prior_art' is required (list, >=1 source URL "
+                    "for the chosen approach)."
+                )
+            else:
+                for idx, item in enumerate(prior_art):
+                    if not is_source_url(item):
+                        reasons.append(
+                            f"prior_art[{idx}] must be a source URL (http(s)://...), got {item!r}."
+                        )
+
     return not reasons, reasons
 
 
@@ -202,6 +279,8 @@ def spec_template() -> dict[str, Any]:
         "acceptance_criteria": [
             {"check": "", "evidence": ""}
         ],
+        "must_read": [],
+        "prior_art": [],
         "risks": [],
         "constraints": [],
         "rejected_alternatives": [],
@@ -237,10 +316,20 @@ _CONTRACT: dict[str, str] = {
 }
 
 
-def contract_string(grade: str) -> str:
-    """Return the pass-conditions for *grade* as a short additionalContext string."""
+def contract_string(grade: str, require_evidence: bool = False) -> str:
+    """Return the pass-conditions for *grade* as a short additionalContext string.
+
+    When *require_evidence* is True, append the evidence-gate citation requirements
+    (must_read at STANDARD+, plus prior_art at HEAVY).
+    """
     grade = (grade or "STANDARD").upper()
-    return _CONTRACT.get(grade, _CONTRACT["STANDARD"])
+    base = _CONTRACT.get(grade, _CONTRACT["STANDARD"])
+    if require_evidence and grade != "LIGHT":
+        extra = " Evidence gate: also include 'must_read' (>=1 'path:line' code citation you read)"
+        if grade == "HEAVY":
+            extra += " and 'prior_art' (>=1 source URL for the approach)"
+        base = base + extra + "."
+    return base
 
 
 # ---------------------------------------------------------------------------
@@ -257,7 +346,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
         )
         return 1
     grade = (args.grade or "STANDARD").upper()
-    ok, reasons = validate_spec(spec, grade)
+    ok, reasons = validate_spec(spec, grade, require_evidence=getattr(args, "require_evidence", False))
     if ok:
         print(f"spec valid (grade={grade})")
         return 0
@@ -281,7 +370,7 @@ def _cmd_contract(args: argparse.Namespace) -> int:
     if grade not in GRADES:
         print(f"Unknown grade '{grade}'; expected one of {', '.join(GRADES)}.", file=sys.stderr)
         return 1
-    print(contract_string(grade))
+    print(contract_string(grade, getattr(args, "require_evidence", False)))
     return 0
 
 
@@ -296,6 +385,8 @@ def main(argv: list[str] | None = None) -> int:
     p_validate.add_argument("--root", default=".", help="Project root (default: cwd).")
     p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
     p_validate.add_argument("--task-id", required=True, dest="task_id", help="Task ID for the spec file.")
+    p_validate.add_argument("--require-evidence", action="store_true", dest="require_evidence",
+                            help="Also require citation evidence (must_read, prior_art).")
 
     p_init = sub.add_parser("init", help="Write a blank spec template.")
     p_init.add_argument("--root", default=".", help="Project root (default: cwd).")
@@ -303,6 +394,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier.")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
+    p_contract.add_argument("--require-evidence", action="store_true", dest="require_evidence",
+                            help="Include the evidence-gate citation requirements.")
 
     args = parser.parse_args(argv)
     if args.cmd == "validate":

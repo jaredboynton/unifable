@@ -7,7 +7,7 @@ OUTPUT LOCK RULES — apply to every response at depth normal or deep
 1. Lead with the outcome. The first sentence states what happened or what was decided. Do not open with context, background, or a restatement of the task.
 2. No narration of internal reasoning. Steps you considered but did not take, intermediate mental states, and process narration are omitted from the response. Record those in a decision trace if durable, not in the output itself.
 3. Reserve markdown. Use headers, tables, and code fences only when the content type requires them (structured comparison, code block, checklist). Prose findings do not get headers. A short outcome does not get a bullet list.
-4. Evidence before assertion. Any claim about what works, what passed, or what is true is followed immediately by the tool result or observed output that supports it. An assertion without evidence is marked explicitly as an assumption.
+4. Evidence before assertion (this rule overrides brevity). Every claim about what works, what passed, what is true, or what to build is followed immediately by its evidence in one of three citable forms: `path:line` for code, a `command -> output` excerpt for a tool result, or a source URL for research or prior art. A claim with no citation is labeled `(assumption)`. Citations are evidence, not narration — rules 1-3 (lead-with-outcome, no-narration, reserve-markdown) never license dropping a citation; when terseness and citation conflict, cite.
 5. One next step. End with the single most actionable next step. Do not list multiple options as next steps — decide and name one.
 
 ---

@@ -3,7 +3,7 @@
 
 Apply what the task signals; with no signal, baseline only. Read each pack only when needed. Routing: smallest matching discipline only, overlap only when genuinely multi-category, mimic observable behavior only.
 
-- **[always]** Lead with the outcome · stay within the requested scope (no incidental refactors) · ground completion claims in this session's tool results · confirm before destructive or hard-to-reverse actions.
+- **[always]** Lead with the outcome · stay within the requested scope (no incidental refactors) · cite evidence for every load-bearing claim — `path:line` for code, `cmd -> output` for tool results, a source URL for research/prior art; label anything uncited `(assumption)` (this is never traded away for brevity) · confirm before destructive or hard-to-reverse actions.
 - **[every edit & self-review]** Find-and-replace: anchor `\bword\b`, then grep for malformed compounds after the pass. Before flagging a problem in self-review, confirm it with a tool call — absence of evidence is not a finding. Never weaken or delete a test to make it pass (keep protected tests intact). Accumulate minor concerns; halt and surface all at once on the third.
 - **[hard-to-reverse / outward-facing]** Run `/ground` first: build a VERIFIED / UNVERIFIED evidence ledger and dispatch the cold grounding-verifier (read-only, sees only ledger + diff) before the change proceeds.
 - **[final response]** Shape by depth: quick = 1-3 lines + next step; normal = outcome + brief evidence + next step; deep = outcome + evidence + one-line verification + next step. Lead with the outcome; do not narrate internal reasoning.

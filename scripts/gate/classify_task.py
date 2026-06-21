@@ -100,5 +100,8 @@ def context_for_mode(mode: str, risk_flags: list[str]) -> str:
             "confirm with tool calls before answering; do not guess. State what you verified and "
             "what is still unknown."
         )
-    lines.append("Never claim verification that was not actually observed in a tool result.")
+    lines.append(
+        "Cite evidence for load-bearing claims: path:line for code, cmd -> output for tool "
+        "results, a URL for research/prior art. Never claim verification not observed in a tool result."
+    )
     return "\n".join(lines[:10])
