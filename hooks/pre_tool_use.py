@@ -45,7 +45,7 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
 from bash_classify import is_mutating_bash
 from ledger import emit_json, load_ledger, read_stdin_json
-from spec import GRADES, contract_string, load_spec, spec_path, validate_spec
+from spec import GRADES, contract_string, load_spec, resolve_session_id, spec_path, validate_spec
 
 # ---------------------------------------------------------------------------
 # Write-tool names across both hosts (Claude Code and Codex)
@@ -142,8 +142,11 @@ def _target_path(tool_name: str, tool_input: dict) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _task_id(input_data: dict) -> str:
-    """Derive a stable task ID from session_id (same as ledger_key prefix)."""
-    return str(input_data.get("session_id") or "default")
+    """Derive a stable task ID: stdin session_id, else host env
+    (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID), else 'default'. The env fallback
+    keys specs per conversation on hosts that omit session_id from the hook
+    payload (Codex); Claude Code still uses its stdin session_id unchanged."""
+    return resolve_session_id(input_data, default="default") or "default"
 
 
 # ---------------------------------------------------------------------------

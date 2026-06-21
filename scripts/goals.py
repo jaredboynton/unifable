@@ -21,6 +21,14 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Reuse the gate's hardened atomic writer (unique temp + os.replace) so two
+# goals.py invocations writing goals.json at once can never leave a torn or
+# half-written file -- the same guarantee the gate's JSON state already has.
+# scripts/gate is resolved relative to THIS file, so the import works no matter
+# what the caller's cwd is.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "gate"))
+from atomicio import write_text_atomic
+
 DIR = Path(".unifable")
 GOALS = DIR / "goals.json"
 LEDGER = DIR / "ledger.jsonl"
@@ -43,8 +51,10 @@ def load():
 
 
 def save(plan):
-    DIR.mkdir(exist_ok=True)
-    GOALS.write_text(json.dumps(plan, ensure_ascii=False, indent=1), encoding="utf-8")
+    # Atomic: a concurrent reader sees either the old goals.json or the complete
+    # new one, never a truncated file; concurrent writers are last-writer-wins
+    # with no torn state. write_text_atomic creates .unifable/ if missing.
+    write_text_atomic(GOALS, json.dumps(plan, ensure_ascii=False, indent=1))
 
 
 def cmd_create(a):

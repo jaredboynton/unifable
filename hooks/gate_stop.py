@@ -70,7 +70,6 @@ def ledger_grade(input_data: dict) -> str:
 def main() -> int:
     input_data = read_stdin_json()
     cwd = input_data.get("cwd") or os.getcwd()
-    session_id = input_data.get("session_id")
     grade = (os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data) or "STANDARD").upper().strip()
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
@@ -78,21 +77,26 @@ def main() -> int:
     #    prior_art URL) before completion. This blocks EVERY stop — ignoring both
     #    the loop guard (stop_hook_active) and the stop-block cap — until a valid
     #    spec exists; the agent is unconditionally required to write its evidence
-    #    back. The only releases: a valid spec, LIGHT grade, no session_id /
-    #    malformed input (fail open), the holdout 'off' arm, or a gate exception.
-    if session_id and grade != "LIGHT":
+    #    back. The only releases: a valid spec, LIGHT grade, no resolvable session
+    #    (fail open), the holdout 'off' arm, or a gate exception.
+    if grade != "LIGHT":
         try:
-            from spec import load_spec, validate_spec
+            from spec import load_spec, resolve_session_id, validate_spec
 
-            spec = load_spec(cwd, session_id)
+            # Session key: stdin session_id (Claude Code), else host env
+            # (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID) so a host that omits it
+            # from the hook payload still keys the spec per conversation. None ->
+            # nothing resolvable -> fail open (skip the evidence gate).
+            session_id = resolve_session_id(input_data, default=None)
+            spec = load_spec(cwd, session_id) if session_id else None
             ev_reason = ""
-            if spec is None:
+            if session_id and spec is None:
                 ev_reason = (
                     "no evidence spec for this task: write .unifable/spec/<session>.json documenting "
                     "restated_goal, acceptance_criteria (with live command output), must_read "
                     "{cite,why}, and a prior_art URL before finishing."
                 )
-            else:
+            elif spec is not None:
                 ok, reasons = validate_spec(spec, grade, require_evidence=True)
                 if not ok:
                     ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)

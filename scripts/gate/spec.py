@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
 import sys
 from pathlib import Path
@@ -270,6 +271,32 @@ def validate_spec(
 # ---------------------------------------------------------------------------
 # File helpers
 # ---------------------------------------------------------------------------
+
+def resolve_session_id(input_data: dict | None = None, default: str | None = "default") -> str | None:
+    """Resolve the per-session key for spec artifacts, consistent across hosts.
+
+    Precedence:
+      1. explicit ``session_id`` in the hook payload (Claude Code sends it on
+         stdin) -- keeps Claude Code behaviour unchanged,
+      2. ``CLAUDE_CODE_SESSION_ID`` (Claude Code env),
+      3. ``CODEX_THREAD_ID`` (Codex env),
+      4. *default*.
+
+    Hosts that omit ``session_id`` from the hook payload (Codex) and CLI tools
+    with no stdin still key the spec per conversation via the env vars both
+    runtimes export, instead of colliding on one shared file. Callers that want
+    to fail open when nothing resolves pass ``default=None``.
+    """
+    if input_data:
+        sid = input_data.get("session_id")
+        if sid:
+            return str(sid)
+    for var in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"):
+        val = os.environ.get(var)
+        if val:
+            return val
+    return default
+
 
 def spec_path(root: str | Path, task_id: str) -> Path:
     """Return the canonical path for a spec artifact: <root>/.unifable/spec/<task_id>.json"""
