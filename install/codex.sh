@@ -103,7 +103,7 @@ except Exception:
 hooks = data.get("hooks", {})
 def is_unifable(entry):
     blob = json.dumps(entry)
-    return ("unifable" in blob) or ("fable-inject" in blob) or ("finish-the-work" in blob) \
+    return ("unifable" in blob) or ("fable-inject" in blob) \
         or ("gate_prompt" in blob) or ("gate_post_tool" in blob) or ("gate_stop" in blob) \
         or ("pre_tool_use" in blob) or ("test_after_edit" in blob) or ("router.sh" in blob)
 for event, groups in list(hooks.items()):

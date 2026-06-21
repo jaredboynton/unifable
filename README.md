@@ -17,17 +17,18 @@ hosts via Claude-Code-compatible hooks:
 | Hook | Script | Role |
 |---|---|---|
 | UserPromptSubmit | `router.sh`, `gate_prompt.py`, `gate_prompt_effort.py` | Route task signal to a pack; classify task mode; effort-gated playbook |
-| PreToolUse | `pre_tool_use.py`, `bash_classify.py` | **Evidence gate** (always on): block edits and create/mutate Bash until a valid spec proves the homework; protect gate state |
+| PreToolUse | `pre_tool_use.py`, `bash_classify.py` | **Evidence gate** (always on): block edits, delegation, and non-whitelisted research Bash until a valid spec proves the homework; protect gate state |
 | PostToolUse | `gate_post_tool.py` | Observe evidence: changed files, verification results, **real** failures |
-| Stop | `gate_stop.py`, `finish-the-work.sh` | Completion gate: require the evidence spec; verification-ran check; promise-no-act guard |
+| Stop | `gate_stop.py` | Completion gate: require the evidence spec; verification-ran check; promise-no-act guard |
 
 ### Evidence gate
 
-On any non-trivial task (grade STANDARD+), the agent cannot edit a file, run a create/mutate
-shell command, or finish until `./.unifable/spec/<task>.json` validates. The spec must carry:
+On any non-trivial task (grade STANDARD+), the agent cannot edit a file, delegate with
+`Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, or `trace.sh`), or finish until
+`./.unifable/spec/<task>.json` validates. The spec must carry:
 `must_read` (`{cite: path:line, why}` it actually read), `acceptance_criteria` (a runnable `check`
 plus its live `evidence` output — placeholders are rejected), and `prior_art` (a source URL). Read,
-search, web, and test/validation runners stay available so the agent can gather that evidence; a
+search, web, and `trace.sh` exploration stay available so the agent can gather that evidence; a
 valid spec unlocks the action phase. Quick/LIGHT tasks are waived. The gate is always on (no env
 disable) and fails open on malformed input. Authoring the spec is always allowed (no-brick).
 
@@ -96,13 +97,12 @@ Restart Codex; the plugin loads its own hooks. Verify with `codex plugin list`.
 
 ## More capabilities
 
-Beyond the gate, unifable ships: a `/ground` skill + cold `grounding-verifier` agent for
-hard-to-reverse changes; a debounced test-runner (`UNIFABLE_TEST_AFTER_EDIT=1`);
-a findings ledger and warning-threshold
-accumulation; per-task **grade tiers** and a depth-shaped final response; per-model posture files
-under `skills/unifable/tiers/`; a local semantic memory CLI (`scripts/memory/store.py`); routing
-packs for domain verification, decision traces, subagent briefs, and memory closure; and a
-behavioral eval suite (`docs/evals/`, `tests/eval_rubric.md`).
+Beyond the gate, unifable ships: a debounced test-runner (`UNIFABLE_TEST_AFTER_EDIT=1`);
+a findings ledger and warning-threshold accumulation; per-task **grade tiers** and a
+depth-shaped final response; per-model posture files under `skills/unifable/tiers/`; a local
+semantic memory CLI (`scripts/memory/store.py`); routing packs for domain verification,
+decision traces, subagent briefs, and memory closure; and a behavioral eval suite
+(`docs/evals/`, `tests/eval_rubric.md`).
 
 ## Tests
 

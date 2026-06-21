@@ -426,6 +426,15 @@ def _bash_payload(cmd: str, session_id: str = "sess-abc123", cwd: str = "/work")
     }
 
 
+def _delegate_payload(tool_name: str = "Task", session_id: str = "sess-abc123", cwd: str = "/work") -> dict:
+    return {
+        "tool_name": tool_name,
+        "tool_input": {"description": "inspect auth flow", "prompt": "Read only and report findings."},
+        "session_id": session_id,
+        "cwd": cwd,
+    }
+
+
 # --- Removed escape hatch: env no longer disables the gate ---
 
 def test_disable_env_has_no_effect():
@@ -439,10 +448,32 @@ def test_disable_env_has_no_effect():
         assert "spec" in stderr.lower()
 
 
-def test_read_bash_passes_without_spec():
-    """A read/echo Bash command is allowed even with no spec (only create/mutate is locked)."""
-    rc, out, _ = run_pre_tool(_bash_payload("echo hi"), grade="STANDARD")
+def test_whitelisted_bash_passes_without_spec():
+    """A whitelisted Bash command is allowed even with no spec."""
+    rc, out, _ = run_pre_tool(_bash_payload("rg --files"), grade="STANDARD")
     assert rc == 0
+
+
+def test_non_whitelisted_bash_blocks_without_spec():
+    rc, out, stderr = run_pre_tool(_bash_payload("echo hi"), grade="STANDARD")
+    assert rc == 2
+    assert "Allowed before unlock" in stderr
+    assert "ls, glob, rg" in stderr
+    assert "valid task spec" in stderr
+
+
+def test_task_agent_block_without_spec():
+    for tool_name in ("Task", "Agent"):
+        rc, out, stderr = run_pre_tool(_delegate_payload(tool_name), grade="STANDARD")
+        assert rc == 2
+        assert "delegated work cannot bypass" in stderr
+        assert "Still available before unlock" in stderr
+
+
+def test_task_agent_light_waived():
+    for tool_name in ("Task", "Agent"):
+        rc, out, _ = run_pre_tool(_delegate_payload(tool_name), grade="LIGHT")
+        assert rc == 0
 
 
 # --- PROTECTED_PATHS guard (active even when spec gate is OFF) ---
@@ -655,11 +686,23 @@ def test_heavy_valid_spec_allows():
 
 # --- Non-write tool is never blocked ---
 
-def test_bash_not_blocked_by_spec_gate():
+def test_bash_not_blocked_after_valid_spec():
     with tempfile.TemporaryDirectory() as cwd:
-        payload = _bash_payload("echo test", cwd=cwd)
+        session_id = "bash-unlocked"
+        save_spec(cwd, session_id, _standard_spec_with_evidence())
+        payload = _bash_payload("echo test", session_id=session_id, cwd=cwd)
         rc, out, _ = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
         assert rc == 0
+
+
+def test_task_agent_not_blocked_after_valid_spec():
+    with tempfile.TemporaryDirectory() as cwd:
+        session_id = "delegate-unlocked"
+        save_spec(cwd, session_id, _standard_spec_with_evidence())
+        for tool_name in ("Task", "Agent"):
+            payload = _delegate_payload(tool_name, session_id=session_id, cwd=cwd)
+            rc, out, _ = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
+            assert rc == 0
 
 
 # --- Fail open on bad input ---
@@ -849,6 +892,12 @@ def _blocks(out: dict) -> bool:
     return out.get("decision") == "block"
 
 
+def _write_transcript(path: Path, content: list[dict]) -> None:
+    path.write_text(
+        json.dumps({"type": "assistant", "message": {"role": "assistant", "content": content}}) + "\n"
+    )
+
+
 def test_stop_blocks_when_no_spec_standard():
     """The agent is required to write evidence back: no spec -> stop blocks."""
     with tempfile.TemporaryDirectory() as cwd:
@@ -895,6 +944,47 @@ def test_stop_loop_guard_allows_soft_gate():
         save_spec(cwd, "st5b", _standard_spec_with_evidence())
         out = run_stop({"session_id": "st5b", "cwd": cwd, "stop_hook_active": True}, grade="STANDARD")
         assert not _blocks(out)
+
+
+def test_stop_blocks_promise_no_act():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as td:
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(transcript, [{"type": "text", "text": "I'll now implement the fix and run tests."}])
+        out = run_stop(
+            {"session_id": "st5c", "cwd": cwd, "transcript_path": str(transcript), "stop_hook_active": False},
+            grade="LIGHT",
+        )
+        assert _blocks(out)
+        assert "intent to do work" in out.get("reason", "")
+
+
+def test_stop_promise_no_act_allows_user_question():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as td:
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(transcript, [{"type": "text", "text": "I'll implement that next. Would you like option A or B?"}])
+        out = run_stop(
+            {"session_id": "st5d", "cwd": cwd, "transcript_path": str(transcript), "stop_hook_active": False},
+            grade="LIGHT",
+        )
+        assert not _blocks(out)
+
+
+def test_stop_promise_no_act_allows_tool_use_and_loop_guard():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as td:
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(
+            transcript,
+            [
+                {"type": "text", "text": "I'll now run the check."},
+                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "pytest -q"}},
+            ],
+        )
+        payload = {"session_id": "st5e", "cwd": cwd, "transcript_path": str(transcript), "stop_hook_active": False}
+        assert not _blocks(run_stop(payload, grade="LIGHT"))
+
+        _write_transcript(transcript, [{"type": "text", "text": "I'll now implement the fix and run tests."}])
+        payload["stop_hook_active"] = True
+        assert not _blocks(run_stop(payload, grade="LIGHT"))
 
 
 def test_stop_no_spec_blocks_infinitely():

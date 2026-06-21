@@ -38,7 +38,7 @@ is the source of truth for status. Update the Status column as work lands.
 | 4 | Fake-Evidence Detection | (in spec.py) | gate_stop.py uses check_fake_evidence | on | done |
 | 5 | Pre-Edit Protected Gate State | (in pre_tool_use.py) | — | with #1 | done |
 | 6 | Debounced Test-Runner | `hooks/test_after_edit.py` | hooks.json PostToolUse | OFF (`UNIFABLE_TEST_AFTER_EDIT`) | done |
-| 7 | /ground skill + verifier agent | `skills/ground/SKILL.md`, `agents/grounding-verifier.md` | SKILL refs | on | done |
+| 7 | Optional grounding command + verifier agent | — | removed; replaced by enforced evidence and groundedness gates | off | removed |
 | 8 | Warning Threshold Accumulation | — | ledger.py + gate_post_tool + gate_stop | on | done |
 | 9 | Find-and-Replace Word-Boundary | — | SKILL.md + block | on | done |
 | 10 | Confirmed-Before-Flagging | — | SKILL.md + block | on | done |

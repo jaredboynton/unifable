@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """unifable pre-edit enforcement gate — PreToolUse.
 
-Intercepts write tools (Edit / Write / MultiEdit / NotebookEdit / apply_patch)
-and Bash, and exits with code 2 (block) in three cases:
+Intercepts write tools (Edit / Write / MultiEdit / NotebookEdit / apply_patch),
+Bash, and delegation tools (Task / Agent), and exits with code 2 (block) in
+four cases:
 
   1. PROTECTED_PATHS: the target path resolves inside <cwd>/.unifable/ AND is
      not a spec file the model is allowed to write
@@ -15,13 +16,15 @@ and Bash, and exits with code 2 (block) in three cases:
      exist for the current task before any edit is allowed. Authoring the spec
      file itself is always permitted (the no-brick escape).
 
-  3. EVIDENCE GATE — Bash create/mutate lockdown (unconditional): in the research
-     phase (grade STANDARD+, no valid spec yet) a Bash command that creates,
-     deletes, moves, or mutates files/state, installs packages, mutates git
-     history, or performs a network-mutating request is blocked. Read, search,
-     web, and test/validation runners stay available so the agent can produce the
-     evidence its spec needs. A valid spec unlocks the action phase (all shell
-     commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
+  3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
+     phase (grade STANDARD+, no valid spec yet), Bash may run only `ls`, `glob`,
+     `rg`, or a file whose basename is `trace.sh`. A valid spec unlocks the action
+     phase (all shell commands allowed). LIGHT waives. Classification:
+     scripts/gate/bash_classify.py.
+
+  4. EVIDENCE GATE — delegation lockdown (unconditional): in the research phase,
+     Task/Agent are blocked until the same valid spec exists, so subagents cannot
+     bypass the write/Bash gates. LIGHT waives.
 
 The evidence gate is always on — there is no env disable. LIGHT (quick) tasks are
 waived by grade, authoring the spec is always allowed (no-brick), and the hook
@@ -43,15 +46,16 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
-from bash_classify import is_mutating_bash
+from bash_classify import ALLOWED_RESEARCH_BASH, is_allowed_research_bash
 from ledger import emit_json, load_ledger, read_stdin_json
 from spec import GRADES, contract_string, load_spec, resolve_session_id, spec_path, validate_spec
 
 # ---------------------------------------------------------------------------
-# Write-tool names across both hosts (Claude Code and Codex)
+# Tool names across both hosts (Claude Code and Codex)
 # ---------------------------------------------------------------------------
 
 WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
+DELEGATION_TOOLS = frozenset({"Task", "Agent"})
 
 # ---------------------------------------------------------------------------
 # Protected path patterns inside .unifable/
@@ -212,12 +216,11 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
 
 
 def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
-    """Create/mutate lockdown for Bash (unconditional, no env disable).
+    """Research-phase whitelist for Bash (unconditional, no env disable).
 
-    Research phase (no valid spec): block only create/mutate commands; read,
-    search, web, and test/validation runners stay available so the agent can
-    gather the evidence its spec needs. Action phase (valid spec): all shell
-    commands are allowed. LIGHT waives entirely."""
+    Research phase (no valid spec): allow only ls, glob, rg, and trace.sh so the
+    agent can inspect the tree and run the explore skill. Action phase (valid
+    spec): all shell commands are allowed. LIGHT waives entirely."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
         emit_json({})
@@ -232,18 +235,45 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
             return 0
 
     command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
-    mutating, why = is_mutating_bash(command)
-    if mutating:
+    allowed, why = is_allowed_research_bash(command)
+    if not allowed:
         sp = spec_path(cwd, task_id)
         return _block(
-            f"'{why}' is a create/mutate action — locked until {sp} documents your evidence "
-            "(must_read {cite,why}, acceptance_criteria with live output, prior_art {cite,why}). "
-            "Read/grep/web and test/validation runners stay available: gather evidence, "
-            "write the spec, then retry."
+            f"Bash command blocked before evidence spec validation: {why}. "
+            f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
+            f"To unblock other Bash commands, create a valid task spec at {sp} through the trusted "
+            "spec workflow, with must_read {cite,why}, acceptance_criteria with live output, "
+            "and prior_art {cite,why}; once that spec validates, retry the command."
         )
 
     emit_json({})
     return 0
+
+
+def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
+    """Block Task/Agent until a valid evidence spec unlocks the action phase."""
+    grade = _effective_grade(input_data)
+    if grade == "LIGHT":
+        emit_json({})
+        return 0
+
+    task_id = _task_id(input_data)
+    spec = load_spec(cwd, task_id)
+    if spec is not None:
+        ok, _ = validate_spec(spec, grade, require_evidence=True)
+        if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
+            emit_json({})
+            return 0
+
+    sp = spec_path(cwd, task_id)
+    return _block(
+        f"{tool_name} is blocked before evidence spec validation so delegated work cannot bypass "
+        "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
+        f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
+        f"Bash, create a valid task spec at {sp} through the trusted spec workflow, with must_read "
+        "{cite,why}, acceptance_criteria with live output, and prior_art {cite,why}; once that spec "
+        "validates, retry."
+    )
 
 
 def _enforce_breaker(input_data: dict) -> int | None:
@@ -304,11 +334,15 @@ def main() -> int:
 
         return _enforce_spec(input_data, cwd)
 
-    # --- Bash: create/mutate lockdown (unconditional) ---
+    # --- Bash: research whitelist (unconditional) ---
     if tool_name == "Bash":
         return _enforce_bash(input_data, tool_input, cwd)
 
-    # Any other tool — nothing to gate (read/search/web/subagents stay free).
+    # --- Delegation: locked until the same evidence spec unlocks action phase ---
+    if tool_name in DELEGATION_TOOLS:
+        return _enforce_delegation(input_data, tool_name, cwd)
+
+    # Any other tool — nothing to gate (read/search/web stay free).
     emit_json({})
     return 0
 

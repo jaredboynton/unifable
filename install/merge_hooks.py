@@ -24,9 +24,9 @@ UNIFABLE = {
                     "statusMessage": "unifable: effort-gated playbook injection", "timeout": 10}]},
     ],
     "PreToolUse": [
-        {"matcher": "^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$",
+        {"matcher": "^(Bash|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch)$",
          "hooks": [{"type": "command", "command": f"python3 {BASE}/pre_tool_use.py",
-                    "statusMessage": "unifable: pre-edit spec gate", "timeout": 10}]},
+                    "statusMessage": "unifable: pre-edit/bash/delegation spec gate", "timeout": 10}]},
     ],
     "PostToolUse": [
         {"matcher": "^(Bash|apply_patch)$",
@@ -39,8 +39,6 @@ UNIFABLE = {
     "Stop": [
         {"hooks": [{"type": "command", "command": f"python3 {BASE}/gate_stop.py",
                     "statusMessage": "unifable: completion verification gate", "timeout": 10}]},
-        {"hooks": [{"type": "command", "command": f"bash {BASE}/finish-the-work.sh",
-                    "statusMessage": "unifable: promise-no-act guard", "timeout": 10}]},
     ],
 }
 

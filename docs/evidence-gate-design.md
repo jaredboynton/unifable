@@ -28,11 +28,10 @@ agent thrashes through edits first and only "cites" at the end.
 ## The two phases
 
 - RESEARCH phase (locked) — the default once a work-shaped task at grade >= STANDARD starts.
-  - ALLOWED: `Read`, `Grep`, `Glob`, `Task`/`Agent` (subagents), `WebSearch`, `WebFetch`, read-only MCP
-    (exa/tavily/ref/octocode search+fetch), and writing the evidence artifact itself
-    (`.unifable/spec/<task>.json`, already permitted by `pre_tool_use.py:73-79`). `Bash` is allowed ONLY
-    for read-only/research commands + an explicit script allowlist (see Bash gating).
-  - BLOCKED: `Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`apply_patch` and mutating `Bash`, each with a
+  - ALLOWED: `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, read-only MCP
+    (exa/tavily/ref/octocode search+fetch). `Bash` is allowed ONLY for `ls`, `glob`, `rg`, or running
+    any file named `trace.sh` (see Bash gating).
+  - BLOCKED: `Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`apply_patch`, `Task`/`Agent`, and non-whitelisted `Bash`, each with a
     message naming the unlock step.
 - ACTION phase (unlocked) — once the evidence artifact validates, all tools allowed (the existing spec
   gate's pass condition, now richer).
@@ -58,16 +57,14 @@ Validation extends `validate_spec` (`spec.py:116`) with these; the contract stri
 ## Delta 3 — Bash gating (the novel, risky part)
 
 Classify the `Bash` command string in the research phase:
-- ALLOW if it is read-only/research: leading verb in {cat, ls, head, tail, grep, rg, find, wc, stat,
-  file, tree, git log, git diff, git status, git show, git blame}, OR it invokes an allowlisted script
-  (e.g. `*/trace.sh`, fusion's script, `*/explore/*.sh`) by absolute or repo-relative path.
-- BLOCK otherwise (writes/installs/builds/network-mutating/destructive), with: "evidence gate: action
-  tools are locked until `.unifable/spec/<task>.json` documents your evidence (must_read path:line,
-  acceptance_criteria with live output, prior_art URL for HEAVY). Research with Read/Grep/web first."
+- ALLOW only if every command segment is `ls`, `glob`, `rg`, or invokes a file whose basename is
+  `trace.sh` (directly or through `sh`/`bash`/`zsh`) by absolute or repo-relative path.
+- BLOCK otherwise, with a message that names the allowed commands and says broader Bash unlocks only
+  after a valid task spec exists with must_read citations, acceptance evidence, and prior_art.
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than
   wfb's edit-only gate. Mitigations: (a) unconditional + fail-open on malformed input (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
-  bricked — it can always satisfy the gate; (c) ship behind the holdout harness
+  bricked — it can still inspect with `ls`/`glob`/`rg` and use `trace.sh`; (c) ship behind the holdout harness
   (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate.
 
 ## Rollout
@@ -82,4 +79,4 @@ no-brick), mirroring wfb's 35/35 adversarial set.
 
 1. Bash gating scope: full lockdown now (writes + Bash allowlist, the stated intent, highest leverage,
    highest false-positive risk) vs. writes-first then add Bash gating after measuring.
-2. Allowlist contents: confirm the read-only verb set + which scripts (trace.sh, fusion, others).
+2. Allowlist contents: currently `ls`, `glob`, `rg`, and any file named `trace.sh`.

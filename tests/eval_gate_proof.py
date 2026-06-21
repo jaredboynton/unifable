@@ -55,6 +55,15 @@ def bash(cwd: str, cmd: str, session_id: str = "sess") -> dict:
     return {"tool_name": "Bash", "tool_input": {"command": cmd}, "session_id": session_id, "cwd": cwd}
 
 
+def delegate(cwd: str, tool_name: str, session_id: str = "sess") -> dict:
+    return {
+        "tool_name": tool_name,
+        "tool_input": {"description": "inspect auth flow", "prompt": "Read only and report findings."},
+        "session_id": session_id,
+        "cwd": cwd,
+    }
+
+
 # spec fragments -------------------------------------------------------------
 GOOD_ACC = [{"check": "pytest tests/test_x.py -v", "evidence": "5 passed in 0.4s"}]
 MR = [{"cite": "src/mw.py:42", "why": "rate-limit hook"}, {"cite": "src/router.py:10-18", "why": "routes wrapped"}]
@@ -106,36 +115,44 @@ def scenarios(cwd: str):
     yield ("E9b", "evidence-gate prior_art missing why", BLOCK, EV, "STANDARD",
            edit(cwd, "src/a.py", with_spec("E9b", {**STD_CITED, "prior_art": [{"cite": "https://example.com/doc", "why": ""}]})))
 
-    # --- Bash create/mutate lockdown (research phase: no valid spec yet) ---
-    yield ("BL1", "bash-lockdown rm blocked pre-spec", BLOCK, EV, "STANDARD", bash(cwd, "rm -rf build", "BL1"))
-    yield ("BL2", "bash-lockdown git commit blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "git commit -m wip", "BL2"))
-    yield ("BL3", "bash-lockdown redirect-to-file blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "echo hi > out.txt", "BL3"))
-    yield ("BL4", "bash-lockdown pip install blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "pip install requests", "BL4"))
-    yield ("BL5", "bash-lockdown sed -i blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "sed -i s/a/b/ f.py", "BL5"))
-    yield ("BL6", "bash-lockdown chained ls && rm blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "ls && rm x", "BL6"))
-    yield ("BL7", "bash-allow validation runner pre-spec (pytest)", ALLOW, EV, "STANDARD",
-           bash(cwd, "pytest tests/ -q", "BL7"))
-    yield ("BL8", "bash-allow read command pre-spec (git diff)", ALLOW, EV, "STANDARD",
-           bash(cwd, "git diff --stat", "BL8"))
-    yield ("BL9", "bash-allow redirect to /dev/null pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "grep -r foo . 2>/dev/null", "BL9"))
+    # --- Bash research whitelist (research phase: no valid spec yet) ---
+    yield ("BL1", "bash-whitelist rm blocked pre-spec", BLOCK, EV, "STANDARD", bash(cwd, "rm -rf build", "BL1"))
+    yield ("BL2", "bash-whitelist git diff blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "git diff --stat", "BL2"))
+    yield ("BL3", "bash-whitelist echo blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "echo hi", "BL3"))
+    yield ("BL4", "bash-whitelist pytest blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "pytest tests/ -q", "BL4"))
+    yield ("BL5", "bash-whitelist cat blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "cat README.md", "BL5"))
+    yield ("BL6", "bash-whitelist chained ls && cat blocked pre-spec", BLOCK, EV, "STANDARD",
+           bash(cwd, "ls && cat README.md", "BL6"))
+    yield ("BL7", "bash-whitelist rg allowed pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "rg foo src", "BL7"))
+    yield ("BL8", "bash-whitelist ls allowed pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "ls -la", "BL8"))
+    yield ("BL9", "bash-whitelist trace.sh allowed pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "bash ./trace.sh --brief auth", "BL9"))
     yield ("BL10", "bash-unlock: valid spec allows mutate (action phase)", ALLOW, EV, "STANDARD",
            bash(cwd, "rm -rf build", with_spec("BL10", STD_CITED)))
-    yield ("BL11", "bash-lockdown LIGHT waives", ALLOW, EV, "LIGHT", bash(cwd, "rm -rf build", "BL11"))
-    yield ("BL12", "bash-lockdown: removed escape env ignored, mutate still blocked", BLOCK, OFF,
+    yield ("BL11", "bash-whitelist LIGHT waives", ALLOW, EV, "LIGHT", bash(cwd, "rm -rf build", "BL11"))
+    yield ("BL12", "bash-whitelist: removed escape env ignored, non-whitelist still blocked", BLOCK, OFF,
            "STANDARD", bash(cwd, "rm -rf build", "BL12"))
+    yield ("DG1", "delegation Task blocked pre-spec", BLOCK, EV, "STANDARD",
+           delegate(cwd, "Task", "DG1"))
+    yield ("DG2", "delegation Agent blocked pre-spec", BLOCK, EV, "STANDARD",
+           delegate(cwd, "Agent", "DG2"))
+    yield ("DG3", "delegation LIGHT waives", ALLOW, EV, "LIGHT",
+           delegate(cwd, "Task", "DG3"))
+    yield ("DG4", "delegation valid spec unlocks action phase", ALLOW, EV, "STANDARD",
+           delegate(cwd, "Task", with_spec("DG4", STD_CITED)))
 
     # --- no-brick: research/authoring is never blocked ---
     yield ("N1", "no-brick LIGHT (quick) waives spec", ALLOW, EV, "LIGHT", edit(cwd, "src/a.py", "N1"))
     yield ("N2", "specs are CLI-only: direct spec edit is blocked", BLOCK, EV, "STANDARD",
            edit(cwd, ".unifable/spec/N2.json", "N2"))
-    yield ("N3", "no-brick read Bash (echo) allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "echo hi", "N3"))
+    yield ("N3", "no-brick whitelisted Bash (rg) allowed pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "rg --files", "N3"))
 
     # --- bypass attempts must fail (protected state, traversal) ---
     yield ("B1", "bypass write protected ledger (even with cited spec)", BLOCK, EV, "STANDARD",
