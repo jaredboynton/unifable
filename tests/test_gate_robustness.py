@@ -72,12 +72,15 @@ for script in ("gate_prompt.py", "gate_post_tool.py", "gate_stop.py"):
     check(f"{script} empty-stdin exit0+noblock", pe.returncode == 0 and not blocks(pe))
     check(f"{script} bad-json exit0+noblock", pi.returncode == 0 and not blocks(pi))
 
-# --- B. stop_hook_active guard: a would-block session must NOT block when guard set ---
-dd = tempfile.mkdtemp(prefix="fz_")
-run("gate_prompt.py", {"prompt": "implement X production-ready", "session_id": "B", "cwd": "/w"}, dd)
-run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/x.py", "old_string": "a", "new_string": "b"}, "session_id": "B", "cwd": "/w"}, dd)
-p_guard = run("gate_stop.py", {"session_id": "B", "cwd": "/w", "stop_hook_active": True}, dd)
-check("stop_hook_active=true -> no block", not blocks(p_guard))
+# --- B. stop_hook_active guard: the SOFT (observation) gate must NOT block when set.
+#     A valid spec is present so the infinite evidence gate passes and only the
+#     observation gate (which honours the loop guard) is exercised. ---
+dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
+run("gate_prompt.py", {"prompt": "implement X production-ready", "session_id": "B", "cwd": cw}, dd)
+run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/x.py", "old_string": "a", "new_string": "b"}, "session_id": "B", "cwd": cw}, dd)
+write_spec(cw, "B")
+p_guard = run("gate_stop.py", {"session_id": "B", "cwd": cw, "stop_hook_active": True}, dd)
+check("stop_hook_active=true -> no block (observation gate)", not blocks(p_guard))
 
 # --- C. cannot trap forever: same session blocks at most MAX_STOP_BLOCKS(2), then allows ---
 dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
@@ -119,6 +122,14 @@ run("gate_prompt.py", {"prompt": "thoroughly audit the security of this module",
 write_spec(cw, "G")
 p_analysis = run("gate_stop.py", {"session_id": "G", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep analysis, no change -> allow (no false-positive nag)", not blocks(p_analysis))
+
+# --- H. evidence gate is INFINITE: no spec (STANDARD) blocks even with the loop
+#     guard set, and keeps blocking past MAX_STOP_BLOCKS (no cap, no release). ---
+dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
+h_guard = run("gate_stop.py", {"session_id": "H", "cwd": cw, "stop_hook_active": True}, dd, )
+check("evidence gate ignores stop_hook_active (no spec -> block)", blocks(h_guard))
+h_runs = [blocks(run("gate_stop.py", {"session_id": "H", "cwd": cw, "stop_hook_active": False}, dd)) for _ in range(4)]
+check("evidence gate ignores the cap (4/4 blocks, infinite)", all(h_runs))
 
 print("=" * 80)
 print("unifable observation gate — robustness / safety checks")

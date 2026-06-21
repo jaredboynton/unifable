@@ -863,21 +863,37 @@ def test_stop_blocks_invalid_spec():
         assert "invalid" in out.get("reason", "").lower()
 
 
-def test_stop_loop_guard_allows():
-    """stop_hook_active=True must never block (no infinite loop)."""
+def test_stop_evidence_ignores_loop_guard():
+    """The evidence gate is INFINITE: no spec blocks even when stop_hook_active=True."""
     with tempfile.TemporaryDirectory() as cwd:
         out = run_stop({"session_id": "st5", "cwd": cwd, "stop_hook_active": True}, grade="STANDARD")
+        assert _blocks(out)
+
+
+def test_stop_loop_guard_allows_soft_gate():
+    """The loop guard still releases the SOFT (observation) gate: with a valid spec
+    present the evidence gate passes, and stop_hook_active=True does not block."""
+    with tempfile.TemporaryDirectory() as cwd:
+        save_spec(cwd, "st5b", _standard_spec_with_evidence())
+        out = run_stop({"session_id": "st5b", "cwd": cwd, "stop_hook_active": True}, grade="STANDARD")
         assert not _blocks(out)
 
 
-def test_stop_cap_releases_after_max():
-    """Nudge at most MAX_STOP_BLOCKS(2) times, then release (never trap)."""
+def test_stop_no_spec_blocks_infinitely():
+    """No cap: with no spec the evidence gate blocks every stop (no release after N)."""
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         p = {"session_id": "st6", "cwd": cwd, "stop_hook_active": False}
-        d1 = _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
-        d2 = _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
-        d3 = _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
-        assert d1 and d2 and not d3
+        results = [_blocks(run_stop(p, grade="STANDARD", data_dir=dd)) for _ in range(4)]
+        assert all(results), results
+
+
+def test_stop_valid_spec_releases():
+    """The infinite block clears the moment a valid spec exists."""
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        p = {"session_id": "st6b", "cwd": cwd, "stop_hook_active": False}
+        assert _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
+        save_spec(cwd, "st6b", _standard_spec_with_evidence())
+        assert not _blocks(run_stop(p, grade="STANDARD", data_dir=dd))
 
 
 def test_stop_escape_hatch_removed():

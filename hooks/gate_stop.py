@@ -1,16 +1,19 @@
 #!/usr/bin/env python3
 """unifable completion gate — Stop.
 
-Blocks completion in priority order, capped at MAX_STOP_BLOCKS reminders then
-allows with a warning (never traps); fails open:
+Blocks completion in priority order; fails open on malformed input:
 
-  1. Evidence gate (unconditional, no env disable): on a non-LIGHT task the
-     evidence spec must EXIST and validate — the agent is required to write its
-     evidence back (restated_goal, acceptance_criteria with live output,
-     must_read {cite,why}, prior_art URL) before finishing. No spec, or a
-     placeholder/invalid one, blocks. A stop with no session_id fails open.
+  1. Evidence gate (INFINITE, no env disable): on a non-LIGHT task the evidence
+     spec must EXIST and validate before finishing (restated_goal,
+     acceptance_criteria with live output, must_read {cite,why}, prior_art URL).
+     No spec, or a placeholder/invalid one, blocks EVERY stop — ignoring the loop
+     guard (stop_hook_active) and the stop-block cap — until a valid spec exists.
+     The agent is unconditionally required to write its evidence back. Releases
+     only on a valid spec, LIGHT grade, no session_id (fail open), the holdout
+     'off' arm, or a gate exception (fail open).
   2. Observation gate: a non-quick, non-docs task that changed files but has no
-     observed successful verification.
+     observed successful verification. Softer — capped at MAX_STOP_BLOCKS then
+     advisory-only, behind the stop_hook_active loop guard, so it never traps.
 
 Runs alongside finish-the-work.sh (promise-no-act guard): the two cover
 different failure modes — claim-without-observation vs intent-without-action.
@@ -66,15 +69,56 @@ def ledger_grade(input_data: dict) -> str:
 
 def main() -> int:
     input_data = read_stdin_json()
-    # Respect the loop guard so we never block twice in a row on the same stop.
+    cwd = input_data.get("cwd") or os.getcwd()
+    session_id = input_data.get("session_id")
+    grade = (os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data) or "STANDARD").upper().strip()
+
+    # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
+    #    and validate (must_read {cite,why}, acceptance_criteria with live output,
+    #    prior_art URL) before completion. This blocks EVERY stop — ignoring both
+    #    the loop guard (stop_hook_active) and the stop-block cap — until a valid
+    #    spec exists; the agent is unconditionally required to write its evidence
+    #    back. The only releases: a valid spec, LIGHT grade, no session_id /
+    #    malformed input (fail open), the holdout 'off' arm, or a gate exception.
+    if session_id and grade != "LIGHT":
+        try:
+            from spec import load_spec, validate_spec
+
+            spec = load_spec(cwd, session_id)
+            ev_reason = ""
+            if spec is None:
+                ev_reason = (
+                    "no evidence spec for this task: write .unifable/spec/<session>.json documenting "
+                    "restated_goal, acceptance_criteria (with live command output), must_read "
+                    "{cite,why}, and a prior_art URL before finishing."
+                )
+            else:
+                ok, reasons = validate_spec(spec, grade, require_evidence=True)
+                if not ok:
+                    ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
+            if ev_reason:
+                # M3 holdout (env-gated, default off): 'off' arm skips the gate so
+                # the gate's effect can be measured against a pure baseline.
+                if _holdout_suppresses(input_data):
+                    _log_holdout(input_data, ev_reason)
+                    emit_json({})
+                    return 0
+                emit_json(
+                    {"decision": "block",
+                     "reason": ev_reason + " See packs/memory-closure.md for the pre-completion checklist."}
+                )
+                return 0
+        except Exception:
+            pass  # fail open — a gate bug never interrupts the host
+
+    # 2. Loop guard for the softer gates below (findings + observation): never
+    #    block twice in a row on the same stop.
     if input_data.get("stop_hook_active") is True:
         emit_json({})
         return 0
 
-    cwd = input_data.get("cwd") or os.getcwd()
-
-    # Findings cross-link (opt-in: empty unless .unifable/findings.json exists):
-    # open high/critical findings block completion. Fails open.
+    # 3. Findings cross-link (opt-in: empty unless .unifable/findings.json exists):
+    #    open high/critical findings block completion. Fails open.
     try:
         from findings import blocking_findings
 
@@ -92,59 +136,20 @@ def main() -> int:
         )
         return 0
 
+    # 4. Observation gate — should_block_stop (deep changed-but-unverified). This
+    #    softer nudge keeps the MAX_STOP_BLOCKS cap + holdout, so it never traps.
     ledger = load_ledger(input_data)
-
-    # The strongest blocking reason for this stop, in priority order:
-    #   1. evidence gate (unconditional, no env disable) — on a non-LIGHT task the
-    #      evidence spec must EXIST and validate (must_read {cite,why},
-    #      acceptance_criteria with live output, prior_art URL). No spec, or an
-    #      invalid/placeholder spec, blocks completion: the agent is required to
-    #      write its evidence back before finishing.
-    #   2. observation gate — should_block_stop (deep changed-but-unverified).
-    # Both honour the stop-block cap + holdout below, so the agent is nudged at
-    # most MAX_STOP_BLOCKS times and is never trapped. A stop event with no
-    # session_id (malformed/empty input) skips the evidence gate and fails open.
-    session_id = input_data.get("session_id")
-    grade = (os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data) or "STANDARD").upper().strip()
-
-    reason = ""
-    if session_id and grade != "LIGHT":
-        try:
-            from spec import load_spec, validate_spec
-
-            spec = load_spec(cwd, session_id)
-            if spec is None:
-                reason = (
-                    "no evidence spec for this task: write .unifable/spec/<session>.json documenting "
-                    "restated_goal, acceptance_criteria (with live command output), must_read "
-                    "{cite,why}, and a prior_art URL before finishing."
-                )
-            else:
-                ok, reasons = validate_spec(spec, grade, require_evidence=True)
-                if not ok:
-                    reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
-        except Exception:
-            reason = ""
-
-    if not reason:
-        block, obs_reason = should_block_stop(ledger)
-        if block:
-            reason = obs_reason
-
-    if reason:
-        # M3 holdout (env-gated, default off): 'off' arm sessions skip the gate
-        # so we can measure the gate's effect against a pure baseline.
+    block, obs_reason = should_block_stop(ledger)
+    if block:
         if _holdout_suppresses(input_data):
-            _log_holdout(input_data, reason)
+            _log_holdout(input_data, obs_reason)
             emit_json({})
             return 0
-        # Cap: nudge at most MAX_STOP_BLOCKS times, then fall through to the
-        # advisory warning so the agent is never trapped.
         if int(ledger.get("stop_blocks") or 0) < MAX_STOP_BLOCKS:
             ledger["stop_blocks"] = int(ledger.get("stop_blocks") or 0) + 1
             save_ledger(input_data, ledger)
             emit_json(
-                {"decision": "block", "reason": reason + " See packs/memory-closure.md for the pre-completion checklist."}
+                {"decision": "block", "reason": obs_reason + " See packs/memory-closure.md for the pre-completion checklist."}
             )
             return 0
 
