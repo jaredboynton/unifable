@@ -151,7 +151,7 @@ fi
 
 # 6) Operating block in ~/.codex/AGENTS.md — opt-in. The plugin hooks deliver the gate;
 #    this adds the always-on verify/complete routing text. Enable with UNIFABLE_BLOCK=1.
-CACHE_SETUP="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 2 -name setup.sh -path '*/setup/*' 2>/dev/null | sort | tail -1)"
+CACHE_SETUP="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 3 -name setup.sh -path '*/setup/*' 2>/dev/null | sort | tail -1)"
 if [ "${UNIFABLE_BLOCK:-0}" = "1" ] && [ -n "$CACHE_SETUP" ]; then
   CLAUDE_PLUGIN_ROOT="$(dirname "$(dirname "$CACHE_SETUP")")" bash "$CACHE_SETUP" global codex >/dev/null 2>&1 \
     && echo "  ✓ operating block injected into ~/.codex/AGENTS.md" \
