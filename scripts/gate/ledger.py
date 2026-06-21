@@ -27,6 +27,10 @@ except ImportError:  # pragma: no cover
 DEFAULT_LEDGER: dict[str, Any] = {
     "task_mode": "quick",
     "grade": "",
+    # Active spec key (prompt hash) pinned by gate_prompt.py, locked until its
+    # tasks all validate. Must live in DEFAULT_LEDGER so load_ledger preserves it
+    # across turns (load rebuilds from these keys; unknown keys are dropped).
+    "active_task": None,
     "risk_flags": [],
     "changed_files_seen": False,
     "change_kinds": [],

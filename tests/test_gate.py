@@ -15,6 +15,15 @@ import tempfile
 
 HOOKS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
 PY = sys.executable
+sys.path.insert(0, os.path.join(os.path.dirname(HOOKS), "scripts", "gate"))
+from ledger import load_ledger  # noqa: E402
+
+
+def spec_key(sid, cwd, data_dir):
+    """The active spec key the gate uses: the prompt hash gate_prompt.py pinned in
+    the ledger (specs are keyed by task now, not session). Falls back to sid."""
+    os.environ["UNIFABLE_DATA"] = data_dir
+    return load_ledger({"session_id": sid, "cwd": cwd}).get("active_task") or sid
 
 EDIT = lambda path: {"tool_name": "Edit", "tool_input": {"file_path": path, "old_string": "x", "new_string": "y"}, "tool_response": {"success": True}}
 PYTEST_PASS = {"tool_name": "Bash", "tool_input": {"command": "pytest tests/test_profile.py"}, "tool_response": {"exit_code": 0, "stdout": "5 passed in 0.31s"}}
@@ -69,7 +78,7 @@ def decision_for(scn):
     run("gate_prompt.py", {"prompt": prompt, "session_id": sid, "cwd": cwd}, data_dir)
     for ev in events:
         run("gate_post_tool.py", {**ev, "session_id": sid, "cwd": cwd}, data_dir)
-    write_spec(cwd, sid)  # satisfy the always-on evidence gate; isolate the observation gate
+    write_spec(cwd, spec_key(sid, cwd, data_dir))  # satisfy the evidence gate (keyed by active task); isolate the observation gate
     stop = run("gate_stop.py", {"session_id": sid, "cwd": cwd, "stop_hook_active": False}, data_dir)
     return "BLOCK" if stop.get("decision") == "block" else "allow"
 

@@ -19,6 +19,7 @@ import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 from pathlib import Path
 from typing import Any
@@ -76,6 +77,15 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
         "required": False,
         "description": "RESEARCH evidence: source URLs (docs/repos/papers) backing the chosen approach.",
     },
+    # CLI-managed task list. Each task carries a runnable `check`; a task becomes
+    # `validated` only when the check runs AND the codex judge confirms the output
+    # actually satisfies it. When a spec declares tasks, completion (Stop gate)
+    # requires EVERY task validated. Authored and mutated only via spec.py CLI.
+    "tasks": {
+        "type": list,
+        "required": False,
+        "description": "List of {id, title, check, status, exit, output, judge_verdict, judge_reason}.",
+    },
 }
 
 # Grade tier requirements:
@@ -91,6 +101,10 @@ GRADES = ("LIGHT", "STANDARD", "HEAVY")
 FAKE_MARKERS: tuple[str, ...] = (
     "not run",
     "assumed",
+    "assumption",
+    "(assumption)",
+    "i assume",
+    "presumably",
     "would pass",
     "will pass",
     "should pass",
@@ -189,9 +203,18 @@ def validate_spec(
     if not goal or not isinstance(goal, str) or not goal.strip():
         reasons.append("'restated_goal' is required and must be a non-empty string.")
 
-    # acceptance_criteria — required for all grades, >=1 item with a non-empty check
+    # acceptance_criteria — required for all grades, >=1 item with a non-empty check.
+    # A task-spec (CLI-authored, has >=1 task with a check) satisfies this instead:
+    # the tasks ARE the acceptance criteria, and their live evidence is produced at
+    # validate-task time (judged), not at authoring time.
+    tasks = spec.get("tasks")
+    has_tasks = isinstance(tasks, list) and any(
+        isinstance(t, dict) and str(t.get("check", "")).strip() for t in tasks
+    )
     criteria = spec.get("acceptance_criteria")
-    if not isinstance(criteria, list) or not criteria:
+    if has_tasks:
+        pass  # tasks stand in for acceptance_criteria
+    elif not isinstance(criteria, list) or not criteria:
         reasons.append("'acceptance_criteria' is required and must contain at least one entry.")
     else:
         for idx, item in enumerate(criteria):
@@ -208,8 +231,9 @@ def validate_spec(
                 fakes = check_fake_evidence(evidence)
                 if fakes:
                     reasons.append(
-                        f"acceptance_criteria[{idx}].evidence contains placeholder language: {fakes}. "
-                        "Provide live command output."
+                        f"acceptance_criteria[{idx}].evidence is an unproven assumption/placeholder "
+                        f"({fakes}). The gate rejects assumptions -- prove it: paste live output "
+                        "(cmd -> output), a code citation (path:line), or a source URL."
                     )
 
     # HEAVY requires >=1 constraints and >=2 rejected_alternatives
@@ -242,14 +266,20 @@ def validate_spec(
                         f"(e.g. src/app.py:42), got {item!r}."
                     )
                 elif check_fake_evidence(cite):
-                    reasons.append(f"must_read[{idx}].cite contains placeholder language: {cite!r}.")
+                    reasons.append(
+                        f"must_read[{idx}].cite is an unproven assumption/placeholder ({cite!r}). "
+                        "The gate rejects assumptions -- cite a real path:line you read."
+                    )
                 if not why.strip():
                     reasons.append(
                         f"must_read[{idx}] needs a non-empty 'why' (why the passage is relevant); "
                         f"use {{'cite': '{cite or 'path:line'}', 'why': '...'}}."
                     )
                 elif check_fake_evidence(why):
-                    reasons.append(f"must_read[{idx}].why contains placeholder language: {why!r}.")
+                    reasons.append(
+                        f"must_read[{idx}].why is an unproven assumption/placeholder ({why!r}). "
+                        "The gate rejects assumptions -- prove why the passage is relevant."
+                    )
 
         # prior_art — required from STANDARD up (source URLs for prior art / frontier research)
         prior_art = spec.get("prior_art")
@@ -319,6 +349,92 @@ def save_spec(root: str | Path, task_id: str, spec: dict[str, Any]) -> Path:
     """Write *spec* to the canonical path, creating parent directories as needed."""
     path = spec_path(root, task_id)
     return write_text_atomic(path, json.dumps(spec, indent=2, sort_keys=False))
+
+
+# ---------------------------------------------------------------------------
+# Task model (CLI-managed, judge-validated)
+# ---------------------------------------------------------------------------
+
+_OUTPUT_LIMIT = 4000  # cap on captured check output stored in the spec
+
+
+def find_task(spec: dict[str, Any], task_id: str) -> dict[str, Any] | None:
+    for t in spec.get("tasks") or []:
+        if isinstance(t, dict) and str(t.get("id")) == str(task_id):
+            return t
+    return None
+
+
+def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
+    """Return (ok, incomplete_ids). ok is True when the spec declares >=1 task and
+    EVERY task is 'validated'. A spec with no tasks returns (True, []) so legacy
+    acceptance-criteria specs are unaffected (the evidence gate still applies)."""
+    tasks = spec.get("tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return True, []
+    incomplete = [
+        str(t.get("id")) for t in tasks
+        if not (isinstance(t, dict) and t.get("status") == "validated")
+    ]
+    return (not incomplete), incomplete
+
+
+def run_check(check: str, cwd: str | Path = ".", timeout: int = 600) -> tuple[int, str]:
+    """Run a task's check command -> (exit_code, combined stdout+stderr, capped)."""
+    try:
+        proc = subprocess.run(
+            check, shell=True, cwd=str(cwd),
+            capture_output=True, text=True, timeout=timeout,
+        )
+        out = (proc.stdout or "") + (proc.stderr or "")
+        return proc.returncode, out[-_OUTPUT_LIMIT:]
+    except subprocess.TimeoutExpired:
+        return 124, f"(check timed out after {timeout}s)"
+    except Exception as exc:  # noqa: BLE001
+        return 127, f"(check failed to run: {exc})"
+
+
+_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "integer", "enum": [0, 1]},
+        "reason": {"type": "string"},
+    },
+    "required": ["verdict", "reason"],
+    "additionalProperties": False,
+}
+
+
+def judge_task(spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str) -> tuple[int, str]:
+    """Ask the codex judge whether the check output actually validates the task.
+
+    Returns (verdict, reason); verdict is 1 only when the model is convinced the
+    output genuinely demonstrates the task is done and correct. Any judge failure
+    returns (0, reason) so an unreachable judge never auto-passes a task."""
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError as exc:  # pragma: no cover
+        return 0, f"judge unavailable: {exc}"
+    system = (
+        "You are a strict, adversarial validator for a software task. You are given "
+        "the overall goal, one task with its check command, the command's exit code, "
+        "and its captured output. Decide whether the output is real evidence that the "
+        "task is genuinely complete and correct -- not merely that a command ran. "
+        "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
+        "output, errors, skipped or zero tests, and output that does not match the task."
+    )
+    user = json.dumps({
+        "goal": spec.get("restated_goal", ""),
+        "task_title": task.get("title", ""),
+        "check": task.get("check", ""),
+        "exit_code": exit_code,
+        "output": output,
+    }, ensure_ascii=False)
+    try:
+        res = ask_structured(system, user, _JUDGE_SCHEMA, schema_name="task_verdict")
+    except JudgeError as exc:
+        return 0, f"judge error: {exc}"
+    return (1 if res.get("verdict") == 1 else 0), str(res.get("reason") or "")
 
 
 def spec_template() -> dict[str, Any]:
@@ -425,6 +541,105 @@ def _cmd_contract(args: argparse.Namespace) -> int:
     return 0
 
 
+def _next_task_id(spec: dict[str, Any]) -> str:
+    return f"T{len(spec.get('tasks') or []) + 1}"
+
+
+def _new_task(spec: dict[str, Any], title: str, check: str) -> dict[str, Any]:
+    return {
+        "id": _next_task_id(spec), "title": title.strip(), "check": check.strip(),
+        "status": "pending", "exit": None, "output": "",
+        "judge_verdict": None, "judge_reason": "",
+    }
+
+
+def _cmd_create(args: argparse.Namespace) -> int:
+    path = spec_path(args.root, args.task_id)
+    if path.exists() and not getattr(args, "force", False):
+        print(f"Spec already exists at {path}; use --force to replace.", file=sys.stderr)
+        return 1
+    spec = spec_template()
+    spec["restated_goal"] = args.goal
+    spec["acceptance_criteria"] = []  # tasks stand in for acceptance_criteria
+    spec["must_read"] = []
+    spec["prior_art"] = list(getattr(args, "prior_art", None) or [])
+    spec["constraints"] = list(getattr(args, "constraint", None) or [])
+    spec["rejected_alternatives"] = list(getattr(args, "rejected", None) or [])
+    spec["tasks"] = []
+    for mr in (getattr(args, "must_read", None) or []):
+        cite, _sep, why = mr.partition("::")
+        spec["must_read"].append({"cite": cite.strip(), "why": why.strip()})
+    for pair in (args.task or []):
+        if "::" not in pair:
+            print(f"--task must be 'title::check command' -- invalid: {pair}", file=sys.stderr)
+            return 1
+        title, check = pair.split("::", 1)
+        spec["tasks"].append(_new_task(spec, title, check))
+    save_spec(args.root, args.task_id, spec)
+    print(f"Spec created at {path} with {len(spec['tasks'])} task(s).")
+    return 0
+
+
+def _cmd_add_task(args: argparse.Namespace) -> int:
+    spec = load_spec(args.root, args.task_id)
+    if spec is None:
+        print(f"No spec at {spec_path(args.root, args.task_id)}; run 'create' first.", file=sys.stderr)
+        return 1
+    spec.setdefault("tasks", [])
+    task = _new_task(spec, args.title, args.check)
+    spec["tasks"].append(task)
+    save_spec(args.root, args.task_id, spec)
+    print(f"Added {task['id']}: {task['title']}")
+    return 0
+
+
+def _cmd_deliver(args: argparse.Namespace) -> int:
+    spec = load_spec(args.root, args.task_id)
+    task = find_task(spec, args.task) if spec else None
+    if task is None:
+        print(f"Task {args.task} not found.", file=sys.stderr)
+        return 1
+    if task.get("status") != "validated":
+        task["status"] = "delivered"
+        save_spec(args.root, args.task_id, spec)
+    print(f"{args.task} -> {task['status']}")
+    return 0
+
+
+def _cmd_validate_task(args: argparse.Namespace) -> int:
+    spec = load_spec(args.root, args.task_id)
+    task = find_task(spec, args.task) if spec else None
+    if task is None:
+        print(f"Task {args.task} not found.", file=sys.stderr)
+        return 1
+    exit_code, output = run_check(task.get("check", ""), cwd=args.root)
+    verdict, reason = judge_task(spec, task, exit_code, output)
+    task["exit"] = exit_code
+    task["output"] = output
+    task["judge_verdict"] = verdict
+    task["judge_reason"] = reason
+    task["status"] = "validated" if verdict == 1 else "failed"
+    save_spec(args.root, args.task_id, spec)
+    print(f"{args.task}: check exit={exit_code}; judge verdict={verdict} ({reason})")
+    print(f"{args.task} -> {task['status']}")
+    return 0 if verdict == 1 else 2
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    spec = load_spec(args.root, args.task_id)
+    if spec is None:
+        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+        return 1
+    ok, incomplete = all_tasks_validated(spec)
+    print(f"goal: {str(spec.get('restated_goal', ''))[:100]}")
+    mark = {"validated": "OK", "failed": "XX", "delivered": "..", "pending": "--"}
+    for t in spec.get("tasks") or []:
+        print(f"  [{mark.get(t.get('status'), '??')}] {t.get('id')} {t.get('title')}")
+    print("breaker: OPEN (all tasks validated)" if ok
+          else f"breaker: CLOSED ({len(incomplete)} left: {', '.join(incomplete)})")
+    return 0 if ok else 2
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="spec.py",
@@ -448,13 +663,50 @@ def main(argv: list[str] | None = None) -> int:
     p_contract.add_argument("--require-evidence", action="store_true", dest="require_evidence",
                             help="Include the evidence-gate citation requirements.")
 
+    p_create = sub.add_parser("create", help="Create a task spec (restated_goal + tasks).")
+    p_create.add_argument("--root", default=".")
+    p_create.add_argument("--task-id", required=True, dest="task_id")
+    p_create.add_argument("--goal", required=True, help="Restated goal in your own words.")
+    p_create.add_argument("--task", action="append", default=[], help="Task as 'title::check command' (repeatable).")
+    p_create.add_argument("--must-read", action="append", default=[], dest="must_read",
+                          help="Evidence citation 'path:line::why' (repeatable).")
+    p_create.add_argument("--prior-art", action="append", default=[], dest="prior_art",
+                          help="Source URL backing the approach (repeatable).")
+    p_create.add_argument("--constraint", action="append", default=[],
+                          help="Architectural/operational constraint (repeatable; >=1 required at HEAVY).")
+    p_create.add_argument("--rejected", action="append", default=[],
+                          help="Rejected alternative with reason (repeatable; >=2 required at HEAVY).")
+    p_create.add_argument("--force", action="store_true", help="Replace an existing spec.")
+
+    p_add = sub.add_parser("add-task", help="Append a task to an existing spec.")
+    p_add.add_argument("--root", default=".")
+    p_add.add_argument("--task-id", required=True, dest="task_id")
+    p_add.add_argument("--title", required=True)
+    p_add.add_argument("--check", required=True, help="Runnable command that proves the task.")
+
+    p_deliver = sub.add_parser("deliver", help="Mark a task delivered (code written).")
+    p_deliver.add_argument("--root", default=".")
+    p_deliver.add_argument("--task-id", required=True, dest="task_id")
+    p_deliver.add_argument("--task", required=True, help="Task id, e.g. T1.")
+
+    p_vt = sub.add_parser("validate-task", help="Run a task's check + judge it; mark validated/failed.")
+    p_vt.add_argument("--root", default=".")
+    p_vt.add_argument("--task-id", required=True, dest="task_id")
+    p_vt.add_argument("--task", required=True, help="Task id, e.g. T1.")
+
+    p_status = sub.add_parser("status", help="Show task statuses + breaker state.")
+    p_status.add_argument("--root", default=".")
+    p_status.add_argument("--task-id", required=True, dest="task_id")
+
     args = parser.parse_args(argv)
-    if args.cmd == "validate":
-        return _cmd_validate(args)
-    if args.cmd == "init":
-        return _cmd_init(args)
-    if args.cmd == "contract":
-        return _cmd_contract(args)
+    dispatch = {
+        "validate": _cmd_validate, "init": _cmd_init, "contract": _cmd_contract,
+        "create": _cmd_create, "add-task": _cmd_add_task, "deliver": _cmd_deliver,
+        "validate-task": _cmd_validate_task, "status": _cmd_status,
+    }
+    handler = dispatch.get(args.cmd)
+    if handler:
+        return handler(args)
     parser.print_help()
     return 1
 

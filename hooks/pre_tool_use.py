@@ -66,48 +66,19 @@ def _unifable_dir(cwd: str | Path) -> Path:
 
 
 def _is_protected(target: str | Path, cwd: str | Path) -> bool:
-    """Return True when *target* is a unifable state file the model must not touch.
+    """Return True when *target* is ANY path under <cwd>/.unifable/.
 
-    Permitted: .unifable/spec/<anything>  (the model authors spec files)
-    Blocked:   .unifable/ledger*
-               .unifable/goals.json
-               .unifable/findings.json
-               .unifable/state/
-               .unifable/<anything else not under spec/>
+    Specs are CLI-only: the model mutates them via spec.py (create / add-task /
+    deliver / validate-task), never with Edit/Write. Hand-editing the spec JSON is
+    blocked so an agent cannot delete tasks or fake a validated status. ledger,
+    goals, findings, and state were already protected; spec/ now joins them.
     """
     try:
         resolved = Path(target).resolve()
-        unifable = _unifable_dir(cwd)
-        # Must be under .unifable/ to be protected at all.
-        resolved.relative_to(unifable)
+        resolved.relative_to(_unifable_dir(cwd))
     except (ValueError, OSError):
         return False  # not under .unifable/ — not protected
-
-    # .unifable/spec/* is allowed
-    spec_dir = unifable / "spec"
-    try:
-        resolved.relative_to(spec_dir)
-        return False  # model may write spec files
-    except ValueError:
-        pass
-
-    # Everything else under .unifable/ is protected
     return True
-
-
-def _is_spec_path(target: str | Path, cwd: str | Path) -> bool:
-    """Return True when *target* is the model's evidence spec under .unifable/spec/.
-
-    The model must always be able to author or update its spec, even before one
-    exists — otherwise the gate bricks (writing the spec would itself require a
-    spec). This is the no-brick escape that lets the agent satisfy the gate.
-    """
-    try:
-        resolved = Path(target).resolve()
-        resolved.relative_to(_unifable_dir(cwd) / "spec")
-        return True
-    except (ValueError, OSError):
-        return False
 
 
 # ---------------------------------------------------------------------------
@@ -142,10 +113,16 @@ def _target_path(tool_name: str, tool_input: dict) -> str | None:
 # ---------------------------------------------------------------------------
 
 def _task_id(input_data: dict) -> str:
-    """Derive a stable task ID: stdin session_id, else host env
-    (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID), else 'default'. The env fallback
-    keys specs per conversation on hosts that omit session_id from the hook
-    payload (Codex); Claude Code still uses its stdin session_id unchanged."""
+    """Derive the active spec key. Prefer the ledger's `active_task` (the prompt
+    hash gate_prompt.py pinned, locked-until-complete) so the gate looks at the
+    spec for the task in flight. Fall back to stdin session_id, then host env
+    (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID), then 'default'."""
+    try:
+        active = load_ledger(input_data).get("active_task")
+        if active:
+            return str(active)
+    except Exception:
+        pass
     return resolve_session_id(input_data, default="default") or "default"
 
 
@@ -194,9 +171,10 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
         sp = spec_path(cwd, task_id)
         return _block(
             f"no spec artifact found for task '{task_id}' (grade={grade}). "
-            f"Write {sp} before editing implementation files. "
-            f"{contract_string(grade, True)} "
-            "Init: python3 scripts/gate/spec.py init --task-id <task-id>."
+            "Specs are CLI-only -- create one with: python3 scripts/gate/spec.py "
+            f"create --task-id {task_id} --goal '<restated goal>' "
+            "--task 'title::<runnable check>' --must-read 'path:line::why' --prior-art '<url>'. "
+            f"{contract_string(grade, True)}"
         )
 
     ok, reasons = validate_spec(spec, grade, require_evidence=True)
@@ -258,19 +236,15 @@ def main() -> int:
     if tool_name in WRITE_TOOLS:
         target = _target_path(tool_name, tool_input)
 
-        # Guard 1: PROTECTED_PATHS
+        # Guard 1: PROTECTED_PATHS (includes .unifable/spec/* — specs are CLI-only)
         if target and _is_protected(target, cwd):
             return _block(
                 f"write to protected unifable state file '{target}' is not allowed. "
-                "The model must not modify ledger, goals, findings, or state artifacts directly."
+                "Specs are CLI-only: create and mutate them via "
+                "`python3 scripts/gate/spec.py` (create / add-task / deliver / "
+                "validate-task), never by hand-editing the JSON. ledger, goals, "
+                "findings, and state are off-limits too."
             )
-
-        # No-brick escape: authoring/updating the evidence spec itself is always
-        # allowed, even before one exists — otherwise writing the spec would
-        # require a spec. The only write the gate lets through unconditionally.
-        if target and _is_spec_path(target, cwd):
-            emit_json({})
-            return 0
 
         return _enforce_spec(input_data, cwd)
 

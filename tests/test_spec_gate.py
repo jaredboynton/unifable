@@ -477,16 +477,19 @@ def test_protected_state_subdir_blocked():
         assert rc == 2
 
 
-def test_spec_file_allowed_by_model():
-    """The model IS allowed to write .unifable/spec/<task>.json."""
+def test_spec_file_blocked_for_model():
+    """Specs are CLI-only: a direct Edit/Write to .unifable/spec/<task>.json is
+    blocked. The model must mutate specs via spec.py (create/add-task/validate-task),
+    so it cannot hand-edit the JSON to delete tasks or fake a validated status."""
     with tempfile.TemporaryDirectory() as cwd:
         payload = _edit_payload(
             os.path.join(cwd, ".unifable", "spec", "sess-abc123.json"),
             session_id="sess-abc123",
             cwd=cwd,
         )
-        rc, out, _ = run_pre_tool(payload, spec_gate="0")
-        assert rc == 0
+        rc, _, stderr = run_pre_tool(payload, spec_gate="0")
+        assert rc == 2
+        assert "spec.py" in stderr.lower() or "cli-only" in stderr.lower() or "protected" in stderr.lower()
 
 
 def test_normal_src_file_not_protected():
@@ -651,21 +654,21 @@ def test_bash_not_blocked_by_spec_gate():
 
 # --- Evidence gate (UNIFABLE_EVIDENCE_GATE=1) integration ---
 
-def test_evidence_gate_allows_spec_authoring_when_none_exists():
-    """No-brick: writing the evidence spec file is always allowed under the gate,
-    even before a spec exists — otherwise the gate would brick (writing the spec
-    would itself require a spec)."""
+def test_evidence_gate_spec_authoring_is_cli_only():
+    """No-brick is now the CLI: direct Edit/Write of the spec file is blocked (specs
+    are mutated only via spec.py), so an agent cannot hand-author or hand-edit the
+    JSON. The gate points the agent at `spec.py create` instead."""
     with tempfile.TemporaryDirectory() as cwd:
         payload = _edit_payload(
             os.path.join(cwd, ".unifable", "spec", "brick-sess.json"),
             session_id="brick-sess", cwd=cwd,
         )
-        rc, out, _ = run_pre_tool(
+        rc, _, stderr = run_pre_tool(
             payload, spec_gate="0", grade="STANDARD",
             env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
         )
-        assert rc == 0, "authoring the spec under the evidence gate must not be blocked"
-        assert out == {}
+        assert rc == 2, "direct spec authoring must be blocked (CLI-only)"
+        assert "spec.py" in stderr.lower() or "protected" in stderr.lower()
 
 
 def test_evidence_gate_default_on_blocks_uncited_edit():

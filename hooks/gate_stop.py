@@ -81,25 +81,40 @@ def main() -> int:
     #    (fail open), the holdout 'off' arm, or a gate exception.
     if grade != "LIGHT":
         try:
-            from spec import load_spec, resolve_session_id, validate_spec
+            from spec import all_tasks_validated, load_spec, resolve_session_id, validate_spec
 
-            # Session key: stdin session_id (Claude Code), else host env
-            # (CLAUDE_CODE_SESSION_ID / CODEX_THREAD_ID) so a host that omits it
-            # from the hook payload still keys the spec per conversation. None ->
-            # nothing resolvable -> fail open (skip the evidence gate).
-            session_id = resolve_session_id(input_data, default=None)
-            spec = load_spec(cwd, session_id) if session_id else None
+            # Active spec key: the prompt-hash task gate_prompt.py pinned in the
+            # ledger (locked until complete), else session_id / host env. None ->
+            # nothing resolvable -> fail open (skip the gate).
+            try:
+                task_key = load_ledger(input_data).get("active_task")
+            except Exception:
+                task_key = None
+            if not task_key:
+                task_key = resolve_session_id(input_data, default=None)
+            spec = load_spec(cwd, task_key) if task_key else None
             ev_reason = ""
-            if session_id and spec is None:
+            if task_key and spec is None:
                 ev_reason = (
-                    "no evidence spec for this task: write .unifable/spec/<session>.json documenting "
-                    "restated_goal, acceptance_criteria (with live command output), must_read "
-                    "{cite,why}, and a prior_art URL before finishing."
+                    "no evidence spec for this task: create one with `python3 scripts/gate/spec.py "
+                    f"create --task-id {task_key} --goal '<goal>' --task 'title::<check>' "
+                    "--must-read 'path:line::why' --prior-art '<url>'` before finishing."
                 )
             elif spec is not None:
-                ok, reasons = validate_spec(spec, grade, require_evidence=True)
-                if not ok:
-                    ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
+                # Breaker: a task-spec must have EVERY task validated (its check ran
+                # AND the judge confirmed) before the breaker opens. Blocks every
+                # stop until then.
+                ok_tasks, incomplete = all_tasks_validated(spec)
+                if not ok_tasks:
+                    ev_reason = (
+                        f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
+                        f"Run `python3 scripts/gate/spec.py validate-task --task-id {task_key} --task <id>` "
+                        "for each until the judge passes it."
+                    )
+                else:
+                    ok, reasons = validate_spec(spec, grade, require_evidence=True)
+                    if not ok:
+                        ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
             if ev_reason:
                 # M3 holdout (env-gated, default off): 'off' arm skips the gate so
                 # the gate's effect can be measured against a pure baseline.

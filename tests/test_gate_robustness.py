@@ -16,6 +16,14 @@ import tempfile
 
 HOOKS = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
 PY = sys.executable
+sys.path.insert(0, os.path.join(os.path.dirname(HOOKS), "scripts", "gate"))
+from ledger import load_ledger  # noqa: E402
+
+
+def spec_key(sid, cwd, data_dir):
+    """Active spec key the gate uses (prompt hash pinned in the ledger); falls back to sid."""
+    os.environ["UNIFABLE_DATA"] = data_dir
+    return load_ledger({"session_id": sid, "cwd": cwd}).get("active_task") or sid
 
 
 def run(script, payload, data_dir, raw=False):
@@ -78,7 +86,7 @@ for script in ("gate_prompt.py", "gate_post_tool.py", "gate_stop.py"):
 dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
 run("gate_prompt.py", {"prompt": "implement X production-ready", "session_id": "B", "cwd": cw}, dd)
 run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/x.py", "old_string": "a", "new_string": "b"}, "session_id": "B", "cwd": cw}, dd)
-write_spec(cw, "B")
+write_spec(cw, spec_key("B", cw, dd))
 p_guard = run("gate_stop.py", {"session_id": "B", "cwd": cw, "stop_hook_active": True}, dd)
 check("stop_hook_active=true -> no block (observation gate)", not blocks(p_guard))
 
@@ -86,7 +94,7 @@ check("stop_hook_active=true -> no block (observation gate)", not blocks(p_guard
 dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
 run("gate_prompt.py", {"prompt": "implement X production-ready", "session_id": "C", "cwd": cw}, dd)
 run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/x.py", "old_string": "a", "new_string": "b"}, "session_id": "C", "cwd": cw}, dd)
-write_spec(cw, "C")  # evidence passes; the observation gate (changed+unverified) drives the cap
+write_spec(cw, spec_key("C", cw, dd))  # evidence passes; the observation gate (changed+unverified) drives the cap
 d1 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": cw, "stop_hook_active": False}, dd))
 d2 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": cw, "stop_hook_active": False}, dd))
 d3 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": cw, "stop_hook_active": False}, dd))
@@ -97,7 +105,7 @@ dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
 run("gate_prompt.py", {"prompt": "refactor the parser thoroughly", "session_id": "D", "cwd": cw}, dd)
 run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/p.ts", "old_string": "a", "new_string": "b"}, "session_id": "D", "cwd": cw}, dd)
 run("gate_post_tool.py", {"tool_name": "Bash", "tool_input": {"command": "tsc --noEmit"}, "tool_response": {"exit_code": 0, "stdout": "done"}, "session_id": "D", "cwd": cw}, dd)
-write_spec(cw, "D")
+write_spec(cw, spec_key("D", cw, dd))
 p_ts = run("gate_stop.py", {"session_id": "D", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep + code edit + tsc success -> allow", not blocks(p_ts))
 
@@ -112,14 +120,14 @@ check("KO lecture prompt (quick default) -> allow", not blocks(p_kr))
 dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
 run("gate_prompt.py", {"prompt": "fix the login bug in the parser", "session_id": "F", "cwd": cw}, dd)
 run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/login.py", "old_string": "a", "new_string": "b"}, "session_id": "F", "cwd": cw}, dd)
-write_spec(cw, "F")
+write_spec(cw, spec_key("F", cw, dd))
 p_normal = run("gate_stop.py", {"session_id": "F", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep-only: normal task changed+unverified -> allow (no block)", not blocks(p_normal))
 
 # --- G. deep turn that changed NOTHING (analysis/audit) -> allow (no "add observable" nag) ---
 dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
 run("gate_prompt.py", {"prompt": "thoroughly audit the security of this module", "session_id": "G", "cwd": cw}, dd)
-write_spec(cw, "G")
+write_spec(cw, spec_key("G", cw, dd))
 p_analysis = run("gate_stop.py", {"session_id": "G", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep analysis, no change -> allow (no false-positive nag)", not blocks(p_analysis))
 

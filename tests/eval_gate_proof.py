@@ -127,7 +127,7 @@ def scenarios(cwd: str):
 
     # --- no-brick: research/authoring is never blocked ---
     yield ("N1", "no-brick LIGHT (quick) waives spec", ALLOW, EV, "LIGHT", edit(cwd, "src/a.py", "N1"))
-    yield ("N2", "no-brick author the spec file itself", ALLOW, EV, "STANDARD",
+    yield ("N2", "specs are CLI-only: direct spec edit is blocked", BLOCK, EV, "STANDARD",
            edit(cwd, ".unifable/spec/N2.json", "N2"))
     yield ("N3", "no-brick read Bash (echo) allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "echo hi", "N3"))
