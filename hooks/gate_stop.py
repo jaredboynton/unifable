@@ -4,11 +4,11 @@
 Blocks completion in priority order, capped at MAX_STOP_BLOCKS reminders then
 allows with a warning (never traps); fails open:
 
-  1. Evidence/spec gate (default ON): on a non-LIGHT task the evidence spec must
-     EXIST and validate — the agent is required to write its evidence back
-     (restated_goal, acceptance_criteria with live output, must_read {cite,why},
-     prior_art URL) before finishing. No spec, or a placeholder/invalid one,
-     blocks. Disable with UNIFABLE_EVIDENCE_GATE=0.
+  1. Evidence gate (unconditional, no env disable): on a non-LIGHT task the
+     evidence spec must EXIST and validate — the agent is required to write its
+     evidence back (restated_goal, acceptance_criteria with live output,
+     must_read {cite,why}, prior_art URL) before finishing. No spec, or a
+     placeholder/invalid one, blocks. A stop with no session_id fails open.
   2. Observation gate: a non-quick, non-docs task that changed files but has no
      observed successful verification.
 
@@ -95,24 +95,24 @@ def main() -> int:
     ledger = load_ledger(input_data)
 
     # The strongest blocking reason for this stop, in priority order:
-    #   1. evidence/spec gate — on a non-LIGHT task the evidence spec must EXIST
-    #      and validate (must_read {cite,why}, acceptance_criteria with live
-    #      output, prior_art URL). No spec, or an invalid/placeholder spec, blocks
-    #      completion: the agent is required to write its evidence back before
-    #      finishing. Disable with UNIFABLE_EVIDENCE_GATE=0.
+    #   1. evidence gate (unconditional, no env disable) — on a non-LIGHT task the
+    #      evidence spec must EXIST and validate (must_read {cite,why},
+    #      acceptance_criteria with live output, prior_art URL). No spec, or an
+    #      invalid/placeholder spec, blocks completion: the agent is required to
+    #      write its evidence back before finishing.
     #   2. observation gate — should_block_stop (deep changed-but-unverified).
     # Both honour the stop-block cap + holdout below, so the agent is nudged at
-    # most MAX_STOP_BLOCKS times and is never trapped.
-    evidence_on = os.environ.get("UNIFABLE_EVIDENCE_GATE", "1") != "0"
-    spec_on = os.environ.get("UNIFABLE_SPEC_GATE") == "1"
+    # most MAX_STOP_BLOCKS times and is never trapped. A stop event with no
+    # session_id (malformed/empty input) skips the evidence gate and fails open.
+    session_id = input_data.get("session_id")
     grade = (os.environ.get("UNIFABLE_GRADE") or ledger_grade(input_data) or "STANDARD").upper().strip()
 
     reason = ""
-    if (evidence_on or spec_on) and grade != "LIGHT":
+    if session_id and grade != "LIGHT":
         try:
             from spec import load_spec, validate_spec
 
-            spec = load_spec(cwd, input_data.get("session_id") or "")
+            spec = load_spec(cwd, session_id)
             if spec is None:
                 reason = (
                     "no evidence spec for this task: write .unifable/spec/<session>.json documenting "
@@ -120,7 +120,7 @@ def main() -> int:
                     "{cite,why}, and a prior_art URL before finishing."
                 )
             else:
-                ok, reasons = validate_spec(spec, grade, require_evidence=evidence_on)
+                ok, reasons = validate_spec(spec, grade, require_evidence=True)
                 if not ok:
                     reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
         except Exception:

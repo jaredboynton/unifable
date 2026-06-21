@@ -21,15 +21,29 @@ PY = sys.executable
 def run(script, payload, data_dir, raw=False):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
-    # Isolate from the evidence/spec gate: these checks target the OBSERVATION
-    # gate (fail-open, cap, loop guard, precision). The evidence-gate stop
-    # behavior is covered separately in test_spec_gate.py.
-    env["UNIFABLE_EVIDENCE_GATE"] = "0"
-    env["UNIFABLE_SPEC_GATE"] = "0"
     stdin = payload if raw else json.dumps(payload)
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=stdin,
                        capture_output=True, text=True, env=env)
     return p
+
+
+# The evidence gate is unconditional (no env disable). Precision checks below that
+# expect ALLOW need a valid spec present so the observation gate is what decides.
+VALID_SPEC = {
+    "restated_goal": "Robustness harness fixture.",
+    "acceptance_criteria": [{"check": "pytest -q", "evidence": "5 passed in 0.4s"}],
+    "must_read": [{"cite": "src/x.py:1", "why": "fixture passage"}],
+    "prior_art": ["https://example.com/doc"],
+    "constraints": ["fixture constraint"],
+    "rejected_alternatives": ["alt a rejected: reason.", "alt b rejected: reason."],
+}
+
+
+def write_spec(cwd, sid):
+    d = os.path.join(cwd, ".unifable", "spec")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, f"{sid}.json"), "w") as f:
+        json.dump(VALID_SPEC, f)
 
 
 def as_json(p):
@@ -66,20 +80,22 @@ p_guard = run("gate_stop.py", {"session_id": "B", "cwd": "/w", "stop_hook_active
 check("stop_hook_active=true -> no block", not blocks(p_guard))
 
 # --- C. cannot trap forever: same session blocks at most MAX_STOP_BLOCKS(2), then allows ---
-dd = tempfile.mkdtemp(prefix="fz_")
-run("gate_prompt.py", {"prompt": "implement X production-ready", "session_id": "C", "cwd": "/w"}, dd)
-run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/x.py", "old_string": "a", "new_string": "b"}, "session_id": "C", "cwd": "/w"}, dd)
-d1 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": "/w", "stop_hook_active": False}, dd))
-d2 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": "/w", "stop_hook_active": False}, dd))
-d3 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": "/w", "stop_hook_active": False}, dd))
+dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
+run("gate_prompt.py", {"prompt": "implement X production-ready", "session_id": "C", "cwd": cw}, dd)
+run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/x.py", "old_string": "a", "new_string": "b"}, "session_id": "C", "cwd": cw}, dd)
+write_spec(cw, "C")  # evidence passes; the observation gate (changed+unverified) drives the cap
+d1 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": cw, "stop_hook_active": False}, dd))
+d2 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": cw, "stop_hook_active": False}, dd))
+d3 = blocks(run("gate_stop.py", {"session_id": "C", "cwd": cw, "stop_hook_active": False}, dd))
 check("blocks first 2 then allows (no infinite trap)", d1 and d2 and not d3)
 
 # --- D. precision: deep task + code edit + typecheck SUCCESS -> allow ---
-dd = tempfile.mkdtemp(prefix="fz_")
-run("gate_prompt.py", {"prompt": "refactor the parser thoroughly", "session_id": "D", "cwd": "/w"}, dd)
-run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/p.ts", "old_string": "a", "new_string": "b"}, "session_id": "D", "cwd": "/w"}, dd)
-run("gate_post_tool.py", {"tool_name": "Bash", "tool_input": {"command": "tsc --noEmit"}, "tool_response": {"exit_code": 0, "stdout": "done"}, "session_id": "D", "cwd": "/w"}, dd)
-p_ts = run("gate_stop.py", {"session_id": "D", "cwd": "/w", "stop_hook_active": False}, dd)
+dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
+run("gate_prompt.py", {"prompt": "refactor the parser thoroughly", "session_id": "D", "cwd": cw}, dd)
+run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/p.ts", "old_string": "a", "new_string": "b"}, "session_id": "D", "cwd": cw}, dd)
+run("gate_post_tool.py", {"tool_name": "Bash", "tool_input": {"command": "tsc --noEmit"}, "tool_response": {"exit_code": 0, "stdout": "done"}, "session_id": "D", "cwd": cw}, dd)
+write_spec(cw, "D")
+p_ts = run("gate_stop.py", {"session_id": "D", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep + code edit + tsc success -> allow", not blocks(p_ts))
 
 # --- E. lecture-style Korean doc prompt defaults to quick -> never blocks ---
@@ -90,16 +106,18 @@ p_kr = run("gate_stop.py", {"session_id": "E", "cwd": "/w", "stop_hook_active": 
 check("KO lecture prompt (quick default) -> allow", not blocks(p_kr))
 
 # --- F. deep-only: a NORMAL task + code edit + no verification -> allow (no hard block) ---
-dd = tempfile.mkdtemp(prefix="fz_")
-run("gate_prompt.py", {"prompt": "fix the login bug in the parser", "session_id": "F", "cwd": "/w"}, dd)
-run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/login.py", "old_string": "a", "new_string": "b"}, "session_id": "F", "cwd": "/w"}, dd)
-p_normal = run("gate_stop.py", {"session_id": "F", "cwd": "/w", "stop_hook_active": False}, dd)
+dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
+run("gate_prompt.py", {"prompt": "fix the login bug in the parser", "session_id": "F", "cwd": cw}, dd)
+run("gate_post_tool.py", {"tool_name": "Edit", "tool_input": {"file_path": "src/login.py", "old_string": "a", "new_string": "b"}, "session_id": "F", "cwd": cw}, dd)
+write_spec(cw, "F")
+p_normal = run("gate_stop.py", {"session_id": "F", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep-only: normal task changed+unverified -> allow (no block)", not blocks(p_normal))
 
 # --- G. deep turn that changed NOTHING (analysis/audit) -> allow (no "add observable" nag) ---
-dd = tempfile.mkdtemp(prefix="fz_")
-run("gate_prompt.py", {"prompt": "thoroughly audit the security of this module", "session_id": "G", "cwd": "/w"}, dd)
-p_analysis = run("gate_stop.py", {"session_id": "G", "cwd": "/w", "stop_hook_active": False}, dd)
+dd = tempfile.mkdtemp(prefix="fz_"); cw = tempfile.mkdtemp(prefix="fzcwd_")
+run("gate_prompt.py", {"prompt": "thoroughly audit the security of this module", "session_id": "G", "cwd": cw}, dd)
+write_spec(cw, "G")
+p_analysis = run("gate_stop.py", {"session_id": "G", "cwd": cw, "stop_hook_active": False}, dd)
 check("deep analysis, no change -> allow (no false-positive nag)", not blocks(p_analysis))
 
 print("=" * 80)

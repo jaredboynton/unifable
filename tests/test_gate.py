@@ -31,13 +31,29 @@ SCEN = [
 ]
 
 
+# This harness tests the OBSERVATION gate (verification-ran logic). The evidence
+# gate is unconditional (no env disable), so we satisfy it by writing a valid spec
+# per session — then the observation gate is what decides allow/block.
+VALID_SPEC = {
+    "restated_goal": "Observation-gate harness fixture.",
+    "acceptance_criteria": [{"check": "pytest -q", "evidence": "5 passed in 0.4s"}],
+    "must_read": [{"cite": "src/x.py:1", "why": "fixture passage"}],
+    "prior_art": ["https://example.com/doc"],
+    "constraints": ["fixture constraint"],
+    "rejected_alternatives": ["alt a rejected: reason.", "alt b rejected: reason."],
+}
+
+
+def write_spec(cwd, sid):
+    d = os.path.join(cwd, ".unifable", "spec")
+    os.makedirs(d, exist_ok=True)
+    with open(os.path.join(d, f"{sid}.json"), "w") as f:
+        json.dump(VALID_SPEC, f)
+
+
 def run(script, payload, data_dir):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
-    # This harness tests the OBSERVATION gate (verification-ran logic). Isolate it
-    # from the evidence/spec gate, which has its own dedicated tests.
-    env["UNIFABLE_EVIDENCE_GATE"] = "0"
-    env["UNIFABLE_SPEC_GATE"] = "0"
     p = subprocess.run([PY, os.path.join(HOOKS, script)], input=json.dumps(payload),
                        capture_output=True, text=True, env=env)
     try:
@@ -49,10 +65,11 @@ def run(script, payload, data_dir):
 def decision_for(scn):
     sid, prompt, events, _, _ = scn
     data_dir = tempfile.mkdtemp(prefix="fzgate_")
-    cwd = "/work"
+    cwd = tempfile.mkdtemp(prefix="fzcwd_")
     run("gate_prompt.py", {"prompt": prompt, "session_id": sid, "cwd": cwd}, data_dir)
     for ev in events:
         run("gate_post_tool.py", {**ev, "session_id": sid, "cwd": cwd}, data_dir)
+    write_spec(cwd, sid)  # satisfy the always-on evidence gate; isolate the observation gate
     stop = run("gate_stop.py", {"session_id": sid, "cwd": cwd, "stop_hook_active": False}, data_dir)
     return "BLOCK" if stop.get("decision") == "block" else "allow"
 

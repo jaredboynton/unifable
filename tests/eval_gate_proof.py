@@ -64,8 +64,11 @@ HEAVY_FULL = {"restated_goal": "Migrate auth to JWT.", "acceptance_criteria": GO
               "must_read": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
               "prior_art": ["https://datatracker.ietf.org/doc/html/rfc7519"]}
 
-EV = {"UNIFABLE_EVIDENCE_GATE": "1"}
-SP = {"UNIFABLE_SPEC_GATE": "1", "UNIFABLE_EVIDENCE_GATE": "0"}
+# The evidence gate is unconditional (no env disable). EV is empty: with the gate
+# vars scrubbed in run(), the production default (gate ON) is exercised. OFF keeps the
+# removed escape env to prove it is now ignored.
+EV = {}
+OFF = {"UNIFABLE_EVIDENCE_GATE": "0", "UNIFABLE_SPEC_GATE": "0"}
 
 
 def scenarios(cwd: str):
@@ -119,10 +122,8 @@ def scenarios(cwd: str):
     yield ("BL10", "bash-unlock: valid spec allows mutate (action phase)", ALLOW, EV, "STANDARD",
            bash(cwd, "rm -rf build", with_spec("BL10", STD_CITED)))
     yield ("BL11", "bash-lockdown LIGHT waives", ALLOW, EV, "LIGHT", bash(cwd, "rm -rf build", "BL11"))
-    yield ("BL12", "bash-lockdown escape hatch disables", ALLOW, {"UNIFABLE_EVIDENCE_GATE": "0"},
+    yield ("BL12", "bash-lockdown: removed escape env ignored, mutate still blocked", BLOCK, OFF,
            "STANDARD", bash(cwd, "rm -rf build", "BL12"))
-    yield ("BL13", "bash spec-only mode does NOT gate Bash (back-compat)", ALLOW, SP, "STANDARD",
-           bash(cwd, "rm -rf build", "BL13"))
 
     # --- no-brick: research/authoring is never blocked ---
     yield ("N1", "no-brick LIGHT (quick) waives spec", ALLOW, EV, "LIGHT", edit(cwd, "src/a.py", "N1"))
@@ -137,15 +138,14 @@ def scenarios(cwd: str):
     yield ("B2", "bypass path traversal out of spec dir", BLOCK, EV, "STANDARD",
            edit(cwd, ".unifable/spec/../../.unifable/goals.json", with_spec("B2", STD_CITED)))
 
-    # --- spec gate (no evidence requirement) backward-compat ---
-    yield ("S1", "spec-gate STANDARD cited-less spec allowed", ALLOW, SP, "STANDARD",
+    # --- removed escape hatch + removed spec-only mode: the old envs are ignored ---
+    yield ("S1", "spec-only env does NOT downgrade: cited-less spec still blocked", BLOCK, OFF, "STANDARD",
            edit(cwd, "src/a.py", with_spec("S1", {"restated_goal": "x", "acceptance_criteria": GOOD_ACC})))
-    yield ("S2", "spec-gate STANDARD no spec", BLOCK, SP, "STANDARD", edit(cwd, "src/a.py", "S2"))
 
-    # --- default-on: no env set => gate is ON; escape hatch disables it ---
+    # --- always-on: no env set => gate ON; the removed escape env stays ignored ---
     yield ("D1", "default (no gate env): gate ON, uncited edit blocked", BLOCK, {}, "STANDARD",
            edit(cwd, "src/a.py", "D1"))
-    yield ("D2", "escape hatch UNIFABLE_EVIDENCE_GATE=0 disables", ALLOW, {"UNIFABLE_EVIDENCE_GATE": "0"},
+    yield ("D2", "removed escape env UNIFABLE_EVIDENCE_GATE=0 ignored, edit still blocked", BLOCK, OFF,
            "STANDARD", edit(cwd, "src/a.py", "D2"))
 
 

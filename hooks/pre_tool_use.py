@@ -9,13 +9,13 @@ and Bash, and exits with code 2 (block) in three cases:
      (.unifable/spec/<task_id>.json).  This prevents the model from modifying
      ledger state, goals, findings, or any other gate-internal artifact.
 
-  2. EVIDENCE GATE — writes (default ON): unless the effective grade is LIGHT, a
-     valid spec carrying citation evidence (must_read {cite, why},
+  2. EVIDENCE GATE — writes (unconditional): unless the effective grade is LIGHT,
+     a valid spec carrying citation evidence (must_read {cite, why},
      acceptance_criteria with live output, prior_art URL — all at STANDARD+) must
      exist for the current task before any edit is allowed. Authoring the spec
      file itself is always permitted (the no-brick escape).
 
-  3. EVIDENCE GATE — Bash create/mutate lockdown (default ON): in the research
+  3. EVIDENCE GATE — Bash create/mutate lockdown (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet) a Bash command that creates,
      deletes, moves, or mutates files/state, installs packages, mutates git
      history, or performs a network-mutating request is blocked. Read, search,
@@ -23,9 +23,9 @@ and Bash, and exits with code 2 (block) in three cases:
      evidence its spec needs. A valid spec unlocks the action phase (all shell
      commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
 
-The evidence gate is ON by default. Disable it with UNIFABLE_EVIDENCE_GATE=0.
-UNIFABLE_SPEC_GATE=1 selects the weaker spec-only mode (writes only, no
-citations and no Bash lockdown).
+The evidence gate is always on — there is no env disable. LIGHT (quick) tasks are
+waived by grade, authoring the spec is always allowed (no-brick), and the hook
+fails open on any exception so a gate bug never interrupts the host.
 
 Grade is read from UNIFABLE_GRADE, else the session ledger, else STANDARD
 (LIGHT / STANDARD / HEAVY); quick->LIGHT, normal->STANDARD, deep->HEAVY.
@@ -174,21 +174,12 @@ def _effective_grade(input_data: dict | None = None) -> str:
     return grade if grade in GRADES else "STANDARD"
 
 
-def _spec_gate_active() -> bool:
-    """Weaker opt-in mode: spec required, citations not. Subsumed by the evidence
-    gate when that is on (the default)."""
-    return os.environ.get("UNIFABLE_SPEC_GATE", "0").strip() == "1"
+def _enforce_spec(input_data: dict, cwd: str) -> int:
+    """Block a write tool unless a valid evidence spec exists for the task.
 
-
-def _evidence_gate_active() -> bool:
-    """The evidence gate (superset of the spec gate): spec validation plus required
-    citation evidence (must_read code citations, prior_art URLs). ON by default;
-    disable with UNIFABLE_EVIDENCE_GATE=0 (the explicit escape hatch)."""
-    return os.environ.get("UNIFABLE_EVIDENCE_GATE", "1").strip() != "0"
-
-
-def _enforce_spec(input_data: dict, cwd: str, require_evidence: bool) -> int:
-    """Block a write tool unless a valid spec exists for the task. LIGHT waives."""
+    The evidence gate is unconditional — there is no env disable. A valid spec
+    carrying citation evidence (must_read {cite, why}, acceptance_criteria with
+    live output, prior_art URL) must exist for any STANDARD+ task. LIGHT waives."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
         emit_json({})
@@ -201,11 +192,11 @@ def _enforce_spec(input_data: dict, cwd: str, require_evidence: bool) -> int:
         return _block(
             f"no spec artifact found for task '{task_id}' (grade={grade}). "
             f"Write {sp} before editing implementation files. "
-            f"{contract_string(grade, require_evidence)} "
+            f"{contract_string(grade, True)} "
             "Init: python3 scripts/gate/spec.py init --task-id <task-id>."
         )
 
-    ok, reasons = validate_spec(spec, grade, require_evidence=require_evidence)
+    ok, reasons = validate_spec(spec, grade, require_evidence=True)
     if not ok:
         sp = spec_path(cwd, task_id)
         detail = "; ".join(reasons)
@@ -219,7 +210,7 @@ def _enforce_spec(input_data: dict, cwd: str, require_evidence: bool) -> int:
 
 
 def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
-    """Create/mutate lockdown for Bash (evidence gate only).
+    """Create/mutate lockdown for Bash (unconditional, no env disable).
 
     Research phase (no valid spec): block only create/mutate commands; read,
     search, web, and test/validation runners stay available so the agent can
@@ -260,10 +251,7 @@ def main() -> int:
     tool_input = input_data.get("tool_input") or {}
     cwd = str(input_data.get("cwd") or os.getcwd())
 
-    require_evidence = _evidence_gate_active()
-    spec_active = _spec_gate_active()
-
-    # --- Write tools: protected paths + spec/evidence gate ---
+    # --- Write tools: protected paths + evidence gate (unconditional) ---
     if tool_name in WRITE_TOOLS:
         target = _target_path(tool_name, tool_input)
 
@@ -274,11 +262,6 @@ def main() -> int:
                 "The model must not modify ledger, goals, findings, or state artifacts directly."
             )
 
-        # Guard 2: spec / evidence gate
-        if not (spec_active or require_evidence):
-            emit_json({})
-            return 0
-
         # No-brick escape: authoring/updating the evidence spec itself is always
         # allowed, even before one exists — otherwise writing the spec would
         # require a spec. The only write the gate lets through unconditionally.
@@ -286,11 +269,10 @@ def main() -> int:
             emit_json({})
             return 0
 
-        return _enforce_spec(input_data, cwd, require_evidence)
+        return _enforce_spec(input_data, cwd)
 
-    # --- Bash: create/mutate lockdown (evidence gate only; spec-only mode does
-    # not gate Bash, preserving its weaker back-compat behaviour) ---
-    if tool_name == "Bash" and require_evidence:
+    # --- Bash: create/mutate lockdown (unconditional) ---
+    if tool_name == "Bash":
         return _enforce_bash(input_data, tool_input, cwd)
 
     # Any other tool — nothing to gate (read/search/web/subagents stay free).

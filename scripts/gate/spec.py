@@ -167,10 +167,10 @@ def validate_spec(
 ) -> tuple[bool, list[str]]:
     """Validate *spec* against the requirements for *grade*.
 
-    When *require_evidence* is True (the evidence gate, UNIFABLE_EVIDENCE_GATE=1),
-    the spec must also carry citation evidence at STANDARD+: 'must_read' (>=1
-    {cite: 'path:line', why: '<why relevant>'}) and 'prior_art' (>=1 source URL).
-    This makes the spec the documented, verifiable evidence that unlocks action.
+    When *require_evidence* is True (how the hooks always call it), the spec must
+    also carry citation evidence at STANDARD+: 'must_read' (>=1 {cite: 'path:line',
+    why: '<why relevant>'}) and 'prior_art' (>=1 source URL). This makes the spec
+    the documented, verifiable evidence that unlocks action.
 
     Returns (ok, reasons) where reasons is empty when ok is True.
     """

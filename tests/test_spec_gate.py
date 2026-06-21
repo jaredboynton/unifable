@@ -53,10 +53,10 @@ def run_pre_tool(
 ) -> tuple[int, dict, str]:
     """Run hooks/pre_tool_use.py with *payload* on stdin.
 
-    Inherited UNIFABLE_SPEC_GATE / UNIFABLE_EVIDENCE_GATE are scrubbed first so a
-    test is deterministic regardless of the runner's environment. Pass a gate as
-    None to leave it unset (exercising the production default — evidence gate ON).
-    The evidence gate defaults to "0" here so spec-gate-focused tests are isolated.
+    The evidence gate is unconditional: UNIFABLE_SPEC_GATE / UNIFABLE_EVIDENCE_GATE
+    no longer disable it. The spec_gate / evidence_gate params are retained only so
+    call sites can still set those envs (used to prove the removed escape is now
+    ignored). Grade (LIGHT waives) and whether a valid spec exists are what gate.
 
     Returns (returncode, parsed-stdout-json, stderr).
     """
@@ -414,17 +414,22 @@ def _bash_payload(cmd: str, session_id: str = "sess-abc123", cwd: str = "/work")
     }
 
 
-# --- Gate OFF (default) ---
+# --- Removed escape hatch: env no longer disables the gate ---
 
-def test_gate_off_allows_any_edit():
-    """When UNIFABLE_SPEC_GATE=0, all edits pass regardless."""
-    rc, out, _ = run_pre_tool(_edit_payload("/work/src/main.py"), spec_gate="0")
-    assert rc == 0
-    assert out == {}
+def test_disable_env_has_no_effect():
+    """The escape hatch is removed: setting UNIFABLE_EVIDENCE_GATE=0 / SPEC_GATE=0
+    does NOT disable the gate. A STANDARD edit with no spec is still blocked."""
+    with tempfile.TemporaryDirectory() as cwd:
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
+                                session_id="disable-noop", cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, spec_gate="0", evidence_gate="0", grade="STANDARD")
+        assert rc == 2
+        assert "spec" in stderr.lower()
 
 
-def test_gate_off_non_write_tool_passes():
-    rc, out, _ = run_pre_tool(_bash_payload("echo hi"), spec_gate="0")
+def test_read_bash_passes_without_spec():
+    """A read/echo Bash command is allowed even with no spec (only create/mutate is locked)."""
+    rc, out, _ = run_pre_tool(_bash_payload("echo hi"), grade="STANDARD")
     assert rc == 0
 
 
@@ -485,13 +490,16 @@ def test_spec_file_allowed_by_model():
 
 
 def test_normal_src_file_not_protected():
-    """Edits to regular project files are never blocked by PROTECTED_PATHS."""
+    """Edits to regular project files are never blocked by PROTECTED_PATHS.
+
+    Uses LIGHT so the spec requirement is waived and only the PROTECTED_PATHS
+    logic is exercised."""
     with tempfile.TemporaryDirectory() as cwd:
         payload = _edit_payload(
             os.path.join(cwd, "src", "app.py"),
             cwd=cwd,
         )
-        rc, _, _ = run_pre_tool(payload, spec_gate="0")
+        rc, _, _ = run_pre_tool(payload, grade="LIGHT")
         assert rc == 0
 
 
@@ -543,6 +551,8 @@ def test_standard_valid_spec_allows():
                     "evidence": '"ok"',
                 }
             ],
+            "must_read": [{"cite": "src/server.py:12", "why": "where routes register"}],
+            "prior_art": ["https://datatracker.ietf.org/doc/html/rfc9110"],
         }
         save_spec(cwd, session_id, good_spec)
         payload = _edit_payload(
@@ -615,6 +625,8 @@ def test_heavy_valid_spec_allows():
                 "Separate table — rejected: join overhead.",
                 "Nullable boolean — rejected: loses timestamp.",
             ],
+            "must_read": [{"cite": "migrations/0001.py:1", "why": "prior migration this extends"}],
+            "prior_art": ["https://docs.djangoproject.com/en/stable/topics/migrations/"],
         }
         save_spec(cwd, session_id, spec)
         payload = _edit_payload(
@@ -667,14 +679,15 @@ def test_evidence_gate_default_on_blocks_uncited_edit():
         assert "must_read" in stderr or "spec" in stderr.lower()
 
 
-def test_evidence_gate_escape_hatch_disables():
-    """UNIFABLE_EVIDENCE_GATE=0 is the explicit escape hatch: edits pass unenforced."""
+def test_evidence_gate_escape_hatch_removed():
+    """The escape hatch is removed: UNIFABLE_EVIDENCE_GATE=0 no longer disables the
+    gate. An uncited STANDARD edit is still blocked."""
     with tempfile.TemporaryDirectory() as cwd:
         payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
                                 session_id="escape-sess", cwd=cwd)
-        rc, out, _ = run_pre_tool(payload, spec_gate=None, evidence_gate="0", grade="STANDARD")
-        assert rc == 0
-        assert out == {}
+        rc, _, stderr = run_pre_tool(payload, spec_gate=None, evidence_gate="0", grade="STANDARD")
+        assert rc == 2
+        assert "spec" in stderr.lower()
 
 
 def test_evidence_gate_default_on_light_waived():
@@ -735,8 +748,9 @@ def test_evidence_gate_allows_spec_with_citations():
         assert out == {}
 
 
-def test_spec_gate_alone_ignores_missing_must_read():
-    """Backward-compat: the plain spec gate (no evidence gate) does not require must_read."""
+def test_spec_only_env_does_not_downgrade():
+    """The spec-only mode is removed: UNIFABLE_SPEC_GATE=1 no longer downgrades the
+    gate. A citationless spec is still rejected (must_read required)."""
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "ev-session-003"
         spec = {
@@ -749,9 +763,9 @@ def test_spec_gate_alone_ignores_missing_must_read():
         payload = _edit_payload(
             os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
         )
-        rc, out, _ = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
-        assert rc == 0
-        assert out == {}
+        rc, _, stderr = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
+        assert rc == 2
+        assert "must_read" in stderr
 
 
 def test_empty_stdin_fails_open():
@@ -866,14 +880,15 @@ def test_stop_cap_releases_after_max():
         assert d1 and d2 and not d3
 
 
-def test_stop_escape_hatch_allows_no_spec():
-    """UNIFABLE_EVIDENCE_GATE=0 disables the stop evidence requirement."""
+def test_stop_escape_hatch_removed():
+    """The escape hatch is removed at completion too: UNIFABLE_EVIDENCE_GATE=0 no
+    longer disables the stop gate. No spec still blocks."""
     with tempfile.TemporaryDirectory() as cwd:
         out = run_stop(
             {"session_id": "st7", "cwd": cwd, "stop_hook_active": False},
             evidence_gate="0", grade="STANDARD",
         )
-        assert not _blocks(out)
+        assert _blocks(out)
 
 
 # ---------------------------------------------------------------------------
