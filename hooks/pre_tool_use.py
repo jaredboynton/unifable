@@ -5,16 +5,17 @@ Intercepts write tools (Edit / Write / MultiEdit / NotebookEdit / apply_patch),
 Bash, and delegation tools (Task / Agent), and exits with code 2 (block) in
 four cases:
 
-  1. PROTECTED_PATHS: the target path resolves inside <cwd>/.unifable/ AND is
-     not a spec file the model is allowed to write
-     (.unifable/spec/<task_id>.json).  This prevents the model from modifying
-     ledger state, goals, findings, or any other gate-internal artifact.
+  1. PROTECTED_PATHS: the target path resolves inside <cwd>/.unifable/ or under
+     the global keyed spec store (<data_root>/specs/). Specs are CLI-only, so this
+     prevents the model from modifying the spec, ledger state, goals, findings, or
+     any other gate-internal artifact with Edit/Write.
 
   2. EVIDENCE GATE — writes (unconditional): unless the effective grade is LIGHT,
      a valid spec carrying citation evidence (repo_context {cite, why},
      acceptance_criteria with live output, prior_art {cite, why} — all at STANDARD+) must
-     exist for the current task before any edit is allowed. Authoring the spec
-     file itself is always permitted (the no-brick escape).
+     exist for the current task before any edit is allowed. The spec is auto-created
+     by the prompt hook and driven via the spec.py CLI (the no-brick escape), never
+     hand-written.
 
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet), Bash may run only `ls`, `glob`,
@@ -59,8 +60,8 @@ WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_pa
 DELEGATION_TOOLS = frozenset({"Task", "Agent"})
 
 # ---------------------------------------------------------------------------
-# Protected path patterns inside .unifable/
-# The model MAY write .unifable/spec/<task_id>.json; everything else is off-limits.
+# Protected paths: the repo-local <cwd>/.unifable/ AND the global keyed spec store
+# (<data_root>/specs/). Specs are CLI-only (spec.py) -- never model-writable.
 # ---------------------------------------------------------------------------
 
 _GATE_PREFIXES = ("ledger", "goals.json", "findings.json", "state")
@@ -304,7 +305,8 @@ def _enforce_breaker(input_data: dict) -> int | None:
             return _block(steering or (
                 "Groundedness breaker: you asserted something confidently without "
                 "backing it up. Your tools are restricted to read-only ones (Read, "
-                "WebSearch, WebFetch, Grep, Glob) until you ground the claim."
+                "WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
+                f"({ALLOWED_RESEARCH_BASH}) until you ground the claim."
             ))
     except Exception:
         return None  # fail open on any breaker/judge failure
@@ -320,10 +322,17 @@ def main() -> int:
 
     # --- Overconfidence/groundedness breaker (runs on EVERY tool; judge debounced
     #     to <=1 call / 15s per session+prompt). Blocks ONLY mutation tools when
-    #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free. ---
+    #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free.
+    #     Whitelisted research Bash (ls/glob/rg/trace.sh/spec CLI) still passes. ---
     breaker_block = _enforce_breaker(input_data)
     if breaker_block is not None:
-        return breaker_block
+        if tool_name == "Bash":
+            command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+            allowed, _ = is_allowed_research_bash(command)
+            if allowed:
+                breaker_block = None
+        if breaker_block is not None:
+            return breaker_block
 
     # --- Write tools: protected paths + evidence gate (unconditional) ---
     if tool_name in WRITE_TOOLS:

@@ -84,14 +84,15 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "description": (
                 "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
                 "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
-                "WebFetch, Grep, Glob) until it grounds the claim, and describe "
-                "the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do "
-                "not invent file paths. For a claim about THIS repo's code/config, say what kind of "
-                "source would settle it (the code/config that defines the behavior, or a command that "
-                "proves it) and let the model find it; for a claim about EXTERNAL or platform behavior "
-                "(a host feature, third-party/framework API, or library semantics), say to fetch the "
-                "authoritative external documentation via web search / WebFetch -- NOT a repo file. "
-                "Name a specific path only if it already appears in the transcript. Empty when verdict=0."
+                "WebFetch, Grep, Glob) and whitelisted research Bash (ls, glob, rg, trace.sh, "
+                "spec CLI) until it grounds the claim, and describe the KIND of evidence that would "
+                "disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER "
+                "steer the model to run a command that the breaker blocks (node, npm test, edits); "
+                "prefer reading source files, result fields, and fixture thresholds already in the "
+                "repo. For a claim about THIS repo's code/config, say what files to read; for "
+                "EXTERNAL or platform behavior, say to fetch authoritative documentation via web "
+                "search / WebFetch -- NOT a repo file. Name a specific path only if it already "
+                "appears in the transcript. Empty when verdict=0."
             ),
         },
         "claim": {
@@ -136,8 +137,9 @@ _DISARM_SCHEMA: dict[str, Any] = {
             "description": (
                 "When grounded=0, a 1-2 sentence instruction addressed to the model naming EXACTLY "
                 "what is still missing to disarm, matched to the claim: for a repo claim, which "
-                "file(s) to read or check(s) to run; for an external/platform/API claim, the official "
-                "documentation to fetch (web search / WebFetch). Empty string when grounded=1."
+                "file(s) to read (never a blocked shell command -- the breaker forbids mutating Bash); "
+                "for an external/platform/API claim, the official documentation to fetch (web search "
+                "/ WebFetch). Empty string when grounded=1."
             ),
         },
     },
@@ -177,9 +179,11 @@ _JUDGE_SYSTEM = (
     "in the transcript. Judge whether what the model read or fetched SUPPORTS the claim. "
     "ARM ONLY when load_bearing=1 AND the assertion is genuinely ungrounded: verdict=1, name the "
     "claim, write a 2-3 sentence steering prompt telling the model its tools are restricted to "
-    "read-only ones (Read, WebSearch, WebFetch, Grep, Glob) until it grounds THAT claim. "
-    "Otherwise verdict=0, load_bearing=0 or 1 as appropriate, steering MUST be empty string, claim "
-    "MUST be empty. Call the function exactly once."
+    "read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
+    "(ls, glob, rg, trace.sh, spec CLI) until it grounds THAT claim. NEVER steer toward running "
+    "a blocked command (node, npm test, mutating shell) to prove a repo claim -- point at files "
+    "to read instead. Otherwise verdict=0, load_bearing=0 or 1 as appropriate, steering MUST be "
+    "empty string, claim MUST be empty. Call the function exactly once."
 )
 
 _DISARM_SYSTEM = (
@@ -194,13 +198,16 @@ _DISARM_SYSTEM = (
     "the immediate repo edit/check, or otherwise not needed for the work NOW in the transcript. "
     "Set load_bearing=1 only if the model still relies on that claim for the immediate next action. "
     "(B) SHOULD THE BREAKER RELEASE? Set grounded=1 if ANY hold: (1) load_bearing=0 -- release "
-    "without requiring further evidence; (2) the claim was RETRACTED or corrected; (3) the model "
-    "read the source / ran the check / cited file:line or command output that backs the claim; "
-    "(4) negative/absence claim backed by a reasonable bounded search; (5) external/platform claim "
-    "backed by fetched authoritative documentation. When load_bearing=0, grounded MUST be 1. "
-    "Set grounded=0 ONLY when load_bearing=1 AND the claim is still relied on AND genuinely "
-    "unbacked; then write `needed` naming exactly what is still missing. When grounded=1, needed "
-    "MUST be empty. Judge only the named claim. Call the function once."
+    "without requiring further evidence; (2) the claim was RETRACTED or corrected, or the model "
+    "superseded part of a compound claim and no longer relies on the retracted portion; (3) the "
+    "model read the source / cited file:line or tool output that backs the claim -- including "
+    "deriving numeric scores by applying formulas visible in Read source to fields visible in "
+    "Read result files (do NOT require re-running a blocked scorer command); (4) negative/absence "
+    "claim backed by a reasonable bounded search; (5) external/platform claim backed by fetched "
+    "authoritative documentation. When load_bearing=0, grounded MUST be 1. Set grounded=0 ONLY "
+    "when load_bearing=1 AND the claim is still relied on AND genuinely unbacked; then write "
+    "`needed` naming files to read, never a blocked shell command. When grounded=1, needed MUST "
+    "be empty. Judge only the named claim. Call the function once."
 )
 
 

@@ -179,6 +179,75 @@ def test_light_grade_waives_bash_gate():
     assert rc == 0
 
 
+def _seed_armed_breaker(data_root: str, session_id: str, cwd: str) -> None:
+    """Write ledger + armed breaker state so pre_tool_use sees an active arm."""
+    import hashlib
+    import json
+    import sys
+    from pathlib import Path
+
+    sys.path.insert(0, str(REPO / "scripts" / "gate"))
+    from breaker_state import default_breaker  # noqa: E402
+    from groundedness import arm  # noqa: E402
+
+    key = hashlib.sha256(f"{session_id}|{cwd}".encode()).hexdigest()[:24]
+    root = Path(data_root)
+    ledger_path = root / "ledgers" / f"{key}.json"
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    ledger_path.write_text(
+        json.dumps({"active_task": "P", "read_paths": [], "fetched_urls": [], "ran_commands": []}),
+        encoding="utf-8",
+    )
+    breaker = default_breaker()
+    arm(breaker, f"{session_id}|P", 0.0, "read scorer source and cite evidence", "unproven scoring split")
+    breaker_path = root / "breaker" / f"{key}.json"
+    breaker_path.parent.mkdir(parents=True, exist_ok=True)
+    breaker_path.write_text(json.dumps(breaker), encoding="utf-8")
+
+
+def _run_pre_tool_bash_breaker_on(
+    command: str,
+    *,
+    session_id: str = "breaker-bash-test",
+) -> tuple[int, str]:
+    with tempfile.TemporaryDirectory() as tmp:
+        _seed_armed_breaker(tmp, session_id, tmp)
+        payload = {
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "session_id": session_id,
+            "cwd": tmp,
+            "permission_mode": "bypassPermissions",
+        }
+        env = dict(os.environ)
+        env["UNIFABLE_GRADE"] = "STANDARD"
+        env["UNIFABLE_BREAKER"] = "1"
+        env["UNIFABLE_VERIFY_CITATIONS"] = "0"
+        env["UNIFABLE_DATA"] = tmp
+        proc = subprocess.run(
+            [PY, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        return proc.returncode, proc.stderr
+
+
+def test_whitelisted_bash_passes_while_breaker_armed():
+    """Research Bash (rg/ls/glob/trace.sh/spec CLI) must stay available when the
+    groundedness breaker is armed -- matches unifable-block.md guidance."""
+    rc, stderr = _run_pre_tool_bash_breaker_on("rg --files")
+    assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
+
+
+def test_mutating_bash_blocked_while_breaker_armed():
+    """Non-whitelisted Bash stays blocked when the breaker is armed."""
+    rc, stderr = _run_pre_tool_bash_breaker_on("node scripts/score.mjs")
+    assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
+    assert "groundedness" in stderr.lower() or "pre-edit gate" in stderr.lower()
+
+
 # ---------------------------------------------------------------------------
 # Runner (mirrors test_spec_gate.py so the file runs standalone too)
 # ---------------------------------------------------------------------------

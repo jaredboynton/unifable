@@ -245,6 +245,27 @@ def test_judge_system_prompt_asks_the_confidence_question():
     assert "load_bearing" in sysp or "load-bearing" in sysp
     assert "restricted to read-only" in sysp
     assert "read, websearch, webfetch, grep, glob" in sysp
+    assert "trace.sh" in sysp or "whitelisted" in sysp
+
+
+def test_judge_prompts_forbid_steering_toward_blocked_commands():
+    arm_sysp = gb._JUDGE_SYSTEM.lower()
+    disarm_sysp = gb._DISARM_SYSTEM.lower()
+    steering_desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
+    needed_desc = gb._DISARM_SCHEMA["properties"]["needed"]["description"].lower()
+    assert "never" in steering_desc and ("blocked" in steering_desc or "blocks" in steering_desc)
+    assert "trace.sh" in steering_desc or "whitelisted" in steering_desc
+    assert "never" in arm_sysp or "never steer" in arm_sysp
+    assert "blocked" in disarm_sysp or "blocked scorer" in disarm_sysp
+    assert "retract" in disarm_sysp or "superseded" in disarm_sysp
+    assert "never" in needed_desc and "blocked" in needed_desc
+
+
+def test_disarm_prompt_accepts_read_derived_scoring_math():
+    sysp = gb._DISARM_SYSTEM.lower()
+    assert "deriving" in sysp or "formulas" in sysp
+    assert "read" in sysp
+    assert "re-running" in sysp or "re-run" in sysp or "blocked scorer" in sysp
 
 
 def test_arm_prompt_does_not_arm_on_retraction_or_aside():

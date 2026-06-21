@@ -25,7 +25,7 @@ hosts via Claude-Code-compatible hooks:
 
 On any non-trivial task (grade STANDARD+), the agent cannot edit a file, delegate with
 `Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, or `trace.sh`), or finish until
-`./.unifable/spec/<task>.json` validates. The spec must carry:
+the session's evidence spec (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec must carry:
 `repo_context` (`{cite: path:line, why}` it actually read), `acceptance_criteria` (a runnable `check`
 plus its live `evidence` output — placeholders are rejected), and `prior_art` (a source URL). Read,
 search, web, and `trace.sh` exploration stay available so the agent can gather that evidence; a

@@ -639,19 +639,19 @@ def spec_template() -> dict[str, Any]:
 _CONTRACT: dict[str, str] = {
     "LIGHT": (
         "unifable spec contract — LIGHT grade. "
-        "Before editing: write .unifable/spec/<task-id>.json with 'restated_goal' (non-empty string) "
+        "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' (non-empty string) "
         "and 'acceptance_criteria' (list with >=1 {check, evidence} entry). "
         "Evidence must be live command output — no placeholders."
     ),
     "STANDARD": (
         "unifable spec contract — STANDARD grade. "
-        "Before editing: write .unifable/spec/<task-id>.json with 'restated_goal' "
+        "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' "
         "and 'acceptance_criteria' (>=1 {check: <runnable command>, evidence: <live output>}). "
         "Evidence must be observed tool output, not assumed."
     ),
     "HEAVY": (
         "unifable spec contract — HEAVY grade. "
-        "Before editing: write .unifable/spec/<task-id>.json with 'restated_goal', "
+        "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal', "
         "'acceptance_criteria' (>=1 {check, evidence} with live output), "
         "'constraints' (>=1 architectural constraint), "
         "and 'rejected_alternatives' (>=2 entries each stating the broken boundary). "
