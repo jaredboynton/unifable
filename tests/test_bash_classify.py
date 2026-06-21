@@ -35,6 +35,7 @@ ALLOWED = [
     "python3 ./scripts/gate/spec.py validate-task --task-id x --task T1",
     "python3 scripts/gate/spec.py dispute --task-id x --task T1 --evidence proof",
     "python3 scripts/gate/spec.py status --task-id x",
+    "python3 scripts/gate/spec.py restate --task-id x --goal 'do the thing well'",
     "python3 scripts/gate/spec.py cite --task-id x --repo-context a.py:1::why",
     "python3 /Users/me/repo/scripts/gate/spec.py validate --task-id x --grade STANDARD",
 ]

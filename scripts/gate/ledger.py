@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Small JSON ledger for the unifable observation gate.
 
-Ported from fable-ish (gate-comparison experiment, 2026-06-14). Only the
-observed-evidence subsystem is carried over; danger-blocking stays with the
-host harness. Ledger state lives under ~/.unifable/ledgers/ (override with
-UNIFABLE_DATA) so it survives reboots, unlike the original /tmp default.
+Ported from fable-ish (gate-comparison experiment, 2026-06-14). Tracks task
+routing (active_task, grade), citation-verification activity (read_paths,
+fetched_urls, ran_commands), and observation state (changes, verification,
+failures). Groundedness breaker state lives in scripts/gate/breaker_state.py.
+Ledger state lives under ~/.unifable/ledgers/ (override with UNIFABLE_DATA).
 """
 
 from __future__ import annotations
@@ -46,29 +47,11 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).
     # fetched_urls: URLs actually fetched (WebFetch + curl/wget Bash).
     # ran_commands: Bash commands actually executed.
-    # observed_tool_results: successful PostToolUse events not otherwise captured;
-    # used only as breaker release activity for plugin/MCP/app tools.
+    # observed_tool_results: successful PostToolUse events not otherwise captured.
     "read_paths": [],
     "fetched_urls": [],
     "ran_commands": [],
     "observed_tool_results": [],
-    # Overconfidence/groundedness breaker state (see groundedness.py). The strict
-    # ARM judge is debounced per session+prompt key; once armed, a separate
-    # claim-bound release check disarms it after new grounding activity appears.
-    # breaker_armed gates mutation tools (Write/Edit/Bash) until disarmed.
-    "breaker_key": "",
-    "breaker_judged_at": 0.0,
-    "breaker_armed": False,
-    "breaker_steering": "",
-    # Captured at arm time so the release check is bound to the flagged claim:
-    # the claim text, when it armed, the activity baseline (len read_paths +
-    # fetched_urls + ran_commands) it must exceed to trigger a release judge, and
-    # the consecutive-block counter for the fail-open safety cap.
-    "breaker_claim": "",
-    "breaker_armed_at": 0.0,
-    "breaker_activity_at_arm": 0,
-    "breaker_block_count": 0,
-    "breaker_adjudicated_claims": [],
     "last_updated": "",
 }
 
@@ -142,7 +125,7 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
     for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
                 "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
-                "observed_tool_results", "breaker_adjudicated_claims"):
+                "observed_tool_results"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     return ledger
@@ -170,7 +153,7 @@ def update_ledger(input_data: dict[str, Any], updater: Callable[[dict[str, Any]]
 
 
 def trim_ledger(ledger: dict[str, Any]) -> None:
-    for key in ("risk_flags", "change_kinds", "breaker_adjudicated_claims"):
+    for key in ("risk_flags", "change_kinds"):
         values: list[Any] = []
         for value in ledger.get(key, []):
             if value not in values:

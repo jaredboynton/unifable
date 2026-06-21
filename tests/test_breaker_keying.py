@@ -130,6 +130,10 @@ def test_impl_edit_allowed_after_appendonly_spec():
                 capture_output=True, text=True,
             )
 
+        # FIRST action: restate the seeded goal in the agent's own words (the gate
+        # stays blocked until goal_seeded is cleared).
+        r0 = _spec("restate", "--goal", "make the parser tolerate empty and malformed input")
+        assert r0.returncode == 0, r0.stderr
         r1 = _spec("add-task", "--title", "parser handles empty input", "--check", "true")
         assert r1.returncode == 0, r1.stderr
         r2 = _spec("cite", "--repo-context", "src/parser.py:10::where parsing starts",

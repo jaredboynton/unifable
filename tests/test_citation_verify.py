@@ -23,7 +23,6 @@ from citations import (  # noqa: E402
     url_was_fetched,
     verify_citations,
 )
-from groundedness import activity_total  # noqa: E402
 from ledger import load_ledger  # noqa: E402
 from parse_tool_result import fetched_url_targets, read_targets  # noqa: E402
 
@@ -153,7 +152,7 @@ def test_post_tool_records_generic_tool_result_activity():
         ledger = load_ledger({"session_id": sess, "cwd": cwd})
         observed = ledger.get("observed_tool_results", [])
         assert any("mcp__octocode__githubGetFileContent" in item for item in observed)
-        assert activity_total(ledger) == 1
+        assert len(observed) == 1
 
 
 def _create_spec(cwd, task_id, repo_context, prior_art):

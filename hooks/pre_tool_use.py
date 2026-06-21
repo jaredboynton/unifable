@@ -286,13 +286,14 @@ def _enforce_breaker(input_data: dict) -> int | None:
     try:
         import time
 
-        from groundedness import evaluate as breaker_evaluate
-        from ledger import save_ledger
+        from breaker_state import load_breaker, save_breaker
+        from groundedness import evaluate_pre_tool
 
         ledger = load_ledger(input_data)
         active = str(ledger.get("active_task") or "")
-        block, steering = breaker_evaluate(input_data, ledger, time.time(), active)
-        save_ledger(input_data, ledger)
+        breaker = load_breaker(input_data)
+        block, steering = evaluate_pre_tool(input_data, breaker, time.time(), active)
+        save_breaker(input_data, breaker)
         if block:
             return _block(steering or (
                 "Groundedness breaker: you asserted something confidently without "

@@ -160,7 +160,8 @@ def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
     s = load_spec(str(tmp_path), "K")
     assert s["requires_tasks"] is True
     assert s["tasks"] == []
-    assert "auth module" in s["restated_goal"]
+    assert "auth module" in s["restated_goal"]  # seeded verbatim from the prompt
+    assert s["goal_seeded"] is True
     # empty scaffold is NOT completable
     assert all_tasks_validated(s)[0] is False
     # idempotent: a second call does not overwrite an existing spec
@@ -170,12 +171,34 @@ def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
     assert load_spec(str(tmp_path), "K")["tasks"] == [_task("T1", "validated")]
 
 
-def test_end_to_end_append_only_flow(tmp_path, monkeypatch):
-    """scaffold -> add-task -> cite -> deliver -> validate-task(pass) -> complete."""
+def test_seeded_goal_blocks_until_restated(tmp_path):
+    """A freshly seeded goal (goal_seeded) does not validate until the agent
+    restates it in its own words."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
     import gate_prompt
-    from spec import _cmd_add_task, _cmd_cite, _cmd_deliver, validate_spec
+    from spec import _cmd_add_task, _cmd_cite, _cmd_restate, validate_spec
+    gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "make the parser faster")
+    _cmd_add_task(SimpleNamespace(root=str(tmp_path), task_id="K", title="t", check="true"))
+    _cmd_cite(SimpleNamespace(root=str(tmp_path), task_id="K",
+                              repo_context=["a.py:1::why"], prior_art=["https://x::why"]))
+    ok, reasons = validate_spec(load_spec(str(tmp_path), "K"), "STANDARD", require_evidence=True)
+    assert not ok and any("restate" in r.lower() for r in reasons), reasons
+    # restate clears the marker and the spec validates
+    assert _cmd_restate(SimpleNamespace(root=str(tmp_path), task_id="K",
+                                        goal="Cut parser latency by streaming tokens")) == 0
+    s = load_spec(str(tmp_path), "K")
+    assert s["goal_seeded"] is False and "latency" in s["restated_goal"]
+    ok2, reasons2 = validate_spec(s, "STANDARD", require_evidence=True)
+    assert ok2, reasons2
+
+
+def test_end_to_end_append_only_flow(tmp_path, monkeypatch):
+    """scaffold -> restate -> add-task -> cite -> deliver -> validate-task(pass) -> complete."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
+    import gate_prompt
+    from spec import _cmd_add_task, _cmd_cite, _cmd_deliver, _cmd_restate, validate_spec
     gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "do the thing")
+    _cmd_restate(SimpleNamespace(root=str(tmp_path), task_id="K", goal="Make greet reject empty names"))
     _cmd_add_task(SimpleNamespace(root=str(tmp_path), task_id="K", title="thing works", check="true"))
     _cmd_cite(SimpleNamespace(root=str(tmp_path), task_id="K",
                               repo_context=["a.py:1::why"], prior_art=["https://x::why"]))

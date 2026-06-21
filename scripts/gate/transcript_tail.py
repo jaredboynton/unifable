@@ -9,18 +9,28 @@ from pathlib import Path
 from typing import Any
 
 TRANSCRIPT_TOKEN_BUDGET = 50_000
+# Conservative chars-per-token bound. Real model tokens average ~4 chars, but a
+# whitespace-delimited span in a transcript (JSON blobs, base64, code, long IDs)
+# can be hundreds of chars, so counting spans as tokens lets the "tail" balloon
+# past the model's input-char limit when tiktoken is absent. The char ceiling
+# bounds EVERY path so the judge prompt can never exceed that limit.
+MAX_CHARS_PER_TOKEN = 4
 
 
 def tail_tokens(text: str, max_tokens: int = TRANSCRIPT_TOKEN_BUDGET) -> str:
-    """Return the last `max_tokens` tokens of text.
+    """Return the last `max_tokens` tokens of text, hard-bounded by characters.
 
-    Use tiktoken when available for model-token slicing. The hooks have no
-    runtime dependency on tiktoken, so fall back to whitespace-delimited token
-    spans while preserving the original raw transcript text from the selected
-    tail onward.
+    Uses tiktoken for model-token slicing when available. The hooks have no
+    runtime dependency on tiktoken, so without it the tail is taken purely by
+    character count (`max_tokens * MAX_CHARS_PER_TOKEN`) -- a closer token
+    approximation for dense text than whitespace spans, and one that cannot
+    overflow the model input limit. The char ceiling is applied on the tiktoken
+    path too, as a backstop against encodings with a high chars-per-token ratio.
     """
     if max_tokens <= 0:
         return ""
+    char_cap = max_tokens * MAX_CHARS_PER_TOKEN
+    out = text
     try:
         import tiktoken  # type: ignore
 
@@ -29,14 +39,13 @@ def tail_tokens(text: str, max_tokens: int = TRANSCRIPT_TOKEN_BUDGET) -> str:
         except Exception:
             enc = tiktoken.get_encoding("o200k_base")
         toks = enc.encode(text)
-        if len(toks) <= max_tokens:
-            return text
-        return enc.decode(toks[-max_tokens:])
+        if len(toks) > max_tokens:
+            out = enc.decode(toks[-max_tokens:])
     except Exception:
-        matches = list(re.finditer(r"\S+", text))
-        if len(matches) <= max_tokens:
-            return text
-        return text[matches[-max_tokens].start():]
+        out = text  # the char ceiling below does the bounding
+    if len(out) > char_cap:
+        out = out[-char_cap:]
+    return out
 
 
 def _attr(value: Any) -> str:

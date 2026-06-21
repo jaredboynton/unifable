@@ -15,7 +15,7 @@ import shlex
 
 ALLOWED_RESEARCH_BASH = (
     "ls, glob, rg, running any file named trace.sh, or the append-only spec CLI "
-    "(python3 scripts/gate/spec.py add-task|cite|deliver|validate-task|dispute|status|validate|contract)"
+    "(python3 scripts/gate/spec.py restate|add-task|cite|deliver|validate-task|dispute|status|validate|contract)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
@@ -26,7 +26,7 @@ _PY_INTERPRETERS = frozenset({"python", "python3"})
 # `create`/`init` and any `--force` are NOT here -- they would let the agent
 # overwrite or wipe a spec. dispute records an impossibility claim (judge-adjudicated).
 _SPEC_APPEND_SUBCMDS = frozenset({
-    "add-task", "cite", "deliver", "validate-task", "dispute", "status", "validate", "contract",
+    "restate", "add-task", "cite", "deliver", "validate-task", "dispute", "status", "validate", "contract",
 })
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _SPLIT_RE = re.compile(r"\|\||&&|\||;|\n")

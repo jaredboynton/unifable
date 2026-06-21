@@ -41,7 +41,8 @@ def _ensure_spec_scaffold(cwd: str, key: str, prompt: str) -> str:
         path = spec_path(cwd, key)
         if not path.exists():
             s = spec_template()
-            s["restated_goal"] = _seed_goal(prompt)
+            s["restated_goal"] = _seed_goal(prompt)  # placeholder; agent must restate
+            s["goal_seeded"] = True  # gate stays blocked until `spec.py restate` clears this
             s["acceptance_criteria"] = []
             s["repo_context"] = []
             s["prior_art"] = []
@@ -102,6 +103,9 @@ def main() -> int:
             context += (
                 f"\n\nunifable: evidence spec auto-created at {path}. Drive it via the "
                 f"append-only CLI (never edit the JSON):\n"
+                f"  - FIRST, restate the goal in your own words (what is the intended outcome?): "
+                f"python3 scripts/gate/spec.py restate --task-id {key} --goal '<your restatement>' "
+                f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
                 f"  - add a requirement: python3 scripts/gate/spec.py add-task --task-id {key} "
                 f"--title '<requirement>' --check '<runnable check>'\n"
                 f"  - add evidence: python3 scripts/gate/spec.py cite --task-id {key} "

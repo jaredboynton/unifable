@@ -3,7 +3,9 @@
 
 Records observed evidence after each Bash/Edit/Write tool call: whether files
 changed (and their kind), and whether a verification command ran and observably
-succeeded or failed. Fails open.
+succeeded or failed. While the groundedness breaker is armed, runs the release
+judge after Read/WebFetch-style tools and injects breaker-open context when the
+claim is grounded. Fails open.
 """
 
 from __future__ import annotations
@@ -38,6 +40,37 @@ def _abs(path: str, cwd: str) -> str:
         return path
 
 
+def _fresh_tool_block(input_data: dict, tool_name: str, executed_ok: bool) -> str:
+    if not executed_ok:
+        return ""
+    excerpt = response_text(input_data.get("tool_response", input_data), 4000)
+    if not excerpt:
+        return ""
+    return f"[tool_result name={tool_name}]\n{excerpt}"
+
+
+def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool) -> str:
+    try:
+        from breaker_state import load_breaker, save_breaker
+        from groundedness import evaluate_post_tool_release, is_release_tool
+
+        if not executed_ok or not is_release_tool(tool_name):
+            return ""
+        breaker = load_breaker(input_data)
+        if not breaker.get("breaker_armed"):
+            return ""
+        fresh = _fresh_tool_block(input_data, tool_name, executed_ok)
+        if not fresh:
+            return ""
+        _grounded, _needed, message = evaluate_post_tool_release(
+            input_data, breaker, fresh_tool=fresh
+        )
+        save_breaker(input_data, breaker)
+        return message
+    except Exception:
+        return ""
+
+
 def main() -> int:
     input_data = read_stdin_json()
     cwd = str(input_data.get("cwd") or os.getcwd())
@@ -45,10 +78,6 @@ def main() -> int:
     failure = detect_failure(input_data)
     verification = verification_record(input_data)
     command = command_from_input(input_data)
-    # Citation-verification activity: what this call actually read/fetched/ran.
-    # Only record when the call did NOT observably fail (failure is None means
-    # success or unknown) -- so a failed `grep missing.py` or a non-zero check is
-    # never credited as real activity backing a citation.
     executed_ok = failure is None
     reads = [_abs(p, cwd) for p in read_targets(input_data)] if executed_ok else []
     fetched = fetched_url_targets(input_data) if executed_ok else []
@@ -80,8 +109,8 @@ def main() -> int:
 
     ledger = update_ledger(input_data, apply)
 
-    # silent-recovery guard: recover quietly from one-offs, but if the SAME class
-    # of failure repeats (>=2), disclose it instead of retrying silently.
+    breaker_context = _breaker_release_context(input_data, tool_name, executed_ok)
+
     repeat = repeated_failure(ledger.get("failures", [])) if failure else None
     if repeat:
         _sig, count = repeat
@@ -103,6 +132,15 @@ def main() -> int:
                 "hookSpecificOutput": {
                     "hookEventName": "PostToolUse",
                     "additionalContext": "unifable gate observed a tool failure. Do not report completion until it is fixed, isolated as a known baseline, or explicitly documented.",
+                }
+            }
+        )
+    elif breaker_context:
+        emit_json(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PostToolUse",
+                    "additionalContext": breaker_context,
                 }
             }
         )

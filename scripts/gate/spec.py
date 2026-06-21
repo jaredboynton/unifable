@@ -26,8 +26,10 @@ from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from atomicio import write_text_atomic
+    from ledger import data_root
 except ImportError:  # pragma: no cover
     from scripts.gate.atomicio import write_text_atomic
+    from scripts.gate.ledger import data_root
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -225,10 +227,19 @@ def validate_spec(
     if not isinstance(spec, dict):
         return False, ["Spec must be a JSON object."]
 
-    # restated_goal — required for all grades
+    # restated_goal — required for all grades. The auto-creation hook seeds it with
+    # the raw prompt and marks `goal_seeded`; that verbatim copy is a placeholder,
+    # not a restatement. The agent must rewrite it in its own words (thinking about
+    # the intended outcome) via `spec.py restate`, which clears the marker.
     goal = spec.get("restated_goal")
     if not goal or not isinstance(goal, str) or not goal.strip():
         reasons.append("'restated_goal' is required and must be a non-empty string.")
+    elif spec.get("goal_seeded"):
+        reasons.append(
+            "restate the goal in your own words first: restated_goal is still the raw "
+            "prompt the hook seeded, not a restatement. Run `python3 scripts/gate/spec.py "
+            "restate --task-id <id> --goal '<the intended outcome, in your own words>'`."
+        )
 
     # acceptance_criteria — required for all grades, >=1 item with a non-empty check.
     # A task-spec (CLI-authored, has >=1 task with a check) satisfies this instead:
@@ -800,6 +811,26 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
     return 0 if verdict == 1 else 2
 
 
+def _cmd_restate(args: argparse.Namespace) -> int:
+    """Set restated_goal to the agent's own-words restatement and clear the
+    `goal_seeded` marker. This is the agent's FIRST action on a freshly created
+    spec: the hook seeds the raw prompt as a placeholder, and the gate stays blocked
+    until the goal is genuinely restated (what is the intended outcome?)."""
+    spec = load_spec(args.root, args.task_id)
+    if spec is None:
+        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+        return 1
+    goal = (args.goal or "").strip()
+    if not goal:
+        print("--goal must be a non-empty restatement.", file=sys.stderr)
+        return 1
+    spec["restated_goal"] = goal
+    spec["goal_seeded"] = False
+    save_spec(args.root, args.task_id, spec)
+    print(f"restated_goal set ({len(goal)} chars); goal_seeded cleared.")
+    return 0
+
+
 def _cmd_cite(args: argparse.Namespace) -> int:
     """Append evidence citations to an existing spec (append-only). `create` is the
     hook's job, so this is how the agent adds the repo_context / prior_art the
@@ -921,6 +952,11 @@ def main(argv: list[str] | None = None) -> int:
     p_vt.add_argument("--task-id", required=True, dest="task_id")
     p_vt.add_argument("--task", required=True, help="Task id, e.g. T1.")
 
+    p_restate = sub.add_parser("restate", help="Restate the goal in your own words (clears the seeded placeholder).")
+    p_restate.add_argument("--root", default=".")
+    p_restate.add_argument("--task-id", required=True, dest="task_id")
+    p_restate.add_argument("--goal", required=True, help="The intended outcome, restated in your own words.")
+
     p_cite = sub.add_parser("cite", help="Append repo_context / prior_art evidence (append-only).")
     p_cite.add_argument("--root", default=".")
     p_cite.add_argument("--task-id", required=True, dest="task_id")
@@ -949,7 +985,7 @@ def main(argv: list[str] | None = None) -> int:
     dispatch = {
         "validate": _cmd_validate, "init": _cmd_init, "contract": _cmd_contract,
         "create": _cmd_create, "add-task": _cmd_add_task, "deliver": _cmd_deliver,
-        "validate-task": _cmd_validate_task, "cite": _cmd_cite,
+        "validate-task": _cmd_validate_task, "restate": _cmd_restate, "cite": _cmd_cite,
         "dispute": _cmd_dispute, "status": _cmd_status,
     }
     handler = dispatch.get(args.cmd)
