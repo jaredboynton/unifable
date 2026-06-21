@@ -232,6 +232,23 @@ def test_judge_system_prompt_asks_the_confidence_question():
     assert "write/edit/bash" in sysp
 
 
+def test_arm_prompt_does_not_arm_on_retraction_or_aside():
+    # The arm prompt must instruct NOT to fire on a retracted/corrected claim or a
+    # non-load-bearing aside (the BENCHMARKS.md failure mode).
+    sysp = gb._JUDGE_SYSTEM.lower()
+    assert "retract" in sysp
+    assert "load-bearing" in sysp
+
+
+def test_disarm_prompt_releases_on_retraction_and_bounded_negative():
+    # The release prompt must accept retraction and a bounded search of a negative
+    # claim, and must NOT demand proof of a universal negative.
+    sysp = gb._DISARM_SYSTEM.lower()
+    assert "retract" in sysp
+    assert "negative" in sysp and "bounded search" in sysp
+    assert "universal negative" in sysp
+
+
 def test_empty_segment_is_not_a_violation():
     judge = FakeJudge([(1, "should not be used")])
     verdict, steering = gb.judge_segment("", judge=judge)
