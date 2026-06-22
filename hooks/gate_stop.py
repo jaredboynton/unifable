@@ -339,7 +339,9 @@ def promise_no_act_reason(input_data: dict) -> str:
 
 def main() -> int:
     input_data = read_stdin_json()
-    cwd = input_data.get("cwd") or os.getcwd()
+    from spec import canonical_project_root
+
+    cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST

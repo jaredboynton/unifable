@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
+from spec import canonical_project_root
 from model_notify import (
     bash_output_text,
     build_spec_context_from_output,
@@ -70,7 +71,7 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
     _sub, task_id = parse_spec_cli_invocation(command)
     if not task_id:
         return ""
-    if not is_mutating_spec_cli(command) and _sub != "status":
+    if not is_mutating_spec_cli(command) and _sub not in ("status", "where"):
         return ""
     try:
         from spec import load_spec
@@ -91,7 +92,7 @@ def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool
         if not executed_ok or not is_release_tool(tool_name):
             return ""
         breaker = load_breaker(input_data)
-        if not breaker.get("breaker_armed"):
+        if not breaker.get("breaker_armed") and not breaker.get("breaker_provisional"):
             return ""
         fresh = _fresh_tool_block(input_data, tool_name, executed_ok)
         if not fresh:
@@ -122,7 +123,7 @@ def _emit_context(parts: list[str]) -> None:
 
 def main() -> int:
     input_data = read_stdin_json()
-    cwd = str(input_data.get("cwd") or os.getcwd())
+    cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     kinds = changed_kinds(input_data)
     failure = detect_failure(input_data)
     verification = verification_record(input_data)

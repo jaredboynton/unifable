@@ -9,12 +9,14 @@ Provides:
   - spec_path(cwd, session_id) -> Path   (global, keyed: <data_root>/specs/<dir_hash>/<session>/spec.json)
   - load_spec(cwd, session_id) -> dict | None
   - save_spec(cwd, session_id, spec) -> Path
+  - canonical_project_root(cwd) -> Path   (git root / project markers; subdirs share one spec)
   - spec_template() -> dict
-  - CLI: validate / contract / add-task / cite / deliver / validate-task / dispute / restate / status
+  - CLI: validate / contract / add-task / cite / deliver / validate-task / dispute / restate / status / where
 
-State is one spec.json per (directory, session), so a new session never inherits a
-prior one's spec and two repos sharing a session id do not collide. The CLI's
-`--root` is the cwd (dir hash) and `--task-id` is the session id (resolve_session_id).
+State is one spec.json per (canonical project root, session), so a new session never
+inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
+within the same repo resolve to the same canonical root. The CLI's ``--root`` defaults
+to the canonical project root and ``--task-id`` to the host session env when omitted.
 """
 
 from __future__ import annotations
@@ -385,21 +387,79 @@ def resolve_session_id(input_data: dict | None = None, default: str | None = "de
         sid = input_data.get("session_id")
         if sid:
             return str(sid)
-    for var in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"):
+    for var in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CURSOR_SESSION_ID"):
         val = os.environ.get(var)
         if val:
             return val
     return default
 
 
+_PROJECT_MARKERS = (".git", "pyproject.toml", "go.mod", "Cargo.toml", "package.json")
+_CANONICAL_ROOT_CACHE: dict[str, Path] = {}
+
+
+def _git_toplevel(start: Path) -> Path | None:
+    try:
+        proc = subprocess.run(
+            ["git", "-C", str(start), "rev-parse", "--show-toplevel"],
+            capture_output=True,
+            text=True,
+            timeout=2,
+            check=False,
+        )
+        if proc.returncode == 0:
+            top = proc.stdout.strip()
+            if top:
+                return Path(top).resolve()
+    except (OSError, subprocess.TimeoutExpired):
+        pass
+    return None
+
+
+def canonical_project_root(cwd: str | Path | None = None) -> Path:
+    """Stable project root for spec keying. Subdirs of the same repo share one spec.
+
+    Precedence: ``UNIFABLE_PROJECT_ROOT`` env, ``git rev-parse --show-toplevel``,
+    walk up for common project markers, else resolved *cwd*."""
+    override = os.environ.get("UNIFABLE_PROJECT_ROOT")
+    if override:
+        return Path(override).expanduser().resolve()
+
+    start = Path(cwd or os.getcwd()).resolve()
+    cache_key = str(start)
+    cached = _CANONICAL_ROOT_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    git_root = _git_toplevel(start)
+    if git_root is not None:
+        _CANONICAL_ROOT_CACHE[cache_key] = git_root
+        return git_root
+
+    found = start
+    current = start
+    while True:
+        for marker in _PROJECT_MARKERS:
+            if (current / marker).exists():
+                found = current
+                break
+        if current.parent == current:
+            break
+        current = current.parent
+
+    root = found.resolve()
+    _CANONICAL_ROOT_CACHE[cache_key] = root
+    return root
+
+
 _SAFE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 def dir_hash(cwd: str | Path) -> str:
-    """Stable 16-hex digest of the resolved working directory. Keys spec state by
+    """Stable 16-hex digest of the canonical project root. Keys spec state by
     project so two repos sharing a session id (or the 'default' fallback) never
-    collide."""
-    resolved = str(Path(cwd).resolve())
+    collide; subdirs within one repo share the same hash."""
+    resolved = str(canonical_project_root(cwd))
     return hashlib.sha256(resolved.encode("utf-8", "replace")).hexdigest()[:16]
 
 
@@ -420,14 +480,25 @@ def session_dir(cwd: str | Path, session_id: str | None) -> Path:
 def spec_path(cwd: str | Path, session_id: str | None) -> Path:
     """Canonical path for the session's single evidence spec:
     <data_root>/specs/<dir_hash(cwd)>/<session>/spec.json"""
-    return session_dir(cwd, session_id) / "spec.json"
+    root = canonical_project_root(cwd)
+    return session_dir(root, session_id) / "spec.json"
 
 
-def load_spec(cwd: str | Path, session_id: str | None) -> dict[str, Any] | None:
-    """Load and parse the session's spec artifact, returning None on any error."""
-    path = spec_path(cwd, session_id)
-    if not path.exists():
-        return None
+def format_spec_location(cwd: str | Path, session_id: str | None) -> str:
+    """Human-readable spec key for block messages (labels dirhash vs session-id)."""
+    root = canonical_project_root(cwd)
+    sid = _safe_session(session_id)
+    dh = dir_hash(root)
+    path = spec_path(root, session_id)
+    return (
+        f"session-id: {sid}\n"
+        f"project: {root}\n"
+        f"dirhash: {dh} (path segment only -- not your --task-id)\n"
+        f"spec: {path}"
+    )
+
+
+def _read_spec_file(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
@@ -435,9 +506,81 @@ def load_spec(cwd: str | Path, session_id: str | None) -> dict[str, Any] | None:
     return data if isinstance(data, dict) else None
 
 
+def _spec_file_substantive(path: Path) -> bool:
+    data = _read_spec_file(path)
+    if not data:
+        return False
+    tasks = data.get("tasks")
+    if isinstance(tasks, list) and tasks:
+        return True
+    if data.get("repo_context") or data.get("prior_art"):
+        return True
+    if data.get("restated_goal") and not data.get("goal_seeded", True):
+        return True
+    return False
+
+
+def _find_fragmented_specs(session_id: str | None, canonical_root: Path) -> list[Path]:
+    """Other dirhash buckets holding a substantive spec for the same session."""
+    safe = _safe_session(session_id)
+    specs_root = data_root() / "specs"
+    canonical = dir_hash(canonical_root)
+    if not specs_root.is_dir():
+        return []
+    found: list[Path] = []
+    for entry in specs_root.iterdir():
+        if not entry.is_dir() or entry.name == canonical:
+            continue
+        candidate = entry / safe / "spec.json"
+        if candidate.is_file() and _spec_file_substantive(candidate):
+            found.append(candidate)
+    return found
+
+
+def _relocate_spec(from_path: Path, canonical_root: Path, session_id: str | None) -> Path | None:
+    data = _read_spec_file(from_path)
+    if not data:
+        return None
+    dest = spec_path(canonical_root, session_id)
+    write_text_atomic(dest, json.dumps(data, indent=2, sort_keys=False))
+    old_dir = from_path.parent
+    try:
+        from_path.unlink(missing_ok=True)
+        if old_dir.exists() and not any(old_dir.iterdir()):
+            old_dir.rmdir()
+        grand = old_dir.parent
+        if grand.name != dir_hash(canonical_root) and grand.exists() and not any(grand.iterdir()):
+            grand.rmdir()
+    except OSError:
+        pass
+    print(
+        f"unifable: relocated spec from fragmented dirhash to canonical project root ({dest}).",
+        file=sys.stderr,
+    )
+    return dest
+
+
+def load_spec(cwd: str | Path, session_id: str | None) -> dict[str, Any] | None:
+    """Load and parse the session's spec artifact, returning None on any error.
+
+    When missing at the canonical path, searches other dirhash buckets for the same
+    session and relocates a lone substantive match."""
+    root = canonical_project_root(cwd)
+    path = spec_path(root, session_id)
+    if path.exists():
+        return _read_spec_file(path)
+    fragmented = _find_fragmented_specs(session_id, root)
+    if len(fragmented) == 1 and _git_toplevel(root) is not None:
+        relocated = _relocate_spec(fragmented[0], root, session_id)
+        if relocated:
+            return _read_spec_file(relocated)
+    return None
+
+
 def save_spec(cwd: str | Path, session_id: str | None, spec: dict[str, Any]) -> Path:
     """Write *spec* to the session's canonical path, creating parents as needed."""
-    path = spec_path(cwd, session_id)
+    root = canonical_project_root(cwd)
+    path = spec_path(root, session_id)
     return write_text_atomic(path, json.dumps(spec, indent=2, sort_keys=False))
 
 
@@ -960,10 +1103,55 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
 def _cmd_status(args: argparse.Namespace) -> int:
     spec = load_spec(args.root, args.task_id)
     if spec is None:
-        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+        print(format_spec_location(args.root, args.task_id), file=sys.stderr)
+        print("No spec file yet.", file=sys.stderr)
         return 1
     print(format_spec_status(spec))
     return 0
+
+
+def _cmd_where(args: argparse.Namespace) -> int:
+    print(format_spec_location(args.root, args.task_id))
+    spec = load_spec(args.root, args.task_id)
+    if spec is not None:
+        print()
+        print(format_spec_status(spec))
+    else:
+        fragmented = _find_fragmented_specs(args.task_id, canonical_project_root(args.root))
+        if len(fragmented) > 1:
+            print("\nMultiple fragmented specs found for this session (run from project root):")
+            for path in fragmented:
+                print(f"  {path}")
+        else:
+            print("\n(no spec file yet)")
+    return 0
+
+
+def _normalize_cli_args(args: argparse.Namespace) -> int | None:
+    """Apply canonical root + session defaults. Return exit code on error, else None."""
+    if hasattr(args, "root") and args.root is not None:
+        args.root = str(canonical_project_root(args.root))
+    env_sid = resolve_session_id(default=None)
+    if not hasattr(args, "task_id"):
+        return None
+    strict = os.environ.get("UNIFABLE_STRICT_SESSION", "").strip().lower() in ("1", "true", "yes")
+    if args.task_id and env_sid and strict and str(args.task_id) != env_sid:
+        print(
+            f"--task-id {args.task_id!r} does not match session env {env_sid!r}. "
+            "The dirhash path segment is not your session id; run `unifable-spec where`.",
+            file=sys.stderr,
+        )
+        return 1
+    if not args.task_id:
+        args.task_id = env_sid
+    if args.cmd not in (None, "contract") and not args.task_id:
+        print(
+            "No session id: pass --task-id or set CLAUDE_CODE_SESSION_ID, "
+            "CODEX_THREAD_ID, or CURSOR_SESSION_ID.",
+            file=sys.stderr,
+        )
+        return 1
+    return None
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -976,13 +1164,13 @@ def main(argv: list[str] | None = None) -> int:
     p_validate = sub.add_parser("validate", help="Validate an existing spec.")
     p_validate.add_argument("--root", default=".", help="Project root (default: cwd).")
     p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
-    p_validate.add_argument("--task-id", required=True, dest="task_id", help="Task ID for the spec file.")
+    p_validate.add_argument("--task-id", default=None, dest="task_id", help="Session id (default: host env).")
     p_validate.add_argument("--require-evidence", action="store_true", dest="require_evidence",
                             help="Also require citation evidence (repo_context, prior_art).")
 
     p_init = sub.add_parser("init", help="Write a blank spec template.")
     p_init.add_argument("--root", default=".", help="Project root (default: cwd).")
-    p_init.add_argument("--task-id", required=True, dest="task_id", help="Task ID for the spec file.")
+    p_init.add_argument("--task-id", default=None, dest="task_id", help="Session id (default: host env).")
 
     p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier.")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
@@ -991,7 +1179,7 @@ def main(argv: list[str] | None = None) -> int:
 
     p_create = sub.add_parser("create", help="Create a task spec (restated_goal + tasks).")
     p_create.add_argument("--root", default=".")
-    p_create.add_argument("--task-id", required=True, dest="task_id")
+    p_create.add_argument("--task-id", default=None, dest="task_id")
     p_create.add_argument("--goal", required=True, help="Restated goal in your own words.")
     p_create.add_argument("--task", action="append", default=[], help="Task as 'title::check command' (repeatable).")
     p_create.add_argument("--repo-context", action="append", default=[], dest="repo_context",
@@ -1010,28 +1198,28 @@ def main(argv: list[str] | None = None) -> int:
 
     p_add = sub.add_parser("add-task", help="Append a task to an existing spec.")
     p_add.add_argument("--root", default=".")
-    p_add.add_argument("--task-id", required=True, dest="task_id")
+    p_add.add_argument("--task-id", default=None, dest="task_id")
     p_add.add_argument("--title", required=True)
     p_add.add_argument("--check", required=True, help="Runnable command that proves the task.")
 
     p_deliver = sub.add_parser("deliver", help="Mark a task delivered (code written).")
     p_deliver.add_argument("--root", default=".")
-    p_deliver.add_argument("--task-id", required=True, dest="task_id")
+    p_deliver.add_argument("--task-id", default=None, dest="task_id")
     p_deliver.add_argument("--task", required=True, help="Task id, e.g. T1.")
 
     p_vt = sub.add_parser("validate-task", help="Run the task's check command, then have the judge review the output.")
     p_vt.add_argument("--root", default=".")
-    p_vt.add_argument("--task-id", required=True, dest="task_id")
+    p_vt.add_argument("--task-id", default=None, dest="task_id")
     p_vt.add_argument("--task", required=True, help="Task id, e.g. T1.")
 
     p_restate = sub.add_parser("restate", help="Restate the goal in your own words (clears the seeded placeholder).")
     p_restate.add_argument("--root", default=".")
-    p_restate.add_argument("--task-id", required=True, dest="task_id")
+    p_restate.add_argument("--task-id", default=None, dest="task_id")
     p_restate.add_argument("--goal", required=True, help="The intended outcome, restated in your own words.")
 
     p_cite = sub.add_parser("cite", help="Append repo_context / prior_art evidence (append-only).")
     p_cite.add_argument("--root", default=".")
-    p_cite.add_argument("--task-id", required=True, dest="task_id")
+    p_cite.add_argument("--task-id", default=None, dest="task_id")
     p_cite.add_argument("--repo-context", action="append", default=[], dest="repo_context",
                         help="Evidence citation 'path:line::why' (repeatable).")
     p_cite.add_argument("--must-read", action="append", default=[], dest="repo_context",
@@ -1044,21 +1232,28 @@ def main(argv: list[str] | None = None) -> int:
         help="Submit evidence a requirement is impossible; judge adjudicates on validate-task.",
     )
     p_dispute.add_argument("--root", default=".")
-    p_dispute.add_argument("--task-id", required=True, dest="task_id")
+    p_dispute.add_argument("--task-id", default=None, dest="task_id")
     p_dispute.add_argument("--task", required=True, help="Task id, e.g. T1.")
     p_dispute.add_argument("--evidence", required=True,
                            help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
 
     p_status = sub.add_parser("status", help="Show task statuses + breaker state.")
     p_status.add_argument("--root", default=".")
-    p_status.add_argument("--task-id", required=True, dest="task_id")
+    p_status.add_argument("--task-id", default=None, dest="task_id")
+
+    p_where = sub.add_parser("where", help="Show canonical spec path and breaker state.")
+    p_where.add_argument("--root", default=".", help="Project root (default: canonical root of cwd).")
+    p_where.add_argument("--task-id", default=None, dest="task_id", help="Session id (default: host env).")
 
     args = parser.parse_args(argv)
+    err = _normalize_cli_args(args)
+    if err is not None:
+        return err
     dispatch = {
         "validate": _cmd_validate, "init": _cmd_init, "contract": _cmd_contract,
         "create": _cmd_create, "add-task": _cmd_add_task, "deliver": _cmd_deliver,
         "validate-task": _cmd_validate_task, "restate": _cmd_restate, "cite": _cmd_cite,
-        "dispute": _cmd_dispute, "status": _cmd_status,
+        "dispute": _cmd_dispute, "status": _cmd_status, "where": _cmd_where,
     }
     handler = dispatch.get(args.cmd)
     if handler:

@@ -14,11 +14,13 @@ import re
 import shlex
 
 ALLOWED_RESEARCH_BASH = (
-    "ls, glob, rg, running any file named trace.sh, or the append-only spec CLI "
-    "(unifable-spec restate|add-task|cite|deliver|validate-task|dispute|status|validate|contract)"
+    "ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
+    "running any file named trace.sh, or the append-only spec CLI "
+    "(unifable-spec restate|add-task|cite|deliver|validate-task|dispute|status|where|validate|contract)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
+_PIPELINE_SINKS = frozenset({"head", "tail", "wc", "sort", "uniq"})
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
 _PY_INTERPRETERS = frozenset({"python", "python3"})
 # The agent may drive the evidence spec ONLY through these append-only subcommands.
@@ -26,7 +28,8 @@ _PY_INTERPRETERS = frozenset({"python", "python3"})
 # `create`/`init` and any `--force` are NOT here -- they would let the agent
 # overwrite or wipe a spec. dispute records an impossibility claim (judge-adjudicated).
 _SPEC_APPEND_SUBCMDS = frozenset({
-    "restate", "add-task", "cite", "deliver", "validate-task", "dispute", "status", "validate", "contract",
+    "restate", "add-task", "cite", "deliver", "validate-task", "dispute", "status", "where",
+    "validate", "contract",
 })
 _SPEC_CLI_NAMES = frozenset({"unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
@@ -66,8 +69,8 @@ def _join_flag_lines(lines: list[str]) -> list[str]:
     return joined
 
 
-def _split_shell_operators(segment: str) -> list[str]:
-    """Split on shell operators outside of quoted strings."""
+def _split_outside_quotes(segment: str, *, pipe: bool, compound: bool) -> list[str]:
+    """Split on shell operators outside quoted strings."""
     parts: list[str] = []
     buf: list[str] = []
     i = 0
@@ -102,12 +105,17 @@ def _split_shell_operators(segment: str) -> list[str]:
             buf.append(ch)
             i += 1
             continue
-        if segment.startswith("&&", i) or segment.startswith("||", i):
+        if compound and (segment.startswith("&&", i) or segment.startswith("||", i)):
             parts.append("".join(buf))
             buf = []
             i += 2
             continue
-        if ch in "|;":
+        if compound and ch == ";":
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        if pipe and ch == "|":
             parts.append("".join(buf))
             buf = []
             i += 1
@@ -118,11 +126,12 @@ def _split_shell_operators(segment: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
-def _segments(command: str) -> list[str]:
-    segments: list[str] = []
-    for line in _join_flag_lines(_logical_lines(command)):
-        segments.extend(_split_shell_operators(line))
-    return segments
+def _split_compound(segment: str) -> list[str]:
+    return _split_outside_quotes(segment, pipe=False, compound=True)
+
+
+def _split_pipes(segment: str) -> list[str]:
+    return _split_outside_quotes(segment, pipe=True, compound=False)
 
 
 def _basename(token: str) -> str:
@@ -173,15 +182,7 @@ def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
 
 
 def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
-    """Classify a `python[3] ...` segment that may invoke the gate's spec CLI.
-
-    rest = tokens after the interpreter. Returns:
-      (True, "")        -> an append-only scripts/gate/spec.py invocation: allow.
-      (False, <reason>) -> it IS scripts/gate/spec.py but a forbidden subcommand
-                           or carries --force: block with a specific reason.
-      (False, "")       -> not the spec CLI at all: caller blocks generically.
-    """
-    # The script path is the first non-flag token after the interpreter.
+    """Classify a `python[3] ...` segment that may invoke the gate's spec CLI."""
     script = ""
     script_idx = -1
     for i, tok in enumerate(rest):
@@ -190,7 +191,7 @@ def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
         script, script_idx = tok, i
         break
     if not script.replace("\\", "/").endswith("scripts/gate/spec.py"):
-        return False, ""  # not the spec CLI
+        return False, ""
     return _validate_spec_append_args(rest[script_idx + 1:])
 
 
@@ -223,9 +224,46 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
         ok, reason = _spec_cli_segment(rest)
         if ok:
             return True, ""
-        if reason:  # it is the spec CLI, but a forbidden invocation
+        if reason:
             return False, reason
     return False, f"{base} is not in the Bash research whitelist"
+
+
+def _allowed_pipeline_sink(seg: str) -> tuple[bool, str]:
+    try:
+        tokens = shlex.split(seg)
+    except ValueError:
+        tokens = seg.split()
+    if not tokens:
+        return False, "empty pipeline segment"
+    command, _rest = _first_command(tokens)
+    if not command:
+        return False, "no executable command found in pipeline"
+    base = _basename(command)
+    if base in _PIPELINE_SINKS:
+        return True, ""
+    return False, f"{base} is not an allowed read-only pipeline sink"
+
+
+def _allowed_pipeline_rest(seg: str) -> tuple[bool, str]:
+    ok, reason = _allowed_pipeline_sink(seg)
+    if ok:
+        return True, ""
+    return _allowed_segment(seg)
+
+
+def _allowed_compound(compound: str) -> tuple[bool, str]:
+    pipe_parts = _split_pipes(compound)
+    if len(pipe_parts) == 1:
+        return _allowed_segment(pipe_parts[0])
+    ok, reason = _allowed_segment(pipe_parts[0])
+    if not ok:
+        return False, reason
+    for seg in pipe_parts[1:]:
+        ok, reason = _allowed_pipeline_rest(seg)
+        if not ok:
+            return False, reason
+    return True, ""
 
 
 def is_allowed_research_bash(command: str) -> tuple[bool, str]:
@@ -233,8 +271,9 @@ def is_allowed_research_bash(command: str) -> tuple[bool, str]:
     if not isinstance(command, str) or not command.strip():
         return False, "empty command"
 
-    for seg in _segments(command):
-        allowed, reason = _allowed_segment(seg)
-        if not allowed:
-            return False, reason
+    for line in _join_flag_lines(_logical_lines(command)):
+        for compound in _split_compound(line):
+            allowed, reason = _allowed_compound(compound)
+            if not allowed:
+                return False, reason
     return True, ""

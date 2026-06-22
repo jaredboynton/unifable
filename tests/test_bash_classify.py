@@ -47,6 +47,9 @@ ALLOWED = [
     "python3 scripts/gate/spec.py restate --task-id x --goal 'do the thing well'",
     "python3 scripts/gate/spec.py cite --task-id x --repo-context a.py:1::why",
     "python3 /Users/me/repo/scripts/gate/spec.py validate --task-id x --grade STANDARD",
+    "rg foo | head",
+    "rg foo | head -20",
+    "ls && rg foo | head",
 ]
 
 BLOCKED = [
@@ -75,7 +78,7 @@ BLOCKED = [
     "curl https://example.com",
     "rm -rf build",
     "echo hi > /dev/null",
-    "rg foo | head",
+    "rg foo | cat",
     "ls && cat README.md",
     "bash other.sh",
     "python trace.sh",

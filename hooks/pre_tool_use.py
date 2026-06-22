@@ -50,7 +50,7 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 from bash_classify import ALLOWED_RESEARCH_BASH, is_allowed_research_bash
 from evidence_policy import resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json
-from spec import contract_string, load_spec, resolve_session_id, spec_path, validate_spec
+from spec import canonical_project_root, contract_string, format_spec_location, load_spec, resolve_session_id, spec_path, validate_spec
 
 # ---------------------------------------------------------------------------
 # Tool names across both hosts (Claude Code and Codex)
@@ -187,19 +187,20 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
     live output, prior_art {cite, why}) must exist for any STANDARD+ task. LIGHT waives."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
-        emit_json({})
         return 0
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
     if spec is None:
+        loc = format_spec_location(cwd, task_id)
         return _block(
-            f"no evidence spec for task '{task_id}' (grade={grade}). The spec is "
+            f"no evidence spec for session '{task_id}' (grade={grade}). The spec is "
             "auto-created on the hook path; build it through the append-only CLI "
             "(never edit the JSON, never run create):\n"
-            f"  unifable-spec add-task --task-id {task_id} --title '<requirement>' --check '<runnable check>'\n"
-            f"  unifable-spec cite --task-id {task_id} --repo-context 'path:line::why' --prior-art '<url>::why'\n"
-            f"  unifable-spec deliver --task-id {task_id} --task <id>; then validate-task (runs the check, judge reviews output). "
+            f"{loc}\n"
+            f"  unifable-spec add-task --title '<requirement>' --check '<runnable check>'\n"
+            f"  unifable-spec cite --repo-context 'path:line::why' --prior-art '<url>::why'\n"
+            "  unifable-spec deliver --task <id>; then validate-task (runs the check, judge reviews output). "
             f"{contract_string(grade, True)}"
         )
 
@@ -219,7 +220,6 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             + "; ".join(cited)
         )
 
-    emit_json({})
     return 0
 
 
@@ -231,7 +231,6 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     spec): all shell commands are allowed. LIGHT waives entirely."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
-        emit_json({})
         return 0
 
     task_id = _task_id(input_data)
@@ -239,22 +238,19 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     if spec is not None:
         ok, _ = validate_spec(spec, grade, require_evidence=True)
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
-            emit_json({})  # action phase unlocked
-            return 0
+            return 0  # action phase unlocked
 
     command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
     allowed, why = is_allowed_research_bash(command)
     if not allowed:
-        sp = spec_path(cwd, task_id)
+        loc = format_spec_location(cwd, task_id)
         return _block(
             f"Bash command blocked before evidence spec validation: {why}. "
             f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
-            f"To unblock other Bash, fill the auto-created spec at {sp} through the append-only "
-            f"CLI: add-task (>=1 requirement), cite (repo_context + prior_art), then deliver + "
-            "validate-task until the judge accepts the check output. Never edit the JSON; never run create."
+            f"To unblock other Bash, fill the spec through the append-only CLI "
+            f"(add-task, cite, deliver, validate-task):\n{loc}"
         )
 
-    emit_json({})
     return 0
 
 
@@ -262,7 +258,6 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
     """Block Task/Agent until a valid evidence spec unlocks the action phase."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
-        emit_json({})
         return 0
 
     task_id = _task_id(input_data)
@@ -270,26 +265,35 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
     if spec is not None:
         ok, _ = validate_spec(spec, grade, require_evidence=True)
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
-            emit_json({})
             return 0
 
-    sp = spec_path(cwd, task_id)
+    loc = format_spec_location(cwd, task_id)
     return _block(
         f"{tool_name} is blocked before evidence spec validation so delegated work cannot bypass "
         "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
         f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
-        f"Bash, fill the auto-created spec at {sp} through the append-only CLI (add-task, cite, "
-        "deliver, validate-task) until the judge accepts the check output; never edit the JSON, never run create."
+        f"Bash, fill the spec through the append-only CLI (add-task, cite, deliver, validate-task):\n"
+        f"{loc}"
     )
 
 
-def _enforce_breaker(input_data: dict) -> int | None:
-    """Overconfidence/groundedness breaker. Runs the debounced gpt-realtime-2 judge
-    (<=1 call / 15s per session+prompt key) over the recent transcript. Returns a
-    _block() exit code carrying the steering prompt when a mutation tool
-    (Write/Edit/Bash) is blocked because the model asserted something confidently
-    without backing it up; returns None otherwise (reads/web are never blocked).
-    Fails open (returns None) on any error."""
+def _emit_allow(notify: str = "") -> int:
+    if notify and notify.strip():
+        emit_json(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "additionalContext": notify.strip(),
+                }
+            }
+        )
+    else:
+        emit_json({})
+    return 0
+
+
+def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
+    """Overconfidence/groundedness breaker. Returns (block_exit_code, lift_notify)."""
     try:
         import time
 
@@ -299,18 +303,21 @@ def _enforce_breaker(input_data: dict) -> int | None:
         ledger = load_ledger(input_data)
         active = str(ledger.get("active_task") or "")
         breaker = load_breaker(input_data)
-        block, steering = evaluate_pre_tool(input_data, breaker, time.time(), active)
+        block, steering, notify = evaluate_pre_tool(input_data, breaker, time.time(), active)
         save_breaker(input_data, breaker)
         if block:
+            events = breaker.get("events") if isinstance(breaker.get("events"), list) else []
+            if events and events[-1].get("kind") == "REINSTATE":
+                steering = f"Groundedness breaker reinstated: {steering}"
             return _block(steering or (
                 "Groundedness breaker: you asserted something confidently without "
                 "backing it up. Your tools are restricted to read-only ones (Read, "
                 "WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
                 f"({ALLOWED_RESEARCH_BASH}) until you ground the claim."
-            ))
+            )), ""
+        return None, notify or ""
     except Exception:
-        return None  # fail open on any breaker/judge failure
-    return None
+        return None, ""  # fail open on any breaker/judge failure
 
 
 def main() -> int:
@@ -318,13 +325,13 @@ def main() -> int:
 
     tool_name = str(input_data.get("tool_name") or "")
     tool_input = input_data.get("tool_input") or {}
-    cwd = str(input_data.get("cwd") or os.getcwd())
+    cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
 
     # --- Overconfidence/groundedness breaker (runs on EVERY tool; judge debounced
     #     to <=1 call / 15s per session+prompt). Blocks ONLY mutation tools when
     #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free.
     #     Whitelisted research Bash (ls/glob/rg/trace.sh/spec CLI) still passes. ---
-    breaker_block = _enforce_breaker(input_data)
+    breaker_block, breaker_notify = _enforce_breaker(input_data)
     if breaker_block is not None:
         if tool_name == "Bash":
             command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
@@ -348,19 +355,27 @@ def main() -> int:
                 "findings, and state are off-limits too."
             )
 
-        return _enforce_spec(input_data, cwd)
+        rc = _enforce_spec(input_data, cwd)
+        if rc == 0:
+            return _emit_allow(breaker_notify)
+        return rc
 
     # --- Bash: research whitelist (unconditional) ---
     if tool_name == "Bash":
-        return _enforce_bash(input_data, tool_input, cwd)
+        rc = _enforce_bash(input_data, tool_input, cwd)
+        if rc == 0:
+            return _emit_allow(breaker_notify)
+        return rc
 
     # --- Delegation: locked until the same evidence spec unlocks action phase ---
     if tool_name in DELEGATION_TOOLS:
-        return _enforce_delegation(input_data, tool_name, cwd)
+        rc = _enforce_delegation(input_data, tool_name, cwd)
+        if rc == 0:
+            return _emit_allow(breaker_notify)
+        return rc
 
     # Any other tool — nothing to gate (read/search/web stay free).
-    emit_json({})
-    return 0
+    return _emit_allow(breaker_notify)
 
 
 if __name__ == "__main__":

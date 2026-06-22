@@ -20,7 +20,7 @@ _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spe
 _TASK_ID_RE = re.compile(r"--task-id(?:=|\s+)([^\s]+)")
 _SUBCMD_RE = re.compile(
     r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spec\.py)\s+"
-    r"(restate|add-task|cite|deliver|validate-task|dispute|status|validate|contract|create|init)\b"
+    r"(restate|add-task|cite|deliver|validate-task|dispute|status|where|validate|contract|create|init)\b"
 )
 
 MUTATING_SUBCMDS = frozenset(

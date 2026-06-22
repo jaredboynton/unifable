@@ -93,7 +93,9 @@ def data_root() -> Path:
 
 
 def ledger_key(input_data: dict[str, Any]) -> str:
-    cwd = input_data.get("cwd") or os.getcwd()
+    from spec import canonical_project_root
+
+    cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     session_id = input_data.get("session_id") or "no-session"
     raw = f"{session_id}|{cwd}"
     return hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()[:24]

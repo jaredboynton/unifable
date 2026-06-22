@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
 from classify_task import classify_prompt, context_for_mode, grade_of
-from spec import resolve_session_id, save_spec, spec_path, spec_template
+from spec import canonical_project_root, resolve_session_id, save_spec, spec_path, spec_template
 
 
 def _prompt_key(prompt: str) -> str:
@@ -58,7 +58,7 @@ def main() -> int:
     input_data = read_stdin_json()
     prompt = str(input_data.get("prompt") or input_data.get("user_prompt") or "")
     mode, risks = classify_prompt(prompt)
-    cwd = input_data.get("cwd") or os.getcwd()
+    cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     # The evidence spec is now ONE per (directory, session) -- keyed by the session,
     # not the prompt -- so a new session never inherits a prior one's spec. The
     # per-prompt hash still feeds the groundedness breaker's debounce key, so keep
