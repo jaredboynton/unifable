@@ -32,9 +32,11 @@ from typing import Any
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from atomicio import write_text_atomic
     from ledger import data_root
+    from model_notify import format_spec_status, notify_spec_update
 except ImportError:  # pragma: no cover
     from scripts.gate.atomicio import write_text_atomic
     from scripts.gate.ledger import data_root
+    from scripts.gate.model_notify import format_spec_status, notify_spec_update
 
 # ---------------------------------------------------------------------------
 # Schema
@@ -779,6 +781,11 @@ def _cmd_add_task(args: argparse.Namespace) -> int:
     spec["tasks"].append(task)
     save_spec(args.root, args.task_id, spec)
     print(f"Added {task['id']}: {task['title']}")
+    notify_spec_update(
+        spec,
+        f"Requirement {task['id']} added: {task['title']}.",
+        highlight_task=task["id"],
+    )
     return 0
 
 
@@ -792,6 +799,7 @@ def _cmd_deliver(args: argparse.Namespace) -> int:
         task["status"] = "delivered"
         save_spec(args.root, args.task_id, spec)
     print(f"{args.task} -> {task['status']}")
+    notify_spec_update(spec, f"{args.task} marked delivered.", highlight_task=args.task)
     return 0
 
 
@@ -814,8 +822,23 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
         print(f"{args.task}: dispute verdict={verdict} ({reason})")
         if verdict != 1:
             print(f"{args.task} -> failed: dispute rejected -- do the work or submit real proof of impossibility.")
+            notify_spec_update(
+                spec,
+                f"Dispute rejected for {args.task}.",
+                highlight_task=args.task,
+                judge_reason=str(reason or ""),
+            )
         else:
             print(f"{args.task} -> retracted (judge accepted impossibility)")
+            headline = f"{args.task} retracted — judge accepted impossibility."
+            if all_tasks_validated(spec)[0]:
+                headline += " Completion breaker open."
+            notify_spec_update(
+                spec,
+                headline,
+                highlight_task=args.task,
+                judge_reason=str(reason or ""),
+            )
         return 0 if verdict == 1 else 2
 
     exit_code, output = run_check(task.get("check", ""), cwd=args.root)
@@ -839,6 +862,28 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
     print(f"{args.task} -> {task['status']}")
     if added:
         print(f"judge added requirement(s): {', '.join(added)}")
+    if verdict == 1:
+        headline = f"{args.task} validated."
+        if added:
+            headline += f" Judge added {', '.join(added)}."
+        if all_tasks_validated(spec)[0]:
+            headline += " Completion breaker open."
+        notify_spec_update(
+            spec,
+            headline,
+            highlight_task=args.task,
+            judge_reason=str(reason or ""),
+        )
+    else:
+        headline = f"{args.task} failed validation."
+        if added:
+            headline += f" Judge added {', '.join(added)}."
+        notify_spec_update(
+            spec,
+            headline,
+            highlight_task=args.task,
+            judge_reason=str(reason or ""),
+        )
     return 0 if verdict == 1 else 2
 
 
@@ -859,6 +904,7 @@ def _cmd_restate(args: argparse.Namespace) -> int:
     spec["goal_seeded"] = False
     save_spec(args.root, args.task_id, spec)
     print(f"restated_goal set ({len(goal)} chars); goal_seeded cleared.")
+    notify_spec_update(spec, "Goal restated.")
     return 0
 
 
@@ -884,6 +930,7 @@ def _cmd_cite(args: argparse.Namespace) -> int:
     save_spec(args.root, args.task_id, spec)
     print(f"Added {added} citation(s) "
           f"(repo_context={len(spec['repo_context'])}, prior_art={len(spec['prior_art'])}).")
+    notify_spec_update(spec, f"Added {added} citation(s) to the evidence spec.")
     return 0
 
 
@@ -906,6 +953,7 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     task["dispute_evidence"] = args.evidence
     save_spec(args.root, args.task_id, spec)
     print(f"{args.task} -> disputed. Run validate-task to have the judge adjudicate the impossibility claim.")
+    notify_spec_update(spec, f"{args.task} disputed as impossible.", highlight_task=args.task)
     return 0
 
 
@@ -914,14 +962,8 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if spec is None:
         print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
         return 1
-    ok, incomplete = all_tasks_validated(spec)
-    print(f"goal: {str(spec.get('restated_goal', ''))[:100]}")
-    mark = {"validated": "OK", "failed": "XX", "delivered": "..", "pending": "--",
-            "disputed": "??", "retracted": "~~"}
-    for t in spec.get("tasks") or []:
-        print(f"  [{mark.get(t.get('status'), '??')}] {t.get('id')} {t.get('title')}")
-    print("breaker: OPEN (all tasks validated)" if ok
-          else f"breaker: CLOSED ({len(incomplete)} left: {', '.join(incomplete)})")
+    ok, _incomplete = all_tasks_validated(spec)
+    print(format_spec_status(spec))
     return 0 if ok else 2
 
 

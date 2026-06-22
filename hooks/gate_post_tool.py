@@ -5,7 +5,7 @@ Records observed evidence after each Bash/Edit/Write tool call: whether files
 changed (and their kind), and whether a verification command ran and observably
 succeeded or failed. While the groundedness breaker is armed, runs the release
 judge after Read/WebFetch-style tools and injects breaker-open context when the
-claim is grounded. Fails open.
+claim is grounded. Spec CLI notifications are forwarded to the model. Fails open.
 """
 
 from __future__ import annotations
@@ -17,6 +17,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
+from model_notify import (
+    bash_output_text,
+    build_spec_context_from_output,
+    format_spec_status,
+    is_mutating_spec_cli,
+    is_spec_cli_command,
+    parse_spec_cli_invocation,
+)
 from parse_tool_result import (
     changed_kinds,
     command_from_input,
@@ -49,6 +57,32 @@ def _fresh_tool_block(input_data: dict, tool_name: str, executed_ok: bool) -> st
     return f"[tool_result name={tool_name}]\n{excerpt}"
 
 
+def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
+    if tool_name != "Bash":
+        return ""
+    command = command_from_input(input_data)
+    if not is_spec_cli_command(command):
+        return ""
+    text = bash_output_text(input_data.get("tool_response", input_data), 16000)
+    ctx = build_spec_context_from_output(text)
+    if ctx:
+        return ctx
+    if not is_mutating_spec_cli(command):
+        return ""
+    _sub, task_id = parse_spec_cli_invocation(command)
+    if not task_id:
+        return ""
+    try:
+        from spec import load_spec
+
+        spec = load_spec(cwd, task_id)
+        if spec:
+            return "unifable spec update:\n" + format_spec_status(spec)
+    except Exception:
+        return ""
+    return ""
+
+
 def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool) -> str:
     try:
         from breaker_state import load_breaker, save_breaker
@@ -69,6 +103,21 @@ def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool
         return message
     except Exception:
         return ""
+
+
+def _emit_context(parts: list[str]) -> None:
+    body = "\n".join(p for p in parts if p and p.strip())
+    if not body:
+        emit_json({})
+        return
+    emit_json(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": body,
+            }
+        }
+    )
 
 
 def main() -> int:
@@ -109,43 +158,39 @@ def main() -> int:
 
     ledger = update_ledger(input_data, apply)
 
+    spec_context = _spec_context(input_data, tool_name, cwd)
     breaker_context = _breaker_release_context(input_data, tool_name, executed_ok)
 
     repeat = repeated_failure(ledger.get("failures", [])) if failure else None
     if repeat:
         _sig, count = repeat
-        emit_json(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
-                    "additionalContext": (
-                        f"unifable: the same class of failure has repeated {count} times. "
-                        "Stop retrying silently — report it briefly (what failed / recovery "
-                        "already tried / next path)."
-                    ),
-                }
-            }
+        _emit_context(
+            [
+                f"unifable: the same class of failure has repeated {count} times. "
+                "Stop retrying silently — report it briefly (what failed / recovery "
+                "already tried / next path).",
+                spec_context,
+            ]
         )
-    elif failure:
-        emit_json(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
-                    "additionalContext": "unifable gate observed a tool failure. Do not report completion until it is fixed, isolated as a known baseline, or explicitly documented.",
-                }
-            }
-        )
-    elif breaker_context:
-        emit_json(
-            {
-                "hookSpecificOutput": {
-                    "hookEventName": "PostToolUse",
-                    "additionalContext": breaker_context,
-                }
-            }
+    elif failure and not spec_context:
+        _emit_context(
+            [
+                "unifable gate observed a tool failure. Do not report completion until "
+                "it is fixed, isolated as a known baseline, or explicitly documented."
+            ]
         )
     else:
-        emit_json({})
+        parts: list[str] = []
+        if failure and not spec_context:
+            parts.append(
+                "unifable gate observed a tool failure. Do not report completion until "
+                "it is fixed, isolated as a known baseline, or explicitly documented."
+            )
+        if spec_context:
+            parts.append(spec_context)
+        if breaker_context:
+            parts.append(breaker_context)
+        _emit_context(parts)
     return 0
 
 
