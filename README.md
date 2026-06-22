@@ -58,13 +58,14 @@ host-agnostic; host wiring lives in `hooks/` and `install/`.
 ## Evidence gate
 
 On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delegate with
-`Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, or the explore skill's
-`trace.sh`), or finish until the session's evidence spec
+`Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, the explore skill's
+`trace.sh`, or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
+`resolve_session.sh`), or finish until the session's evidence spec
 (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec
 must carry: `repo_context` (`{cite: path:line, why}` the worker actually read), `acceptance_criteria`
 (a runnable `check` plus its live `evidence` output — placeholders are rejected), and `prior_art` (a
-source URL, required at HEAVY). Read, search, web, and `trace.sh` exploration stay available so the
-worker can gather that evidence; a valid spec unlocks the action phase. Quick/LIGHT tasks are waived.
+source URL, required at HEAVY). Read, search, web, `trace.sh` exploration, and unifusion panel
+research stay available so the worker can gather that evidence; a valid spec unlocks the action phase. Quick/LIGHT tasks are waived.
 
 The spec is **append-only and CLI-only** — never hand-edited. The worker drives it with
 `unifable restate` (state the intended outcome), `unifable add-task` (add a requirement + its check),

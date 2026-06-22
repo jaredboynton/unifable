@@ -146,6 +146,8 @@ def scenarios(cwd: str):
            bash(cwd, "ls -la", "BL8"))
     yield ("BL9", "bash-whitelist trace.sh allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "bash ./trace.sh --brief auth", "BL9"))
+    yield ("BL9b", "bash-whitelist unifusion.sh allowed pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "bash ./unifusion.sh /tmp/q.txt", "BL9b"))
     yield ("BL10", "bash-unlock: valid spec allows mutate (action phase)", ALLOW, EV, "STANDARD",
            bash(cwd, "rm -rf build", with_spec("BL10", STD_CITED)))
     yield ("BL11", "bash-whitelist LIGHT waives", ALLOW, EV, "LIGHT", bash(cwd, "rm -rf build", "BL11"))

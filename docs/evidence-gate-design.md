@@ -21,7 +21,9 @@ agent thrashes through edits first and only "cites" at the end.
   gate that blocks `WRITE_TOOLS` until a spec validates (unconditional — no env disable, fail-open
   on malformed input). `scripts/gate/spec.py:116-168` validates `restated_goal` +
   `acceptance_criteria[{check, evidence}]` and rejects placeholder evidence via `FAKE_MARKERS`
-  (`spec.py:78-99`); HEAVY adds `constraints` + `>=2 rejected_alternatives`.
+  (`spec.py:78-99`); HEAVY uses frontier-first workflow (>=2 frontier approach tasks + 1 primary;
+  see `heavy_workflow.py`). Classification uses the operative user instruction, not pasted corpus.
+  Manual HEAVY override: UserPromptSubmit matcher + gpt-realtime-2 (`grade_override.py`).
   `scripts/gate/classify_task.py:75` maps quick->LIGHT / normal->STANDARD / deep->HEAVY. The
   lockdown is three deltas on this.
 
@@ -53,21 +55,22 @@ Add, so the spec literally *is* the three evidence types:
   `\S+:\d+`; optionally existence-check the file. Required >=1 at STANDARD+.
 - `prior_art`: list of source URLs/repo refs (RESEARCH evidence). Required >=1 at HEAVY (architecture).
 - `acceptance_criteria[{check, evidence}]` — TOOL-OUTPUT evidence (already present; FAKE_MARKERS enforced).
-- `rejected_alternatives` (HEAVY, already present) — DECISION evidence.
+- `rejected_alternatives` (legacy HEAVY field, removed) — HEAVY now uses frontier approach tasks.
 Validation extends `validate_spec` (`spec.py:116`) with these; the contract strings
 (`spec.py:216-237`) gain the new fields so the model is told exactly what to fill.
 
 ## Delta 3 — Bash gating (the novel, risky part)
 
 Classify the `Bash` command string in the research phase:
-- ALLOW only if every command segment is `ls`, `glob`, `rg`, or invokes a file whose basename is
-  `trace.sh` (directly or through `sh`/`bash`/`zsh`) by absolute or repo-relative path.
+- ALLOW only if every command segment is `ls`, `glob`, `rg`, invokes a file whose basename is
+  `trace.sh` (directly or through `sh`/`bash`/`zsh`), or invokes a user-facing unifusion skill
+  script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
 - BLOCK otherwise, with a message that names the allowed commands and says broader Bash unlocks only
   after a valid task spec exists with repo_context citations, acceptance evidence, and prior_art.
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than
   wfb's edit-only gate. Mitigations: (a) unconditional + fail-open on malformed input (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
-  bricked — it can still inspect with `ls`/`glob`/`rg` and use `trace.sh`; (c) ship behind the holdout harness
+  bricked — it can still inspect with `ls`/`glob`/`rg`, use `trace.sh`, or run unifusion panel scripts; (c) ship behind the holdout harness
   (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate.
 
 ## Groundedness breaker — provisional lift
@@ -134,4 +137,5 @@ no-brick), mirroring wfb's 35/35 adversarial set.
 
 1. Bash gating scope: full lockdown now (writes + Bash allowlist, the stated intent, highest leverage,
    highest false-positive risk) vs. writes-first then add Bash gating after measuring.
-2. Allowlist contents: currently `ls`, `glob`, `rg`, and any file named `trace.sh`.
+2. Allowlist contents: currently `ls`, `glob`, `rg`, any file named `trace.sh`, and the four
+   user-facing unifusion skill scripts by basename.

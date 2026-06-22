@@ -19,9 +19,10 @@ four cases:
 
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet), Bash may run only `ls`, `glob`,
-     `rg`, or a file whose basename is `trace.sh`. A valid spec unlocks the action
-     phase (all shell commands allowed). LIGHT waives. Classification:
-     scripts/gate/bash_classify.py.
+     `rg`, a file whose basename is `trace.sh` (explore skill), or a user-facing
+     unifusion skill script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`,
+     `resolve_session.sh`). A valid spec unlocks the action phase (all shell
+     commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
 
   4. EVIDENCE GATE — delegation lockdown (unconditional): in the research phase,
      Task/Agent are blocked until the same valid spec exists, so subagents cannot
@@ -274,9 +275,10 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
 def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     """Research-phase whitelist for Bash (unconditional, no env disable).
 
-    Research phase (no valid spec): allow only ls, glob, rg, and trace.sh so the
-    agent can inspect the tree and run the explore skill. Action phase (valid
-    spec): all shell commands are allowed. LIGHT waives entirely."""
+    Research phase (no valid spec): allow only ls, glob, rg, trace.sh, and the
+    user-facing unifusion skill scripts so the agent can explore or run a panel
+    before unlock. Action phase (valid spec): all shell commands are allowed.
+    LIGHT waives entirely."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
         return 0
@@ -380,7 +382,7 @@ def main() -> int:
     # --- Overconfidence/groundedness breaker (runs on EVERY tool; judge debounced
     #     to <=1 call / 15s per session+prompt). Blocks ONLY mutation tools when
     #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free.
-    #     Whitelisted research Bash (ls/glob/rg/trace.sh/spec CLI) still passes. ---
+    #     Whitelisted research Bash (ls/glob/rg/trace.sh/unifusion scripts/spec CLI) still passes. ---
     breaker_block, breaker_notify = _enforce_breaker(input_data)
     if breaker_block is not None:
         if tool_name == "Bash":

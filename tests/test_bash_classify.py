@@ -53,6 +53,11 @@ ALLOWED = [
     "T=value rg --files",
     # Plain variable expansion ($VAR) is not command substitution.
     "rg \"$HOME\" .",
+    "bash ~/.claude/skills/unifusion/scripts/unifusion.sh /tmp/q.txt",
+    "bash skills/unifusion/scripts/save_run.sh slug /tmp/q.md /tmp/a.md /tmp/f.md /tmp/run",
+    "./summarize_session.sh /tmp/ctx.md",
+    "zsh /path/to/unifusion/scripts/resolve_session.sh --path",
+    "bash ./tools/unifusion.sh /tmp/q.txt",
 ]
 
 BLOCKED = [
@@ -85,6 +90,7 @@ BLOCKED = [
     "rg foo | cat",
     "ls && cat README.md",
     "bash other.sh",
+    "bash skills/unifusion/scripts/run_codex.sh /tmp/p /tmp/o",
     "python trace.sh",
     # Command/process substitution executes arbitrary commands -> must stay blocked,
     # now with an explicit, clear reason (previously blocked only by parser fallout).

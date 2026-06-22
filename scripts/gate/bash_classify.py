@@ -2,10 +2,10 @@
 """Classify whether a Bash command is allowed during the pre-spec research phase.
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
-spec, Bash may run only `ls`, `glob`, `rg`, or a file whose basename is
-`trace.sh`. The `trace.sh` exception exists so the explore skill can gather code
-context without unlocking general shell access. Once a valid spec exists,
-pre_tool_use.py skips this classifier and unlocks the normal action phase.
+spec, Bash may run only `ls`, `glob`, `rg`, a file whose basename is `trace.sh`
+(explore skill), or a file whose basename is one of the user-facing unifusion
+skill scripts (panel research). Once a valid spec exists, pre_tool_use.py skips
+this classifier and unlocks the normal action phase.
 """
 
 from __future__ import annotations
@@ -15,14 +15,21 @@ import shlex
 
 ALLOWED_RESEARCH_BASH = (
     "ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
-    "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), or the "
-    "append-only spec CLI (unifable restate|add-task|set-primary|add-frontier|dispute; legacy unifable-spec alias "
-    "still accepted)"
+    "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), "
+    "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
+    "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
+    "(unifable restate|add-task|set-primary|add-frontier|dispute; legacy unifable-spec alias still accepted)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
 _PIPELINE_SINKS = frozenset({"head", "tail", "wc", "sort", "uniq"})
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
+_UNIFUSION_SCRIPT_NAMES = frozenset({
+    "unifusion.sh",
+    "save_run.sh",
+    "summarize_session.sh",
+    "resolve_session.sh",
+})
 _PY_INTERPRETERS = frozenset({"python", "python3"})
 # The agent may drive the evidence spec ONLY through these append-only subcommands.
 # Creation is automatic (the gate_prompt hook), and removal is judge-only, so
@@ -171,6 +178,10 @@ def _trace_target_from_interpreter(rest: list[str]) -> str:
     return ""
 
 
+def _is_unifusion_script(token: str) -> bool:
+    return _basename(token) in _UNIFUSION_SCRIPT_NAMES
+
+
 def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
     """Validate append-only subcommands for unifable-spec or scripts/gate/spec.py."""
     if "--force" in args:
@@ -307,10 +318,12 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
-    if base == "trace.sh":
+    if base == "trace.sh" or _is_unifusion_script(command):
         return True, ""
-    if base in _TRACE_INTERPRETERS and _basename(_trace_target_from_interpreter(rest)) == "trace.sh":
-        return True, ""
+    if base in _TRACE_INTERPRETERS:
+        target_base = _basename(_trace_target_from_interpreter(rest))
+        if target_base == "trace.sh" or target_base in _UNIFUSION_SCRIPT_NAMES:
+            return True, ""
     if base in _PY_INTERPRETERS:
         ok, reason = _spec_cli_segment(rest)
         if ok:
