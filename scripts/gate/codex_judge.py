@@ -17,6 +17,9 @@ Used by the unifable spec gate to have gpt-realtime-2 critically judge whether a
 task's check output actually validates the task (verdict 1=validated/0=fail), so
 "validated" cannot be faked by typing evidence text.
 
+gpt-realtime-2 caps each message field at 256,000 characters. ask_structured
+applies cap_judge_message() to system and user text before sending.
+
 Public API:
     ask_structured(system, user, schema, *, schema_name="result", model=MODEL,
                    auth_path=None, timeout=180.0) -> dict
@@ -52,6 +55,8 @@ ORIGINATOR = "codex_cli_rs"                                # protocol.rs build_r
 # OAuth bearer (tokens.access_token in ~/.codex/auth.json) -- the same path
 # cse-tools uses, no platform API key. Override with UNIFABLE_JUDGE_MODEL.
 MODEL = os.environ.get("UNIFABLE_JUDGE_MODEL", "gpt-realtime-2")
+
+_QUESTION_PREFIX = "QUESTION: "
 
 _HANDSHAKE_TIMEOUT = 30.0
 
@@ -298,6 +303,11 @@ def ask_structured(
     Returns the parsed object. Raises JudgeError on any failure (so callers fail
     safe). Refreshes the access_token if expired, and retries once on a handshake
     auth rejection after forcing a refresh (protocol.rs run_session_structured)."""
+    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
+
+    system = cap_judge_message(system, JUDGE_EFFECTIVE_MAX_CHARS)
+    user_cap = JUDGE_EFFECTIVE_MAX_CHARS - len(_QUESTION_PREFIX)
+    user = cap_judge_message(user, user_cap)
     tool = {
         "type": "function",
         "name": schema_name,
@@ -317,7 +327,7 @@ def ask_structured(
     question = {
         "type": "conversation.item.create",
         "item": {"type": "message", "role": "user",
-                 "content": [{"type": "input_text", "text": f"QUESTION: {user}"}]},
+                 "content": [{"type": "input_text", "text": f"{_QUESTION_PREFIX}{user}"}]},
     }
     response_create = {"type": "response.create", "response": {"output_modalities": ["text"]}}
 

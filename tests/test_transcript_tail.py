@@ -14,7 +14,14 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "gate"))
 
-from transcript_tail import MAX_CHARS_PER_TOKEN, TRANSCRIPT_TOKEN_BUDGET, tail_tokens  # noqa: E402
+from transcript_tail import (  # noqa: E402
+    JUDGE_MAX_MESSAGE_CHARS,
+    JUDGE_TRANSCRIPT_CHAR_BUDGET,
+    MAX_CHARS_PER_TOKEN,
+    TRANSCRIPT_TOKEN_BUDGET,
+    cap_judge_message,
+    tail_tokens,
+)
 
 
 def test_dense_low_whitespace_text_is_char_bounded():
@@ -22,10 +29,17 @@ def test_dense_low_whitespace_text_is_char_bounded():
     the char ceiling, not returned whole."""
     dense = ('{"x":"' + "A" * 5000 + '"}') * 200  # ~1M chars, ~200 whitespace spans
     out = tail_tokens(dense, max_tokens=TRANSCRIPT_TOKEN_BUDGET)
-    cap = TRANSCRIPT_TOKEN_BUDGET * MAX_CHARS_PER_TOKEN
+    cap = min(TRANSCRIPT_TOKEN_BUDGET * MAX_CHARS_PER_TOKEN, JUDGE_TRANSCRIPT_CHAR_BUDGET)
     assert len(out) <= cap
-    assert len(out) < 256_000  # the model input-char limit that was being blown
+    assert len(out) < JUDGE_MAX_MESSAGE_CHARS  # the model input-char limit that was being blown
     assert dense.endswith(out)  # it is a tail, preserving the most recent text
+
+
+def test_cap_judge_message_never_exceeds_limit():
+    big = "B" * 400_000
+    out = cap_judge_message(big)
+    assert len(out) <= JUDGE_MAX_MESSAGE_CHARS
+    assert "B" in out
 
 
 def test_short_text_returned_whole():

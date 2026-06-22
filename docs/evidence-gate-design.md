@@ -89,6 +89,14 @@ open. **Egregious** unrelated work re-arms the breaker. Full disarm while lifted
 the claim is grounded (including empirical validation in tool output), retracted, or no longer
 load-bearing.
 
+## Judge message size cap (gpt-realtime-2)
+
+The Realtime judge (`scripts/gate/codex_judge.py`) caps each message field at **256,000
+characters** (API hard limit). Transcript tails are budgeted in `scripts/gate/transcript_tail.py`
+(`JUDGE_TRANSCRIPT_CHAR_BUDGET`, `cap_judge_message`, `fit_judge_user_message`); `ask_structured`
+applies the same cap at send time as a backstop. Regression: `tests/test_transcript_tail.py`,
+`tests/test_judge_message_cap.py`.
+
 ## Advisory judge hints — guidance, never a gate
 
 The judge can also emit a **non-blocking hint**: one concrete next step for an agent that looks

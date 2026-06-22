@@ -49,7 +49,14 @@ from breaker_state import (
     reinstate,
     render_events,
 )
-from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail, tail_tokens
+from transcript_tail import (
+    JUDGE_EFFECTIVE_MAX_CHARS,
+    TRANSCRIPT_TOKEN_BUDGET,
+    cap_judge_message,
+    fit_judge_user_message,
+    stripped_transcript_tail,
+    tail_tokens,
+)
 
 # Mutation tools the breaker can block: writes, edits, bash (both hosts: Claude
 # Code Edit/Write/MultiEdit/NotebookEdit + Bash, Codex apply_patch). WebSearch,
@@ -501,10 +508,13 @@ def arm_judge(
     done = adjudicated_claims(events or [])
     if done:
         claims_str = "\n".join(f"- {c}" for c in done)
-        system += (
+        append = (
             f"\n\nDo NOT flag any of the following claims as they have already been "
             f"adjudicated or grounded:\n{claims_str}"
         )
+        room = JUDGE_EFFECTIVE_MAX_CHARS - len(system)
+        if room > 0:
+            system += cap_judge_message(append, room)
     obj = fn(system, segment, _JUDGE_SCHEMA)
     load_bearing = int(obj.get("load_bearing", 0) or 0) == 1
     verdict = 1 if int(obj.get("verdict", 0) or 0) == 1 else 0
@@ -554,10 +564,11 @@ def disarm_judge(
         return ReleaseVerdict(True, "", False, False, "", "")
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
-    user = (
+    prefix = (
         f"{goal_block}FLAGGED CLAIM:\n{claim}\n\n"
-        f"TRANSCRIPT (what the model has since read/run/cited):\n{segment}"
+        f"TRANSCRIPT (what the model has since read/run/cited):\n"
     )
+    user = fit_judge_user_message(prefix, segment)
     obj = fn(_DISARM_SYSTEM, user, _DISARM_SCHEMA)
     load_bearing = int(obj.get("load_bearing", 1) or 0) == 1
     grounded = int(obj.get("grounded", 0) or 0) == 1
@@ -586,10 +597,11 @@ def monitor_provisional_judge(
         return 0, "", ""
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
-    user = (
+    prefix = (
         f"{goal_block}FLAGGED CLAIM:\n{claim}\n\nLIFT SCOPE:\n{scope}\n\n"
-        f"IMMINENT TOOL:\n{tool_name}\n\nTRANSCRIPT:\n{segment}"
+        f"IMMINENT TOOL:\n{tool_name}\n\nTRANSCRIPT:\n"
     )
+    user = fit_judge_user_message(prefix, segment)
     obj = fn(_MONITOR_SYSTEM, user, _MONITOR_SCHEMA)
     drift = int(obj.get("drift_level", 0) or 0)
     if drift not in (0, 1, 2):

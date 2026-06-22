@@ -253,6 +253,7 @@ def _goal_hook_arguments(input_data: dict) -> dict:
 
 def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> dict:
     from codex_judge import ask_structured
+    from transcript_tail import fit_judge_user_message
 
     system = (
         "You are evaluating a stop-condition hook in unifable. Read the conversation "
@@ -267,13 +268,15 @@ def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> 
         '{"ok": false, "impossible": true} when the condition is genuinely unachievable in this session.'
     )
     args = json.dumps(_goal_hook_arguments(input_data), ensure_ascii=False, sort_keys=True)
-    user = (
-        "Conversation transcript:\n"
-        f"{transcript}\n\n"
-        "Based on the conversation transcript above, has the following stopping condition been "
-        "satisfied? Answer based on transcript evidence only.\n"
-        f"Condition: {condition}\n\n"
-        f"ARGUMENTS: {args}"
+    user = fit_judge_user_message(
+        "Conversation transcript:\n",
+        transcript,
+        suffix=(
+            "\n\nBased on the conversation transcript above, has the following stopping condition been "
+            "satisfied? Answer based on transcript evidence only.\n"
+            f"Condition: {condition}\n\n"
+            f"ARGUMENTS: {args}"
+        ),
     )
     return ask_structured(system, user, GOAL_JUDGE_SCHEMA, schema_name="goal_stop")
 

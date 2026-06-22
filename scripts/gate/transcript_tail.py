@@ -1,4 +1,9 @@
-"""Transcript rendering and tail helpers for judge prompts."""
+"""Transcript rendering and tail helpers for judge prompts.
+
+Transcript tails are budgeted against gpt-realtime-2's 256k-char per-message
+limit (see JUDGE_* constants); codex_judge.ask_structured enforces the same cap
+at the transport layer.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,47 @@ TRANSCRIPT_TOKEN_BUDGET = 50_000
 # bounds EVERY path so the judge prompt can never exceed that limit.
 MAX_CHARS_PER_TOKEN = 4
 
+# gpt-realtime-2 hard per-message char limit (single message field).
+JUDGE_MAX_MESSAGE_CHARS = 256_000
+JUDGE_MESSAGE_SAFETY_MARGIN = 4_000
+JUDGE_EFFECTIVE_MAX_CHARS = JUDGE_MAX_MESSAGE_CHARS - JUDGE_MESSAGE_SAFETY_MARGIN
+# Reserve for user wrappers (disarm labels, goal, claim, "QUESTION: " prefix).
+JUDGE_USER_WRAPPER_RESERVE = 16_000
+JUDGE_TRANSCRIPT_CHAR_BUDGET = JUDGE_EFFECTIVE_MAX_CHARS - JUDGE_USER_WRAPPER_RESERVE
+
+_TRUNC_MARKER = "\n...[truncated {n} chars]"
+
+
+def cap_judge_message(text: str, max_chars: int = JUDGE_EFFECTIVE_MAX_CHARS) -> str:
+    """Tail-preserving truncation so judge payloads never exceed the API char limit."""
+    if max_chars <= 0:
+        return ""
+    s = str(text or "")
+    if len(s) <= max_chars:
+        return s
+    dropped = len(s) - max_chars
+    marker = _TRUNC_MARKER.format(n=dropped)
+    keep = max(0, max_chars - len(marker))
+    return s[-keep:] + marker if keep else marker[-max_chars:]
+
+
+def fit_judge_user_message(
+    prefix: str,
+    body: str,
+    *,
+    suffix: str = "",
+    max_chars: int = JUDGE_EFFECTIVE_MAX_CHARS,
+) -> str:
+    """Build prefix+body+suffix, trimming body from the front when over max_chars."""
+    prefix = str(prefix or "")
+    body = str(body or "")
+    suffix = str(suffix or "")
+    fixed = len(prefix) + len(suffix)
+    if fixed >= max_chars:
+        return cap_judge_message(prefix + suffix, max_chars)
+    room = max_chars - fixed
+    return prefix + cap_judge_message(body, room) + suffix
+
 
 def tail_tokens(text: str, max_tokens: int = TRANSCRIPT_TOKEN_BUDGET) -> str:
     """Return the last `max_tokens` tokens of text, hard-bounded by characters.
@@ -29,7 +75,7 @@ def tail_tokens(text: str, max_tokens: int = TRANSCRIPT_TOKEN_BUDGET) -> str:
     """
     if max_tokens <= 0:
         return ""
-    char_cap = max_tokens * MAX_CHARS_PER_TOKEN
+    char_cap = min(max_tokens * MAX_CHARS_PER_TOKEN, JUDGE_TRANSCRIPT_CHAR_BUDGET)
     out = text
     try:
         import tiktoken  # type: ignore
