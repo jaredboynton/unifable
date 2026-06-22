@@ -24,11 +24,11 @@ hosts via Claude-Code-compatible hooks:
 ### Evidence gate
 
 On any non-trivial task (grade STANDARD+), the agent cannot edit a file, delegate with
-`Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, or `trace.sh`), or finish until
+`Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, or the explore skill's `trace.sh`), or finish until
 the session's evidence spec (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec must carry:
 `repo_context` (`{cite: path:line, why}` it actually read), `acceptance_criteria` (a runnable `check`
 plus its live `evidence` output — placeholders are rejected), and `prior_art` (a source URL). Read,
-search, web, and `trace.sh` exploration stay available so the agent can gather that evidence; a
+search, web, and the explore skill's `trace.sh` exploration stay available so the agent can gather that evidence; a
 valid spec unlocks the action phase. Quick/LIGHT tasks are waived. The gate is always on (no env
 disable) and fails open on malformed input. Authoring the spec is always allowed (no-brick).
 

@@ -280,6 +280,7 @@ def test_judge_system_prompt_asks_the_confidence_question():
     assert "restricted to read-only" in sysp
     assert "read, websearch, webfetch, grep, glob" in sysp
     assert "trace.sh" in sysp or "whitelisted" in sysp
+    assert "explore skill" in sysp
 
 
 def test_judge_prompts_forbid_steering_toward_blocked_commands():
@@ -289,6 +290,7 @@ def test_judge_prompts_forbid_steering_toward_blocked_commands():
     needed_desc = gb._DISARM_SCHEMA["properties"]["needed"]["description"].lower()
     assert "never" in steering_desc and ("blocked" in steering_desc or "blocks" in steering_desc)
     assert "trace.sh" in steering_desc or "whitelisted" in steering_desc
+    assert "explore skill" in steering_desc
     assert "never" in arm_sysp or "never steer" in arm_sysp
     assert "blocked" in disarm_sysp or "blocked scorer" in disarm_sysp
     assert "retract" in disarm_sysp or "superseded" in disarm_sysp

@@ -15,8 +15,9 @@ import shlex
 
 ALLOWED_RESEARCH_BASH = (
     "ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
-    "running any file named trace.sh, or the append-only spec CLI "
-    "(unifable restate|add-task|dispute; legacy unifable-spec alias still accepted)"
+    "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), or the "
+    "append-only spec CLI (unifable restate|add-task|dispute; legacy unifable-spec alias "
+    "still accepted)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
