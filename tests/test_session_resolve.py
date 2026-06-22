@@ -16,7 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 from spec import resolve_session_id  # noqa: E402
 
-_ENV = ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID")
+_ENV = ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CURSOR_CONVERSATION_ID", "CURSOR_SESSION_ID")
 
 
 def _clear():
@@ -70,6 +70,40 @@ def test_default_and_fail_open():
         assert resolve_session_id(None) == "default"
         assert resolve_session_id({}, default=None) is None
         assert resolve_session_id(None, default=None) is None
+    finally:
+        _restore(saved)
+
+
+def test_resolve_with_source_reports_origin():
+    from spec import resolve_session_id_with_source
+    saved = _clear()
+    try:
+        val, src = resolve_session_id_with_source({})
+        assert val == "default"
+        assert src == "default"
+
+        val, src = resolve_session_id_with_source(None, default=None)
+        assert val is None
+        assert src == "none"
+
+        os.environ["CODEX_THREAD_ID"] = "codex-xyz"
+        val, src = resolve_session_id_with_source({})
+        assert val == "codex-xyz"
+        assert src == "env:CODEX_THREAD_ID"
+
+        # Clear previous to test Cursor's real observed name
+        os.environ.pop("CODEX_THREAD_ID", None)
+
+        # Real observed name in Cursor Bash (as reported by `env` inside Cursor):
+        # CURSOR_CONVERSATION_ID, not CURSOR_SESSION_ID.
+        os.environ["CURSOR_CONVERSATION_ID"] = "50ee8553-c3e6-4556-9965-8108f4594dbf"
+        val, src = resolve_session_id_with_source({})
+        assert val == "50ee8553-c3e6-4556-9965-8108f4594dbf"
+        assert src == "env:CURSOR_CONVERSATION_ID"
+
+        val, src = resolve_session_id_with_source({"session_id": "from-payload"})
+        assert val == "from-payload"
+        assert src == "payload"
     finally:
         _restore(saved)
 

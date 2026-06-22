@@ -18,8 +18,8 @@ hosts via Claude-Code-compatible hooks:
 |---|---|---|
 | UserPromptSubmit | `router.sh`, `gate_prompt.py`, `gate_prompt_effort.py` | Route task signal to a pack; classify task mode; effort-gated playbook |
 | PreToolUse | `pre_tool_use.py`, `bash_classify.py` | **Evidence gate** (always on): block edits, delegation, and non-whitelisted research Bash until a valid spec proves the homework; protect gate state |
-| PostToolUse | `gate_post_tool.py` | Observe evidence: changed files, verification results, **real** failures |
-| Stop | `gate_stop.py` | Completion gate: require the evidence spec; judge active goals; verification-ran check; promise-no-act guard |
+| PostToolUse | `gate_post_tool.py` | Observe evidence: changed files, verification results, **real** failures; on a repeating failure, surface an advisory judge hint (never a gate) |
+| Stop | `gate_stop.py` | Completion gate: require the evidence spec; judge active goals; verification-ran check; promise-no-act guard; advisory judge hint when stuck behind the completion breaker |
 
 ### Evidence gate
 

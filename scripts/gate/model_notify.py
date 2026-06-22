@@ -14,6 +14,9 @@ from typing import Any
 NOTIFY_PREFIX = "UNIFABLE_MODEL_MESSAGE\t"
 STATUS_PREFIX = "UNIFABLE_SPEC_STATUS\t"
 JUDGE_PREFIX = "UNIFABLE_MODEL_JUDGE\t"
+# Advisory hint channel: a non-blocking nudge from the judge. Distinct from the
+# judge verdict commentary so the agent never mistakes guidance for a gate.
+HINT_PREFIX = "UNIFABLE_MODEL_HINT\t"
 _HEADLINE_MAX = 320
 
 _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spec\.py)")
@@ -59,6 +62,9 @@ def format_spec_status(spec: dict[str, Any], *, highlight_task: str | None = Non
             reason = str(task.get("judge_reason") or "").strip()
             if reason:
                 row += f"\n    judge: {reason}"
+            hint = str(task.get("judge_hint") or "").strip()
+            if hint:
+                row += f"\n    hint (advisory, not a gate): {hint}"
         lines.append(row)
     if ok:
         lines.append("breaker: OPEN (all tasks validated)")
@@ -92,17 +98,28 @@ def _emit_judge(reason: str) -> None:
     print(f"{JUDGE_PREFIX}{text}", file=sys.stderr)
 
 
+def _emit_hint(hint: str) -> None:
+    text = (hint or "").strip()
+    if not text:
+        return
+    print(f"{HINT_PREFIX}{text}", file=sys.stderr)
+
+
 def notify_spec_update(
     spec: dict[str, Any],
     headline: str,
     *,
     highlight_task: str | None = None,
     judge_reason: str | None = None,
+    hint: str | None = None,
 ) -> None:
-    """Emit headline, optional full judge commentary, and the current task board."""
+    """Emit headline, optional full judge commentary, an optional advisory hint,
+    and the current task board."""
     notify_model(headline)
     if judge_reason:
         _emit_judge(judge_reason)
+    if hint:
+        _emit_hint(hint)
     _emit_status(format_spec_status(spec, highlight_task=highlight_task))
 
 
@@ -121,6 +138,15 @@ def extract_judge_commentary(text: str) -> str | None:
     for line in (text or "").splitlines():
         if line.startswith(JUDGE_PREFIX):
             body = line[len(JUDGE_PREFIX) :].strip()
+            if body:
+                return body
+    return None
+
+
+def extract_hint(text: str) -> str | None:
+    for line in (text or "").splitlines():
+        if line.startswith(HINT_PREFIX):
+            body = line[len(HINT_PREFIX) :].strip()
             if body:
                 return body
     return None
@@ -165,6 +191,9 @@ def build_spec_context_from_output(text: str) -> str:
     judge = extract_judge_commentary(text)
     if judge:
         parts.append(f"Judge: {judge}")
+    hint = extract_hint(text)
+    if hint:
+        parts.append(f"Hint (advisory, not a gate): {hint}")
     status = extract_spec_status(text)
     if status:
         parts.append(status)

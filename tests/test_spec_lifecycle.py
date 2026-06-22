@@ -94,7 +94,7 @@ def test_validate_task_accepts_dispute_and_retracts(tmp_path, monkeypatch):
     args = _seed(tmp_path)
     args.evidence = "proven impossible"
     _cmd_dispute(args)
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (1, "genuinely impossible"))
+    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (1, "genuinely impossible", ""))
     rc = _cmd_validate_task(args)
     assert rc == 0
     assert load_spec(str(tmp_path), "K")["tasks"][0]["status"] == "retracted"
@@ -104,7 +104,7 @@ def test_validate_task_rejects_dispute_and_fails(tmp_path, monkeypatch):
     args = _seed(tmp_path)
     args.evidence = "i just don't wanna"
     _cmd_dispute(args)
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (0, "do better"))
+    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (0, "do better", ""))
     rc = _cmd_validate_task(args)
     assert rc == 2
     assert load_spec(str(tmp_path), "K")["tasks"][0]["status"] == "failed"
@@ -118,7 +118,7 @@ def test_validate_task_appends_judge_requirements(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(
         spec_mod, "judge_task",
-        lambda sp, t, ec, out: (1, "ok", [{"title": "also handle errors", "check": "true"}]),
+        lambda sp, t, ec, out: (1, "ok", [{"title": "also handle errors", "check": "true"}], ""),
     )
     args = SimpleNamespace(root=str(tmp_path), task_id="K", task="T1")
     rc = _cmd_validate_task(args)
@@ -206,6 +206,6 @@ def test_end_to_end_append_only_flow(tmp_path, monkeypatch):
     ok, reasons = validate_spec(load_spec(str(tmp_path), "K"), "STANDARD", require_evidence=True)
     assert ok, reasons
     _cmd_deliver(SimpleNamespace(root=str(tmp_path), task_id="K", task="T1"))
-    monkeypatch.setattr(spec_mod, "judge_task", lambda sp, t, ec, out: (1, "ok", []))
+    monkeypatch.setattr(spec_mod, "judge_task", lambda sp, t, ec, out: (1, "ok", [], ""))
     assert _cmd_validate_task(SimpleNamespace(root=str(tmp_path), task_id="K", task="T1")) == 0
     assert all_tasks_validated(load_spec(str(tmp_path), "K")) == (True, [])

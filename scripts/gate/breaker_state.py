@@ -21,7 +21,9 @@ except ImportError:  # pragma: no cover
 
 from ledger import data_root, ledger_key, ledger_path, utc_now
 
-EVENT_KINDS = frozenset({"ARM", "DISARM", "NEEDED", "FAIL_OPEN", "STALE_ARM_DROPPED"})
+EVENT_KINDS = frozenset({
+    "ARM", "DISARM", "NEEDED", "FAIL_OPEN", "STALE_ARM_DROPPED", "LIFT", "REINSTATE",
+})
 MAX_EVENTS = 50
 
 DEFAULT_BREAKER: dict[str, Any] = {
@@ -32,6 +34,10 @@ DEFAULT_BREAKER: dict[str, Any] = {
     "breaker_claim": "",
     "breaker_armed_at": 0.0,
     "breaker_block_count": 0,
+    "breaker_provisional": False,
+    "breaker_lift_reason": "",
+    "breaker_lift_scope": "",
+    "breaker_pending_notify": "",
     "events": [],
     "last_updated": "",
 }
@@ -60,7 +66,7 @@ def render_events(events: list[dict[str, Any]]) -> str:
         parts = [f"event={kind}"]
         if ts:
             parts.append(f'timestamp="{ts}"')
-        for key in ("claim", "steering", "needed", "block_count", "grounded"):
+        for key in ("claim", "steering", "needed", "block_count", "grounded", "reason", "scope", "corrective"):
             value = event.get(key)
             if value not in (None, "", False):
                 text = str(value).replace('"', "'").replace("\n", " ")
@@ -113,6 +119,39 @@ def trim_breaker(state: dict[str, Any]) -> None:
     events = state.get("events")
     if isinstance(events, list):
         state["events"] = events[-MAX_EVENTS:]
+
+
+def clear_provisional_lift(state: dict[str, Any]) -> None:
+    state["breaker_provisional"] = False
+    state["breaker_lift_reason"] = ""
+    state["breaker_lift_scope"] = ""
+    state["breaker_pending_notify"] = ""
+
+
+def lift_provisional(
+    state: dict[str, Any],
+    claim: str,
+    reason: str,
+    scope: str,
+    pending_notify: str,
+) -> None:
+    state["breaker_armed"] = False
+    state["breaker_provisional"] = True
+    state["breaker_claim"] = claim
+    state["breaker_lift_reason"] = reason
+    state["breaker_lift_scope"] = scope
+    state["breaker_pending_notify"] = pending_notify
+    state["breaker_steering"] = ""
+    state["breaker_armed_at"] = 0.0
+    state["breaker_block_count"] = 0
+
+
+def reinstate(state: dict[str, Any], claim: str, corrective: str) -> None:
+    clear_provisional_lift(state)
+    state["breaker_armed"] = True
+    state["breaker_claim"] = claim
+    state["breaker_steering"] = corrective
+    state["breaker_block_count"] = 0
 
 
 def _migrate_from_ledger(input_data: dict[str, Any]) -> dict[str, Any] | None:

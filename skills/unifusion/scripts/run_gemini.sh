@@ -20,7 +20,7 @@
 #   AGY_MODEL            model name (default "Gemini 3.5 Flash (Medium)"; see `agy models`).
 #   UNIFUSION_AGY_NO_MODEL  set to 1 to omit --model and use agy's configured default
 #                        (escape hatch if --model ever hangs in print mode).
-#   UNIFUSION_TIMEOUT       per-panelist budget in seconds (default 300, from _unifusion_lib.sh).
+#   UNIFUSION_TIMEOUT       per-panelist budget in seconds (default 600, from _unifusion_lib.sh).
 # Exa MCP is read from ~/.gemini/config/mcp_config.json (serverUrl or url key).
 
 set -uo pipefail
@@ -114,7 +114,7 @@ fi
   | LC_ALL=C tr -d '\000-\010\013-\037\177' > "$output_file"
 
 # --- Path B: transcript JSONL fallback ------------------------------------------------
-if [ ! -s "$output_file" ]; then
+if ! _has_content "$output_file"; then
   echo "[run_gemini.sh] path A empty (bug #76 probable) — fallback transcript JSONL." >&2
   tr="$(find "$BRAIN_DIR" -name transcript.jsonl -newer "$ts_marker" -print0 2>/dev/null \
         | xargs -0 ls -t 2>/dev/null | head -1)"
@@ -125,7 +125,7 @@ if [ ! -s "$output_file" ]; then
 fi
 
 # --- Anti-empty guard -----------------------------------------------------------------
-if [ ! -s "$output_file" ]; then
+if ! _has_content "$output_file"; then
   echo "[run_gemini.sh] agy produced no answer (path A + path B both empty). Dropping Gemini." >&2
   [ -s "$scratch/stderr.log" ] && { echo "[run_gemini.sh] agy stderr tail:" >&2; tail -10 "$scratch/stderr.log" >&2; }
   exit 1

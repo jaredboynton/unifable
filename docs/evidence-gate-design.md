@@ -67,6 +67,46 @@ Classify the `Bash` command string in the research phase:
   bricked — it can still inspect with `ls`/`glob`/`rg` and use `trace.sh`; (c) ship behind the holdout harness
   (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate.
 
+## Groundedness breaker — provisional lift
+
+Separate from the evidence spec gate: the overconfidence breaker (`scripts/gate/groundedness.py`)
+can arm on an unproven load-bearing claim and block mutations. Three release paths:
+
+- **Full disarm** — release judge finds the claim grounded, retracted, or no longer load-bearing.
+- **Provisional lift** — the model is pursuing the verification the breaker requested (reads cited,
+  docs fetched, minimal experiment-setup edit) but is not yet fully grounded. Mutations are allowed
+  within `lift_scope`; the block cap is paused. The hook notifies the model why the lift was granted.
+- **FAIL_OPEN** — after `BREAKER_MAX_BLOCKS` consecutive blocks on one arm (default 3).
+
+While provisionally lifted, a monitor judge runs on mutation PreToolUse. If work veers outside
+`lift_scope`, the breaker **reinstates** with corrective guidance. Full disarm while lifted still
+applies when a subsequent read/fetch fully grounds the claim.
+
+## Advisory judge hints — guidance, never a gate
+
+The judge can also emit a **non-blocking hint**: one concrete next step for an agent that looks
+stuck or is making poor judgement (e.g. validate-task looping on a check that references a
+nonexistent file). The load-bearing invariant is that a hint is the *opposite* of a gate — it
+**never** changes a verdict, changes a task status, or opens/lifts the completion breaker. It is
+advisory context only, surfaced on a distinct `UNIFABLE_MODEL_HINT` channel
+(`scripts/gate/model_notify.py`) labelled "advisory, not a gate" so the agent cannot mistake it
+for an instruction. Three surfaces, all fail-open (a judge error yields no hint and leaves gate
+behavior byte-identical):
+
+- **Hint field on the verdict** — `judge_task` / `judge_dispute` carry an optional `hint` alongside
+  `verdict`/`reason` (`scripts/gate/spec.py`). No extra judge call; it rides the call already made.
+- **Stop completion-breaker loop** — once the agent has re-blocked Stop `COMPLETION_HINT_THRESHOLD`
+  times (`hooks/gate_stop.py`, counter `completion_stop_blocks` in the ledger), one `judge_hint`
+  call appends a nudge to the still-blocking reason. The block is unchanged; only guidance is added.
+- **Repeated-failure loop** — when PostToolUse sees the same failure class repeat
+  (`hooks/gate_post_tool.py`), the deterministic detection triggers a `judge_hint` call; the
+  guidance itself is reasoned by the judge, never a canned string. Silent if the judge has nothing.
+
+The proactive loops are threshold-bounded (mirroring `BREAKER_MAX_BLOCKS`) so they never spend a
+judge call per tool. `judge_hint` (`scripts/gate/spec.py`) is verdict-free by construction: its
+schema returns only `hint`, so it structurally cannot resolve a task. Locked by
+`tests/test_judge_hint.py` (a hint with `verdict=0` keeps the task failed and the breaker closed).
+
 ## Rollout
 
 Unconditional (always on, no env disable), fail-open on malformed input. Graded: LIGHT waives;

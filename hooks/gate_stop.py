@@ -52,6 +52,55 @@ GOAL_JUDGE_SCHEMA = {
     "additionalProperties": False,
 }
 
+# Advisory-hint loop for the completion breaker. After the agent has re-blocked
+# Stop this many times it is plausibly stuck, so the judge offers ONE concrete
+# next step. The hint never lifts the gate -- it rides alongside the block reason.
+COMPLETION_HINT_THRESHOLD = 3
+COMPLETION_HINT_STEP = 3  # re-offer a nudge every N blocks past the threshold
+
+
+def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -> str:
+    """Advisory nudge for an agent stuck behind the completion breaker.
+
+    Bumps the persistent consecutive-block counter; once it crosses the threshold
+    (and every STEP blocks after), spends one judge call for a concrete next step.
+    Returns hint text to append to the still-blocking reason, or "" when it is not
+    time to nudge or the judge is silent. NEVER lifts the gate; fails open."""
+    try:
+        ledger = load_ledger(input_data)
+        count = int(ledger.get("completion_stop_blocks") or 0) + 1
+        ledger["completion_stop_blocks"] = count
+        save_ledger(input_data, ledger)
+        if count < COMPLETION_HINT_THRESHOLD or \
+                (count - COMPLETION_HINT_THRESHOLD) % COMPLETION_HINT_STEP != 0:
+            return ""
+        from spec import judge_hint
+
+        recent = " | ".join(
+            (ledger.get("ran_commands") or [])[-6:]
+            + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
+        )
+        signal = (
+            f"The completion breaker has re-blocked Stop {count} times; "
+            f"{len(incomplete)} requirement(s) still not validated "
+            f"({', '.join(incomplete)}). The agent may be looping on "
+            "validate-task/dispute without converging."
+        )
+        return judge_hint(spec, signal=signal, recent=recent)
+    except Exception:
+        return ""  # fail open -- a hint never blocks
+
+
+def _reset_completion_blocks(input_data: dict) -> None:
+    """Clear the consecutive-block counter once the completion breaker opens."""
+    try:
+        ledger = load_ledger(input_data)
+        if ledger.get("completion_stop_blocks"):
+            ledger["completion_stop_blocks"] = 0
+            save_ledger(input_data, ledger)
+    except Exception:
+        pass
+
 
 def _holdout_suppresses(input_data: dict) -> bool:
     """M3 holdout: env-gated, opt-in. When UNIFABLE_HOLDOUT=1, sessions in the
@@ -378,7 +427,15 @@ def main() -> int:
                         f"Run `unifable-spec validate-task --task-id {task_key} --task <id>` "
                         "for each until the judge passes it."
                     )
+                    # Advisory nudge if the agent has been stuck here repeatedly.
+                    # Rides alongside the block; it does NOT lift the breaker.
+                    hint = _completion_stop_hint(input_data, spec, incomplete)
+                    if hint:
+                        ev_reason += (
+                            "\n\nHint (advisory, does not lift the gate): " + hint
+                        )
                 else:
+                    _reset_completion_blocks(input_data)
                     ok, reasons = validate_spec(spec, grade, require_evidence=True)
                     if not ok:
                         ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)

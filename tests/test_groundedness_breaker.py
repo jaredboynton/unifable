@@ -54,22 +54,51 @@ class RoutingJudge:
         needed="read foo.py:10 and cite it",
         load_bearing=1,
         release_load_bearing=1,
+        provisional_release=0,
+        lift_reason="",
+        lift_scope="",
+        monitor_on_track=1,
+        monitor_corrective="",
     ):
         self.arm_ret = arm
         self.grounded = grounded
         self.needed = needed
         self.load_bearing = load_bearing
         self.release_load_bearing = release_load_bearing
+        self.provisional_release = provisional_release
+        self.lift_reason = lift_reason
+        self.lift_scope = lift_scope
+        self.monitor_on_track = monitor_on_track
+        self.monitor_corrective = monitor_corrective
         self.arm_calls = 0
         self.disarm_calls = 0
+        self.monitor_calls = 0
 
     def __call__(self, system, user, schema):
+        if "provisional-lift monitor" in system.lower():
+            self.monitor_calls += 1
+            if self.monitor_on_track:
+                return {"on_track": 1, "corrective": ""}
+            return {"on_track": 0, "corrective": self.monitor_corrective}
         if "release monitor" in system.lower():
             self.disarm_calls += 1
             lb = self.release_load_bearing
             if self.grounded:
-                return {"grounded": 1, "needed": "", "load_bearing": lb}
-            return {"grounded": 0, "needed": self.needed, "load_bearing": lb}
+                return {
+                    "grounded": 1, "needed": "", "load_bearing": lb,
+                    "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                }
+            if self.provisional_release:
+                return {
+                    "grounded": 0, "needed": "", "load_bearing": lb,
+                    "provisional_release": 1,
+                    "lift_reason": self.lift_reason,
+                    "lift_scope": self.lift_scope,
+                }
+            return {
+                "grounded": 0, "needed": self.needed, "load_bearing": lb,
+                "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+            }
         self.arm_calls += 1
         v, s, c = self.arm_ret
         return {"verdict": v, "steering": s, "claim": c, "load_bearing": self.load_bearing if v == 1 else 0}
@@ -99,11 +128,11 @@ def test_read_and_websearch_never_blocked_even_when_armed(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: definitely the cause is Y")
     judge = FakeJudge([(1, "you claimed Y with no proof; mutation blocked")])
     state = _state()
-    blocked, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=100.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=100.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
-    blocked, steering = gb.evaluate_pre_tool(_pre("Read"), state, now=101.0, active_task="P", judge=judge)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Read"), state, now=101.0, active_task="P", judge=judge)
     assert blocked is False and steering == ""
-    blocked, _ = gb.evaluate_pre_tool(_pre("WebSearch"), state, now=102.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("WebSearch"), state, now=102.0, active_task="P", judge=judge)
     assert blocked is False
 
 
@@ -111,7 +140,7 @@ def test_verdict1_blocks_mutation_and_returns_steering(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: the fix is obviously Z")
     judge = FakeJudge([(1, "You asserted Z without reading the source. Write/Edit/Bash blocked until you cite evidence.")])
     state = _state()
-    blocked, steering = gb.evaluate_pre_tool(_pre("Edit"), state, now=10.0, active_task="P", judge=judge)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=10.0, active_task="P", judge=judge)
     assert blocked is True
     assert "blocked" in steering.lower() and steering != ""
 
@@ -120,7 +149,7 @@ def test_verdict0_no_block_no_steering(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: I read foo.py:10, it does X; here is the edit")
     judge = FakeJudge([(0, "")])
     state = _state()
-    blocked, steering = gb.evaluate_pre_tool(_pre("Write"), state, now=10.0, active_task="P", judge=judge)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Write"), state, now=10.0, active_task="P", judge=judge)
     assert blocked is False and steering == ""
     assert state["breaker_armed"] is False
 
@@ -129,7 +158,7 @@ def test_arms_then_disarms_via_post_tool_release(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "unproven; blocked", "the cause is Y"), grounded=1)
     state = _state()
-    blocked, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
     assert judge.arm_calls == 1 and judge.disarm_calls == 0
     grounded, needed, message = gb.evaluate_post_tool_release(
@@ -146,7 +175,7 @@ def test_armed_stays_blocked_on_mutation_without_post_tool_release(monkeypatch):
     state = _state()
     gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
     assert state["breaker_armed"] is True
-    blocked, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=99.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=99.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
     assert judge.disarm_calls == 1
 
@@ -165,7 +194,7 @@ def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
     assert judge.disarm_calls == 1
     assert needed == "still missing: read codex_judge.py:54 and cite MODEL"
     assert "still armed" in message.lower()
-    blocked, steering = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is True
     assert steering == needed
 
@@ -187,9 +216,9 @@ def test_safety_cap_fails_open_after_max_blocks(monkeypatch):
     monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
     judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0)
     state = _state()
-    b1, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
-    b2, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
-    b3, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)
+    b1, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
+    b2, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    b3, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)
     assert b1 is True and b2 is True
     assert b3 is False and state["breaker_armed"] is False
 
@@ -200,7 +229,7 @@ def test_new_user_prompt_drops_stale_arm(monkeypatch):
     state = _state()
     gb.arm(state, gb.breaker_key("S", "P1"), 0.0, "blocked", "claim X")
     assert state["breaker_armed"] is True
-    blocked, _ = gb.evaluate_pre_tool(_pre("Edit", session="S"), state, now=1.0, active_task="P2", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit", session="S"), state, now=1.0, active_task="P2", judge=judge)
     assert blocked is False and state["breaker_armed"] is False
     assert judge.arm_calls == 1
     assert any(e.get("kind") == "STALE_ARM_DROPPED" for e in state["events"])
@@ -224,7 +253,7 @@ def test_judge_exception_fails_open(monkeypatch):
         raise RuntimeError("realtime down")
 
     state = _state()
-    blocked, steering = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=boom)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=boom)
     assert blocked is False and steering == ""
 
 
@@ -232,7 +261,7 @@ def test_disabled_env_fails_open(monkeypatch):
     monkeypatch.setenv("UNIFABLE_BREAKER", "0")
     judge = FakeJudge([(1, "blocked")])
     state = _state()
-    blocked, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
     assert blocked is False and judge.calls == 0
 
 
@@ -295,7 +324,7 @@ def test_non_load_bearing_explanation_does_not_arm(monkeypatch):
         load_bearing=0,
     )
     state = _state()
-    blocked, steering = gb.evaluate_pre_tool(_pre("Edit"), state, now=10.0, active_task="P", judge=judge)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=10.0, active_task="P", judge=judge)
     assert blocked is False and steering == ""
     assert state["breaker_armed"] is False
 
@@ -315,10 +344,13 @@ def test_arm_judge_forces_verdict0_when_load_bearing_false():
 
 def test_disarm_judge_releases_when_not_load_bearing():
     def release_judge(system, user, schema):
-        return {"grounded": 0, "needed": "should be ignored", "load_bearing": 0}
+        return {
+            "grounded": 0, "needed": "should be ignored", "load_bearing": 0,
+            "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+        }
 
-    grounded, needed = gb.disarm_judge("speculative host error", "transcript", judge=release_judge)
-    assert grounded is True and needed == ""
+    verdict = gb.disarm_judge("speculative host error", "transcript", judge=release_judge)
+    assert verdict.grounded is True and verdict.needed == ""
 
 
 def test_pre_tool_disarms_when_release_judge_says_not_load_bearing(monkeypatch):
@@ -330,7 +362,7 @@ def test_pre_tool_disarms_when_release_judge_says_not_load_bearing(monkeypatch):
     state = _state()
     gb.arm(state, gb.breaker_key("S", "P"), 0.0, "blocked", "TaskUpdate failed due to plugin reload")
     judge = RoutingJudge(grounded=0, release_load_bearing=0)
-    blocked, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False and state["breaker_armed"] is False
     assert judge.disarm_calls == 1
 
@@ -460,7 +492,7 @@ def test_disarm_adds_event_preventing_re_arm(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "blocked", "claim to disarm"), grounded=1)
     state = _state()
-    blocked, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
     gb.evaluate_post_tool_release(
         _pre("Read"), state, fresh_tool="[tool_result name=Read]\nok", judge=judge
@@ -474,9 +506,9 @@ def test_safety_cap_adds_fail_open_event(monkeypatch):
     monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
     judge = RoutingJudge(arm=(1, "blocked", "uncapped claim"), grounded=0)
     state = _state()
-    b1, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
-    b2, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
-    b3, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)
+    b1, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
+    b2, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    b3, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)
     assert b1 is True and b2 is True and b3 is False
     assert "uncapped claim" in adjudicated_claims(state["events"])
     assert any(e.get("kind") == "FAIL_OPEN" for e in state["events"])
@@ -498,12 +530,97 @@ def test_adjudicated_events_prevent_re_arm(monkeypatch):
             "load_bearing": 1,
         }
 
-    blocked, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=100.0, active_task="P", judge=recording_judge)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=100.0, active_task="P", judge=recording_judge)
     assert blocked is False
     assert state.get("breaker_armed") is False
     assert len(called_system_prompt) == 1
     assert "Do NOT flag any of the following claims" in called_system_prompt[0]
     assert "- my claim" in called_system_prompt[0]
+
+
+def test_disarm_prompt_mentions_provisional_release():
+    sysp = gb._DISARM_SYSTEM.lower()
+    assert "provisional" in sysp
+    assert "pursuing" in sysp or "verification" in sysp
+
+
+def test_monitor_prompt_mentions_veer_and_reinstate():
+    sysp = gb._MONITOR_SYSTEM.lower()
+    assert "lift_scope" in sysp or "scope" in sysp
+    assert "veer" in sysp or "off track" in sysp
+
+
+def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "read baselines cited")
+    judge = RoutingJudge(
+        arm=(1, "blocked", "unproven quality claim"),
+        grounded=0,
+        provisional_release=1,
+        lift_reason="Baselines read; configure the experiment.",
+        lift_scope="Edit prompt-adaptation config only.",
+    )
+    state = _state()
+    gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
+    blocked, _, notify = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is False
+    assert state["breaker_provisional"] is True
+    assert state["breaker_armed"] is False
+    assert state["breaker_block_count"] == 0
+    assert "provisional lift" in notify.lower()
+    assert any(e.get("kind") == "LIFT" for e in state["events"])
+
+
+def test_provisional_monitor_reinstates_on_veer(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(
+        state,
+        "claim X",
+        "reason",
+        "edit config only",
+        "notify",
+    )
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(monitor_on_track=0, monitor_corrective="Stop unrelated refactors.")
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is True
+    assert state["breaker_armed"] is True
+    assert state["breaker_provisional"] is False
+    assert "Stop unrelated refactors" in steering
+    assert any(e.get("kind") == "REINSTATE" for e in state["events"])
+
+
+def test_provisional_monitor_allows_on_track_edit(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(state, "claim X", "reason", "edit config only", "")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(monitor_on_track=1)
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is False
+    assert state["breaker_provisional"] is True
+    assert judge.monitor_calls == 1
+
+
+def test_full_disarm_clears_provisional(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(state, "claim X", "reason", "scope", "notify")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(grounded=1)
+    disarmed, _, msg = gb.evaluate_post_tool_release(
+        _pre("Read"), state, fresh_tool="[tool_result]\nok", judge=judge
+    )
+    assert disarmed is True
+    assert state["breaker_provisional"] is False
+    assert state["breaker_armed"] is False
+    assert "breaker open" in msg.lower()
 
 
 if __name__ == "__main__":

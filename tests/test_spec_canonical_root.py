@@ -125,9 +125,14 @@ def test_where_shows_location(tmp_path, capsys):
     _git_init(repo)
     save_spec(repo, "sess-w", _spec_with_task())
     rc = _cmd_where(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
-    out = capsys.readouterr().out
+    captured = capsys.readouterr()
+    out = captured.out
+    err = captured.err
     assert rc == 0
     assert "session-id: sess-w" in out
     assert "dirhash:" in out
     assert "not your --task-id" in out
     assert "[--] T1" in out
+    # diagnostic for empirical env validation is emitted on stderr
+    assert "UNIFABLE_SESSION_RESOLVED=" in err
+    assert "SOURCE=" in err

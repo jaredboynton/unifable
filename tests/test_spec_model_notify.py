@@ -90,6 +90,55 @@ def test_build_spec_context_from_output_roundtrip():
     assert "breaker: CLOSED" in ctx
 
 
+HINT = "Run `unifable-spec where` -- the spec key looks fragmented; converge on one spec before validating."
+
+
+def test_format_spec_status_shows_advisory_hint_on_highlight():
+    spec = _sample_spec(judge_reason=LONG_JUDGE)
+    spec["tasks"][0]["judge_hint"] = HINT
+    text = mn.format_spec_status(spec, highlight_task="T1")
+    assert f"hint (advisory, not a gate): {HINT}" in text
+    # a non-highlighted task does not leak its hint
+    spec["tasks"][1]["judge_hint"] = "other hint"
+    text2 = mn.format_spec_status(spec, highlight_task="T1")
+    assert "other hint" not in text2
+
+
+def test_notify_spec_update_emits_hint_prefix():
+    spec = _sample_spec()
+    buf = io.StringIO()
+    with redirect_stderr(buf):
+        mn.notify_spec_update(
+            spec,
+            "T1 check ran (exit 2); judge rejected the evidence.",
+            highlight_task="T1",
+            judge_reason=LONG_JUDGE,
+            hint=HINT,
+        )
+    err = buf.getvalue()
+    assert mn.HINT_PREFIX in err
+    assert HINT in err
+
+
+def test_build_spec_context_includes_advisory_hint():
+    spec = _sample_spec(judge_reason=LONG_JUDGE)
+    buf = io.StringIO()
+    with redirect_stderr(buf):
+        mn.notify_spec_update(
+            spec, "T1 rejected.", highlight_task="T1", judge_reason=LONG_JUDGE, hint=HINT
+        )
+    ctx = mn.build_spec_context_from_output("noise\n" + buf.getvalue())
+    assert f"Hint (advisory, not a gate): {HINT}" in ctx
+
+
+def test_notify_spec_update_omits_hint_when_empty():
+    spec = _sample_spec()
+    buf = io.StringIO()
+    with redirect_stderr(buf):
+        mn.notify_spec_update(spec, "T1 validated.", highlight_task="T1")
+    assert mn.HINT_PREFIX not in buf.getvalue()
+
+
 def test_parse_spec_cli_invocation():
     sub, tid = mn.parse_spec_cli_invocation(
         "unifable-spec validate-task --task-id abc-123 --task T1"

@@ -106,6 +106,28 @@ def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool
         return ""
 
 
+def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int) -> str:
+    """Advisory nudge when the same failure class repeats. Rides the existing
+    repeated-failure signal (already bounded), spends one judge call for a concrete
+    next step, and NEVER blocks. Fails open (returns "" on any error)."""
+    try:
+        from spec import judge_hint, load_spec, resolve_session_id
+
+        task_id = resolve_session_id(input_data, default=None)
+        spec = (load_spec(cwd, task_id) if task_id else None) or {}
+        recent = " | ".join(
+            (ledger.get("ran_commands") or [])[-6:]
+            + [f"failure:{f}" for f in (ledger.get("failures") or [])[-4:]]
+        )
+        signal = (
+            f"The same class of failure has repeated {count} times this session. "
+            "The agent may be retrying the same approach instead of changing course."
+        )
+        return judge_hint(spec, signal=signal, recent=recent)
+    except Exception:
+        return ""
+
+
 def _emit_context(parts: list[str]) -> None:
     body = "\n".join(p for p in parts if p and p.strip())
     if not body:
@@ -165,14 +187,16 @@ def main() -> int:
     repeat = repeated_failure(ledger.get("failures", [])) if failure else None
     if repeat:
         _sig, count = repeat
-        _emit_context(
-            [
-                f"unifable: the same class of failure has repeated {count} times. "
-                "Stop retrying silently — report it briefly (what failed / recovery "
-                "already tried / next path).",
-                spec_context,
-            ]
-        )
+        # Repeated failure is the deterministic TRIGGER; the guidance itself is
+        # reasoned by the judge, never a canned string. If the judge is silent or
+        # unreachable, we simply do not nudge (fail open to no hint).
+        hint = _repeated_failure_hint(input_data, ledger, cwd, count)
+        parts: list[str] = []
+        if hint:
+            parts.append("Hint (advisory, not a gate): " + hint)
+        if spec_context:
+            parts.append(spec_context)
+        _emit_context(parts)
     elif failure and not spec_context:
         _emit_context(
             [

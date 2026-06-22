@@ -18,6 +18,12 @@ NotebookRead, and on any PreToolUse while still armed, a claim-bound release jud
 asks whether the flagged claim is grounded, retracted, or no longer load-bearing
 for the work in progress. If any release condition holds, the breaker disarms.
 
+PROVISIONAL LIFT (while armed, not yet fully grounded). The release judge may
+grant a temporary lift when the model is pursuing the verification it was steered
+toward. Mutations are allowed within lift_scope; the block cap is paused. While
+lifted, a monitor judge on mutation PreToolUse re-arms with corrective guidance
+if work veers off track.
+
 SAFETY CAP. After BREAKER_MAX_BLOCKS consecutive blocks on one arm the breaker
 fails open (disarms, logs) so a misfiring judge can never hard-lock a session.
 
@@ -29,6 +35,7 @@ from __future__ import annotations
 
 import os
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
@@ -36,6 +43,9 @@ from breaker_state import (
     adjudicated_claims,
     append_event,
     claim_already_adjudicated,
+    clear_provisional_lift,
+    lift_provisional,
+    reinstate,
     render_events,
 )
 from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail, tail_tokens
@@ -135,15 +145,68 @@ _DISARM_SCHEMA: dict[str, Any] = {
         "needed": {
             "type": "string",
             "description": (
-                "When grounded=0, a 1-2 sentence instruction addressed to the model naming EXACTLY "
-                "what is still missing to disarm, matched to the claim: for a repo claim, which "
-                "file(s) to read (never a blocked shell command -- the breaker forbids mutating Bash); "
-                "for an external/platform/API claim, the official documentation to fetch (web search "
-                "/ WebFetch). Empty string when grounded=1."
+                "When grounded=0 and provisional_release=0, a 1-2 sentence instruction addressed to "
+                "the model naming EXACTLY what is still missing to disarm, matched to the claim: "
+                "for a repo claim, which file(s) to read (never a blocked shell command -- the "
+                "breaker forbids mutating Bash); for an external/platform/API claim, the official "
+                "documentation to fetch (web search / WebFetch). Empty when grounded=1 or "
+                "provisional_release=1."
+            ),
+        },
+        "provisional_release": {
+            "type": "integer",
+            "enum": [0, 1],
+            "description": (
+                "1 ONLY when grounded=0, load_bearing=1, and the transcript shows the model is "
+                "actively pursuing the verification described in prior NEEDED/steering (reads/fetches "
+                "cited, retractions honored, minimal config edit to run a user-requested experiment) "
+                "but is not yet fully grounded. Do NOT set for outcome predictions ('scores will "
+                "hold') -- those need full disarm via evidence or load_bearing=0. When "
+                "provisional_release=1, lift_reason and lift_scope MUST be non-empty."
+            ),
+        },
+        "lift_reason": {
+            "type": "string",
+            "description": (
+                "When provisional_release=1, 1-2 sentences for the model explaining why the breaker "
+                "opened temporarily. Empty otherwise."
+            ),
+        },
+        "lift_scope": {
+            "type": "string",
+            "description": (
+                "When provisional_release=1, what work is allowed while lifted (e.g. edit prompt "
+                "adaptation config only; no unrelated refactors). Empty otherwise."
             ),
         },
     },
-    "required": ["load_bearing", "grounded", "needed"],
+    "required": [
+        "load_bearing", "grounded", "needed", "provisional_release", "lift_reason", "lift_scope",
+    ],
+    "additionalProperties": False,
+}
+
+_MONITOR_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "on_track": {
+            "type": "integer",
+            "enum": [0, 1],
+            "description": (
+                "1 if the imminent tool and transcript show the model is still within lift_scope "
+                "and pursuing the verification that motivated the lift. 0 if the model veered off "
+                "track (unrelated edits, new ungrounded claims, scope creep)."
+            ),
+        },
+        "corrective": {
+            "type": "string",
+            "description": (
+                "When on_track=0, 1-2 sentences re-arming guidance: what veered and what to do "
+                "instead. Empty when on_track=1."
+            ),
+        },
+    },
+    "required": ["on_track", "corrective"],
     "additionalProperties": False,
 }
 
@@ -207,7 +270,27 @@ _DISARM_SYSTEM = (
     "authoritative documentation. When load_bearing=0, grounded MUST be 1. Set grounded=0 ONLY "
     "when load_bearing=1 AND the claim is still relied on AND genuinely unbacked; then write "
     "`needed` naming files to read, never a blocked shell command. When grounded=1, needed MUST "
-    "be empty. Judge only the named claim. Call the function once."
+    "be empty. "
+    "(C) PROVISIONAL RELEASE? When grounded=0 AND load_bearing=1, check whether the model is "
+    "pursuing the verification the breaker requested (reading cited artifacts, fetching docs, "
+    "retracting outcome claims, making the minimal config edit needed to run a user-requested "
+    "check) rather than asserting future outcomes as settled. If so, set provisional_release=1 "
+    "with lift_reason (why you opened temporarily) and lift_scope (allowed work). Do NOT repeat "
+    "the same needed if the model already did those reads -- lift instead. Do NOT lift when the "
+    "only missing proof requires a blocked run whose purpose IS measuring the outcome; lift only "
+    "for experiment setup the user requested. Judge only the named claim. Call the function once."
+)
+
+_MONITOR_SYSTEM = (
+    "You are a provisional-lift MONITOR for an autonomous coding agent. The breaker was temporarily "
+    "opened so the agent could pursue verification within a bounded scope. The FLAGGED CLAIM, "
+    "LIFT SCOPE, IMMINENT TOOL, and transcript are below. "
+    "Set on_track=1 if the imminent tool and recent transcript show the agent is still within "
+    "lift_scope and pursuing the verification that motivated the lift (not unrelated refactors, "
+    "not new ungrounded claims, not scope creep). "
+    "Set on_track=0 if the agent veered off track; write corrective guidance naming what veered "
+    "and what to do instead (the breaker will re-arm). When on_track=1, corrective MUST be empty. "
+    "Call the function once."
 )
 
 
@@ -283,6 +366,16 @@ def judge_transcript(
 JudgeFn = Callable[[str, str, dict], dict]
 
 
+@dataclass(frozen=True)
+class ReleaseVerdict:
+    grounded: bool
+    needed: str
+    load_bearing: bool
+    provisional: bool
+    lift_reason: str
+    lift_scope: str
+
+
 def _default_judge(system: str, user: str, schema: dict) -> dict:
     from codex_judge import ask_structured
 
@@ -320,9 +413,9 @@ def arm_judge(
     return verdict, steering, claim
 
 
-def disarm_judge(claim: str, segment: str, judge: JudgeFn | None = None) -> tuple[bool, str]:
+def disarm_judge(claim: str, segment: str, judge: JudgeFn | None = None) -> ReleaseVerdict:
     if not segment.strip():
-        return False, ""
+        return ReleaseVerdict(False, "", True, False, "", "")
     fn = judge or _default_judge
     user = f"FLAGGED CLAIM:\n{claim}\n\nTRANSCRIPT (what the model has since read/run/cited):\n{segment}"
     obj = fn(_DISARM_SYSTEM, user, _DISARM_SCHEMA)
@@ -330,25 +423,63 @@ def disarm_judge(claim: str, segment: str, judge: JudgeFn | None = None) -> tupl
     grounded = int(obj.get("grounded", 0) or 0) == 1
     if not load_bearing:
         grounded = True
-    needed = str(obj.get("needed", "") or "") if not grounded else ""
-    return grounded, needed
+    provisional = int(obj.get("provisional_release", 0) or 0) == 1
+    if grounded or not load_bearing:
+        provisional = False
+    lift_reason = str(obj.get("lift_reason", "") or "") if provisional else ""
+    lift_scope = str(obj.get("lift_scope", "") or "") if provisional else ""
+    needed = str(obj.get("needed", "") or "") if not grounded and not provisional else ""
+    return ReleaseVerdict(grounded, needed, load_bearing, provisional, lift_reason, lift_scope)
 
 
-def _apply_release(
-    state: dict,
+def monitor_provisional_judge(
     claim: str,
-    grounded: bool,
-    needed: str,
-) -> bool:
-    """Record release outcome on `state`. Returns True if disarmed."""
-    if grounded:
+    scope: str,
+    segment: str,
+    tool_name: str,
+    judge: JudgeFn | None = None,
+) -> tuple[bool, str]:
+    if not segment.strip():
+        return True, ""
+    fn = judge or _default_judge
+    user = (
+        f"FLAGGED CLAIM:\n{claim}\n\nLIFT SCOPE:\n{scope}\n\n"
+        f"IMMINENT TOOL:\n{tool_name}\n\nTRANSCRIPT:\n{segment}"
+    )
+    obj = fn(_MONITOR_SYSTEM, user, _MONITOR_SCHEMA)
+    on_track = int(obj.get("on_track", 1) or 0) == 1
+    corrective = str(obj.get("corrective", "") or "") if not on_track else ""
+    return on_track, corrective
+
+
+def _provisional_lift_message(reason: str, scope: str) -> str:
+    return (
+        f"unifable breaker: provisional lift — {reason} "
+        f"Stay within scope: {scope}. Mutations allowed until grounded or you veer off track."
+    )
+
+
+def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bool, str]:
+    """Record release outcome on `state`. Returns (fully_disarmed, lift_notify_message)."""
+    if verdict.grounded:
         append_event(state, "DISARM", claim=claim, grounded=True)
         disarm(state)
-        return True
-    if needed:
-        append_event(state, "NEEDED", claim=claim, needed=needed)
-        state["breaker_steering"] = needed
-    return False
+        return True, ""
+    if verdict.provisional and verdict.lift_reason and verdict.lift_scope:
+        notify = _provisional_lift_message(verdict.lift_reason, verdict.lift_scope)
+        append_event(
+            state,
+            "LIFT",
+            claim=claim,
+            reason=verdict.lift_reason,
+            scope=verdict.lift_scope,
+        )
+        lift_provisional(state, claim, verdict.lift_reason, verdict.lift_scope, notify)
+        return False, notify
+    if verdict.needed:
+        append_event(state, "NEEDED", claim=claim, needed=verdict.needed)
+        state["breaker_steering"] = verdict.needed
+    return False, ""
 
 
 def breaker_key(session_id: str, active_task: str) -> str:
@@ -382,6 +513,7 @@ def disarm(state: dict) -> None:
     state["breaker_claim"] = ""
     state["breaker_armed_at"] = 0.0
     state["breaker_block_count"] = 0
+    clear_provisional_lift(state)
 
 
 def record_verdict(state: dict, key: str, now: float, verdict: int, steering: str, claim: str = "") -> None:
@@ -408,19 +540,40 @@ def evaluate_pre_tool(
     now: float,
     active_task: str,
     judge: JudgeFn | None = None,
-) -> tuple[bool, str]:
+) -> tuple[bool, str, str]:
     """PreToolUse path: arm judge (debounced) and block mutation tools while armed."""
     if not enabled():
-        return False, ""
+        return False, "", ""
     tool = str(input_data.get("tool_name") or "")
     key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
     events = state.get("events") if isinstance(state.get("events"), list) else []
+    notify_out = ""
     try:
         armed = bool(state.get("breaker_armed"))
-        if armed and state.get("breaker_key") != key:
+        provisional = bool(state.get("breaker_provisional"))
+        if (armed or provisional) and state.get("breaker_key") != key:
             append_event(state, "STALE_ARM_DROPPED", claim=str(state.get("breaker_claim") or ""))
             disarm(state)
             armed = False
+            provisional = False
+        if provisional:
+            if is_mutation_tool(tool):
+                claim = str(state.get("breaker_claim") or "")
+                scope = str(state.get("breaker_lift_scope") or "")
+                if claim and scope:
+                    segment = judge_transcript(input_data, events)
+                    on_track, corrective = monitor_provisional_judge(
+                        claim, scope, segment, tool, judge=judge,
+                    )
+                    if not on_track:
+                        append_event(state, "REINSTATE", claim=claim, corrective=corrective)
+                        reinstate(state, claim, corrective or "Return to the verification scope.")
+                        return True, corrective or "Return to the verification scope.", ""
+            pending = str(state.get("breaker_pending_notify") or "")
+            if pending:
+                state["breaker_pending_notify"] = ""
+                notify_out = pending
+            return False, "", notify_out
         if not armed and should_judge(state, key, now):
             segment = judge_transcript(input_data, events)
             verdict, steering, claim = arm_judge(segment, events=events, judge=judge)
@@ -431,9 +584,12 @@ def evaluate_pre_tool(
             claim = str(state.get("breaker_claim") or "")
             if claim:
                 segment = judge_transcript(input_data, events)
-                _apply_release(state, claim, *disarm_judge(claim, segment, judge=judge))
+                release_verdict = disarm_judge(claim, segment, judge=judge)
+                _disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+                if lift_msg:
+                    state["breaker_pending_notify"] = lift_msg
     except Exception:
-        return False, ""
+        return False, "", ""
     if is_mutation_tool(tool) and state.get("breaker_armed"):
         count = int(state.get("breaker_block_count") or 0) + 1
         state["breaker_block_count"] = count
@@ -442,9 +598,13 @@ def evaluate_pre_tool(
             claim = str(state.get("breaker_claim") or "")
             append_event(state, "FAIL_OPEN", claim=claim, block_count=count)
             disarm(state)
-            return False, ""
-        return True, str(state.get("breaker_steering") or "")
-    return False, ""
+            return False, "", ""
+        return True, str(state.get("breaker_steering") or ""), ""
+    pending = str(state.get("breaker_pending_notify") or "")
+    if pending:
+        state["breaker_pending_notify"] = ""
+        notify_out = pending
+    return False, "", notify_out
 
 
 def evaluate_post_tool_release(
@@ -453,10 +613,12 @@ def evaluate_post_tool_release(
     fresh_tool: str,
     judge: JudgeFn | None = None,
 ) -> tuple[bool, str, str]:
-    """PostToolUse release path. Returns (grounded, needed, context_message)."""
+    """PostToolUse release path. Returns (fully_disarmed, needed, context_message)."""
     if not enabled():
         return False, "", ""
-    if not state.get("breaker_armed"):
+    armed = bool(state.get("breaker_armed"))
+    provisional = bool(state.get("breaker_provisional"))
+    if not armed and not provisional:
         return False, "", ""
     tool = str(input_data.get("tool_name") or "")
     if not is_release_tool(tool):
@@ -467,14 +629,17 @@ def evaluate_post_tool_release(
     events = state.get("events") if isinstance(state.get("events"), list) else []
     try:
         segment = judge_transcript(input_data, events, fresh_tool=fresh_tool)
-        grounded, needed = disarm_judge(claim, segment, judge=judge)
-        if _apply_release(state, claim, grounded, needed):
+        release_verdict = disarm_judge(claim, segment, judge=judge)
+        disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+        if disarmed:
             return True, "", (
                 "unifable breaker open: the flagged claim is grounded. "
                 "Write/Edit/Bash are unrestricted again."
             )
-        if needed:
-            return False, needed, f"unifable breaker: still armed. {needed}"
+        if lift_msg:
+            return False, "", lift_msg
+        if release_verdict.needed:
+            return False, release_verdict.needed, f"unifable breaker: still armed. {release_verdict.needed}"
     except Exception:
         return False, "", ""
     return False, "", ""

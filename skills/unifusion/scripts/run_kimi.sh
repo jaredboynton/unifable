@@ -25,7 +25,7 @@
 # - The panelist runs against a throwaway copy of the current repo/workdir, so its file writes do
 #   not touch your live checkout, while still letting it inspect the repo for codebase evidence.
 # - macOS has no `timeout`; the run is wrapped in the perl helper from _unifusion_lib.sh
-#   (UNIFUSION_TIMEOUT, default 300s). On timeout the runner exits 124 so the orchestrator drops Kimi
+#   (UNIFUSION_TIMEOUT, default 600s). On timeout the runner exits 124 so the orchestrator drops Kimi
 #   and degrades the panel gracefully.
 
 set -uo pipefail
@@ -125,9 +125,10 @@ if [ $status -eq 124 ]; then
   tail -20 "$scratch/stream.log" >&2
   exit 124
 fi
-if [ $status -ne 0 ] || [ ! -s "$output_file" ]; then
-  echo "[run_kimi.sh] kimi exited $status (or empty output); tail of log:" >&2
+if [ $status -ne 0 ] || ! _has_content "$output_file"; then
+  echo "[run_kimi.sh] kimi exited $status (or empty/whitespace-only output); tail of log:" >&2
   tail -20 "$scratch/stream.log" >&2
+  cp "$scratch/stream.log" "${output_file}.stream.log" 2>/dev/null || true
   exit 1
 fi
 echo "[run_kimi.sh] ok -> $output_file"

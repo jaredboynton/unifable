@@ -383,15 +383,35 @@ def resolve_session_id(input_data: dict | None = None, default: str | None = "de
     runtimes export, instead of colliding on one shared file. Callers that want
     to fail open when nothing resolves pass ``default=None``.
     """
+    val, _src = resolve_session_id_with_source(input_data, default)
+    return val
+
+
+def resolve_session_id_with_source(input_data: dict | None = None, default: str | None = "default") -> tuple[str | None, str]:
+    """Resolve session id and report the source for diagnostics.
+
+    Returns (value, source) where source is one of:
+      'payload', 'env:CLAUDE_CODE_SESSION_ID', 'env:CODEX_THREAD_ID',
+      'env:CURSOR_CONVERSATION_ID', 'env:CURSOR_SESSION_ID', 'default', 'none'.
+    This enables empirical checks that Bash subprocesses see the same
+    session env as the hook that generated the prompt scaffold.
+
+    Real observed names (from `env` inside each host's shell):
+      - Claude Code: CLAUDE_CODE_SESSION_ID
+      - Codex:       CODEX_THREAD_ID
+      - Cursor:      CURSOR_CONVERSATION_ID  (not CURSOR_SESSION_ID)
+    """
     if input_data:
         sid = input_data.get("session_id")
         if sid:
-            return str(sid)
-    for var in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CURSOR_SESSION_ID"):
+            return str(sid), "payload"
+    for var in ("CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID", "CURSOR_CONVERSATION_ID", "CURSOR_SESSION_ID"):
         val = os.environ.get(var)
         if val:
-            return val
-    return default
+            return val, f"env:{var}"
+    if default is not None:
+        return default, "default"
+    return None, "none"
 
 
 _PROJECT_MARKERS = (".git", "pyproject.toml", "go.mod", "Cargo.toml", "package.json")
@@ -655,6 +675,9 @@ _JUDGE_SCHEMA = {
         # The judge may DISCOVER further requirements the goal needs while judging
         # this task. It can only ADD them; it never removes existing ones.
         "new_requirements": _NEW_REQ_SCHEMA,
+        # Advisory only. A concrete next step if the agent looks stuck or is making
+        # poor judgement. NEVER changes the verdict and NEVER lifts a gate.
+        "hint": {"type": "string"},
     },
     "required": ["verdict", "reason"],
     "additionalProperties": False,
@@ -664,10 +687,52 @@ _DISPUTE_SCHEMA = {
     "properties": {
         "verdict": {"type": "integer", "enum": [0, 1]},
         "reason": {"type": "string"},
+        # Advisory only, same contract as _JUDGE_SCHEMA.hint.
+        "hint": {"type": "string"},
     },
     "required": ["verdict", "reason"],
     "additionalProperties": False,
 }
+
+# A dedicated, verdict-free schema for the proactive nudge path (judge_hint):
+# the model returns ONLY guidance, never a verdict, so it structurally cannot
+# resolve a task or open a breaker.
+_HINT_SCHEMA = {
+    "type": "object",
+    "properties": {"hint": {"type": "string"}},
+    "required": ["hint"],
+    "additionalProperties": False,
+}
+
+# Advisory-hint guidance shared by every judge prompt that can emit a hint. The
+# hint is forward-looking ("what to do next"), distinct from `reason` ("why this
+# verdict"), and is surfaced to the agent on a clearly-advisory channel.
+_HINT_GUIDANCE = (
+    "Separately from your verdict, if the agent appears stuck, looping, or making "
+    "poor judgement (checks that reference nonexistent files, the same failure "
+    "repeating, disputing instead of doing easy work, a spec that has fragmented), "
+    "set `hint` to ONE concrete, actionable next step to get unstuck. The hint is "
+    "ADVISORY ONLY: it never changes your verdict and never lifts any gate. Leave "
+    "it empty when you have nothing genuinely useful to add."
+)
+
+# Placeholder tokens that disqualify a hint -- a hint must be concrete, not a
+# hedge. Mirrors the assumption-rejection the spec gate applies elsewhere.
+_HINT_PLACEHOLDERS = ("tbd", "n/a", "none", "no hint", "nothing", "unsure", "unclear")
+_HINT_MAX = 280
+
+
+def _normalize_hint(raw: Any) -> str:
+    """Coerce a judge hint into a clean, capped string. Returns '' for anything
+    empty or placeholder-like so a non-hint never reaches the agent."""
+    text = " ".join(str(raw or "").split())
+    if not text:
+        return ""
+    if text.lower() in _HINT_PLACEHOLDERS:
+        return ""
+    if len(text) > _HINT_MAX:
+        text = text[: _HINT_MAX - 3] + "..."
+    return text
 
 
 def _normalize_new_requirements(raw: Any) -> list[dict[str, str]]:
@@ -686,18 +751,19 @@ def _normalize_new_requirements(raw: Any) -> list[dict[str, str]]:
 
 def judge_task(
     spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str
-) -> tuple[int, str, list[dict[str, str]]]:
+) -> tuple[int, str, list[dict[str, str]], str]:
     """Ask the codex judge whether the check output actually validates the task.
 
-    Returns (verdict, reason, new_requirements). verdict is 1 only when the model
-    is convinced the output genuinely demonstrates the task is done and correct.
-    new_requirements are additional tasks the judge discovered (it may only add).
-    Any judge failure returns (0, reason, []) so an unreachable judge never
-    auto-passes a task."""
+    Returns (verdict, reason, new_requirements, hint). verdict is 1 only when the
+    model is convinced the output genuinely demonstrates the task is done and
+    correct. new_requirements are additional tasks the judge discovered (it may
+    only add). hint is advisory-only guidance (never changes the verdict). Any
+    judge failure returns (0, reason, [], "") so an unreachable judge never
+    auto-passes a task and never fabricates a hint."""
     try:
         from codex_judge import JudgeError, ask_structured
     except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}", []
+        return 0, f"judge unavailable: {exc}", [], ""
     system = (
         "You are a strict, adversarial validator for a software task. You are given "
         "the overall goal, one task with its check command, the command's exit code, "
@@ -707,7 +773,8 @@ def judge_task(
         "output, errors, skipped or zero tests, and output that does not match the task. "
         "If, while judging, you find the goal needs further requirements not yet "
         "covered by a task, list them in new_requirements as {title, check} with a "
-        "runnable check; otherwise return an empty list. You may only ADD requirements."
+        "runnable check; otherwise return an empty list. You may only ADD requirements. "
+        + _HINT_GUIDANCE
     )
     user = json.dumps({
         "goal": spec.get("restated_goal", ""),
@@ -719,23 +786,29 @@ def judge_task(
     try:
         res = ask_structured(system, user, _JUDGE_SCHEMA, schema_name="task_verdict")
     except JudgeError as exc:
-        return 0, f"judge error: {exc}", []
+        return 0, f"judge error: {exc}", [], ""
     verdict = 1 if res.get("verdict") == 1 else 0
-    return verdict, str(res.get("reason") or ""), _normalize_new_requirements(res.get("new_requirements"))
+    return (
+        verdict,
+        str(res.get("reason") or ""),
+        _normalize_new_requirements(res.get("new_requirements")),
+        _normalize_hint(res.get("hint")),
+    )
 
 
-def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str]:
+def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str, str]:
     """Adjudicate an agent's claim that a requirement is IMPOSSIBLE.
 
     The agent has submitted `evidence` that the task cannot be satisfied. Return
-    (verdict, reason): verdict 1 accepts the impossibility (the caller retracts the
-    requirement), 0 rejects it (the requirement stays open with feedback). A judge
-    failure returns (0, reason) so an unreachable judge never auto-retracts a
+    (verdict, reason, hint): verdict 1 accepts the impossibility (the caller
+    retracts the requirement), 0 rejects it (the requirement stays open with
+    feedback). hint is advisory-only guidance (never changes the verdict). A judge
+    failure returns (0, reason, "") so an unreachable judge never auto-retracts a
     requirement -- impossibility must be earned, not granted by default."""
     try:
         from codex_judge import JudgeError, ask_structured
     except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}"
+        return 0, f"judge unavailable: {exc}", ""
     system = (
         "You are a strict adjudicator. An agent claims a REQUIRED task is impossible "
         "and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely "
@@ -744,7 +817,8 @@ def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> 
         "is weak, the task is merely hard or inconvenient, or the agent is dodging "
         "work; in reason, tell the agent bluntly what real proof would be required. "
         "Do not accept a claim that work is 'complete' here -- this is only about "
-        "whether the requirement is genuinely impossible."
+        "whether the requirement is genuinely impossible. "
+        + _HINT_GUIDANCE
     )
     user = json.dumps({
         "goal": spec.get("restated_goal", ""),
@@ -755,8 +829,50 @@ def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> 
     try:
         res = ask_structured(system, user, _DISPUTE_SCHEMA, schema_name="dispute_verdict")
     except JudgeError as exc:
-        return 0, f"judge error: {exc}"
-    return (1 if res.get("verdict") == 1 else 0), str(res.get("reason") or "")
+        return 0, f"judge error: {exc}", ""
+    return (
+        1 if res.get("verdict") == 1 else 0,
+        str(res.get("reason") or ""),
+        _normalize_hint(res.get("hint")),
+    )
+
+
+def judge_hint(spec: dict[str, Any], *, signal: str, recent: str = "") -> str:
+    """Proactive, verdict-free nudge for an agent that looks stuck or is wandering.
+
+    Unlike judge_task/judge_dispute, this renders NO verdict and resolves NO task
+    -- it returns advisory guidance only. Callers (the Stop completion-breaker loop
+    and the PostToolUse repeated-failure loop) surface the returned string on a
+    clearly-advisory channel; it can never lift a gate. Any judge failure returns
+    "" so a hint never blocks and an unreachable judge is simply silent."""
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError:  # pragma: no cover
+        return ""
+    system = (
+        "You are a calm, senior engineering lead watching an agent that appears to "
+        "be stuck or making poor judgement. You are NOT judging completion, you "
+        "CANNOT change any verdict, and you CANNOT lift any gate -- you only offer "
+        "ONE concrete, actionable next step to get the agent unstuck. Be specific "
+        "and grounded in the goal, the task board, and what the agent has been "
+        "doing. If you have nothing genuinely useful to say, return an empty hint."
+    )
+    board = spec.get("tasks") or []
+    user = json.dumps({
+        "goal": spec.get("restated_goal", ""),
+        "why_it_looks_stuck": signal,
+        "tasks": [
+            {"id": t.get("id"), "title": t.get("title"),
+             "status": t.get("status"), "judge_reason": t.get("judge_reason")}
+            for t in board if isinstance(t, dict)
+        ],
+        "recent_activity": recent[:2000],
+    }, ensure_ascii=False)
+    try:
+        res = ask_structured(system, user, _HINT_SCHEMA, schema_name="hint")
+    except JudgeError:
+        return ""
+    return _normalize_hint(res.get("hint"))
 
 
 def spec_template() -> dict[str, Any]:
@@ -871,7 +987,7 @@ def _new_task(spec: dict[str, Any], title: str, check: str) -> dict[str, Any]:
     return {
         "id": _next_task_id(spec), "title": title.strip(), "check": check.strip(),
         "status": "pending", "exit": None, "output": "",
-        "judge_verdict": None, "judge_reason": "",
+        "judge_verdict": None, "judge_reason": "", "judge_hint": "",
     }
 
 
@@ -957,9 +1073,10 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
     # The judge adjudicates the claim -- accept retracts it, reject sends it back
     # open with feedback. Only the judge can retract; the agent never removes.
     if task.get("status") == "disputed":
-        verdict, reason = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
+        verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
         task["judge_verdict"] = verdict
         task["judge_reason"] = reason
+        task["judge_hint"] = hint
         task["status"] = "retracted" if verdict == 1 else "failed"
         save_spec(args.root, args.task_id, spec)
         print(f"{args.task}: dispute verdict={verdict} ({reason})")
@@ -970,6 +1087,7 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
                 f"Dispute rejected for {args.task}.",
                 highlight_task=args.task,
                 judge_reason=str(reason or ""),
+                hint=hint,
             )
         else:
             print(f"{args.task} -> retracted (judge accepted impossibility)")
@@ -981,15 +1099,17 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
                 headline,
                 highlight_task=args.task,
                 judge_reason=str(reason or ""),
+                hint=hint,
             )
         return 0 if verdict == 1 else 2
 
     exit_code, output = run_check(task.get("check", ""), cwd=args.root)
-    verdict, reason, new_reqs = judge_task(spec, task, exit_code, output)
+    verdict, reason, new_reqs, hint = judge_task(spec, task, exit_code, output)
     task["exit"] = exit_code
     task["output"] = output
     task["judge_verdict"] = verdict
     task["judge_reason"] = reason
+    task["judge_hint"] = hint
     task["status"] = "validated" if verdict == 1 else "failed"
     # Judge-added requirements: append any the judge discovered. Append-only --
     # the requirement set can grow as work is judged, never shrink here.
@@ -1016,6 +1136,7 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
             headline,
             highlight_task=args.task,
             judge_reason=str(reason or ""),
+            hint=hint,
         )
     else:
         headline = f"{args.task} check ran (exit {exit_code}); judge rejected the evidence."
@@ -1026,6 +1147,7 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
             headline,
             highlight_task=args.task,
             judge_reason=str(reason or ""),
+            hint=hint,
         )
     return 0 if verdict == 1 else 2
 
@@ -1111,6 +1233,13 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _cmd_where(args: argparse.Namespace) -> int:
+    # Always emit a machine-scannable diagnostic for the env-resolved session
+    # (independent of any explicit --task-id). This line appears in Bash tool
+    # results so that probes can empirically validate whether the shell
+    # subprocess receives the same session id/env as the hook/prompt scaffold.
+    resolved_sid, source = resolve_session_id_with_source(default=None)
+    print(f"UNIFABLE_SESSION_RESOLVED={resolved_sid or ''} SOURCE={source}", file=sys.stderr)
+
     print(format_spec_location(args.root, args.task_id))
     spec = load_spec(args.root, args.task_id)
     if spec is not None:
@@ -1147,7 +1276,7 @@ def _normalize_cli_args(args: argparse.Namespace) -> int | None:
     if args.cmd not in (None, "contract") and not args.task_id:
         print(
             "No session id: pass --task-id or set CLAUDE_CODE_SESSION_ID, "
-            "CODEX_THREAD_ID, or CURSOR_SESSION_ID.",
+            "CODEX_THREAD_ID, or CURSOR_CONVERSATION_ID (Cursor).",
             file=sys.stderr,
         )
         return 1

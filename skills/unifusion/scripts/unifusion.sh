@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # unifusion.sh — the single Unifusion entrypoint. Auto-detects every available panelist CLI, builds a
 # best-effort shared session-context brief, assembles ONE canonical prompt, and fans the whole panel out
-# in parallel and blind. Opus (via `cb`) is always a panelist; every external CLI that is installed joins
+# in parallel and blind. Opus (via `claude`) is always a panelist; every external CLI that is installed joins
 # too. The caller does only two things after this returns: JUDGE the answers and SAVE provenance.
 #
 # Usage:
@@ -11,7 +11,7 @@
 # - [run_dir]       : optional dir to hold this run's prompt/outputs; a fresh mktemp dir is used if omitted.
 #
 # What it does (folds in the old detect_panel + preflight + context + per-CLI launch steps):
-#   1. Detects panelist CLIs: cb (Opus/Bedrock), codex (GPT-5.5), agy (Gemini), kimi (Kimi), devin (GLM).
+#   1. Detects panelist CLIs: claude (Opus), codex (GPT-5.5), agy (Gemini), kimi (Kimi), devin (GLM).
 #   2. Builds a FACTUAL session-context brief (summarize_session.sh, best-effort; skipped silently if it
 #      can't be built). The identical brief is shared by every panelist — the panel's one allowed prior.
 #   3. Assembles the canonical panelist prompt ([SESSION CONTEXT]? + [INSTRUCTIONS] + verbatim [TASK])
@@ -23,11 +23,11 @@
 #      and one `PANELIST <label> <ok|dropped:reason> <out_path>` line per panelist, plus a rough estimate.
 #
 # This script never judges and never writes final provenance — Opus (the orchestrator) is the sole judge
-# and must stay a separate process from the cb-launched Opus panelist. Always exits 0 (degradation is
+# and must stay a separate process from the claude-launched Opus panelist. Always exits 0 (degradation is
 # per-panelist, never fatal).
 #
-# Env knobs (advanced; sensible defaults): UNIFUSION_TIMEOUT (per-panelist seconds, default 300),
-# UNIFUSION_OPUS_MODEL (cb model, default opus), KIMI_MODEL, DEVIN_MODEL, AGY_MODEL,
+# Env knobs (advanced; sensible defaults): UNIFUSION_TIMEOUT (per-panelist seconds, default 600),
+# UNIFUSION_OPUS_MODEL (claude model, default opus), KIMI_MODEL, DEVIN_MODEL, AGY_MODEL,
 # UNIFUSION_CONTEXT_PROVIDER + GEMINI_API_KEY/GOOGLE_API_KEY (enable the session brief).
 
 set -uo pipefail
@@ -56,7 +56,7 @@ case "$run_dir" in
   *) run_dir="$(cd "$run_dir" && pwd -P)" ;;
 esac
 
-have cb    && cb_ok=true
+have claude && claude_ok=true
 have codex && codex_ok=true
 have agy   && agy_ok=true
 have_kimi  && kimi_ok=true
@@ -121,7 +121,7 @@ launch() {
 }
 
 # Opus is always a panelist.
-launch opus-A opus4.8 cb_out.md bash "$SCRIPT_DIR/run_cb.sh"
+launch opus-A opus4.8 claude_out.md bash "$SCRIPT_DIR/run_claude.sh"
 
 ext=0
 $codex_ok && { launch gpt5.5         gpt5.5         codex_out.md  bash "$SCRIPT_DIR/run_codex.sh"  ; ext=$((ext+1)); }
@@ -131,7 +131,7 @@ $devin_ok && { launch glm5.2         glm5.2         devin_out.md  bash "$SCRIPT_
 
 # No external CLI at all -> run a SECOND cold Opus (the opus4.8-4.8 fallback).
 if [ "$ext" -eq 0 ]; then
-  launch opus-B opus4.8 cb_out_b.md bash "$SCRIPT_DIR/run_cb.sh"
+  launch opus-B opus4.8 claude_out_b.md bash "$SCRIPT_DIR/run_claude.sh"
 fi
 
 # ---- 5. wait, collect, report --------------------------------------------------------------------
@@ -171,7 +171,7 @@ echo "RUN_DIR=$run_dir"
 echo "PANEL_PROMPT=$panel_prompt"
 echo "CONTEXT=$context_state"
 echo "SLUG=$slug"
-echo "ESTIMATE=~${words} words (~${in_tokens} input tokens) sent to each of ${#labels[@]} panelists; per-panelist timeout ${UNIFUSION_TIMEOUT:-300}s; real cost is several x input."
+echo "ESTIMATE=~${words} words (~${in_tokens} input tokens) sent to each of ${#labels[@]} panelists; per-panelist timeout ${UNIFUSION_TIMEOUT:-600}s; real cost is several x input."
 echo "panel ($ok_count/${#labels[@]} returned):"
 for i in "${!labels[@]}"; do
   printf 'PANELIST %s %s %s\n' "${labels[$i]}" "$(reason_for "${statuses[$i]}")" "${outs[$i]}"

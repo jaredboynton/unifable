@@ -12,19 +12,130 @@
 # 124 when the command was killed for running over time.
 
 # Default per-panelist budget in seconds; override with UNIFUSION_TIMEOUT.
-UNIFUSION_TIMEOUT="${UNIFUSION_TIMEOUT:-300}"
+# 600s, not 300s: when all five heavy agent CLIs run concurrently they contend for
+# CPU, and the slowest-reasoning panelists (Opus via claude, GPT-5.5 xhigh via codex)
+# stretch well past their isolated runtime. At 300s claude measured ~117s solo but
+# exceeded 300s under full 5-way contention and was killed (exit 124, dropped:timeout);
+# 600s gives both heavy models headroom to finish while still bounding a hung run.
+UNIFUSION_TIMEOUT="${UNIFUSION_TIMEOUT:-600}"
 
-# Exa MCP endpoint injected into clean-room panelist configs (cb/codex/devin throwaways).
+# Exa MCP endpoint injected into panelist configs (claude/codex/devin throwaways).
 # Override with UNIFUSION_EXA_MCP_URL when rotating keys.
 UNIFUSION_EXA_MCP_URL="${UNIFUSION_EXA_MCP_URL:-https://mcp.exa.ai/mcp?exaApiKey=93b180fe-b949-451c-afd0-47c6bcca335f}"
 
 have() { command -v "$1" >/dev/null 2>&1; }
+
+# _has_content <file> — true when the file exists and holds at least one
+# non-whitespace byte. `test -s` only checks size > 0, so a panelist that emits a
+# lone newline (observed from claude under load: exit 0 but a 1-byte "\n"
+# answer) would otherwise pass as a real answer and feed the judge an empty
+# panelist. Runners use this instead of `-s` for their final success check.
+_has_content() {
+  local f="${1:-}"
+  [ -f "$f" ] || return 1
+  LC_ALL=C grep -q '[^[:space:]]' "$f" 2>/dev/null
+}
 
 # _unifusion_write_claude_exa_mcp <json_path> — Claude `--mcp-config` file (exa only).
 _unifusion_write_claude_exa_mcp() {
   local path="${1:?path required}"
   mkdir -p "$(dirname "$path")"
   printf '%s\n' "{\"mcpServers\":{\"exa\":{\"type\":\"http\",\"url\":\"${UNIFUSION_EXA_MCP_URL}\"}}}" > "$path"
+}
+
+# _unifusion_write_claude_panel_settings <dest.json>
+# Panel isolation for claude: live user hooks, no plugins, Exa via --mcp-config, fastMode on.
+_unifusion_write_claude_panel_settings() {
+  local dest="${1:?dest required}"
+  python3 - "$dest" <<'PY' || return 1
+import json, os, sys
+dest = sys.argv[1]
+src = os.path.join(os.path.expanduser("~"), ".claude", "settings.json")
+try:
+    with open(src, encoding="utf-8") as f:
+        user = json.load(f)
+except OSError as e:
+    print(f"[_unifusion_lib] cannot read {src}: {e}", file=sys.stderr)
+    sys.exit(1)
+except json.JSONDecodeError as e:
+    print(f"[_unifusion_lib] invalid JSON in {src}: {e}", file=sys.stderr)
+    sys.exit(1)
+panel = {
+    "hooks": user.get("hooks", {}),
+    "skillOverrides": {
+        "claude-api": "off",
+        "update-config": "off",
+        "deep-research": "off",
+        "verify": "off",
+        "keybindings-help": "off",
+        "fewer-permission-prompts": "off",
+        "simplify": "off",
+        "security-review": "off",
+        "init": "off",
+        "review": "off",
+        "teach-impeccable": "off",
+        "writing": "off",
+    },
+    "permissions": {
+        "deny": [
+            "Agent(claude-code-guide)",
+            "Agent(Explore)",
+            "Agent(statusline-setup)",
+            "mcp__octocode__packageSearch",
+            "Agent(caveman:cavecrew-builder)",
+            "Agent(caveman:cavecrew-reviewer)",
+            "Agent(caveman:cavecrew-investigator)",
+        ],
+        "ask": [],
+        "defaultMode": "bypassPermissions",
+    },
+    "enabledPlugins": {},
+    "fastMode": True,
+    "mcpServers": {},
+}
+os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+with open(dest, "w", encoding="utf-8") as f:
+    json.dump(panel, f, indent=2)
+    f.write("\n")
+PY
+}
+
+# _unifusion_write_codex_panel_config <codex_home> <model> <effort>
+# Panel isolation for codex: live hooks.json, fast service tier, hooks+code_mode, Exa MCP only.
+_unifusion_write_codex_panel_config() {
+  local codex_home="${1:?codex_home required}"
+  local model="${2:?model required}"
+  local effort="${3:?effort required}"
+  local hooks_src="${HOME}/.codex/hooks.json"
+  local hooks_dest="${codex_home}/hooks.json"
+
+  mkdir -p "$codex_home"
+  for f in auth.json auth-2.json; do
+    [ -f "${HOME}/.codex/$f" ] && cp "${HOME}/.codex/$f" "$codex_home/" 2>/dev/null
+  done
+  if [ ! -f "$hooks_src" ]; then
+    echo "[_unifusion_lib] missing $hooks_src — cannot build codex panel config" >&2
+    return 1
+  fi
+  cp "$hooks_src" "$hooks_dest"
+
+  cat > "${codex_home}/config.toml" <<EOF
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+suppress_unstable_features_warning = true
+include_apps_instructions = false
+personality = "none"
+service_tier = "fast"
+model = "$model"
+model_reasoning_effort = "$effort"
+
+[mcp_servers.exa]
+url = "$UNIFUSION_EXA_MCP_URL"
+
+[features]
+hooks = true
+code_mode = true
+EOF
 }
 
 # _kimi_bin — print the path to the real kimi binary, never the shell alias (often `kimi --yolo`,

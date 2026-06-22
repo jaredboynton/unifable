@@ -29,8 +29,8 @@ Plain bash + two interpreter helpers; no build step.
   `PANELIST <label> <ok|dropped:reason> <out>` line each, `ESTIMATE=`). Never judges, never gates, always
   exits 0. Folds in the old `detect_panel.sh` + `preflight.sh` (both removed).
 - `scripts/run_cb.sh` — Opus 4.8 panelist via `cb -p --model opus --output-format text` (stdin
-  prompt). Isolated `CLAUDE_CONFIG_DIR` (no hooks/plugins) + `--mcp-config` Exa only
-  (`--strict-mcp-config`). The `cb` wrapper
+  prompt). Isolated `CLAUDE_CONFIG_DIR` with live standard user hooks (from `~/.claude/settings.json`),
+  no plugins, `fastMode`, plus `--mcp-config` Exa only (`--strict-mcp-config`). The `cb` wrapper
   auto-adds `--dangerously-skip-permissions` for web+bash. Override model via `UNIFUSION_OPUS_MODEL`.
 - `scripts/resolve_session.sh [--path|--id|--json] [--fingerprint-file <f>]` — host-agnostic resolver:
   walks process ancestry to the host agent (claude/codex/droid/devin), reads its session id (env/argv/
@@ -53,10 +53,12 @@ Plain bash + two interpreter helpers; no build step.
   if edited.
 - `scripts/run_codex.sh` (GPT-5.5), `run_gemini.sh` (Gemini 3.5 Flash via `agy`), `run_kimi.sh` (Kimi K2.7),
   `run_devin.sh` (GLM-5.2) — one external panelist each.
-- `scripts/_unifusion_lib.sh` — sourced by the runners; `have()` and `_run_with_timeout` (perl fork+alarm,
-  since stock macOS has no `timeout`/`gtimeout`). The child is exec'd as its own **process-group leader** and
-  the deadline/signal handler kills the whole group, so panelist helper children (codex MCP servers, kimi's
-  `kimi-code` worker) are reaped instead of orphaned. `UNIFUSION_TIMEOUT` default 300s.
+- `scripts/_unifusion_lib.sh` — sourced by the runners; `have()`, `_has_content`, panel config builders
+  (`_unifusion_write_cb_panel_settings`, `_unifusion_write_codex_panel_config`), and `_run_with_timeout`
+  (perl fork+alarm, since stock macOS has no `timeout`/`gtimeout`). The child is exec'd as its own
+  **process-group leader** and the deadline/signal handler kills the whole group, so panelist helper children
+  (codex MCP servers, kimi's `kimi-code` worker) are reaped instead of orphaned. `UNIFUSION_TIMEOUT` default
+  600s.
 - `scripts/_pty_run.py` — runs `agy` under a fresh pty (`pty.fork`) to dodge agy bug #76 (empty stdout
   with no TTY) while surviving a socket stdin (headless/cmux).
 - `scripts/save_run.sh` — writes the provenance `.md` under `~/.claude/unifusion-runs/` only. Accepts a
@@ -65,19 +67,21 @@ Plain bash + two interpreter helpers; no build step.
   `LABEL=path` list as fallback.
 - `references/panel.md`, `references/judge_rubric.md` — panel composition + the two judge tracks.
 
-## Clean room (why panelists don't load the harness)
+## Panel isolation (plugins off, standard hooks on, Exa only)
 
-The unifable/fablize harness is installed into every CLI's user config (Claude plugins; codex `hookd@hookd`
-hooks + `[mcp_servers]` + turn-end notify; devin `hooks` running `gate_prompt.py`/`gate_post_tool.py`; kimi
-auto-discovered skills). Left in place it stalls or correlates a panelist — most visibly the groundedness
-breaker, which blocks a panelist's mutation tools in a loop until it times out, and codex MCP startup, which
-hangs / "nests" into a shared app-server across concurrent runs. So every runner strips the harness; Exa
-MCP is the one server panelists keep for web research:
+Plugin harness hooks (unifable, hookd, etc.) stall or correlate panelists — most visibly the groundedness
+breaker, which blocks mutation tools in a loop until timeout, and codex MCP startup, which hangs / "nests"
+into a shared app-server across concurrent runs. So every runner strips **plugins and non-Exa MCP**; Exa is
+the one server panelists keep for web research. For **cb** and **codex**, standard user hooks from the live
+home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex/hooks/`):
 
-- **cb** → isolated `CLAUDE_CONFIG_DIR` (empty hooks/plugins) + `--mcp-config` Exa only
+- **cb** → isolated `CLAUDE_CONFIG_DIR`: live hooks from `~/.claude/settings.json`, hardcoded panel
+  `skillOverrides`/`permissions`, `enabledPlugins: {}`, `fastMode: true`, plus `--mcp-config` Exa only
   (`--strict-mcp-config`).
-- **codex** → isolated `CODEX_HOME` (throwaway dir: minimal `config.toml` + copied `auth.json` + Exa
-  `[mcp_servers.exa]` only; no hooks, no notify). Per-run, so concurrent runs never share Codex state.
+- **codex** → isolated `CODEX_HOME` (throwaway dir: `config.toml` with `service_tier = "fast"`,
+  `include_apps_instructions = false`, `[features] hooks/code_mode`, copied `auth.json`, live
+  `~/.codex/hooks.json`, Exa `[mcp_servers.exa]` only; no notify). `codex exec --dangerously-bypass-hook-trust`
+  auto-approves hooks headlessly. Per-run, so concurrent runs never share Codex state.
 - **devin** → `--config <throwaway minimal.json>` = real config minus `hooks`/`plugins`/`rules`/`skills`,
   `mcpServers` replaced with Exa only, model pinned to glm-5.2.
 - **kimi** → `--skills-dir <empty>`; Exa from `[mcp_servers.exa]` in `~/.kimi-code/config.toml`; plus a
@@ -95,9 +99,9 @@ MCP is the one server panelists keep for web research:
   answer to `<output_file>`.
 - cb/codex/kimi/devin run the model against a **throwaway copy** of the repo/workdir (deleted on exit), so a
   panelist's file writes never touch the live checkout.
-- Run **clean-room**: strip the CLI's plugins/hooks/skills (see Clean room above) so the harness can't
-  stall or correlate the panel. Exa MCP is injected (cb/codex/devin throwaways) or read from user config
-  (kimi/agy).
+- Run **panel isolation**: strip plugins/skills and non-Exa MCP (see Panel isolation above). cb/codex keep
+  live standard user hooks; devin/kimi strip hooks/skills. Exa MCP is injected (cb/codex/devin throwaways)
+  or read from user config (kimi/agy).
 - Strip the CLI's wrapper to clean Markdown (ANSI + control bytes; kimi also has a leading bullet +
   2-space hanging indent).
 - Exit codes are the degradation signal: `127` CLI missing, `124` timed out (`UNIFUSION_TIMEOUT`), `1`/other
@@ -109,7 +113,7 @@ MCP is the one server panelists keep for web research:
 
 | Var | Default | Effect |
 |-----|---------|--------|
-| `UNIFUSION_TIMEOUT` | `300` | per-panelist deadline (seconds) |
+| `UNIFUSION_TIMEOUT` | `600` | per-panelist deadline (seconds) |
 | `UNIFUSION_EXA_MCP_URL` | (see `_unifusion_lib.sh`) | Exa MCP endpoint for cb/codex/devin throwaway configs |
 | `UNIFUSION_OPUS_MODEL` | `opus` | cb model alias for the Opus panelist(s) |
 | `UNIFUSION_CODEX_MODEL` | `gpt-5.5` | model in the isolated codex config |
@@ -127,7 +131,7 @@ MCP is the one server panelists keep for web research:
 ## Adding a panelist CLI
 
 1. Write `scripts/run_<cli>.sh` to the runner contract above (copy the closest existing runner) — including
-   the clean-room stripping for that CLI.
+   the panel-isolation stripping for that CLI.
 2. In `scripts/unifusion.sh`: add a `have <cli>` probe, and a `launch <label> <slug_token> <out>.md bash
    "$SCRIPT_DIR/run_<cli>.sh"` line in the fan-out block (bump `ext` if it's an external CLI).
 3. Add the panelist to `references/panel.md` composition.
@@ -140,7 +144,7 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
 
 - `printf 'what is the latest node LTS?' > /tmp/q.md && bash scripts/run_<cli>.sh /tmp/q.md /tmp/o.md;
   echo "exit=$?"; cat /tmp/o.md` → clean Markdown, no wrapper artifacts. (For each of cb/codex/gemini/kimi/
-  devin; confirm it returns in seconds, not blocked by hooks/MCP — that's the clean-room working.)
+  devin; confirm it returns in seconds, not blocked by plugin hooks/MCP — that's panel isolation working.)
 - `bash scripts/unifusion.sh /tmp/q.md /tmp/ufrun` → a manifest with one `PANELIST ... ok ...` per installed
   CLI; every `*_out.md` in `/tmp/ufrun` is non-empty and distinct. After, `ps aux | grep kimi-code | grep -v
   grep | wc -l` should not grow run-over-run (orphan reap).
@@ -158,9 +162,9 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
 - Keep Opus as the sole judge; the orchestrator session must stay separate from the panel. Opus panelists
   run as separate `cb` processes and can't call back out to spawn the judge (see `references/panel.md`,
   `judge_rubric.md`).
-- Keep every panelist clean-room (strip plugins/hooks/skills; Exa MCP only). The harness — especially the
-  groundedness breaker — will otherwise block a panelist's tools in a loop until timeout, or correlate the
-  panel; clean-room is what makes codex/devin/kimi reliable.
+- Keep every panelist isolated (strip plugins/skills and non-Exa MCP; cb/codex keep standard user hooks).
+  Plugin harness hooks — especially the groundedness breaker — must not load or they block a panelist's
+  tools in a loop until timeout, or correlate the panel.
 - Never paste one panelist's output into another's prompt — independence is the mechanism.
 - Keep the factual-only post-filter in `summarize_session.sh` (strips Plans / Promises / Next-Step). The
   session brief is the panel's one shared prior; leaking proposed next steps would correlate the panel.

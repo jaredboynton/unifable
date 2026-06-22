@@ -42,6 +42,11 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "warnings": [],
     "stop_blocks": 0,
     "goal_stop_blocks": 0,
+    # Consecutive Stop blocks caused by the completion breaker (every task not yet
+    # validated). Drives the advisory-hint loop in gate_stop.py: once the agent has
+    # re-blocked this many times it is plausibly stuck, so the judge offers a nudge.
+    # Reset to 0 the moment the breaker opens. Never gates -- advisory only.
+    "completion_stop_blocks": 0,
     # Citation-verification activity log: what the session ACTUALLY did, so the
     # gate can cross-check that a spec's citations are real (see citations.py).
     # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).

@@ -27,7 +27,7 @@ Panel composition scales to whatever is installed, one panelist per CLI:
 
 | CLI | Panelist | Slug token |
 |---|---|---|
-| `cb` | Opus 4.8 (Claude/Bedrock, `--safe-mode`) | `opus4.8` |
+| `cb` | Opus 4.8 (Claude/Bedrock, standard hooks, no plugins) | `opus4.8` |
 | `codex` | GPT-5.5 | `-gpt5.5` |
 | `agy` | Gemini 3.5 Flash | `-gemini3.5flash` |
 | `kimi` | Kimi K2.7 | `-kimi2.7` |
@@ -35,10 +35,10 @@ Panel composition scales to whatever is installed, one panelist per CLI:
 
 With no external CLI present, unifusion still runs as `opus4.8-4.8` — two independent Opus passes, judged.
 
-Every panelist runs **clean-room** — its plugins, hooks, MCP servers, and skills stripped (`cb --safe-mode`,
-an isolated `CODEX_HOME`, a minimal devin config, an empty kimi skills dir) — so the unifable harness (e.g.
-the groundedness breaker that would block a panelist's tools in a loop) or a slow MCP server can never stall
-or correlate the panel.
+Every panelist runs **isolated** — plugins, skills, and non-Exa MCP stripped; cb/codex keep live standard
+user hooks with fast mode (isolated `CLAUDE_CONFIG_DIR` / `CODEX_HOME`, minimal devin config, empty kimi
+skills dir) — so plugin harness hooks (e.g. the groundedness breaker that would block a panelist's tools in
+a loop) or a slow MCP server can never stall or correlate the panel.
 
 ## Independence is the mechanism
 
