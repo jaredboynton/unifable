@@ -28,9 +28,15 @@ ALLOWED = [
     "env FOO=bar ./trace.sh",
     "ls && rg foo",
     "ls | rg foo",
-    # Append-only spec CLI: the agent drives the evidence spec through these
-    # subcommands before the gate unlocks. Creation is automatic (hook) and
-    # removal is judge-only, so create/init/--force are NOT allowed (see BLOCKED).
+    # Append-only spec CLI via PATH wrapper (works from any repo cwd).
+    "unifable-spec add-task --task-id x --title t --check true",
+    "unifable-spec validate-task --task-id x --task T1",
+    "unifable-spec dispute --task-id x --task T1 --evidence proof",
+    "unifable-spec status --task-id x",
+    "unifable-spec restate --task-id x --goal 'do the thing well'",
+    "unifable-spec cite --task-id x --repo-context a.py:1::why",
+    "/Users/me/.local/bin/unifable-spec validate --task-id x --grade STANDARD",
+    # Legacy: direct plugin-path invocation still allowed (e.g. unifable dev repo).
     "python3 scripts/gate/spec.py add-task --task-id x --title t --check true",
     "python3 ./scripts/gate/spec.py validate-task --task-id x --task T1",
     "python3 scripts/gate/spec.py dispute --task-id x --task T1 --evidence proof",
@@ -48,6 +54,9 @@ BLOCKED = [
     "grep -r foo .",
     "find . -name '*.py'",
     # Forbidden spec CLI: creation is automatic, removal is judge-only.
+    "unifable-spec create --task-id x --goal g",
+    "unifable-spec init --task-id x",
+    "unifable-spec add-task --task-id x --force",
     "python3 scripts/gate/spec.py create --task-id x --goal g",
     "python3 scripts/gate/spec.py init --task-id x",
     "python3 scripts/gate/spec.py add-task --task-id x --force",
@@ -55,6 +64,7 @@ BLOCKED = [
     "python3 evil.py",
     "python3 scripts/gate/other.py status",
     "python3 /tmp/spec.py validate-task --task-id x --task T1",
+    "unifable-spec validate-task --task-id x && cat /etc/passwd",
     "python3 scripts/gate/spec.py validate-task --task-id x && cat /etc/passwd",
     "pytest tests/ -q",
     "npm test",

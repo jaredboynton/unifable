@@ -15,7 +15,7 @@ import shlex
 
 ALLOWED_RESEARCH_BASH = (
     "ls, glob, rg, running any file named trace.sh, or the append-only spec CLI "
-    "(python3 scripts/gate/spec.py restate|add-task|cite|deliver|validate-task|dispute|status|validate|contract)"
+    "(unifable-spec restate|add-task|cite|deliver|validate-task|dispute|status|validate|contract)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
@@ -28,6 +28,7 @@ _PY_INTERPRETERS = frozenset({"python", "python3"})
 _SPEC_APPEND_SUBCMDS = frozenset({
     "restate", "add-task", "cite", "deliver", "validate-task", "dispute", "status", "validate", "contract",
 })
+_SPEC_CLI_NAMES = frozenset({"unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _SPLIT_RE = re.compile(r"\|\||&&|\||;|\n")
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
@@ -64,6 +65,26 @@ def _trace_target_from_interpreter(rest: list[str]) -> str:
     return ""
 
 
+def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
+    """Validate append-only subcommands for unifable-spec or scripts/gate/spec.py."""
+    if "--force" in args:
+        return False, ("spec CLI --force is not allowed: the agent cannot overwrite or "
+                       "remove a spec (creation is automatic, removal is judge-only).")
+    sub = ""
+    for tok in args:
+        if tok.startswith("-"):
+            continue
+        sub = tok
+        break
+    if sub in _SPEC_APPEND_SUBCMDS:
+        return True, ""
+    return False, (
+        f"spec CLI '{sub or '<none>'}' is not an append-only subcommand "
+        "(creation is automatic, removal is judge-only). Allowed: "
+        f"{', '.join(sorted(_SPEC_APPEND_SUBCMDS))}."
+    )
+
+
 def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
     """Classify a `python[3] ...` segment that may invoke the gate's spec CLI.
 
@@ -83,24 +104,7 @@ def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
         break
     if not script.replace("\\", "/").endswith("scripts/gate/spec.py"):
         return False, ""  # not the spec CLI
-
-    if "--force" in rest:
-        return False, ("spec.py --force is not allowed: the agent cannot overwrite or "
-                       "remove a spec (creation is automatic, removal is judge-only).")
-    # Subcommand = first non-flag token after the script path.
-    sub = ""
-    for tok in rest[script_idx + 1:]:
-        if tok.startswith("-"):
-            continue
-        sub = tok
-        break
-    if sub in _SPEC_APPEND_SUBCMDS:
-        return True, ""
-    return False, (
-        f"spec.py '{sub or '<none>'}' is not an append-only subcommand "
-        "(creation is automatic, removal is judge-only). Allowed: "
-        f"{', '.join(sorted(_SPEC_APPEND_SUBCMDS))}."
-    )
+    return _validate_spec_append_args(rest[script_idx + 1:])
 
 
 def _allowed_segment(seg: str) -> tuple[bool, str]:
@@ -118,6 +122,12 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
     base = _basename(command)
     if base in _ALLOWED_COMMANDS:
         return True, ""
+    if base in _SPEC_CLI_NAMES:
+        ok, reason = _validate_spec_append_args(rest)
+        if ok:
+            return True, ""
+        if reason:
+            return False, reason
     if base == "trace.sh":
         return True, ""
     if base in _TRACE_INTERPRETERS and _basename(_trace_target_from_interpreter(rest)) == "trace.sh":

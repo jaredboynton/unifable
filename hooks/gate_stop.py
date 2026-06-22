@@ -361,7 +361,7 @@ def main() -> int:
             if task_key and spec is None:
                 ev_reason = (
                     "no evidence spec for this session (the prompt hook auto-creates one for "
-                    "non-trivial work). Add a requirement with `python3 scripts/gate/spec.py "
+                    "non-trivial work). Add a requirement with `unifable-spec "
                     f"add-task --task-id {task_key} --title '<requirement>' --check '<runnable check>'`, "
                     "then deliver + validate-task it before finishing."
                 )
@@ -373,7 +373,7 @@ def main() -> int:
                 if not ok_tasks:
                     ev_reason = (
                         f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
-                        f"Run `python3 scripts/gate/spec.py validate-task --task-id {task_key} --task <id>` "
+                        f"Run `unifable-spec validate-task --task-id {task_key} --task <id>` "
                         "for each until the judge passes it."
                     )
                 else:

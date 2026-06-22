@@ -160,5 +160,12 @@ else
   echo "  · operating block not injected (set UNIFABLE_BLOCK=1 to add the always-on routing text)"
 fi
 
+if [ -n "$CACHE_SETUP" ]; then
+  CACHE_ROOT="$(dirname "$(dirname "$CACHE_SETUP")")"
+  bash "$CACHE_ROOT/setup/install-bin.sh" "$CACHE_ROOT" >/dev/null 2>&1 \
+    && echo "  ✓ unifable-spec linked into ~/.local/bin" \
+    || echo "  ! unifable-spec install skipped"
+fi
+
 echo "unifable: Codex native-plugin install complete. RESTART Codex; the plugin loads its own hooks."
 echo "  Verify: codex plugin list   (expect '$KEY' enabled)"

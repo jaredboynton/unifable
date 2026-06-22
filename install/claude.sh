@@ -99,5 +99,9 @@ CLAUDE_PLUGIN_ROOT="$CACHE_DIR" bash "$CACHE_DIR/setup/setup.sh" global claude >
   && echo "  ✓ CLAUDE.md operating block swapped to unifable" \
   || echo "  ! CLAUDE.md block swap skipped (run: CLAUDE_PLUGIN_ROOT=$CACHE_DIR bash $CACHE_DIR/setup/setup.sh global claude)"
 
+bash "$CACHE_DIR/setup/install-bin.sh" "$CACHE_DIR" >/dev/null 2>&1 \
+  && echo "  ✓ unifable-spec linked into ~/.local/bin" \
+  || echo "  ! unifable-spec install skipped (run: bash $CACHE_DIR/setup/install-bin.sh $CACHE_DIR)"
+
 echo "unifable: Claude install complete. RESTART Claude Code for the plugin swap to take effect."
 echo "  Fallback if it does not appear: /plugin marketplace add jaredboynton/unifable && /plugin install unifable@unifable"

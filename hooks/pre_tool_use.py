@@ -197,9 +197,9 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             f"no evidence spec for task '{task_id}' (grade={grade}). The spec is "
             "auto-created on the hook path; build it through the append-only CLI "
             "(never edit the JSON, never run create):\n"
-            f"  python3 scripts/gate/spec.py add-task --task-id {task_id} --title '<requirement>' --check '<runnable check>'\n"
-            f"  python3 scripts/gate/spec.py cite --task-id {task_id} --repo-context 'path:line::why' --prior-art '<url>::why'\n"
-            f"  python3 scripts/gate/spec.py deliver --task-id {task_id} --task <id>; then validate-task (the judge decides). "
+            f"  unifable-spec add-task --task-id {task_id} --title '<requirement>' --check '<runnable check>'\n"
+            f"  unifable-spec cite --task-id {task_id} --repo-context 'path:line::why' --prior-art '<url>::why'\n"
+            f"  unifable-spec deliver --task-id {task_id} --task <id>; then validate-task (the judge decides). "
             f"{contract_string(grade, True)}"
         )
 
@@ -343,7 +343,7 @@ def main() -> int:
             return _block(
                 f"write to protected unifable state file '{target}' is not allowed. "
                 "Specs are CLI-only: create and mutate them via "
-                "`python3 scripts/gate/spec.py` (create / add-task / deliver / "
+                "`unifable-spec` (create / add-task / deliver / "
                 "validate-task), never by hand-editing the JSON. ledger, goals, "
                 "findings, and state are off-limits too."
             )

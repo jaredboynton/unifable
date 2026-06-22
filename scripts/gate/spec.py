@@ -242,7 +242,7 @@ def validate_spec(
     elif spec.get("goal_seeded"):
         reasons.append(
             "restate the goal in your own words first: restated_goal is still the raw "
-            "prompt the hook seeded, not a restatement. Run `python3 scripts/gate/spec.py "
+            "prompt the hook seeded, not a restatement. Run `unifable-spec "
             "restate --task-id <id> --goal '<the intended outcome, in your own words>'`."
         )
 
@@ -261,7 +261,7 @@ def validate_spec(
         # Auto-created task-spec with no requirement yet: the agent must add >=1.
         reasons.append(
             "no requirements yet: add at least one with "
-            "`python3 scripts/gate/spec.py add-task --task-id <id> --title '<req>' --check '<runnable check>'`, "
+            "`unifable-spec add-task --task-id <id> --title '<req>' --check '<runnable check>'`, "
             "then deliver + validate-task."
         )
     elif not isinstance(criteria, list) or not criteria:
