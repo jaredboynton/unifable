@@ -101,7 +101,7 @@ def test_apply_cli_context_resolves_env(tmp_path, monkeypatch):
     _git_init(repo)
     monkeypatch.chdir(repo)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "env-session-1")
-    args = type("Args", (), {"cmd": "status"})()
+    args = type("Args", (), {"cmd": "add-task"})()
     assert _apply_cli_context(args) is None
     assert args.task_id == "env-session-1"
     assert args.root == str(canonical_project_root(repo))
@@ -116,6 +116,7 @@ def test_where_shows_location(tmp_path, capsys, monkeypatch):
     _git_init(repo)
     monkeypatch.chdir(repo)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-w")
+    monkeypatch.setenv("UNIFABLE_DEV", "1")
     save_spec(repo, "sess-w", _spec_with_task())
     rc = _cmd_where(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
     captured = capsys.readouterr()

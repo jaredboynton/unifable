@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO / "hooks"))
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 import model_notify as mn  # noqa: E402
-from spec import save_spec, spec_template, _cmd_status  # noqa: E402
+from spec import save_spec, spec_template  # noqa: E402
 
 
 def _sample_spec(*, judge_reason: str = "") -> dict:
@@ -140,8 +140,8 @@ def test_notify_spec_update_omits_hint_when_empty():
 
 
 def test_parse_spec_cli_invocation():
-    sub, tid = mn.parse_spec_cli_invocation("unifable-spec validate-task --task T1")
-    assert sub == "validate-task"
+    sub, tid = mn.parse_spec_cli_invocation("unifable add-task --title x --check true")
+    assert sub == "add-task"
     assert tid is None
 
 
@@ -174,7 +174,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec validate-task --task T1",
+                "command": "unifable add-task --title x --check true",
             },
             "tool_response": {
                 "exit_code": 2,
@@ -192,7 +192,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
     assert "observed a tool failure" not in ctx
 
 
-def test_post_tool_reload_fallback_when_stderr_missing():
+def test_post_tool_add_task_reload_fallback_when_stderr_missing():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["UNIFABLE_DATA"] = tmp
         spec = _sample_spec(judge_reason=LONG_JUDGE)
@@ -202,7 +202,7 @@ def test_post_tool_reload_fallback_when_stderr_missing():
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec add-task --title x --check true",
+                "command": "unifable add-task --title x --check true",
             },
             "tool_response": {"exit_code": 0, "stdout": "Added T9: x"},
         }
@@ -225,46 +225,11 @@ def test_post_tool_add_task_success_no_failure_nag():
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec add-task --title new --check true",
+                "command": "unifable add-task --title new --check true",
             },
             "tool_response": {"exit_code": 0, "stdout": "Added T9", "stderr": buf.getvalue()},
         }
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert "Requirement T9 added" in ctx
-    assert "observed a tool failure" not in ctx
-
-
-def test_status_exits_zero_when_breaker_closed(tmp_path):
-    spec = _sample_spec()
-    save_spec(str(tmp_path), "sess-status", spec)
-    rc = _cmd_status(
-        type("Args", (), {"root": str(tmp_path), "task_id": "sess-status"})()
-    )
-    assert rc == 0
-
-
-def test_post_tool_status_injects_board_without_notify_stderr():
-    with tempfile.TemporaryDirectory() as tmp:
-        os.environ["UNIFABLE_DATA"] = tmp
-        spec = _sample_spec(judge_reason=LONG_JUDGE)
-        save_spec(tmp, "sess-status", spec)
-        payload = {
-            "session_id": "sess-status",
-            "cwd": tmp,
-            "tool_name": "Bash",
-            "tool_input": {
-                "command": "unifable-spec status",
-            },
-            "tool_response": {
-                "exit_code": 0,
-                "stdout": mn.format_spec_status(spec),
-                "stderr": "",
-            },
-        }
-        out = _run_post_tool(payload)
-    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "unifable spec update:" in ctx
-    assert "[XX] T1" in ctx
-    assert "breaker: CLOSED" in ctx
     assert "observed a tool failure" not in ctx

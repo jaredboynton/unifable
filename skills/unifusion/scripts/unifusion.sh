@@ -7,7 +7,8 @@
 # Usage:
 #   unifusion.sh <question_file> [run_dir]
 #
-# - <question_file> : the user's question, VERBATIM (write it before calling; do not pre-digest it).
+# - <question_file> : the user's question, VERBATIM (write it under /tmp before calling; do not put
+#                     question.txt in the project directory; do not pre-digest it).
 # - [run_dir]       : optional dir to hold this run's prompt/outputs; a fresh mktemp dir is used if omitted.
 #
 # What it does (folds in the old detect_panel + preflight + context + per-CLI launch steps):

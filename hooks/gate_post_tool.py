@@ -75,7 +75,7 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
         task_id = _parsed_tid or resolve_session_id(input_data, default=None)
         if not task_id:
             return ""
-        if not is_mutating_spec_cli(command) and _sub not in ("status", "where"):
+        if not is_mutating_spec_cli(command):
             return ""
         spec = load_spec(cwd, task_id)
         if spec:
@@ -98,8 +98,12 @@ def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool
         fresh = _fresh_tool_block(input_data, tool_name, executed_ok)
         if not fresh:
             return ""
+        from ledger import load_ledger
+
+        ledger = load_ledger(input_data)
+        active_task = str(ledger.get("active_task") or "")
         _grounded, _needed, message = evaluate_post_tool_release(
-            input_data, breaker, fresh_tool=fresh
+            input_data, breaker, fresh_tool=fresh, active_task=active_task
         )
         save_breaker(input_data, breaker)
         return message
@@ -181,6 +185,18 @@ def main() -> int:
             ledger["observed_tool_results"].append(observed)
 
     ledger = update_ledger(input_data, apply)
+
+    try:
+        from citations import activity_from_ledger, sync_citations_from_activity
+        from spec import load_spec, resolve_session_id, save_spec
+
+        task_id = resolve_session_id(input_data, default=None)
+        if task_id:
+            spec = load_spec(cwd, task_id)
+            if spec and sync_citations_from_activity(spec, activity_from_ledger(ledger), cwd):
+                save_spec(cwd, task_id, spec)
+    except Exception:
+        pass
 
     spec_context = _spec_context(input_data, tool_name, cwd)
     breaker_context = _breaker_release_context(input_data, tool_name, executed_ok)

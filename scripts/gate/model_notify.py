@@ -19,15 +19,13 @@ JUDGE_PREFIX = "UNIFABLE_MODEL_JUDGE\t"
 HINT_PREFIX = "UNIFABLE_MODEL_HINT\t"
 _HEADLINE_MAX = 320
 
-_SPEC_CLI_RE = re.compile(r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spec\.py)")
+_SPEC_CLI_RE = re.compile(r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)")
 _SUBCMD_RE = re.compile(
-    r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spec\.py)\s+"
-    r"(restate|add-task|cite|deliver|validate-task|dispute|status|where|validate|contract|create|init)\b"
+    r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)\s+"
+    r"(restate|add-task|dispute|validate|contract|where)\b"
 )
 
-MUTATING_SUBCMDS = frozenset(
-    {"add-task", "deliver", "validate-task", "dispute", "restate", "cite"}
-)
+MUTATING_SUBCMDS = frozenset({"restate", "add-task", "dispute"})
 
 _STATUS_MARKS = {
     "validated": "OK",

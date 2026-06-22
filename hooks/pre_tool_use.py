@@ -75,8 +75,8 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
     """Return True when *target* is under the repo-local <cwd>/.unifable/ OR under
     the global keyed spec store (<data_root>/specs/).
 
-    Specs are CLI-only: the model mutates them via spec.py (restate / add-task /
-    cite / deliver / validate-task / dispute), never with Edit/Write. Hand-editing
+    Specs are CLI-only: the model mutates them via unifable (restate / add-task / dispute),
+    never with Edit/Write. Hand-editing
     the spec JSON is blocked so an agent cannot delete tasks or fake a validated
     status. The spec now lives globally under <data_root>/specs/<dir>/<session>/,
     so that root is protected too; the repo-local .unifable/ (findings, residual
@@ -191,6 +191,15 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
+    if spec is not None:
+        try:
+            from citations import activity_from_ledger, sync_citations_from_activity
+            from spec import save_spec
+
+            if sync_citations_from_activity(spec, activity_from_ledger(load_ledger(input_data)), cwd):
+                save_spec(cwd, task_id, spec)
+        except Exception:
+            pass
     if spec is None:
         loc = format_spec_location(cwd, task_id)
         return _block(
@@ -198,9 +207,9 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             "auto-created on the hook path; build it through the append-only CLI "
             "(never edit the JSON, never run create):\n"
             f"{loc}\n"
-            f"  unifable-spec add-task --title '<requirement>' --check '<runnable check>'\n"
-            f"  unifable-spec cite --repo-context 'path:line::why' --prior-art '<url>::why'\n"
-            "  unifable-spec deliver --task <id>; then validate-task (runs the check, judge reviews output). "
+            f"  unifable restate '<your restatement>'\n"
+            f"  unifable add-task --title '<requirement>' --check '<runnable check>'\n"
+            f"Citations sync from reads/fetches automatically. "
             f"{contract_string(grade, True)}"
         )
 
@@ -247,8 +256,9 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
         return _block(
             f"Bash command blocked before evidence spec validation: {why}. "
             f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
-            f"To unblock other Bash, fill the spec through the append-only CLI "
-            f"(add-task, cite, deliver, validate-task):\n{loc}"
+            f"To unblock other Bash, restate the goal and add requirements with "
+            f"`unifable restate` / `unifable add-task` "
+            f"(citations sync from activity automatically):\n{loc}"
         )
 
     return 0
@@ -272,7 +282,8 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         f"{tool_name} is blocked before evidence spec validation so delegated work cannot bypass "
         "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
         f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
-        f"Bash, fill the spec through the append-only CLI (add-task, cite, deliver, validate-task):\n"
+        f"Bash, restate the goal and add requirements with `unifable restate` / `unifable add-task` "
+        f"(citations sync from activity automatically):\n"
         f"{loc}"
     )
 
@@ -350,8 +361,7 @@ def main() -> int:
             return _block(
                 f"write to protected unifable state file '{target}' is not allowed. "
                 "Specs are CLI-only: create and mutate them via "
-                "`unifable-spec` (create / add-task / deliver / "
-                "validate-task), never by hand-editing the JSON. ledger, goals, "
+                "`unifable` (restate / add-task / dispute), never by hand-editing the JSON. ledger, goals, "
                 "findings, and state are off-limits too."
             )
 

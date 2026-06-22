@@ -41,8 +41,8 @@ def _ensure_spec_scaffold(cwd: str, key: str, prompt: str) -> str:
         path = spec_path(cwd, key)
         if not path.exists():
             s = spec_template()
-            s["restated_goal"] = _seed_goal(prompt)  # placeholder; agent must restate
-            s["goal_seeded"] = True  # gate stays blocked until `spec.py restate` clears this
+            s["restated_goal"] = _seed_goal(prompt)
+            s["goal_seeded"] = True  # gate blocked until `unifable restate '<goal>'`
             s["acceptance_criteria"] = []
             s["repo_context"] = []
             s["prior_art"] = []
@@ -96,19 +96,14 @@ def main() -> int:
         path = _ensure_spec_scaffold(cwd, key, prompt)
         if path:
             context += (
-                f"\n\nunifable: evidence spec auto-created at {path}. Drive it via the "
-                f"append-only CLI (never edit the JSON):\n"
-                f"  - FIRST, restate the goal in your own words (what is the intended outcome?): "
-                f"unifable-spec restate --goal '<your restatement>' "
+                f"\n\nunifable: evidence spec auto-created at {path}. "
+                f"Drive it via the append-only CLI (never edit the JSON):\n"
+                f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
                 f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
-                f"  - add a requirement: unifable-spec add-task "
-                f"--title '<requirement>' --check '<runnable check>'\n"
-                f"  - add evidence: unifable-spec cite "
-                f"--repo-context 'path:line::why' --prior-art '<url>::why'\n"
-                f"  - submit a requirement: unifable-spec deliver --task <id>; "
-                f"then validate-task --task <id> (runs the check, then the judge reviews the output)\n"
-                f"  - if a requirement is genuinely impossible: unifable-spec dispute "
-                f"--task <id> --evidence '<proof>' (the judge adjudicates; only it can retract)"
+                f"  - unifable add-task --title '<requirement>' --check '<runnable check>'\n"
+                f"  - if a requirement is genuinely impossible: unifable dispute "
+                f"--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
+                f"Citations sync from your reads/fetches automatically; checks run on stop."
             )
 
     emit_json(

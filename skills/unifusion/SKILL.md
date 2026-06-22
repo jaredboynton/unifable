@@ -42,8 +42,9 @@ Throughout, `<skill_dir>` is the directory containing this SKILL.md (when instal
 
 ## Step 1 — Write the question, verbatim
 
-Write the user's question **exactly as asked** to a file. Do not summarize, rephrase, or pre-digest it —
-the panel's independence depends on every panelist getting the raw task.
+Write the user's question **exactly as asked** to a temp file under `/tmp/`. Do not write `question.txt` in
+the project or skill directory. Do not summarize, rephrase, or pre-digest it — the panel's independence
+depends on every panelist getting the raw task.
 
 ```bash
 cat > /tmp/unifusion_question.txt <<'EOF'

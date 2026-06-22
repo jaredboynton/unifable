@@ -34,7 +34,10 @@ agent thrashes through edits first and only "cites" at the end.
   - BLOCKED: `Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`apply_patch`, `Task`/`Agent`, and non-whitelisted `Bash`, each with a
     message naming the unlock step.
 - ACTION phase (unlocked) — once the evidence artifact validates, all tools allowed (the existing spec
-  gate's pass condition, now richer).
+  gate's pass condition, now richer). Citations sync from ledger activity automatically
+  (`sync_citations_from_activity` in `scripts/gate/citations.py`); task checks run on Stop
+  (`auto_validate_spec` in `scripts/gate/spec.py`). Agent-facing CLI: `unifable restate`,
+  `unifable add-task`, and `unifable dispute`.
 
 ## Delta 1 — broaden the locked surface (pre_tool_use.py)
 
@@ -75,12 +78,16 @@ can arm on an unproven load-bearing claim and block mutations. Three release pat
 - **Full disarm** — release judge finds the claim grounded, retracted, or no longer load-bearing.
 - **Provisional lift** — the model is pursuing the verification the breaker requested (reads cited,
   docs fetched, minimal experiment-setup edit) but is not yet fully grounded. Mutations are allowed
-  within `lift_scope`; the block cap is paused. The hook notifies the model why the lift was granted.
+  within `lift_scope` (scoped to USER GOAL, including minimal scripts/checks when execution is
+  required); the block cap is paused. The hook notifies the model why the lift was granted.
 - **FAIL_OPEN** — after `BREAKER_MAX_BLOCKS` consecutive blocks on one arm (default 3).
 
-While provisionally lifted, a monitor judge runs on mutation PreToolUse. If work veers outside
-`lift_scope`, the breaker **reinstates** with corrective guidance. Full disarm while lifted still
-applies when a subsequent read/fetch fully grounds the claim.
+While provisionally lifted, a monitor judge runs on mutation PreToolUse and the release judge also
+runs (so a read/fetch that fully grounds the claim can disarm before the next mutation). **Minor
+scope drift** yields an advisory hint only (`Hint (advisory, not a gate): …`) — the lift stays
+open. **Egregious** unrelated work re-arms the breaker. Full disarm while lifted still applies when
+the claim is grounded (including empirical validation in tool output), retracted, or no longer
+load-bearing.
 
 ## Advisory judge hints — guidance, never a gate
 

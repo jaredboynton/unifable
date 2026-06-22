@@ -269,3 +269,99 @@ def scan_transcript(transcript_path: str | None) -> dict[str, list[str]]:
         _scan_file(tp, act)
     # dedup
     return merge_activity(act)
+
+
+# ---------------------------------------------------------------------------
+# Auto-cite from session activity (hook-driven; replaces agent `cite` CLI)
+# ---------------------------------------------------------------------------
+
+_READ_WHY = "read this session"
+_FETCH_WHY = "fetched this session"
+
+
+def _path_to_cite(abs_path: str, cwd: str) -> str:
+    """Convert an absolute read path to a repo-relative path:line cite."""
+    try:
+        p = Path(abs_path).resolve()
+        root = Path(cwd).resolve()
+        rel = p.relative_to(root)
+        return f"{rel.as_posix()}:1"
+    except (ValueError, OSError):
+        name = Path(abs_path).name
+        if "/" in str(abs_path).replace(os.sep, "/"):
+            parts = str(abs_path).replace(os.sep, "/").split("/")
+            if len(parts) >= 2:
+                return f"{parts[-2]}/{parts[-1]}:1"
+        return f"{name}:1" if name else ""
+
+
+def _existing_repo_cites(spec: dict[str, Any]) -> set[str]:
+    cites: set[str] = set()
+    for item in repo_context_of(spec):
+        cite, _ = repo_context_parts(item)
+        if cite:
+            cites.add(cite.strip())
+            cites.add(_cite_path(cite.strip()))
+    return cites
+
+
+def _existing_prior_urls(spec: dict[str, Any]) -> set[str]:
+    urls: set[str] = set()
+    for item in spec.get("prior_art") or []:
+        cite, _ = prior_art_parts(item)
+        if cite:
+            host, path = _norm_url(cite.strip())
+            if host:
+                urls.add(f"{host}{path}")
+    return urls
+
+
+def sync_citations_from_activity(
+    spec: dict[str, Any],
+    activity: dict[str, list[str]],
+    cwd: str,
+) -> bool:
+    """Append repo_context / prior_art from ledger activity. Returns True if mutated."""
+    if not isinstance(spec, dict):
+        return False
+    changed = False
+    spec.setdefault("repo_context", [])
+    spec.setdefault("prior_art", [])
+    # Drop scaffold placeholders so auto-cites are substantive.
+    spec["repo_context"] = [
+        item for item in spec["repo_context"]
+        if isinstance(item, dict) and str(item.get("cite") or "").strip()
+    ]
+    spec["prior_art"] = [
+        item for item in spec["prior_art"]
+        if isinstance(item, dict) and str(item.get("cite") or "").strip()
+    ]
+    seen_paths = _existing_repo_cites(spec)
+    read_paths = activity.get("read_paths", []) or []
+
+    for raw in read_paths:
+        cite = _path_to_cite(str(raw), cwd)
+        if not cite or cite in seen_paths:
+            continue
+        if not path_was_read(cite, read_paths, cwd):
+            continue
+        spec["repo_context"].append({"cite": cite, "why": _READ_WHY})
+        seen_paths.add(cite)
+        changed = True
+
+    seen_urls = _existing_prior_urls(spec)
+    for url in activity.get("fetched_urls", []) or []:
+        u = str(url).strip()
+        if not u:
+            continue
+        host, path = _norm_url(u)
+        key = f"{host}{path}" if host else u
+        if key in seen_urls:
+            continue
+        if not url_was_fetched(u, activity.get("fetched_urls", []) or []):
+            continue
+        spec["prior_art"].append({"cite": u, "why": _FETCH_WHY})
+        seen_urls.add(key)
+        changed = True
+
+    return changed

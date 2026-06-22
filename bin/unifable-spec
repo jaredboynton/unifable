@@ -1,35 +1,5 @@
 #!/usr/bin/env bash
-# unifable-spec — drive the evidence spec from any repo cwd.
-# Spec state lives under ~/.unifable/specs/<dirhash>/<session>/spec.json.
-# Installed to ~/.local/bin during setup (symlink to this file).
+# Legacy alias for bin/unifable (one release cycle).
 set -euo pipefail
-
-_resolve_plugin_root() {
-  if [ -n "${UNIFABLE_PLUGIN_ROOT:-}" ]; then
-    printf '%s' "$UNIFABLE_PLUGIN_ROOT"
-    return 0
-  fi
-  if [ -n "${CLAUDE_PLUGIN_ROOT:-}" ]; then
-    printf '%s' "$CLAUDE_PLUGIN_ROOT"
-    return 0
-  fi
-  local script="${BASH_SOURCE[0]}"
-  while [ -L "$script" ]; do
-    local dir
-    dir="$(cd "$(dirname "$script")" && pwd)"
-    script="$(readlink "$script")"
-    case "$script" in /*) ;; *) script="$dir/$script";; esac
-  done
-  local here
-  here="$(cd "$(dirname "$script")" && pwd)"
-  cd "$here/.." && pwd
-}
-
-ROOT="$(_resolve_plugin_root)"
-SPEC="$ROOT/scripts/gate/spec.py"
-if [ ! -f "$SPEC" ]; then
-  echo "unifable-spec: cannot find $SPEC (plugin root=$ROOT)" >&2
-  echo "unifable-spec: reinstall the plugin or run setup.sh to link this CLI into PATH." >&2
-  exit 1
-fi
-exec python3 "$SPEC" "$@"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec "$SCRIPT_DIR/unifable" "$@"

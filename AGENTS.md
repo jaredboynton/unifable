@@ -64,12 +64,12 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.18          # or: just version patch|minor|major
+just version 1.9.19          # or: just version patch|minor|major
 
 # Session env probe: validate that the shell subprocess receives the
 # same session id as the hook/prompt scaffold (see resolve_session_id).
 # Compare UNIFABLE_SESSION_RESOLVED from `where` against the host env vars.
-unifable-spec where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
+UNIFABLE_DEV=1 unifable where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
 ```
 
 ## Conventions

@@ -38,7 +38,9 @@ print("  ✓ UNIFABLE block removed" if new != cur else "  = no UNIFABLE block (
 PY
 
 echo "unifable uninstall complete ($host/$scope)."
+rm -f "${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable"
 rm -f "${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable-spec"
+echo "  removed: ${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable (if present)"
 echo "  removed: ${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable-spec (if present)"
 echo "  Claude: also run /plugin to uninstall the plugin (removes its hooks)."
 echo "  Codex:  remove unifable entries from ~/.codex/hooks.json (commands referencing skills/unifable/hooks)."

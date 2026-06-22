@@ -16,7 +16,7 @@ import shlex
 ALLOWED_RESEARCH_BASH = (
     "ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
     "running any file named trace.sh, or the append-only spec CLI "
-    "(unifable-spec restate|add-task|cite|deliver|validate-task|dispute|status|where|validate|contract)"
+    "(unifable restate|add-task|dispute; legacy unifable-spec alias still accepted)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
@@ -27,11 +27,8 @@ _PY_INTERPRETERS = frozenset({"python", "python3"})
 # Creation is automatic (the gate_prompt hook), and removal is judge-only, so
 # `create`/`init` and any `--force` are NOT here -- they would let the agent
 # overwrite or wipe a spec. dispute records an impossibility claim (judge-adjudicated).
-_SPEC_APPEND_SUBCMDS = frozenset({
-    "restate", "add-task", "cite", "deliver", "validate-task", "dispute", "status", "where",
-    "validate", "contract",
-})
-_SPEC_CLI_NAMES = frozenset({"unifable-spec"})
+_SPEC_APPEND_SUBCMDS = frozenset({"restate", "add-task", "dispute"})
+_SPEC_CLI_NAMES = frozenset({"unifable", "unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
@@ -173,6 +170,12 @@ def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
         sub = tok
         break
     if sub in _SPEC_APPEND_SUBCMDS:
+        if sub == "restate" and any(
+            tok == "--goal" or tok.startswith("--goal=") for tok in args
+        ):
+            return False, (
+                "restate uses a positional goal: unifable restate '<goal>' (not --goal)."
+            )
         return True, ""
     return False, (
         f"spec CLI '{sub or '<none>'}' is not an append-only subcommand "

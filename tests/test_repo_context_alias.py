@@ -11,9 +11,6 @@ tests lock the back-compat alias: `must_read` is accepted as a fallback for
 
 from __future__ import annotations
 
-import json
-import os
-import subprocess
 import sys
 from pathlib import Path
 
@@ -72,36 +69,3 @@ def test_citation_check_reads_must_read_field():
     )
     assert any("a.py:1" in r for r in reasons), reasons
 
-
-def test_cli_must_read_flag_populates_repo_context(tmp_path):
-    """`--must-read` is accepted as an alias and lands in `repo_context`, so an
-    external caller using the old flag name still authors a valid spec."""
-    root = str(tmp_path / "repo")
-    Path(root).mkdir()
-    data = str(tmp_path / "data")
-    env = dict(os.environ)
-    env["UNIFABLE_DATA"] = data
-    env["CLAUDE_CODE_SESSION_ID"] = "T"
-    subprocess.run(
-        [
-            sys.executable, str(GATE / "spec.py"), "create",
-            "--goal", "g",
-            "--task", "t::true",
-            "--must-read", "a.py:1::why it matters",
-            "--prior-art", "https://example.com::why",
-        ],
-        check=True, env=env, cwd=root,
-    )
-    # spec.json now lives at the keyed global path; read it back via load_spec.
-    old = os.environ.get("UNIFABLE_DATA")
-    os.environ["UNIFABLE_DATA"] = data
-    try:
-        spec = load_spec(root, "T")
-    finally:
-        if old is None:
-            os.environ.pop("UNIFABLE_DATA", None)
-        else:
-            os.environ["UNIFABLE_DATA"] = old
-    assert spec is not None
-    assert spec["repo_context"] == [{"cite": "a.py:1", "why": "why it matters"}]
-    assert "must_read" not in spec  # canonical key only on write

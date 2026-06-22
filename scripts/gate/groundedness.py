@@ -21,8 +21,8 @@ for the work in progress. If any release condition holds, the breaker disarms.
 PROVISIONAL LIFT (while armed, not yet fully grounded). The release judge may
 grant a temporary lift when the model is pursuing the verification it was steered
 toward. Mutations are allowed within lift_scope; the block cap is paused. While
-lifted, a monitor judge on mutation PreToolUse re-arms with corrective guidance
-if work veers off track.
+lifted, a monitor judge on mutation PreToolUse emits advisory hints for minor
+scope drift and re-arms only for egregious unrelated work.
 
 SAFETY CAP. After BREAKER_MAX_BLOCKS consecutive blocks on one arm the breaker
 fails open (disarms, logs) so a misfiring judge can never hard-lock a session.
@@ -138,8 +138,12 @@ _DISARM_SCHEMA: dict[str, Any] = {
             "description": (
                 "1 if the breaker should release: the claim is grounded by evidence, RETRACTED, "
                 "backed by a reasonable bounded search (negative/absence claims), OR load_bearing=0 "
-                "(no longer blocks the current work). 0 only if load_bearing=1 AND the claim is still "
-                "relied on AND genuinely unbacked. Never demand proof of a universal negative."
+                "(no longer blocks the current work). For external algorithm/format claims, also set "
+                "grounded=1 when transcript tool output demonstrably validates the claim (e.g. decrypt "
+                "yields a correctly formatted token, API returns expected schema, check exit 0 with "
+                "expected fields) even if authoritative docs are still being fetched. 0 only if "
+                "load_bearing=1 AND the claim is still relied on AND genuinely unbacked. Never demand "
+                "proof of a universal negative."
             ),
         },
         "needed": {
@@ -175,8 +179,10 @@ _DISARM_SCHEMA: dict[str, Any] = {
         "lift_scope": {
             "type": "string",
             "description": (
-                "When provisional_release=1, what work is allowed while lifted (e.g. edit prompt "
-                "adaptation config only; no unrelated refactors). Empty otherwise."
+                "When provisional_release=1, what work is allowed while lifted. Must cover the minimal "
+                "implementation steps toward USER GOAL that apply the knowledge being verified (scripts, "
+                "one-off checks, temp files) -- not 'read-only only' when the user goal requires "
+                "execution. Empty otherwise."
             ),
         },
     },
@@ -189,24 +195,34 @@ _DISARM_SCHEMA: dict[str, Any] = {
 _MONITOR_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "on_track": {
+        "drift_level": {
             "type": "integer",
-            "enum": [0, 1],
+            "enum": [0, 1, 2],
             "description": (
-                "1 if the imminent tool and transcript show the model is still within lift_scope "
-                "and pursuing the verification that motivated the lift. 0 if the model veered off "
-                "track (unrelated edits, new ungrounded claims, scope creep)."
+                "0 if on track: imminent tool and transcript show work within lift_scope, advancing "
+                "USER GOAL, or pursuing verification of the flagged claim. 1 for minor drift worth a "
+                "nudge (slightly outside lift_scope but still goal-adjacent) -- hint only, never block. "
+                "2 ONLY for egregious off-track work: clearly unrelated refactors, new confident "
+                "ungrounded claims, or abandoning verification entirely. When uncertain, prefer 0 or 1 "
+                "over 2."
+            ),
+        },
+        "hint": {
+            "type": "string",
+            "description": (
+                "When drift_level=1, ONE concrete advisory nudge (ADVISORY ONLY -- it never blocks). "
+                "Empty when drift_level is 0 or 2."
             ),
         },
         "corrective": {
             "type": "string",
             "description": (
-                "When on_track=0, 1-2 sentences re-arming guidance: what veered and what to do "
-                "instead. Empty when on_track=1."
+                "When drift_level=2, 1-2 sentences re-arming guidance: what veered egregiously and "
+                "what to do instead. Empty when drift_level is 0 or 1."
             ),
         },
     },
-    "required": ["on_track", "corrective"],
+    "required": ["drift_level", "hint", "corrective"],
     "additionalProperties": False,
 }
 
@@ -267,7 +283,9 @@ _DISARM_SYSTEM = (
     "deriving numeric scores by applying formulas visible in Read source to fields visible in "
     "Read result files (do NOT require re-running a blocked scorer command); (4) negative/absence "
     "claim backed by a reasonable bounded search; (5) external/platform claim backed by fetched "
-    "authoritative documentation. When load_bearing=0, grounded MUST be 1. Set grounded=0 ONLY "
+    "authoritative documentation; (6) empirical validation -- for external algorithm/format claims, "
+    "transcript tool output demonstrably validates the claim (decrypt yields correctly formatted "
+    "token, API returns expected schema). When load_bearing=0, grounded MUST be 1. Set grounded=0 ONLY "
     "when load_bearing=1 AND the claim is still relied on AND genuinely unbacked; then write "
     "`needed` naming files to read, never a blocked shell command. When grounded=1, needed MUST "
     "be empty. "
@@ -275,23 +293,36 @@ _DISARM_SYSTEM = (
     "pursuing the verification the breaker requested (reading cited artifacts, fetching docs, "
     "retracting outcome claims, making the minimal config edit needed to run a user-requested "
     "check) rather than asserting future outcomes as settled. If so, set provisional_release=1 "
-    "with lift_reason (why you opened temporarily) and lift_scope (allowed work). Do NOT repeat "
-    "the same needed if the model already did those reads -- lift instead. Do NOT lift when the "
+    "with lift_reason (why you opened temporarily) and lift_scope (allowed work toward USER GOAL). "
+    "lift_scope must cover minimal scripts/checks needed to apply verified knowledge toward the "
+    "user goal, not read-only-only when execution is required. Do NOT repeat "
+    "the same needed if the model already did those reads -- lift instead; if an empirical run "
+    "already succeeded, prefer full disarm (grounded=1) over another narrow lift. Do NOT lift when the "
     "only missing proof requires a blocked run whose purpose IS measuring the outcome; lift only "
     "for experiment setup the user requested. Judge only the named claim. Call the function once."
 )
 
 _MONITOR_SYSTEM = (
     "You are a provisional-lift MONITOR for an autonomous coding agent. The breaker was temporarily "
-    "opened so the agent could pursue verification within a bounded scope. The FLAGGED CLAIM, "
-    "LIFT SCOPE, IMMINENT TOOL, and transcript are below. "
-    "Set on_track=1 if the imminent tool and recent transcript show the agent is still within "
-    "lift_scope and pursuing the verification that motivated the lift (not unrelated refactors, "
-    "not new ungrounded claims, not scope creep). "
-    "Set on_track=0 if the agent veered off track; write corrective guidance naming what veered "
-    "and what to do instead (the breaker will re-arm). When on_track=1, corrective MUST be empty. "
+    "opened so the agent could pursue verification within a bounded scope. The USER GOAL, FLAGGED "
+    "CLAIM, LIFT SCOPE, IMMINENT TOOL, and transcript are below. "
+    "Set drift_level=0 when on track: the imminent tool advances USER GOAL, stays within lift_scope, "
+    "or pursues verification of the flagged claim. Work that applies already-verified or empirically "
+    "validated knowledge toward the user goal is ON TRACK -- e.g. using extracted cookies to call an "
+    "API is not the same as asserting a decrypt algorithm without source. Do NOT penalize completed "
+    "empirical steps that already produced valid tool output when the imminent tool is downstream "
+    "verification or goal progress. "
+    "Set drift_level=1 for minor drift worth an advisory nudge (slightly outside lift_scope but still "
+    "goal-adjacent). Write ONE concrete hint; it is ADVISORY ONLY and never blocks. "
+    "Set drift_level=2 ONLY for egregious off-track work: clearly unrelated refactors, new confident "
+    "ungrounded claims, or abandoning verification entirely. Write corrective re-arming guidance. "
+    "When uncertain, prefer drift_level=0 or 1 over 2. When drift_level=0, hint and corrective MUST "
+    "be empty. When drift_level=1, corrective MUST be empty. When drift_level=2, hint MUST be empty. "
     "Call the function once."
 )
+
+_USER_GOAL_MAX = 400
+_SCOPE_HINT_PREFIX = "Hint (advisory, not a gate): "
 
 
 def enabled() -> bool:
@@ -413,11 +444,43 @@ def arm_judge(
     return verdict, steering, claim
 
 
-def disarm_judge(claim: str, segment: str, judge: JudgeFn | None = None) -> ReleaseVerdict:
+def _user_goal_block(input_data: dict, active_task: str) -> str:
+    """Best-effort restated goal from the session spec for judge context."""
+    try:
+        from spec import canonical_project_root, load_spec
+
+        cwd = canonical_project_root(input_data.get("cwd") or os.getcwd())
+        task_key = str(active_task or "").strip()
+        if not task_key:
+            return ""
+        spec = load_spec(cwd, task_key)
+        if not spec:
+            return ""
+        goal = str(spec.get("restated_goal") or "").strip()
+        if not goal:
+            return ""
+        if len(goal) > _USER_GOAL_MAX:
+            return goal[: _USER_GOAL_MAX - 3] + "..."
+        return goal
+    except Exception:
+        return ""
+
+
+def disarm_judge(
+    claim: str,
+    segment: str,
+    *,
+    user_goal: str = "",
+    judge: JudgeFn | None = None,
+) -> ReleaseVerdict:
     if not segment.strip():
         return ReleaseVerdict(False, "", True, False, "", "")
     fn = judge or _default_judge
-    user = f"FLAGGED CLAIM:\n{claim}\n\nTRANSCRIPT (what the model has since read/run/cited):\n{segment}"
+    goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
+    user = (
+        f"{goal_block}FLAGGED CLAIM:\n{claim}\n\n"
+        f"TRANSCRIPT (what the model has since read/run/cited):\n{segment}"
+    )
     obj = fn(_DISARM_SYSTEM, user, _DISARM_SCHEMA)
     load_bearing = int(obj.get("load_bearing", 1) or 0) == 1
     grounded = int(obj.get("grounded", 0) or 0) == 1
@@ -437,25 +500,33 @@ def monitor_provisional_judge(
     scope: str,
     segment: str,
     tool_name: str,
+    *,
+    user_goal: str = "",
     judge: JudgeFn | None = None,
-) -> tuple[bool, str]:
+) -> tuple[int, str, str]:
+    """Returns (drift_level, corrective, hint). drift_level 0=on track, 1=hint only, 2=re-arm."""
     if not segment.strip():
-        return True, ""
+        return 0, "", ""
     fn = judge or _default_judge
+    goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
     user = (
-        f"FLAGGED CLAIM:\n{claim}\n\nLIFT SCOPE:\n{scope}\n\n"
+        f"{goal_block}FLAGGED CLAIM:\n{claim}\n\nLIFT SCOPE:\n{scope}\n\n"
         f"IMMINENT TOOL:\n{tool_name}\n\nTRANSCRIPT:\n{segment}"
     )
     obj = fn(_MONITOR_SYSTEM, user, _MONITOR_SCHEMA)
-    on_track = int(obj.get("on_track", 1) or 0) == 1
-    corrective = str(obj.get("corrective", "") or "") if not on_track else ""
-    return on_track, corrective
+    drift = int(obj.get("drift_level", 0) or 0)
+    if drift not in (0, 1, 2):
+        drift = 0
+    hint = str(obj.get("hint", "") or "").strip() if drift == 1 else ""
+    corrective = str(obj.get("corrective", "") or "").strip() if drift == 2 else ""
+    return drift, corrective, hint
 
 
 def _provisional_lift_message(reason: str, scope: str) -> str:
     return (
         f"unifable breaker: provisional lift — {reason} "
-        f"Stay within scope: {scope}. Mutations allowed until grounded or you veer off track."
+        f"Stay within scope: {scope}. Mutations allowed until grounded; minor drift yields "
+        "advisory hints only."
     )
 
 
@@ -557,18 +628,33 @@ def evaluate_pre_tool(
             armed = False
             provisional = False
         if provisional:
-            if is_mutation_tool(tool):
-                claim = str(state.get("breaker_claim") or "")
+            claim = str(state.get("breaker_claim") or "")
+            user_goal = _user_goal_block(input_data, active_task)
+            segment = judge_transcript(input_data, events)
+            if claim and segment.strip():
+                release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
+                disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+                if disarmed:
+                    provisional = False
+                elif lift_msg:
+                    state["breaker_pending_notify"] = lift_msg
+            if state.get("breaker_provisional") and is_mutation_tool(tool):
                 scope = str(state.get("breaker_lift_scope") or "")
                 if claim and scope:
-                    segment = judge_transcript(input_data, events)
-                    on_track, corrective = monitor_provisional_judge(
-                        claim, scope, segment, tool, judge=judge,
+                    drift, corrective, hint = monitor_provisional_judge(
+                        claim, scope, segment, tool, user_goal=user_goal, judge=judge,
                     )
-                    if not on_track:
+                    if drift == 2:
                         append_event(state, "REINSTATE", claim=claim, corrective=corrective)
                         reinstate(state, claim, corrective or "Return to the verification scope.")
                         return True, corrective or "Return to the verification scope.", ""
+                    if drift == 1 and hint:
+                        append_event(state, "SCOPE_HINT", claim=claim, hint=hint)
+                        hint_msg = f"{_SCOPE_HINT_PREFIX}{hint}"
+                        existing = str(state.get("breaker_pending_notify") or "")
+                        state["breaker_pending_notify"] = (
+                            f"{existing}\n{hint_msg}".strip() if existing else hint_msg
+                        )
             pending = str(state.get("breaker_pending_notify") or "")
             if pending:
                 state["breaker_pending_notify"] = ""
@@ -584,7 +670,8 @@ def evaluate_pre_tool(
             claim = str(state.get("breaker_claim") or "")
             if claim:
                 segment = judge_transcript(input_data, events)
-                release_verdict = disarm_judge(claim, segment, judge=judge)
+                user_goal = _user_goal_block(input_data, active_task)
+                release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
                 _disarmed, lift_msg = _apply_release(state, claim, release_verdict)
                 if lift_msg:
                     state["breaker_pending_notify"] = lift_msg
@@ -611,6 +698,7 @@ def evaluate_post_tool_release(
     input_data: dict,
     state: dict,
     fresh_tool: str,
+    active_task: str = "",
     judge: JudgeFn | None = None,
 ) -> tuple[bool, str, str]:
     """PostToolUse release path. Returns (fully_disarmed, needed, context_message)."""
@@ -629,7 +717,8 @@ def evaluate_post_tool_release(
     events = state.get("events") if isinstance(state.get("events"), list) else []
     try:
         segment = judge_transcript(input_data, events, fresh_tool=fresh_tool)
-        release_verdict = disarm_judge(claim, segment, judge=judge)
+        user_goal = _user_goal_block(input_data, active_task)
+        release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
         disarmed, lift_msg = _apply_release(state, claim, release_verdict)
         if disarmed:
             return True, "", (

@@ -5,7 +5,7 @@ flag). This protocol measures whether Bash tool subprocesses receive the same
 session env as the hook/prompt scaffold.
 
 ## Prerequisites (instrumentation already landed)
-- `unifable-spec where` emits on stderr:
+- `UNIFABLE_DEV=1 unifable where` emits on stderr:
   `UNIFABLE_SESSION_RESOLVED=<id> SOURCE=<source>`
   (source = payload | env:CLAUDE_CODE_SESSION_ID | env:CODEX_THREAD_ID | env:CURSOR_CONVERSATION_ID | env:CURSOR_SESSION_ID | default | none)
 - Analyzer: `python3 scripts/measure_session_env.py <log>`
@@ -19,7 +19,7 @@ session env as the hook/prompt scaffold.
 2. For each of N (>=10 recommended) Bash probes in the session, execute (via the
    agent's Bash tool or manual if allowed):
    ```
-   unifable-spec where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
+   UNIFABLE_DEV=1 unifable where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
    ```
    Variations to include (label the outputs):
    - From repo root.

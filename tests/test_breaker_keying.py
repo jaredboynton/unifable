@@ -157,15 +157,28 @@ def test_impl_edit_allowed_after_appendonly_spec():
                 capture_output=True, text=True, env=env, cwd=cwd,
             )
 
-        # FIRST action: restate the seeded goal in the agent's own words (the gate
-        # stays blocked until goal_seeded is cleared).
-        r0 = _spec("restate", "--goal", "make the parser tolerate empty and malformed input")
+        r0 = _spec("restate", "make the parser tolerate empty and malformed input")
         assert r0.returncode == 0, r0.stderr
         r1 = _spec("add-task", "--title", "parser handles empty input", "--check", "true")
         assert r1.returncode == 0, r1.stderr
-        r2 = _spec("cite", "--repo-context", "src/parser.py:10::where parsing starts",
-                   "--prior-art", "http://example.com/grammar::grammar reference")
-        assert r2.returncode == 0, r2.stderr
+        # Citations sync from activity; seed spec evidence for unlock in this test.
+        from spec import load_spec, save_spec
+        old = os.environ.get("UNIFABLE_DATA")
+        os.environ["UNIFABLE_DATA"] = dd
+        try:
+            spec = load_spec(cwd, key)
+            assert spec is not None, "add-task should have created or updated the session spec"
+            spec["repo_context"] = [{"cite": "src/parser.py:10", "why": "read this session"}]
+            spec["prior_art"] = [{"cite": "http://example.com/grammar", "why": "fetched this session"}]
+            save_spec(cwd, key, spec)
+        finally:
+            if old is None:
+                os.environ.pop("UNIFABLE_DATA", None)
+            else:
+                os.environ["UNIFABLE_DATA"] = old
+        _record_read = {"tool_name": "Read", "session_id": sess, "cwd": cwd,
+                        "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py")}}
+        _run("gate_post_tool.py", _record_read, dd)
         payload = {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
                    "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py"),
                                   "old_string": "a", "new_string": "b"}}

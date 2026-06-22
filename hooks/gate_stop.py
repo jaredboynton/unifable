@@ -84,7 +84,7 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
             f"The completion breaker has re-blocked Stop {count} times; "
             f"{len(incomplete)} requirement(s) still not validated "
             f"({', '.join(incomplete)}). The agent may be looping on "
-            "validate-task/dispute without converging."
+            "The agent may be looping without converging."
         )
         return judge_hint(spec, signal=signal, recent=recent)
     except Exception:
@@ -412,11 +412,26 @@ def main() -> int:
             if task_key and spec is None:
                 ev_reason = (
                     "no evidence spec for this session (the prompt hook auto-creates one for "
-                    "non-trivial work). Add a requirement with `unifable-spec "
-                    f"add-task --title '<requirement>' --check '<runnable check>'`, "
-                    "then deliver + validate-task it before finishing."
+                    "non-trivial work). Add a requirement with `unifable "
+                    "add-task --title '<requirement>' --check '<runnable check>'`."
                 )
             elif spec is not None:
+                try:
+                    from citations import (activity_from_ledger, enabled,
+                                           merge_activity, scan_transcript,
+                                           sync_citations_from_activity, verify_citations)
+                    from spec import auto_validate_spec, save_spec
+
+                    activity = merge_activity(
+                        activity_from_ledger(load_ledger(input_data)),
+                        scan_transcript(input_data.get("transcript_path")),
+                    )
+                    if sync_citations_from_activity(spec, activity, cwd):
+                        save_spec(cwd, task_key, spec)
+                    spec, _val_msgs = auto_validate_spec(spec, cwd)
+                    save_spec(cwd, task_key, spec)
+                except Exception:
+                    pass  # fail open
                 # Breaker: a task-spec must have EVERY task validated (its check ran
                 # AND the judge confirmed) before the breaker opens. Blocks every
                 # stop until then.
@@ -424,8 +439,8 @@ def main() -> int:
                 if not ok_tasks:
                     ev_reason = (
                         f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
-                        f"Run `unifable-spec validate-task --task <id>` "
-                        "for each until the judge passes it."
+                        "Complete the remaining work; the harness re-runs checks on each stop "
+                        "until the judge passes every requirement."
                     )
                     # Advisory nudge if the agent has been stuck here repeatedly.
                     # Rides alongside the block; it does NOT lift the breaker.

@@ -70,7 +70,8 @@ session"?* Different host CLIs store transcripts differently and most expose no 
    `~/.claude/projects/**/<id>.jsonl`; Codex `CODEX_THREAD_ID` → `~/.codex/sessions/**/rollout-*-<id>.jsonl`;
    Droid argv uuid → `~/.factory/sessions/<slug>/<id>.jsonl`; Devin `devin list --format json` scoped to the
    host cwd → `~/.local/share/devin/cli/transcripts/<id>.json`).
-3. **Fingerprint-verify** — match the verbatim question (written to `/tmp/unifusion_question.txt`) with
+3. **Fingerprint-verify** — match the verbatim question (written to `/tmp/unifusion_question.txt`, not to a
+   project-local `question.txt`) with
    `grep -lF` to disambiguate cwd candidates and confirm the pick.
 4. **Fail closed** — resolution must be a deterministic id or a unique fingerprint match, else exit non-zero
    and skip the brief. There is no newest-by-mtime guess; a wrong transcript would poison every panelist.

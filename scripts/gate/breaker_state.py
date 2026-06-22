@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
 from ledger import data_root, ledger_key, ledger_path, utc_now
 
 EVENT_KINDS = frozenset({
-    "ARM", "DISARM", "NEEDED", "FAIL_OPEN", "STALE_ARM_DROPPED", "LIFT", "REINSTATE",
+    "ARM", "DISARM", "NEEDED", "FAIL_OPEN", "STALE_ARM_DROPPED", "LIFT", "REINSTATE", "SCOPE_HINT",
 })
 MAX_EVENTS = 50
 
@@ -66,7 +66,9 @@ def render_events(events: list[dict[str, Any]]) -> str:
         parts = [f"event={kind}"]
         if ts:
             parts.append(f'timestamp="{ts}"')
-        for key in ("claim", "steering", "needed", "block_count", "grounded", "reason", "scope", "corrective"):
+        for key in (
+            "claim", "steering", "needed", "block_count", "grounded", "reason", "scope", "corrective", "hint",
+        ):
             value = event.get(key)
             if value not in (None, "", False):
                 text = str(value).replace('"', "'").replace("\n", " ")

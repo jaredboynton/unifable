@@ -57,7 +57,8 @@ class RoutingJudge:
         provisional_release=0,
         lift_reason="",
         lift_scope="",
-        monitor_on_track=1,
+        monitor_drift_level=0,
+        monitor_hint="",
         monitor_corrective="",
     ):
         self.arm_ret = arm
@@ -68,7 +69,8 @@ class RoutingJudge:
         self.provisional_release = provisional_release
         self.lift_reason = lift_reason
         self.lift_scope = lift_scope
-        self.monitor_on_track = monitor_on_track
+        self.monitor_drift_level = monitor_drift_level
+        self.monitor_hint = monitor_hint
         self.monitor_corrective = monitor_corrective
         self.arm_calls = 0
         self.disarm_calls = 0
@@ -77,9 +79,12 @@ class RoutingJudge:
     def __call__(self, system, user, schema):
         if "provisional-lift monitor" in system.lower():
             self.monitor_calls += 1
-            if self.monitor_on_track:
-                return {"on_track": 1, "corrective": ""}
-            return {"on_track": 0, "corrective": self.monitor_corrective}
+            drift = self.monitor_drift_level
+            if drift == 1:
+                return {"drift_level": 1, "hint": self.monitor_hint, "corrective": ""}
+            if drift == 2:
+                return {"drift_level": 2, "hint": "", "corrective": self.monitor_corrective}
+            return {"drift_level": 0, "hint": "", "corrective": ""}
         if "release monitor" in system.lower():
             self.disarm_calls += 1
             lb = self.release_load_bearing
@@ -544,10 +549,18 @@ def test_disarm_prompt_mentions_provisional_release():
     assert "pursuing" in sysp or "verification" in sysp
 
 
-def test_monitor_prompt_mentions_veer_and_reinstate():
+def test_monitor_prompt_mentions_drift_levels_and_hints():
     sysp = gb._MONITOR_SYSTEM.lower()
-    assert "lift_scope" in sysp or "scope" in sysp
-    assert "veer" in sysp or "off track" in sysp
+    assert "drift_level" in sysp
+    assert "user goal" in sysp
+    assert "advisory" in sysp or "hint" in sysp
+    assert "egregious" in sysp
+
+
+def test_disarm_prompt_mentions_empirical_validation():
+    sysp = gb._DISARM_SYSTEM.lower()
+    assert "empirical" in sysp
+    assert "user goal" in sysp
 
 
 def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
@@ -570,7 +583,7 @@ def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
     assert any(e.get("kind") == "LIFT" for e in state["events"])
 
 
-def test_provisional_monitor_reinstates_on_veer(monkeypatch):
+def test_provisional_monitor_reinstates_on_egregious_drift(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
     from breaker_state import lift_provisional
 
@@ -583,13 +596,53 @@ def test_provisional_monitor_reinstates_on_veer(monkeypatch):
         "notify",
     )
     state["breaker_key"] = gb.breaker_key("S", "P")
-    judge = RoutingJudge(monitor_on_track=0, monitor_corrective="Stop unrelated refactors.")
+    judge = RoutingJudge(
+        grounded=0,
+        monitor_drift_level=2,
+        monitor_corrective="Stop unrelated refactors.",
+    )
     blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is True
     assert state["breaker_armed"] is True
     assert state["breaker_provisional"] is False
     assert "Stop unrelated refactors" in steering
     assert any(e.get("kind") == "REINSTATE" for e in state["events"])
+
+
+def test_provisional_monitor_hints_on_minor_drift(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(state, "claim X", "reason", "edit config only", "")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(
+        grounded=0,
+        monitor_drift_level=1,
+        monitor_hint="Consider citing the Chromium IV from source.",
+    )
+    blocked, _, notify = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is False
+    assert state["breaker_provisional"] is True
+    assert "advisory, not a gate" in notify.lower()
+    assert "Chromium IV" in notify
+    assert any(e.get("kind") == "SCOPE_HINT" for e in state["events"])
+
+
+def test_provisional_disarm_on_pre_tool_after_grounding(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "chromium source cited")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(state, "claim X", "reason", "scope", "")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(grounded=1, monitor_drift_level=2, monitor_corrective="should not run")
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is False
+    assert state["breaker_provisional"] is False
+    assert state["breaker_armed"] is False
+    assert judge.disarm_calls == 1
+    assert judge.monitor_calls == 0
 
 
 def test_provisional_monitor_allows_on_track_edit(monkeypatch):
@@ -599,11 +652,12 @@ def test_provisional_monitor_allows_on_track_edit(monkeypatch):
     state = _state()
     lift_provisional(state, "claim X", "reason", "edit config only", "")
     state["breaker_key"] = gb.breaker_key("S", "P")
-    judge = RoutingJudge(monitor_on_track=1)
+    judge = RoutingJudge(grounded=0, monitor_drift_level=0)
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False
     assert state["breaker_provisional"] is True
     assert judge.monitor_calls == 1
+    assert judge.disarm_calls == 1
 
 
 def test_full_disarm_clears_provisional(monkeypatch):

@@ -11,7 +11,7 @@ Provides:
   - save_spec(cwd, session_id, spec) -> Path
   - canonical_project_root(cwd) -> Path   (git root / project markers; subdirs share one spec)
   - spec_template() -> dict
-  - CLI: validate / contract / add-task / cite / deliver / validate-task / dispute / restate / status / where
+  - CLI: validate / contract (harness) / restate / add-task / dispute / where (UNIFABLE_DEV=1)
 
 State is one spec.json per (canonical project root, session), so a new session never
 inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
@@ -246,8 +246,8 @@ def validate_spec(
     elif spec.get("goal_seeded"):
         reasons.append(
             "restate the goal in your own words first: restated_goal is still the raw "
-            "prompt the hook seeded, not a restatement. Run `unifable-spec "
-            "restate --goal '<the intended outcome, in your own words>'`."
+            "prompt the hook seeded, not a restatement. Run "
+            "`unifable restate '<the intended outcome, in your own words>'`."
         )
 
     # acceptance_criteria — required for all grades, >=1 item with a non-empty check.
@@ -265,8 +265,7 @@ def validate_spec(
         # Auto-created task-spec with no requirement yet: the agent must add >=1.
         reasons.append(
             "no requirements yet: add at least one with "
-            "`unifable-spec add-task --title '<req>' --check '<runnable check>'`, "
-            "then deliver + validate-task."
+            "`unifable add-task --title '<req>' --check '<runnable check>'`."
         )
     elif not isinstance(criteria, list) or not criteria:
         reasons.append("'acceptance_criteria' is required and must contain at least one entry.")
@@ -643,6 +642,108 @@ def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     return (not incomplete), incomplete
 
 
+AUTO_VALIDATE_MAX_TASKS = 3
+
+
+def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Path) -> list[str]:
+    """Run check+judge or dispute adjudication for one task. Mutates spec in place."""
+    tid = str(task.get("id") or "")
+    headlines: list[str] = []
+
+    if task.get("status") == "disputed":
+        verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
+        task["judge_verdict"] = verdict
+        task["judge_reason"] = reason
+        task["judge_hint"] = hint
+        task["status"] = "retracted" if verdict == 1 else "failed"
+        if verdict != 1:
+            notify_spec_update(
+                spec,
+                f"Dispute rejected for {tid}.",
+                highlight_task=tid,
+                judge_reason=str(reason or ""),
+                hint=hint,
+            )
+            headlines.append(f"{tid}: dispute rejected")
+        else:
+            headline = f"{tid} retracted — judge accepted impossibility."
+            if all_tasks_validated(spec)[0]:
+                headline += " Completion breaker open."
+            notify_spec_update(
+                spec,
+                headline,
+                highlight_task=tid,
+                judge_reason=str(reason or ""),
+                hint=hint,
+            )
+            headlines.append(headline)
+        return headlines
+
+    exit_code, output = run_check(task.get("check", ""), cwd=cwd)
+    verdict, reason, new_reqs, hint = judge_task(spec, task, exit_code, output)
+    task["exit"] = exit_code
+    task["output"] = output
+    task["judge_verdict"] = verdict
+    task["judge_reason"] = reason
+    task["judge_hint"] = hint
+    task["status"] = "validated" if verdict == 1 else "failed"
+    added: list[str] = []
+    for req in new_reqs:
+        spec.setdefault("tasks", [])
+        nt = _new_task(spec, req["title"], req["check"])
+        nt["added_by"] = "judge"
+        spec["tasks"].append(nt)
+        added.append(nt["id"])
+    if verdict == 1:
+        headline = f"{tid} check passed (exit {exit_code}); judge accepted the evidence."
+        if added:
+            headline += f" Judge added {', '.join(added)}."
+        if all_tasks_validated(spec)[0]:
+            headline += " Completion breaker open."
+        notify_spec_update(
+            spec,
+            headline,
+            highlight_task=tid,
+            judge_reason=str(reason or ""),
+            hint=hint,
+        )
+        headlines.append(headline)
+    else:
+        headline = f"{tid} check ran (exit {exit_code}); judge rejected the evidence."
+        if added:
+            headline += f" Judge added {', '.join(added)}."
+        notify_spec_update(
+            spec,
+            headline,
+            highlight_task=tid,
+            judge_reason=str(reason or ""),
+            hint=hint,
+        )
+        headlines.append(headline)
+    return headlines
+
+
+def auto_validate_spec(
+    spec: dict[str, Any],
+    cwd: str | Path,
+    *,
+    max_tasks: int = AUTO_VALIDATE_MAX_TASKS,
+) -> tuple[dict[str, Any], list[str]]:
+    """Run checks+judge for up to max_tasks unresolved tasks. Mutates spec in place."""
+    messages: list[str] = []
+    judged = 0
+    for task in list(spec.get("tasks") or []):
+        if not isinstance(task, dict):
+            continue
+        if task.get("status") in RESOLVED_STATUSES:
+            continue
+        if judged >= max_tasks:
+            break
+        judged += 1
+        messages.extend(_validate_one_task(spec, task, cwd))
+    return spec, messages
+
+
 def run_check(check: str, cwd: str | Path = ".", timeout: int = 600) -> tuple[int, str]:
     """Run a task's check command -> (exit_code, combined stdout+stderr, capped)."""
     try:
@@ -945,8 +1046,7 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     spec = load_spec(args.root, args.task_id)
     if spec is None:
         print(
-            f"No spec found at {spec_path(args.root, args.task_id)}. "
-            "Run 'spec.py init' to create a template.",
+            f"No spec found at {spec_path(args.root, args.task_id)}.",
             file=sys.stderr,
         )
         return 1
@@ -958,16 +1058,6 @@ def _cmd_validate(args: argparse.Namespace) -> int:
     for reason in reasons:
         print(f"- {reason}")
     return 1
-
-
-def _cmd_init(args: argparse.Namespace) -> int:
-    path = spec_path(args.root, args.task_id)
-    if path.exists():
-        print(f"Spec already exists at {path}; not overwriting.", file=sys.stderr)
-        return 1
-    save_spec(args.root, args.task_id, spec_template())
-    print(f"Spec template written to {path}")
-    return 0
 
 
 def _cmd_contract(args: argparse.Namespace) -> int:
@@ -989,36 +1079,6 @@ def _new_task(spec: dict[str, Any], title: str, check: str) -> dict[str, Any]:
         "status": "pending", "exit": None, "output": "",
         "judge_verdict": None, "judge_reason": "", "judge_hint": "",
     }
-
-
-def _cmd_create(args: argparse.Namespace) -> int:
-    path = spec_path(args.root, args.task_id)
-    if path.exists() and not getattr(args, "force", False):
-        print(f"Spec already exists at {path}; use --force to replace.", file=sys.stderr)
-        return 1
-    spec = spec_template()
-    spec["restated_goal"] = args.goal
-    spec["acceptance_criteria"] = []  # tasks stand in for acceptance_criteria
-    spec["repo_context"] = []
-    spec["prior_art"] = []
-    spec["constraints"] = list(getattr(args, "constraint", None) or [])
-    spec["rejected_alternatives"] = list(getattr(args, "rejected", None) or [])
-    spec["tasks"] = []
-    for entry in (getattr(args, "repo_context", None) or []):
-        cite, _sep, why = entry.partition("::")
-        spec["repo_context"].append({"cite": cite.strip(), "why": why.strip()})
-    for pa in (getattr(args, "prior_art", None) or []):
-        cite, _sep, why = pa.partition("::")
-        spec["prior_art"].append({"cite": cite.strip(), "why": why.strip()})
-    for pair in (args.task or []):
-        if "::" not in pair:
-            print(f"--task must be 'title::check command' -- invalid: {pair}", file=sys.stderr)
-            return 1
-        title, check = pair.split("::", 1)
-        spec["tasks"].append(_new_task(spec, title, check))
-    save_spec(args.root, args.task_id, spec)
-    print(f"Spec created at {path} with {len(spec['tasks'])} task(s).")
-    return 0
 
 
 def _cmd_add_task(args: argparse.Namespace) -> int:
@@ -1048,122 +1108,15 @@ def _cmd_add_task(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_deliver(args: argparse.Namespace) -> int:
-    spec = load_spec(args.root, args.task_id)
-    task = find_task(spec, args.task) if spec else None
-    if task is None:
-        print(f"Task {args.task} not found.", file=sys.stderr)
-        return 1
-    if task.get("status") != "validated":
-        task["status"] = "delivered"
-        save_spec(args.root, args.task_id, spec)
-    print(f"{args.task} -> {task['status']}")
-    notify_spec_update(spec, f"{args.task} marked delivered.", highlight_task=args.task)
-    return 0
-
-
-def _cmd_validate_task(args: argparse.Namespace) -> int:
-    spec = load_spec(args.root, args.task_id)
-    task = find_task(spec, args.task) if spec else None
-    if task is None:
-        print(f"Task {args.task} not found.", file=sys.stderr)
-        return 1
-
-    # Impossibility branch: the agent disputed this requirement as impossible.
-    # The judge adjudicates the claim -- accept retracts it, reject sends it back
-    # open with feedback. Only the judge can retract; the agent never removes.
-    if task.get("status") == "disputed":
-        verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
-        task["judge_verdict"] = verdict
-        task["judge_reason"] = reason
-        task["judge_hint"] = hint
-        task["status"] = "retracted" if verdict == 1 else "failed"
-        save_spec(args.root, args.task_id, spec)
-        print(f"{args.task}: dispute verdict={verdict} ({reason})")
-        if verdict != 1:
-            print(f"{args.task} -> failed: dispute rejected -- do the work or submit real proof of impossibility.")
-            notify_spec_update(
-                spec,
-                f"Dispute rejected for {args.task}.",
-                highlight_task=args.task,
-                judge_reason=str(reason or ""),
-                hint=hint,
-            )
-        else:
-            print(f"{args.task} -> retracted (judge accepted impossibility)")
-            headline = f"{args.task} retracted — judge accepted impossibility."
-            if all_tasks_validated(spec)[0]:
-                headline += " Completion breaker open."
-            notify_spec_update(
-                spec,
-                headline,
-                highlight_task=args.task,
-                judge_reason=str(reason or ""),
-                hint=hint,
-            )
-        return 0 if verdict == 1 else 2
-
-    exit_code, output = run_check(task.get("check", ""), cwd=args.root)
-    verdict, reason, new_reqs, hint = judge_task(spec, task, exit_code, output)
-    task["exit"] = exit_code
-    task["output"] = output
-    task["judge_verdict"] = verdict
-    task["judge_reason"] = reason
-    task["judge_hint"] = hint
-    task["status"] = "validated" if verdict == 1 else "failed"
-    # Judge-added requirements: append any the judge discovered. Append-only --
-    # the requirement set can grow as work is judged, never shrink here.
-    added: list[str] = []
-    for req in new_reqs:
-        spec.setdefault("tasks", [])
-        nt = _new_task(spec, req["title"], req["check"])
-        nt["added_by"] = "judge"
-        spec["tasks"].append(nt)
-        added.append(nt["id"])
-    save_spec(args.root, args.task_id, spec)
-    print(f"{args.task}: check exit={exit_code}; judge verdict={verdict} ({reason})")
-    print(f"{args.task} -> {task['status']}")
-    if added:
-        print(f"judge added requirement(s): {', '.join(added)}")
-    if verdict == 1:
-        headline = f"{args.task} check passed (exit {exit_code}); judge accepted the evidence."
-        if added:
-            headline += f" Judge added {', '.join(added)}."
-        if all_tasks_validated(spec)[0]:
-            headline += " Completion breaker open."
-        notify_spec_update(
-            spec,
-            headline,
-            highlight_task=args.task,
-            judge_reason=str(reason or ""),
-            hint=hint,
-        )
-    else:
-        headline = f"{args.task} check ran (exit {exit_code}); judge rejected the evidence."
-        if added:
-            headline += f" Judge added {', '.join(added)}."
-        notify_spec_update(
-            spec,
-            headline,
-            highlight_task=args.task,
-            judge_reason=str(reason or ""),
-            hint=hint,
-        )
-    return 0 if verdict == 1 else 2
-
-
 def _cmd_restate(args: argparse.Namespace) -> int:
-    """Set restated_goal to the agent's own-words restatement and clear the
-    `goal_seeded` marker. This is the agent's FIRST action on a freshly created
-    spec: the hook seeds the raw prompt as a placeholder, and the gate stays blocked
-    until the goal is genuinely restated (what is the intended outcome?)."""
+    """Set restated_goal in the agent's own words and clear the goal_seeded marker."""
     spec = load_spec(args.root, args.task_id)
     if spec is None:
         print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
         return 1
     goal = (args.goal or "").strip()
     if not goal:
-        print("--goal must be a non-empty restatement.", file=sys.stderr)
+        print("restate requires a non-empty goal string.", file=sys.stderr)
         return 1
     spec["restated_goal"] = goal
     spec["goal_seeded"] = False
@@ -1173,36 +1126,9 @@ def _cmd_restate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_cite(args: argparse.Namespace) -> int:
-    """Append evidence citations to an existing spec (append-only). `create` is the
-    hook's job, so this is how the agent adds the repo_context / prior_art the
-    evidence gate requires. It only ever appends -- never clears or replaces."""
-    spec = load_spec(args.root, args.task_id)
-    if spec is None:
-        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
-        return 1
-    added = 0
-    spec.setdefault("repo_context", [])
-    spec.setdefault("prior_art", [])
-    for entry in (getattr(args, "repo_context", None) or []):
-        cite, _sep, why = entry.partition("::")
-        spec["repo_context"].append({"cite": cite.strip(), "why": why.strip()})
-        added += 1
-    for pa in (getattr(args, "prior_art", None) or []):
-        cite, _sep, why = pa.partition("::")
-        spec["prior_art"].append({"cite": cite.strip(), "why": why.strip()})
-        added += 1
-    save_spec(args.root, args.task_id, spec)
-    print(f"Added {added} citation(s) "
-          f"(repo_context={len(spec['repo_context'])}, prior_art={len(spec['prior_art'])}).")
-    notify_spec_update(spec, f"Added {added} citation(s) to the evidence spec.")
-    return 0
-
-
 def _cmd_dispute(args: argparse.Namespace) -> int:
     """Agent submits evidence that a requirement is impossible. This only records
-    the claim (status -> disputed); the judge adjudicates on the next
-    validate-task. The agent can never retract a requirement itself."""
+    the claim (status -> disputed); the harness adjudicates on stop."""
     spec = load_spec(args.root, args.task_id)
     task = find_task(spec, args.task) if spec else None
     if task is None:
@@ -1217,22 +1143,15 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     task["status"] = "disputed"
     task["dispute_evidence"] = args.evidence
     save_spec(args.root, args.task_id, spec)
-    print(f"{args.task} -> disputed. Run validate-task (harness runs check, judge reviews output) to adjudicate the impossibility claim.")
+    print(f"{args.task} -> disputed. The harness adjudicates impossibility claims on stop.")
     notify_spec_update(spec, f"{args.task} disputed as impossible.", highlight_task=args.task)
     return 0
 
 
-def _cmd_status(args: argparse.Namespace) -> int:
-    spec = load_spec(args.root, args.task_id)
-    if spec is None:
-        print(format_spec_location(args.root, args.task_id), file=sys.stderr)
-        print("No spec file yet.", file=sys.stderr)
-        return 1
-    print(format_spec_status(spec))
-    return 0
-
-
 def _cmd_where(args: argparse.Namespace) -> int:
+    if os.environ.get("UNIFABLE_DEV", "").strip().lower() not in ("1", "true", "yes"):
+        print("where is dev-only; set UNIFABLE_DEV=1.", file=sys.stderr)
+        return 1
     # Always emit a machine-scannable diagnostic for the env-resolved session.
     # This line appears in Bash tool results so probes can validate whether the
     # shell subprocess receives the same session id/env as the hook/prompt scaffold.
@@ -1264,7 +1183,7 @@ def _apply_cli_context(args: argparse.Namespace) -> int | None:
     if args.cmd not in (None, "contract") and not args.task_id:
         print(
             "No session id: set CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, "
-            "or CURSOR_CONVERSATION_ID (Cursor). Run `unifable-spec where`.",
+            "or CURSOR_CONVERSATION_ID (Cursor).",
             file=sys.stderr,
         )
         return 1
@@ -1278,76 +1197,43 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="cmd")
 
-    p_validate = sub.add_parser("validate", help="Validate an existing spec.")
+    p_validate = sub.add_parser("validate", help="Validate an existing spec (harness/dev).")
     p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
     p_validate.add_argument("--require-evidence", action="store_true", dest="require_evidence",
                             help="Also require citation evidence (repo_context, prior_art).")
 
-    p_init = sub.add_parser("init", help="Write a blank spec template.")
-
-    p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier.")
+    p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier (harness/dev).")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
     p_contract.add_argument("--require-evidence", action="store_true", dest="require_evidence",
                             help="Include the evidence-gate citation requirements.")
-
-    p_create = sub.add_parser("create", help="Create a task spec (restated_goal + tasks).")
-    p_create.add_argument("--goal", required=True, help="Restated goal in your own words.")
-    p_create.add_argument("--task", action="append", default=[], help="Task as 'title::check command' (repeatable).")
-    p_create.add_argument("--repo-context", action="append", default=[], dest="repo_context",
-                          help="Evidence citation 'path:line::why' (repeatable).")
-    # Legacy alias: the field was named must_read before the rename. Same dest, so
-    # `--must-read` and `--repo-context` both land in repo_context (written canonical).
-    p_create.add_argument("--must-read", action="append", default=[], dest="repo_context",
-                          help="Deprecated alias for --repo-context.")
-    p_create.add_argument("--prior-art", action="append", default=[], dest="prior_art",
-                          help="Prior-art citation 'http(s)://...::why it backs the approach' (repeatable).")
-    p_create.add_argument("--constraint", action="append", default=[],
-                          help="Architectural/operational constraint (repeatable; >=1 required at HEAVY).")
-    p_create.add_argument("--rejected", action="append", default=[],
-                          help="Rejected alternative with reason (repeatable; >=2 required at HEAVY).")
-    p_create.add_argument("--force", action="store_true", help="Replace an existing spec.")
 
     p_add = sub.add_parser("add-task", help="Append a task to an existing spec.")
     p_add.add_argument("--title", required=True)
     p_add.add_argument("--check", required=True, help="Runnable command that proves the task.")
 
-    p_deliver = sub.add_parser("deliver", help="Mark a task delivered (code written).")
-    p_deliver.add_argument("--task", required=True, help="Task id, e.g. T1.")
-
-    p_vt = sub.add_parser("validate-task", help="Run the task's check command, then have the judge review the output.")
-    p_vt.add_argument("--task", required=True, help="Task id, e.g. T1.")
-
-    p_restate = sub.add_parser("restate", help="Restate the goal in your own words (clears the seeded placeholder).")
-    p_restate.add_argument("--goal", required=True, help="The intended outcome, restated in your own words.")
-
-    p_cite = sub.add_parser("cite", help="Append repo_context / prior_art evidence (append-only).")
-    p_cite.add_argument("--repo-context", action="append", default=[], dest="repo_context",
-                        help="Evidence citation 'path:line::why' (repeatable).")
-    p_cite.add_argument("--must-read", action="append", default=[], dest="repo_context",
-                        help="Deprecated alias for --repo-context.")
-    p_cite.add_argument("--prior-art", action="append", default=[], dest="prior_art",
-                        help="Prior-art citation 'http(s)://...::why' (repeatable).")
+    p_restate = sub.add_parser("restate", help="Restate the goal in your own words (clears goal_seeded).")
+    p_restate.add_argument(
+        "goal",
+        help="The intended outcome, restated in your own words (quote if it contains spaces).",
+    )
 
     p_dispute = sub.add_parser(
         "dispute",
-        help="Submit evidence a requirement is impossible; judge adjudicates on validate-task.",
+        help="Submit evidence a requirement is impossible; harness adjudicates on stop.",
     )
     p_dispute.add_argument("--task", required=True, help="Task id, e.g. T1.")
     p_dispute.add_argument("--evidence", required=True,
                            help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
 
-    p_status = sub.add_parser("status", help="Show task statuses + breaker state.")
-    sub.add_parser("where", help="Show canonical spec path and breaker state.")
+    sub.add_parser("where", help="Dev-only: show canonical spec path (UNIFABLE_DEV=1).")
 
     args = parser.parse_args(argv)
     err = _apply_cli_context(args)
     if err is not None:
         return err
     dispatch = {
-        "validate": _cmd_validate, "init": _cmd_init, "contract": _cmd_contract,
-        "create": _cmd_create, "add-task": _cmd_add_task, "deliver": _cmd_deliver,
-        "validate-task": _cmd_validate_task, "restate": _cmd_restate, "cite": _cmd_cite,
-        "dispute": _cmd_dispute, "status": _cmd_status, "where": _cmd_where,
+        "validate": _cmd_validate, "contract": _cmd_contract,
+        "restate": _cmd_restate, "add-task": _cmd_add_task, "dispute": _cmd_dispute, "where": _cmd_where,
     }
     handler = dispatch.get(args.cmd)
     if handler:
