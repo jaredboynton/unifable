@@ -47,8 +47,8 @@ def test_format_spec_status_shows_board_and_highlight_judge():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     text = mn.format_spec_status(spec, highlight_task="T1")
     assert "goal: Add density reinforcement" in text
-    assert "[XX] T1 Density reinforcement" in text
-    assert "[--] T4 Verify capsule floor" in text
+    assert "[XX] T1 (req) Density reinforcement" in text
+    assert "[--] T4 (req) Verify capsule floor" in text
     assert f"judge: {LONG_JUDGE}" in text
     assert "breaker: CLOSED" in text
 
@@ -68,7 +68,7 @@ def test_notify_spec_update_emits_prefixes_and_full_judge():
     assert mn.STATUS_PREFIX in err
     assert mn.JUDGE_PREFIX in err
     assert LONG_JUDGE in err
-    assert "T4 Verify capsule floor" in err.replace("\\n", "\n")
+    assert "T4 (req) Verify capsule floor" in err.replace("\\n", "\n")
 
 
 def test_build_spec_context_from_output_roundtrip():

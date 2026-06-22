@@ -186,15 +186,51 @@ def main() -> int:
 
     ledger = update_ledger(input_data, apply)
 
+    discovery_context = ""
     try:
         from citations import activity_from_ledger, sync_citations_from_activity
-        from spec import load_spec, resolve_session_id, save_spec
+        from evidence_policy import resolve_grade
+        from heavy_workflow import format_approach_board
+        from model_notify import format_spec_status
+        from spec import judge_discover_frontiers, load_spec, resolve_session_id, save_spec
 
         task_id = resolve_session_id(input_data, default=None)
+        grade = resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
+        research_tools = {"Read", "Grep", "Glob", "WebSearch", "WebFetch"}
         if task_id:
             spec = load_spec(cwd, task_id)
-            if spec and sync_citations_from_activity(spec, activity_from_ledger(ledger), cwd):
+            activity = activity_from_ledger(ledger)
+            if spec and sync_citations_from_activity(spec, activity, cwd):
                 save_spec(cwd, task_id, spec)
+            if (
+                spec
+                and grade == "HEAVY"
+                and tool_name in research_tools
+                and len(frontier_tasks(spec)) < 2
+            ):
+                n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
+                discoveries = int(ledger.get("frontier_discovery_count") or 0)
+
+                def bump_discovery(ld):
+                    ld["frontier_research_tools"] = n_tools
+
+                update_ledger(input_data, bump_discovery)
+
+                if n_tools >= 3 and discoveries < 3:
+                    added = judge_discover_frontiers(spec, activity)
+                    if added:
+                        save_spec(cwd, task_id, spec)
+
+                        def record_discovery(ld):
+                            ld["frontier_discovery_count"] = discoveries + 1
+
+                        update_ledger(input_data, record_discovery)
+                        ids = ", ".join(t["id"] for t in added)
+                        discovery_context = (
+                            "unifable spec update:\n"
+                            f"Judge added frontier approach(s): {ids}. Explore before primary.\n"
+                            + format_approach_board(spec)
+                        )
     except Exception:
         pass
 
@@ -230,6 +266,8 @@ def main() -> int:
             )
         if spec_context:
             parts.append(spec_context)
+        if discovery_context:
+            parts.append(discovery_context)
         if breaker_context:
             parts.append(breaker_context)
         _emit_context(parts)

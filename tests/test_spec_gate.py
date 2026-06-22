@@ -28,15 +28,35 @@ PY = sys.executable
 
 sys.path.insert(0, str(SCRIPTS_GATE))
 from spec import (  # noqa: E402
+    append_frontier_task,
     check_fake_evidence,
     is_path_line,
     is_source_url,
     load_spec,
     save_spec,
+    set_primary_task,
     spec_path,
     spec_template,
     validate_spec,
 )
+
+
+def _heavy_spec_with_approaches(**overrides) -> dict:
+    spec = {
+        "restated_goal": "Rewrite auth to use JWT.",
+        "acceptance_criteria": [
+            {"check": "pytest tests/test_jwt.py", "evidence": "3 passed in 0.2s"},
+        ],
+        "heavy_workflow": True,
+        "tasks": [],
+        "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
+        "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT claims spec"}],
+    }
+    append_frontier_task(spec, "Session cookies hardened", "pytest tests/test_sess.py")
+    append_frontier_task(spec, "Rotating JWT keys", "pytest tests/test_jwt_rot.py")
+    set_primary_task(spec, "HMAC bearer tokens", "pytest tests/test_hmac.py")
+    spec.update(overrides)
+    return spec
 
 sys.path.insert(0, str(HOOKS))
 import gate_stop  # noqa: E402
@@ -162,50 +182,24 @@ def test_validate_standard_fake_evidence():
 
 
 def test_validate_heavy_passes():
-    spec = {
-        "restated_goal": "Migrate the user table to include a verified_at timestamp.",
-        "acceptance_criteria": [
-            {"check": "python manage.py test tests.test_migration", "evidence": "1 passed in 0.9s"}
-        ],
-        "constraints": ["Must be backward-compatible with the read replica."],
-        "rejected_alternatives": [
-            "Add a separate verified table — rejected: foreign-key overhead at scale.",
-            "Use a nullable boolean — rejected: loses migration timestamp precision.",
-        ],
-    }
-    ok, reasons = validate_spec(spec, "HEAVY")
+    ok, reasons = validate_spec(_heavy_spec_with_approaches(), "HEAVY", require_evidence=True)
     assert ok, reasons
 
 
-def test_validate_heavy_missing_constraints():
-    spec = {
-        "restated_goal": "Rewrite auth to use JWT.",
-        "acceptance_criteria": [
-            {"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}
-        ],
-        "constraints": [],
-        "rejected_alternatives": [
-            "Session cookies — rejected: stateful.",
-            "HMAC tokens — rejected: no expiry.",
-        ],
-    }
-    ok, reasons = validate_spec(spec, "HEAVY")
+def test_validate_heavy_missing_frontiers():
+    spec = _heavy_spec_with_approaches()
+    spec["tasks"] = [t for t in spec["tasks"] if t.get("approach_kind") != "frontier"]
+    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
     assert not ok
-    assert any("constraints" in r for r in reasons)
+    assert any("frontier" in r for r in reasons)
 
 
-def test_validate_heavy_insufficient_rejected_alternatives():
-    spec = {
-        "restated_goal": "Rewrite auth to use JWT.",
-        "acceptance_criteria": [
-            {"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}
-        ],
-        "constraints": ["Must not break existing sessions."],
-        "rejected_alternatives": ["Session cookies — rejected: stateful."],
-    }
-    ok, reasons = validate_spec(spec, "HEAVY")
+def test_validate_heavy_missing_primary():
+    spec = _heavy_spec_with_approaches()
+    spec["tasks"] = [t for t in spec["tasks"] if t.get("approach_kind") != "primary"]
+    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
     assert not ok
-    assert any("rejected_alternatives" in r for r in reasons)
+    assert any("primary" in r for r in reasons)
 
 
 def test_validate_unknown_grade():
@@ -327,44 +321,21 @@ def test_evidence_light_exempt():
 
 
 def test_evidence_heavy_requires_prior_art():
-    spec = {
-        "restated_goal": "Rewrite auth to use JWT.",
-        "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
-        "constraints": ["Must not break existing sessions."],
-        "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
-        # prior_art missing
-    }
+    spec = _heavy_spec_with_approaches()
+    spec.pop("prior_art", None)
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
     assert not ok
     assert any("prior_art" in r for r in reasons)
 
 
 def test_evidence_heavy_passes_with_prior_art():
-    spec = {
-        "restated_goal": "Rewrite auth to use JWT.",
-        "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed in 0.2s"}],
-        "constraints": ["Must not break existing sessions."],
-        "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "repo_context": [
-            {"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"},
-            {"cite": "src/session.py:5-9", "why": "session lifecycle the JWT must preserve"},
-        ],
-        "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT claims spec"}],
-    }
-    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
+    ok, reasons = validate_spec(_heavy_spec_with_approaches(), "HEAVY", require_evidence=True)
     assert ok, reasons
 
 
 def test_evidence_heavy_prior_art_must_be_url():
-    spec = {
-        "restated_goal": "Rewrite auth to use JWT.",
-        "acceptance_criteria": [{"check": "pytest tests/test_jwt.py", "evidence": "3 passed"}],
-        "constraints": ["Must not break existing sessions."],
-        "rejected_alternatives": ["Session cookies — rejected: stateful.", "HMAC — rejected: no expiry."],
-        "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint being rewritten"}],
-        "prior_art": [{"cite": "some blog I read", "why": "background"}],
-    }
+    spec = _heavy_spec_with_approaches()
+    spec["prior_art"] = [{"cite": "some blog I read", "why": "background"}]
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
     assert not ok
     assert any("prior_art" in r and "URL" in r for r in reasons)
@@ -638,19 +609,22 @@ def test_standard_invalid_spec_blocks():
         assert "spec" in stderr.lower()
 
 
-# --- Spec gate: HEAVY requires constraints + rejected_alternatives ---
+# --- Spec gate: HEAVY frontier-first workflow ---
 
-def test_heavy_missing_constraints_blocks():
+def test_heavy_missing_frontiers_blocks():
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "heavy-session-001"
         spec = {
             "restated_goal": "Migrate DB schema.",
             "acceptance_criteria": [
-                {"check": "python manage.py test", "evidence": "1 passed"}
+                {"check": "python manage.py test", "evidence": "1 passed"},
             ],
-            "constraints": [],
-            "rejected_alternatives": ["alt1 — rejected.", "alt2 — rejected."],
+            "heavy_workflow": True,
+            "tasks": [],
+            "repo_context": [{"cite": "migrations/0001.py:1", "why": "prior migration"}],
+            "prior_art": [{"cite": "https://example.com/migrations", "why": "reference"}],
         }
+        set_primary_task(spec, "Primary migration path", "python manage.py test")
         save_spec(cwd, session_id, spec)
         payload = _edit_payload(
             os.path.join(cwd, "migrations", "0002.py"),
@@ -659,25 +633,20 @@ def test_heavy_missing_constraints_blocks():
         )
         rc, _, stderr = run_pre_tool(payload, spec_gate="1", grade="HEAVY")
         assert rc == 2
-        assert "constraint" in stderr.lower()
+        assert "frontier" in stderr.lower()
 
 
 def test_heavy_valid_spec_allows():
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "heavy-session-002"
-        spec = {
-            "restated_goal": "Migrate DB schema to add verified_at.",
-            "acceptance_criteria": [
-                {"check": "python manage.py test", "evidence": "1 passed in 0.9s"}
+        spec = _heavy_spec_with_approaches(
+            restated_goal="Migrate DB schema to add verified_at.",
+            acceptance_criteria=[
+                {"check": "python manage.py test", "evidence": "1 passed in 0.9s"},
             ],
-            "constraints": ["Must be backward-compatible."],
-            "rejected_alternatives": [
-                "Separate table — rejected: join overhead.",
-                "Nullable boolean — rejected: loses timestamp.",
-            ],
-            "repo_context": [{"cite": "migrations/0001.py:1", "why": "prior migration this extends"}],
-            "prior_art": [{"cite": "https://docs.djangoproject.com/en/stable/topics/migrations/", "why": "migration framework reference"}],
-        }
+            repo_context=[{"cite": "migrations/0001.py:1", "why": "prior migration this extends"}],
+            prior_art=[{"cite": "https://docs.djangoproject.com/en/stable/topics/migrations/", "why": "reference"}],
+        )
         save_spec(cwd, session_id, spec)
         payload = _edit_payload(
             os.path.join(cwd, "migrations", "0002.py"),

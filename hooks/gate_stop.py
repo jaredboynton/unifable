@@ -432,6 +432,7 @@ def main() -> int:
                     from citations import (activity_from_ledger, enabled,
                                            merge_activity, scan_transcript,
                                            sync_citations_from_activity, verify_citations)
+                    from heavy_workflow import advance_primary_if_ready
                     from spec import auto_validate_spec, save_spec
 
                     activity = merge_activity(
@@ -439,6 +440,8 @@ def main() -> int:
                         scan_transcript(input_data.get("transcript_path")),
                     )
                     if sync_citations_from_activity(spec, activity, cwd):
+                        save_spec(cwd, task_key, spec)
+                    if advance_primary_if_ready(spec):
                         save_spec(cwd, task_key, spec)
                     spec, _val_msgs = auto_validate_spec(spec, cwd, time_budget=STOP_JUDGE_BUDGET)
                     save_spec(cwd, task_key, spec)

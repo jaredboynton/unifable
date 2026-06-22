@@ -48,8 +48,18 @@ VALID_SPEC = {
     "acceptance_criteria": [{"check": "pytest -q", "evidence": "5 passed in 0.4s"}],
     "repo_context": [{"cite": "src/x.py:1", "why": "fixture passage"}],
     "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
-    "constraints": ["fixture constraint"],
-    "rejected_alternatives": ["alt a rejected: reason.", "alt b rejected: reason."],
+    "heavy_workflow": True,
+    "tasks": [
+        {"id": "T1", "title": "Frontier A", "check": "true", "status": "pending",
+         "approach_kind": "frontier", "added_by": "agent", "exit": None, "output": "",
+         "judge_verdict": None, "judge_reason": "", "judge_hint": ""},
+        {"id": "T2", "title": "Frontier B", "check": "true", "status": "pending",
+         "approach_kind": "frontier", "added_by": "agent", "exit": None, "output": "",
+         "judge_verdict": None, "judge_reason": "", "judge_hint": ""},
+        {"id": "T3", "title": "Primary", "check": "true", "status": "blocked",
+         "approach_kind": "primary", "added_by": "agent", "exit": None, "output": "",
+         "judge_verdict": None, "judge_reason": "", "judge_hint": ""},
+    ],
 }
 
 

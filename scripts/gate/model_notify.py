@@ -14,18 +14,16 @@ from typing import Any
 NOTIFY_PREFIX = "UNIFABLE_MODEL_MESSAGE\t"
 STATUS_PREFIX = "UNIFABLE_SPEC_STATUS\t"
 JUDGE_PREFIX = "UNIFABLE_MODEL_JUDGE\t"
-# Advisory hint channel: a non-blocking nudge from the judge. Distinct from the
-# judge verdict commentary so the agent never mistakes guidance for a gate.
 HINT_PREFIX = "UNIFABLE_MODEL_HINT\t"
 _HEADLINE_MAX = 320
 
 _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)")
 _SUBCMD_RE = re.compile(
     r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)\s+"
-    r"(restate|add-task|dispute|validate|contract|where)\b"
+    r"(restate|add-task|set-primary|add-frontier|dispute|validate|contract|where)\b"
 )
 
-MUTATING_SUBCMDS = frozenset({"restate", "add-task", "dispute"})
+MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
 
 _STATUS_MARKS = {
     "validated": "OK",
@@ -34,6 +32,8 @@ _STATUS_MARKS = {
     "pending": "--",
     "disputed": "??",
     "retracted": "~~",
+    "blocked": "BL",
+    "rejected_approach": "RJ",
 }
 
 
@@ -47,14 +47,25 @@ def format_spec_status(spec: dict[str, Any], *, highlight_task: str | None = Non
     """Compact task board matching the status CLI output shape."""
     ok, incomplete = _all_tasks_validated(spec)
     lines = [f"goal: {str(spec.get('restated_goal', ''))[:100]}"]
+    try:
+        from heavy_workflow import format_approach_board
+
+        if spec.get("heavy_workflow") or any(
+            isinstance(t, dict) and str(t.get("approach_kind") or "") in ("frontier", "primary")
+            for t in (spec.get("tasks") or [])
+        ):
+            lines.append(format_approach_board(spec))
+    except Exception:
+        pass
     highlight = str(highlight_task or "").strip()
     for task in spec.get("tasks") or []:
         if not isinstance(task, dict):
             continue
         tid = str(task.get("id") or "")
         mark = _STATUS_MARKS.get(str(task.get("status") or ""), "??")
+        kind = str(task.get("approach_kind") or "req")
         title = str(task.get("title") or "")
-        row = f"  [{mark}] {tid} {title}"
+        row = f"  [{mark}] {tid} ({kind}) {title}"
         if highlight and tid == highlight:
             reason = str(task.get("judge_reason") or "").strip()
             if reason:

@@ -33,7 +33,7 @@ def test_auto_validate_passes_pending_task(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
     spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "validated"
     assert all_tasks_validated(spec)[0] is True
@@ -66,7 +66,7 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
 
     captured = {"out": {}}
     gate_stop.read_stdin_json = lambda: {"session_id": "sess", "cwd": str(tmp_path)}

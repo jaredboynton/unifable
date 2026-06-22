@@ -215,15 +215,28 @@ def _seed_changed_session(cwd: str, dd: str, sess: str, prompt: str) -> None:
     old = os.environ.get("UNIFABLE_DATA")
     os.environ["UNIFABLE_DATA"] = dd
     try:
-        from spec import save_spec
-        save_spec(cwd, sess, {
+        from spec import append_frontier_task, save_spec, set_primary_task
+        from heavy_workflow import advance_primary_if_ready
+
+        spec = {
             "restated_goal": "fixture goal",
             "acceptance_criteria": [{"check": "pytest -q", "evidence": "5 passed in 0.4s"}],
             "repo_context": [{"cite": "src/x.py:1", "why": "fixture passage"}],
             "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
-            "constraints": ["fixture constraint"],
-            "rejected_alternatives": ["alt a rejected: reason.", "alt b rejected: reason."],
-        })
+            "requires_tasks": True,
+            "heavy_workflow": True,
+            "tasks": [],
+        }
+        append_frontier_task(spec, "Frontier A", "true")
+        append_frontier_task(spec, "Frontier B", "true")
+        set_primary_task(spec, "Primary fallback", "true")
+        for t in spec["tasks"]:
+            if t.get("approach_kind") == "frontier":
+                t["status"] = "rejected_approach"
+        advance_primary_if_ready(spec)
+        primary = next(t for t in spec["tasks"] if t.get("approach_kind") == "primary")
+        primary["status"] = "validated"
+        save_spec(cwd, sess, spec)
     finally:
         if old is None:
             os.environ.pop("UNIFABLE_DATA", None)

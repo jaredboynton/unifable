@@ -66,7 +66,6 @@ def _write_spec(cwd: str, key: str, task_status: str, data_dir: str) -> None:
                    "exit": 0, "output": "ok", "judge_verdict": 1, "judge_reason": "ok"}],
         "repo_context": [{"cite": "a.py:1", "why": "why it matters"}],
         "prior_art": [{"cite": "http://example.com/doc", "why": "fixture source"}],
-        "constraints": [], "rejected_alternatives": [],
     }
     old = os.environ.get("UNIFABLE_DATA")
     os.environ["UNIFABLE_DATA"] = data_dir

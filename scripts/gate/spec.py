@@ -11,7 +11,8 @@ Provides:
   - save_spec(cwd, session_id, spec) -> Path
   - canonical_project_root(cwd) -> Path   (git root / project markers; subdirs share one spec)
   - spec_template() -> dict
-  - CLI: validate / contract (harness) / restate / add-task / dispute / where (UNIFABLE_DEV=1)
+  - CLI: validate / contract (harness) / restate / add-task / set-primary /
+    add-frontier / dispute / where (UNIFABLE_DEV=1)
 
 State is one spec.json per (canonical project root, session), so a new session never
 inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
@@ -34,10 +35,32 @@ from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from atomicio import write_text_atomic
+    from heavy_workflow import (
+        advance_primary_if_ready,
+        all_frontiers_rejected,
+        all_tasks_validated_heavy,
+        compute_heavy_phase,
+        frontier_tasks,
+        heavy_declare_complete,
+        heavy_workflow_brief,
+        primary_task,
+        sync_heavy_phase,
+    )
     from ledger import data_root
     from model_notify import format_spec_status, notify_spec_update
 except ImportError:  # pragma: no cover
     from scripts.gate.atomicio import write_text_atomic
+    from scripts.gate.heavy_workflow import (
+        advance_primary_if_ready,
+        all_frontiers_rejected,
+        all_tasks_validated_heavy,
+        compute_heavy_phase,
+        frontier_tasks,
+        heavy_declare_complete,
+        heavy_workflow_brief,
+        primary_task,
+        sync_heavy_phase,
+    )
     from scripts.gate.ledger import data_root
     from scripts.gate.model_notify import format_spec_status, notify_spec_update
 
@@ -62,16 +85,6 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
         "type": list,
         "required": False,
         "description": "List of risks with blast-radius and mitigation.",
-    },
-    "constraints": {
-        "type": list,
-        "required": False,
-        "description": "Architectural or operational constraints that bound the solution.",
-    },
-    "rejected_alternatives": {
-        "type": list,
-        "required": False,
-        "description": "Approaches considered and rejected; each should state the broken boundary.",
     },
     "non_goals": {
         "type": list,
@@ -103,7 +116,8 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
 # Grade tier requirements:
 #   LIGHT    — restated_goal + >=1 acceptance_criteria (waives spec for trivial changes)
 #   STANDARD — full required set (restated_goal + acceptance_criteria)
-#   HEAVY    — STANDARD + >=1 constraints + >=2 rejected_alternatives
+#   HEAVY    — STANDARD + frontier-first approach workflow (>=2 frontier tasks,
+#              1 primary task; see heavy_workflow.py)
 GRADES = ("LIGHT", "STANDARD", "HEAVY")
 
 # ---------------------------------------------------------------------------
@@ -290,15 +304,23 @@ def validate_spec(
                         "(cmd -> output), a code citation (path:line), or a source URL."
                     )
 
-    # HEAVY requires >=1 constraints and >=2 rejected_alternatives
+    # HEAVY: frontier-first approach workflow (constraints removed)
     if grade == "HEAVY":
-        constraints = spec.get("constraints")
-        if not isinstance(constraints, list) or not constraints:
-            reasons.append("HEAVY grade requires 'constraints' (list, >=1 item).")
-
-        rejected = spec.get("rejected_alternatives")
-        if not isinstance(rejected, list) or len(rejected) < 2:
-            reasons.append("HEAVY grade requires 'rejected_alternatives' (list, >=2 items).")
+        sync_heavy_phase(spec)
+        n_frontier = len(frontier_tasks(spec))
+        if n_frontier < 2:
+            reasons.append(
+                f"HEAVY grade requires >=2 frontier approach tasks "
+                f"(have {n_frontier}); use `unifable add-frontier` or wait for judge discovery."
+            )
+        primary = primary_task(spec)
+        if primary is None:
+            reasons.append(
+                "HEAVY grade requires exactly 1 primary approach task "
+                "(evidence-backed fallback); use `unifable set-primary --title ... --check ...`."
+            )
+        elif not str(primary.get("title") or "").strip() or not str(primary.get("check") or "").strip():
+            reasons.append("HEAVY primary approach task must have non-empty title and check.")
 
     # Evidence gate: citation fields become required at STANDARD+ (LIGHT is exempt
     # because LIGHT waives the spec entirely upstream). Each repo_context citation must
@@ -624,13 +646,27 @@ def find_task(spec: dict[str, Any], task_id: str) -> dict[str, Any] | None:
 RESOLVED_STATUSES = ("validated", "retracted")
 
 
+def _is_heavy_spec(spec: dict[str, Any]) -> bool:
+    if spec.get("heavy_workflow"):
+        return True
+    for t in spec.get("tasks") or []:
+        if isinstance(t, dict) and str(t.get("approach_kind") or "") in ("frontier", "primary"):
+            return True
+    return False
+
+
 def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     """Return (ok, incomplete_ids). ok is True when every task is resolved
     (validated or judge-retracted). A spec with no tasks returns (True, []) so
     legacy acceptance-criteria specs are unaffected -- UNLESS it carries
     `requires_tasks` (set by the auto-creation hook): such a spec must gain >=1
     requirement before it can complete, so an empty one blocks. The agent adds
-    requirements; only the judge removes them (via dispute -> retracted)."""
+    requirements; only the judge removes them (via dispute -> retracted).
+
+    HEAVY specs with approach tasks use frontier-first completion rules."""
+    if _is_heavy_spec(spec):
+        advance_primary_if_ready(spec)
+        return all_tasks_validated_heavy(spec)
     tasks = spec.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         if spec.get("requires_tasks"):
@@ -677,9 +713,23 @@ def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
     return headlines
 
 
+def _task_is_pending(task: dict[str, Any]) -> bool:
+    """True when auto_validate should run check+judge on this task."""
+    status = str(task.get("status") or "")
+    if status in RESOLVED_STATUSES:
+        return False
+    if status == "blocked":
+        return False
+    if str(task.get("approach_kind") or "") == "frontier" and status == "rejected_approach":
+        return False
+    return True
+
+
 def _apply_check_result(
     spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str,
     verdict: int, reason: str, new_reqs: list[dict[str, str]], hint: str,
+    *,
+    frontier_outcome: str = "",
 ) -> list[str]:
     """Record a check+judge outcome on the task and notify. Mutates spec in place."""
     tid = str(task.get("id") or "")
@@ -688,7 +738,16 @@ def _apply_check_result(
     task["judge_verdict"] = verdict
     task["judge_reason"] = reason
     task["judge_hint"] = hint
-    task["status"] = "validated" if verdict == 1 else "failed"
+    kind = str(task.get("approach_kind") or "requirement")
+    if kind == "frontier":
+        if frontier_outcome == "rejected_approach":
+            task["status"] = "rejected_approach"
+        else:
+            task["status"] = "failed"
+    else:
+        task["status"] = "validated" if verdict == 1 else "failed"
+    advance_primary_if_ready(spec)
+    sync_heavy_phase(spec)
     added: list[str] = []
     for req in new_reqs:
         spec.setdefault("tasks", [])
@@ -696,7 +755,11 @@ def _apply_check_result(
         nt["added_by"] = "judge"
         spec["tasks"].append(nt)
         added.append(nt["id"])
-    if verdict == 1:
+    if kind == "frontier" and task["status"] == "rejected_approach":
+        headline = f"{tid} frontier ruled out by judge: {reason[:80]}."
+        if all_frontiers_rejected(spec):
+            headline += " All frontiers rejected — primary phase unlocked."
+    elif verdict == 1:
         headline = f"{tid} check passed (exit {exit_code}); judge accepted the evidence."
         if added:
             headline += f" Judge added {', '.join(added)}."
@@ -718,8 +781,11 @@ def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Pa
     if task.get("status") == "disputed":
         return _apply_dispute(spec, task)
     exit_code, output = run_check(task.get("check", ""), cwd=cwd)
-    verdict, reason, new_reqs, hint = judge_task(spec, task, exit_code, output)
-    return _apply_check_result(spec, task, exit_code, output, verdict, reason, new_reqs, hint)
+    verdict, reason, new_reqs, hint, frontier_outcome = judge_task(spec, task, exit_code, output)
+    return _apply_check_result(
+        spec, task, exit_code, output, verdict, reason, new_reqs, hint,
+        frontier_outcome=frontier_outcome,
+    )
 
 
 def auto_validate_spec(
@@ -741,12 +807,20 @@ def auto_validate_spec(
     deadline = (time.monotonic() + time_budget) if time_budget is not None else None
 
     pending: list[dict[str, Any]] = []
+    advance_primary_if_ready(spec)
     for task in list(spec.get("tasks") or []):
-        if not isinstance(task, dict) or task.get("status") in RESOLVED_STATUSES:
+        if not isinstance(task, dict) or not _task_is_pending(task):
             continue
         pending.append(task)
         if len(pending) >= max_tasks:
             break
+
+    # Frontier tasks before primary during HEAVY workflow
+    if _is_heavy_spec(spec):
+        pending.sort(key=lambda t: (
+            0 if str(t.get("approach_kind") or "") == "frontier" else
+            1 if str(t.get("approach_kind") or "") == "primary" else 2
+        ))
 
     # Snapshot the partition BEFORE adjudicating: _apply_dispute mutates status to
     # "retracted", which must not then sweep the task into the check+judge path.
@@ -771,10 +845,11 @@ def auto_validate_spec(
 
     if items:
         verdicts = judge_tasks(spec, items)
-        for it, (verdict, reason, new_reqs, hint) in zip(items, verdicts):
+        for it, (verdict, reason, new_reqs, hint, frontier_outcome) in zip(items, verdicts):
             messages.extend(
                 _apply_check_result(spec, it["task"], it["exit_code"], it["output"],
-                                    verdict, reason, new_reqs, hint)
+                                    verdict, reason, new_reqs, hint,
+                                    frontier_outcome=frontier_outcome)
             )
     return spec, messages
 
@@ -898,59 +973,148 @@ _JUDGE_SYSTEM = (
     + _HINT_GUIDANCE
 )
 
+_FRONTIER_JUDGE_SYSTEM = (
+    "You are a strict frontier-approach adjudicator. A frontier approach is a "
+    "realistic cutting-edge option the agent was required to explore before falling "
+    "back to the evidence-backed primary approach. Given the goal, frontier title, "
+    "check command, exit code, and output, decide whether the exploration is "
+    "sufficient to RULE OUT this frontier (broken boundary found, failed experiment, "
+    "or proven infeasible). Return outcome 'rejected_approach' only when the "
+    "evidence convincingly disqualifies the frontier — not merely because the check "
+    "failed once. Return 'still_viable' when more exploration is warranted. "
+    "Set verdict to 0 always (frontier resolution uses outcome, not verdict). "
+    + _HINT_GUIDANCE
+)
+
+_PRIMARY_JUDGE_SYSTEM = (
+    "You are validating delivery of the evidence-backed PRIMARY fallback approach "
+    "after all frontier approaches were ruled out. Return verdict 1 only if the "
+    "check output proves the primary approach was implemented correctly. "
+    + _HINT_GUIDANCE
+)
+
+_DISCOVER_SYSTEM = (
+    "You identify realistic cutting-edge frontier approaches worth exploring before "
+    "committing to the evidence-backed primary fallback. Given the restated goal and "
+    "recent research activity (reads, fetches), propose 0-2 frontier approaches. "
+    "Each must be plausible, distinct, and testable with a runnable check command. "
+    "Include scope_paths (repo file paths the frontier would touch) when inferrable. "
+    "Return an empty frontiers list if nothing useful to add."
+)
+
+_DISCOVER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "frontiers": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "check": {"type": "string"},
+                    "scope_paths": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "reason": {"type": "string"},
+                },
+                "required": ["title", "check"],
+                "additionalProperties": False,
+            },
+        },
+        "reason": {"type": "string"},
+    },
+    "required": ["frontiers"],
+    "additionalProperties": False,
+}
+
+_FRONTIER_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "verdict": {"type": "integer", "enum": [0, 1]},
+        "outcome": {"type": "string", "enum": ["rejected_approach", "still_viable"]},
+        "reason": {"type": "string"},
+        "new_requirements": _NEW_REQ_SCHEMA,
+        "hint": {"type": "string"},
+    },
+    "required": ["verdict", "outcome", "reason"],
+    "additionalProperties": False,
+}
+
 
 def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str) -> str:
-    return json.dumps({
+    payload: dict[str, Any] = {
         "goal": spec.get("restated_goal", ""),
         "task_title": task.get("title", ""),
         "check": task.get("check", ""),
         "exit_code": exit_code,
         "output": output,
-    }, ensure_ascii=False)
+    }
+    kind = str(task.get("approach_kind") or "requirement")
+    if kind in ("frontier", "primary"):
+        payload["approach_kind"] = kind
+        primary = primary_task(spec)
+        if primary:
+            payload["primary_approach"] = primary.get("title", "")
+    return json.dumps(payload, ensure_ascii=False)
 
 
-def _judge_result(res: Any) -> tuple[int, str, list[dict[str, str]], str]:
+def _judge_system_for_task(task: dict[str, Any]) -> str:
+    kind = str(task.get("approach_kind") or "requirement")
+    if kind == "frontier":
+        return _FRONTIER_JUDGE_SYSTEM
+    if kind == "primary":
+        return _PRIMARY_JUDGE_SYSTEM
+    return _JUDGE_SYSTEM
+
+
+def _judge_schema_for_task(task: dict[str, Any]) -> dict[str, Any]:
+    kind = str(task.get("approach_kind") or "requirement")
+    if kind == "frontier":
+        return _FRONTIER_JUDGE_SCHEMA
+    return _JUDGE_SCHEMA
+
+
+def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, str, list[dict[str, str]], str, str]:
     verdict = 1 if isinstance(res, dict) and res.get("verdict") == 1 else 0
     reason = str(res.get("reason") or "") if isinstance(res, dict) else ""
     new_reqs = _normalize_new_requirements(res.get("new_requirements")) if isinstance(res, dict) else []
     hint = _normalize_hint(res.get("hint")) if isinstance(res, dict) else ""
-    return verdict, reason, new_reqs, hint
+    frontier_outcome = ""
+    if task and str(task.get("approach_kind") or "") == "frontier" and isinstance(res, dict):
+        outcome = str(res.get("outcome") or "").strip()
+        if outcome in ("rejected_approach", "still_viable"):
+            frontier_outcome = outcome
+        verdict = 0
+    return verdict, reason, new_reqs, hint, frontier_outcome
 
 
 def judge_task(
     spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str
-) -> tuple[int, str, list[dict[str, str]], str]:
+) -> tuple[int, str, list[dict[str, str]], str, str]:
     """Ask the judge whether a single check output validates the task.
 
-    Returns (verdict, reason, new_requirements, hint); verdict is 1 only when the
-    judge is convinced the output genuinely demonstrates the task is done. Any judge
-    failure returns (0, reason, [], "") so an unreachable judge never auto-passes."""
+    Returns (verdict, reason, new_requirements, hint, frontier_outcome).
+    frontier_outcome is 'rejected_approach' or 'still_viable' for frontier tasks."""
     try:
         from codex_judge import JudgeError, ask_structured
     except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}", [], ""
+        return 0, f"judge unavailable: {exc}", [], "", ""
     try:
         res = ask_structured(
-            _JUDGE_SYSTEM, _judge_user(spec, task, exit_code, output),
-            _JUDGE_SCHEMA, schema_name="task_verdict",
+            _judge_system_for_task(task), _judge_user(spec, task, exit_code, output),
+            _judge_schema_for_task(task), schema_name="task_verdict",
         )
     except JudgeError as exc:
-        return 0, f"judge error: {exc}", [], ""
-    return _judge_result(res)
+        return 0, f"judge error: {exc}", [], "", ""
+    return _judge_result(res, task)
 
 
 def judge_tasks(
     spec: dict[str, Any], items: list[dict[str, Any]]
-) -> list[tuple[int, str, list[dict[str, str]], str]]:
+) -> list[tuple[int, str, list[dict[str, str]], str, str]]:
     """Judge several (task, exit_code, output) items, batched into ONE WebSocket
-    round-trip when there is more than one.
-
-    items: [{task, exit_code, output}]. Returns (verdict, reason, new_requirements,
-    hint) per item, aligned to input. A single item delegates to judge_task (one
-    handshake either way); multiple items fire concurrent out-of-band responses on a
-    single socket, so a Stop validating several tasks costs one handshake instead of
-    N (the codex-thread serial-judge timeout). Any per-item judge failure yields
-    (0, reason, [], "") so an unreachable judge never auto-passes a task."""
+    round-trip when there is more than one."""
     if not items:
         return []
     if len(items) == 1:
@@ -959,24 +1123,121 @@ def judge_tasks(
     try:
         from codex_judge import JudgeError, ask_structured_batch
     except ImportError as exc:  # pragma: no cover
-        return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
+        return [(0, f"judge unavailable: {exc}", [], "", "") for _ in items]
     reqs = [
         {
-            "system": _JUDGE_SYSTEM,
+            "system": _judge_system_for_task(it["task"]),
             "user": _judge_user(spec, it["task"], it["exit_code"], it["output"]),
-            "schema": _JUDGE_SCHEMA,
+            "schema": _judge_schema_for_task(it["task"]),
             "schema_name": "task_verdict",
         }
         for it in items
     ]
     results = ask_structured_batch(reqs)
-    out: list[tuple[int, str, list[dict[str, str]], str]] = []
-    for res in results:
+    out: list[tuple[int, str, list[dict[str, str]], str, str]] = []
+    for it, res in zip(items, results):
         if isinstance(res, JudgeError):
-            out.append((0, f"judge error: {res}", [], ""))
+            out.append((0, f"judge error: {res}", [], "", ""))
         else:
-            out.append(_judge_result(res))
+            out.append(_judge_result(res, it["task"]))
     return out
+
+
+def _normalize_scope_paths(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    return [str(p).strip() for p in raw if str(p).strip()]
+
+
+def append_frontier_task(
+    spec: dict[str, Any],
+    title: str,
+    check: str,
+    *,
+    added_by: str = "agent",
+    scope_paths: list[str] | None = None,
+) -> dict[str, Any]:
+    """Append a frontier approach task. Mutates spec in place."""
+    spec.setdefault("tasks", [])
+    spec["heavy_workflow"] = True
+    task = _new_task(spec, title, check)
+    task["approach_kind"] = "frontier"
+    task["added_by"] = added_by
+    if scope_paths:
+        task["scope_paths"] = scope_paths
+    spec["tasks"].append(task)
+    sync_heavy_phase(spec)
+    return task
+
+
+def set_primary_task(spec: dict[str, Any], title: str, check: str) -> dict[str, Any]:
+    """Set the single primary approach task (blocked until frontiers ruled out)."""
+    existing = primary_task(spec)
+    if existing is not None:
+        raise ValueError("primary approach already set; only one primary task allowed.")
+    spec.setdefault("tasks", [])
+    spec["heavy_workflow"] = True
+    task = _new_task(spec, title, check)
+    task["approach_kind"] = "primary"
+    task["status"] = "blocked"
+    task["added_by"] = "agent"
+    spec["tasks"].append(task)
+    sync_heavy_phase(spec)
+    return task
+
+
+def judge_discover_frontiers(
+    spec: dict[str, Any],
+    recent_activity: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Ask judge to propose frontier tasks from research activity. Returns added tasks."""
+    if len(frontier_tasks(spec)) >= 2:
+        return []
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError:
+        return []
+    user = json.dumps({
+        "goal": spec.get("restated_goal", ""),
+        "existing_frontiers": [t.get("title") for t in frontier_tasks(spec)],
+        "read_paths": (recent_activity.get("read_paths") or [])[-20:],
+        "fetched_urls": (recent_activity.get("fetched_urls") or [])[-10:],
+        "repo_context": spec.get("repo_context") or [],
+        "prior_art": spec.get("prior_art") or [],
+    }, ensure_ascii=False)
+    try:
+        res = ask_structured(_DISCOVER_SYSTEM, user, _DISCOVER_SCHEMA, schema_name="frontier_discover")
+    except JudgeError:
+        return []
+    added: list[dict[str, Any]] = []
+    frontiers = res.get("frontiers") if isinstance(res, dict) else []
+    if not isinstance(frontiers, list):
+        return []
+    for item in frontiers:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        check = str(item.get("check") or "").strip()
+        if not title or not check:
+            continue
+        if len(frontier_tasks(spec)) >= 2:
+            break
+        task = append_frontier_task(
+            spec, title, check,
+            added_by="judge",
+            scope_paths=_normalize_scope_paths(item.get("scope_paths")),
+        )
+        reason = str(item.get("reason") or res.get("reason") or "").strip()
+        if reason:
+            task["discovery_reason"] = reason
+        added.append(task)
+    if added:
+        ids = ", ".join(t["id"] for t in added)
+        notify_spec_update(
+            spec,
+            f"Judge added frontier approach(s): {ids}. Explore these before primary.",
+        )
+    return added
 
 
 def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str, str]:
@@ -1070,9 +1331,8 @@ def spec_template() -> dict[str, Any]:
         ],
         "prior_art": [],
         "risks": [],
-        "constraints": [],
-        "rejected_alternatives": [],
         "non_goals": [],
+        "heavy_workflow": False,
     }
 
 
@@ -1094,12 +1354,10 @@ _CONTRACT: dict[str, str] = {
         "Evidence must be observed tool output, not assumed."
     ),
     "HEAVY": (
-        "unifable spec contract — HEAVY grade. "
-        "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal', "
-        "'acceptance_criteria' (>=1 {check, evidence} with live output), "
-        "'constraints' (>=1 architectural constraint), "
-        "and 'rejected_alternatives' (>=2 entries each stating the broken boundary). "
-        "No placeholder evidence — every criteria item must carry observed command output."
+        "unifable spec contract — HEAVY grade (frontier-first workflow). "
+        "Before editing: restated_goal, citation evidence, >=2 frontier approach tasks, "
+        "and 1 primary approach task (blocked until frontiers ruled out). "
+        "CLI: unifable set-primary / unifable add-frontier. Judge adjudicates frontiers on Stop."
     ),
 }
 
@@ -1187,6 +1445,35 @@ def _cmd_add_task(args: argparse.Namespace) -> int:
         f"Requirement {task['id']} added: {task['title']}.",
         highlight_task=task["id"],
     )
+    return 0
+
+
+def _cmd_set_primary(args: argparse.Namespace) -> int:
+    spec = load_spec(args.root, args.task_id)
+    if spec is None:
+        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+        return 1
+    try:
+        task = set_primary_task(spec, args.title, args.check)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    save_spec(args.root, args.task_id, spec)
+    print(f"Primary approach set: {task['id']} (blocked until frontiers ruled out).")
+    notify_spec_update(spec, f"Primary approach {task['id']} set (blocked until frontiers rejected).")
+    return 0
+
+
+def _cmd_add_frontier(args: argparse.Namespace) -> int:
+    spec = load_spec(args.root, args.task_id)
+    if spec is None:
+        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+        return 1
+    task = append_frontier_task(spec, args.title, args.check, added_by="agent")
+    save_spec(args.root, args.task_id, spec)
+    n = len(frontier_tasks(spec))
+    print(f"Frontier approach added: {task['id']} ({n} total).")
+    notify_spec_update(spec, f"Frontier {task['id']} added ({n}/2 for declare phase).")
     return 0
 
 
@@ -1299,6 +1586,20 @@ def main(argv: list[str] | None = None) -> int:
         help="The intended outcome, restated in your own words (quote if it contains spaces).",
     )
 
+    p_constraint = sub.add_parser(
+        "set-primary",
+        help="Set the evidence-backed primary approach task (HEAVY; blocked until frontiers ruled out).",
+    )
+    p_constraint.add_argument("--title", required=True)
+    p_constraint.add_argument("--check", required=True, help="Runnable command proving primary delivery.")
+
+    p_rejected = sub.add_parser(
+        "add-frontier",
+        help="Append a frontier approach task to explore (HEAVY needs >=2).",
+    )
+    p_rejected.add_argument("--title", required=True)
+    p_rejected.add_argument("--check", required=True, help="Runnable exploration check.")
+
     p_dispute = sub.add_parser(
         "dispute",
         help="Submit evidence a requirement is impossible; harness adjudicates on stop.",
@@ -1315,7 +1616,12 @@ def main(argv: list[str] | None = None) -> int:
         return err
     dispatch = {
         "validate": _cmd_validate, "contract": _cmd_contract,
-        "restate": _cmd_restate, "add-task": _cmd_add_task, "dispute": _cmd_dispute, "where": _cmd_where,
+        "restate": _cmd_restate,
+        "add-task": _cmd_add_task,
+        "set-primary": _cmd_set_primary,
+        "add-frontier": _cmd_add_frontier,
+        "dispute": _cmd_dispute,
+        "where": _cmd_where,
     }
     handler = dispatch.get(args.cmd)
     if handler:

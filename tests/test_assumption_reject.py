@@ -21,8 +21,18 @@ def _spec(evidence: str = "5 passed in 0.4s", why: str = "where routes register"
         "acceptance_criteria": [{"check": "pytest -q", "evidence": evidence}],
         "repo_context": [{"cite": "src/app.py:10", "why": why}],
         "prior_art": [{"cite": "https://example.com/doc", "why": "fixture source"}],
-        "constraints": ["c"], "rejected_alternatives": ["a: x", "b: y"],
     }
+
+
+def _heavy_spec(evidence: str = "5 passed in 0.4s", why: str = "where routes register"):
+    from spec import append_frontier_task, set_primary_task
+    spec = _spec(evidence, why)
+    spec["heavy_workflow"] = True
+    spec["tasks"] = []
+    append_frontier_task(spec, "F1", "true")
+    append_frontier_task(spec, "F2", "true")
+    set_primary_task(spec, "Primary", "true")
+    return spec
 
 
 def test_check_fake_evidence_flags_assumptions():
@@ -47,7 +57,7 @@ def test_assumption_in_repo_context_why_rejected():
 
 
 def test_proven_evidence_passes():
-    ok, reasons = validate_spec(_spec(), "HEAVY", require_evidence=True)
+    ok, reasons = validate_spec(_heavy_spec(), "HEAVY", require_evidence=True)
     assert ok, reasons
 
 

@@ -41,8 +41,8 @@ except ImportError:  # pragma: no cover
 MODES = ("quick", "normal", "deep")
 
 # The only mode->grade authority. quick waives the spec (LIGHT); normal needs the
-# full evidence spec (STANDARD); deep adds architectural constraints + rejected
-# alternatives (HEAVY). See scripts/gate/spec.py for the per-grade requirements.
+# full evidence spec (STANDARD); deep uses frontier-first HEAVY workflow
+# (>=2 frontier tasks + 1 primary; see heavy_workflow.py).
 MODE_TO_GRADE = {"quick": "LIGHT", "normal": "STANDARD", "deep": "HEAVY"}
 
 DEFAULT_GRADE = "STANDARD"

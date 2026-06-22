@@ -72,8 +72,7 @@ def classify_prompt(prompt: str) -> tuple[str, list[str]]:
 # Map the observation-gate mode onto the spec-gate grade tier. quick work is
 # LIGHT (spec waived), normal is STANDARD (full spec), deep is HEAVY (adds
 # architectural constraints + >=2 rejected alternatives). The mapping itself now
-# lives in scripts/gate/evidence_policy.py (the single policy boundary); these are
-# back-compat shims so existing importers (hooks, tests) keep working.
+# lives in scripts/gate/evidence_policy.py; HEAVY uses frontier-first workflow.
 try:  # bare import on sys.path (hooks + tests); package import otherwise
     from evidence_policy import MODE_TO_GRADE as GRADE_BY_MODE, grade_for_mode
 except ImportError:  # pragma: no cover

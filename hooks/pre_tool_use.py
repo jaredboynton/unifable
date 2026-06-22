@@ -50,7 +50,22 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 from bash_classify import ALLOWED_RESEARCH_BASH, is_allowed_research_bash
 from evidence_policy import resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json
-from spec import canonical_project_root, contract_string, format_spec_location, load_spec, resolve_session_id, spec_path, validate_spec
+from heavy_workflow import (
+    compute_heavy_phase,
+    edit_targets_primary_scope,
+    heavy_declare_complete,
+    heavy_workflow_brief,
+)
+from spec import (
+    canonical_project_root,
+    contract_string,
+    format_spec_location,
+    load_spec,
+    resolve_session_id,
+    save_spec,
+    spec_path,
+    validate_spec,
+)
 
 # ---------------------------------------------------------------------------
 # Tool names across both hosts (Claude Code and Codex)
@@ -75,8 +90,8 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
     """Return True when *target* is under the repo-local <cwd>/.unifable/ OR under
     the global keyed spec store (<data_root>/specs/).
 
-    Specs are CLI-only: the model mutates them via unifable (restate / add-task / dispute),
-    never with Edit/Write. Hand-editing
+    Specs are CLI-only: the model mutates them via unifable (restate / add-task /
+    set-primary / add-frontier / dispute), never with Edit/Write. Hand-editing
     the spec JSON is blocked so an agent cannot delete tasks or fake a validated
     status. The spec now lives globally under <data_root>/specs/<dir>/<session>/,
     so that root is protected too; the repo-local .unifable/ (findings, residual
@@ -179,7 +194,25 @@ def _effective_grade(input_data: dict | None = None) -> str:
     return resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
 
 
-def _enforce_spec(input_data: dict, cwd: str) -> int:
+def _enforce_heavy_writes(spec: dict, cwd: str, target: str | None) -> int:
+    """HEAVY frontier-first phase gates on write tools after spec validates."""
+    phase = compute_heavy_phase(spec)
+    if phase == "declare" or not heavy_declare_complete(spec):
+        return _block(
+            "HEAVY declare phase: research only — no edits until restated goal, "
+            "citation evidence, >=2 frontier tasks, and 1 primary task exist.\n"
+            + heavy_workflow_brief(spec, phase)
+        )
+    if phase == "frontier" and target and edit_targets_primary_scope(spec, target, cwd):
+        return _block(
+            "HEAVY frontier phase: primary approach is blocked until the judge marks "
+            "ALL frontier tasks rejected_approach. Work on frontier tasks first.\n"
+            + heavy_workflow_brief(spec, phase)
+        )
+    return 0
+
+
+def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None) -> int:
     """Block a write tool unless a valid evidence spec exists for the task.
 
     The evidence gate is unconditional — there is no env disable. A valid spec
@@ -209,6 +242,7 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             f"{loc}\n"
             f"  unifable restate '<your restatement>'\n"
             f"  unifable add-task --title '<requirement>' --check '<runnable check>'\n"
+            f"  HEAVY: unifable set-primary / unifable add-frontier (>=2)\n"
             f"Citations sync from reads/fetches automatically. "
             f"{contract_string(grade, True)}"
         )
@@ -228,6 +262,11 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             "spec citations are not backed by real activity this session: "
             + "; ".join(cited)
         )
+
+    if grade == "HEAVY":
+        rc = _enforce_heavy_writes(spec, cwd, write_target)
+        if rc != 0:
+            return rc
 
     return 0
 
@@ -258,7 +297,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
             f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
             f"To unblock other Bash, restate the goal and add requirements with "
             f"`unifable restate` / `unifable add-task` "
-            f"(citations sync from activity automatically):\n{loc}"
+            f"(HEAVY also: set-primary, add-frontier; citations sync from activity):\n{loc}"
         )
 
     return 0
@@ -283,7 +322,7 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
         f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
         f"Bash, restate the goal and add requirements with `unifable restate` / `unifable add-task` "
-        f"(citations sync from activity automatically):\n"
+        f"(HEAVY also: set-primary, add-frontier; citations sync from activity):\n"
         f"{loc}"
     )
 
@@ -361,11 +400,11 @@ def main() -> int:
             return _block(
                 f"write to protected unifable state file '{target}' is not allowed. "
                 "Specs are CLI-only: create and mutate them via "
-                "`unifable` (restate / add-task / dispute), never by hand-editing the JSON. ledger, goals, "
+                "`unifable` (restate / add-task / set-primary / add-frontier / dispute), never by hand-editing the JSON. ledger, goals, "
                 "findings, and state are off-limits too."
             )
 
-        rc = _enforce_spec(input_data, cwd)
+        rc = _enforce_spec(input_data, cwd, write_target=target)
         if rc == 0:
             return _emit_allow(breaker_notify)
         return rc

@@ -16,7 +16,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, read_stdin_json, update_ledger
 from classify_task import classify_prompt, context_for_mode, grade_of
-from spec import canonical_project_root, resolve_session_id, save_spec, spec_path, spec_template
+from evidence_policy import higher_mode
+from heavy_workflow import heavy_workflow_brief
+from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
 
 
 def _prompt_key(prompt: str) -> str:
@@ -32,7 +34,7 @@ def _seed_goal(prompt: str, limit: int = 280) -> str:
     return g[:limit]
 
 
-def _ensure_spec_scaffold(cwd: str, key: str, prompt: str) -> str:
+def _ensure_spec_scaffold(cwd: str, key: str, prompt: str, *, heavy: bool = False) -> str:
     """Auto-create the evidence spec (the agent never runs `create`). Writes a
     scaffold with `requires_tasks` so an empty spec is not completable, seeds the
     goal from the prompt, and returns the spec path for injection. Fail-open:
@@ -48,7 +50,14 @@ def _ensure_spec_scaffold(cwd: str, key: str, prompt: str) -> str:
             s["prior_art"] = []
             s["tasks"] = []
             s["requires_tasks"] = True  # empty spec must gain >=1 requirement to complete
+            if heavy:
+                s["heavy_workflow"] = True
             save_spec(cwd, key, s)
+        elif heavy:
+            s = load_spec(cwd, key)
+            if isinstance(s, dict) and not s.get("heavy_workflow"):
+                s["heavy_workflow"] = True
+                save_spec(cwd, key, s)
         return str(path)
     except Exception:
         return ""
@@ -59,20 +68,16 @@ def main() -> int:
     prompt = str(input_data.get("prompt") or input_data.get("user_prompt") or "")
     mode, risks = classify_prompt(prompt)
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
-    # The evidence spec is now ONE per (directory, session) -- keyed by the session,
-    # not the prompt -- so a new session never inherits a prior one's spec. The
-    # per-prompt hash still feeds the groundedness breaker's debounce key, so keep
-    # it in `active_task`; it no longer keys the spec.
     new_key = _prompt_key(prompt)
     session_key = resolve_session_id(input_data, default="default") or "default"
+    grade = grade_of(mode)
+    heavy = grade == "HEAVY"
 
     def apply(ledger):
-        # `active_task` = the current prompt hash, for the breaker debounce only.
-        # There is one session spec, so a new prompt cannot escape the gate by
-        # re-pointing a key -- the spec is found by session, not by this value.
+        prior_mode = (ledger.get("task_mode") or "").lower().strip()
         ledger["active_task"] = new_key
-        ledger["task_mode"] = mode
-        ledger["grade"] = grade_of(mode)
+        ledger["task_mode"] = higher_mode(prior_mode, mode) if prior_mode else mode
+        ledger["grade"] = grade_of(ledger["task_mode"])
         ledger["warning_count"] = 0
         ledger["warnings"] = []
         ledger["changed_files_seen"] = False
@@ -82,18 +87,21 @@ def main() -> int:
         ledger["verification_results"] = []
         ledger["failures"] = []
         ledger["stop_blocks"] = 0
+        ledger["frontier_discovery_count"] = ledger.get("frontier_discovery_count", 0)
         add_unique(ledger, "risk_flags", risks)
+        if heavy and not ledger.get("heavy_brief_injected"):
+            ledger["heavy_brief_injected"] = True
+            ledger["inject_heavy_brief"] = True
+        else:
+            ledger["inject_heavy_brief"] = False
 
-    ledger = update_ledger(input_data, apply)
+    update_ledger(input_data, apply)
 
     context = context_for_mode(mode, risks)
 
-    # Auto-create the evidence spec on the hook path for non-trivial work, and tell
-    # the agent how to drive it (append-only: add requirements + evidence; dispute
-    # the impossible; never edit the JSON). LIGHT work is waived (no spec).
     if grade_of(mode) != "LIGHT":
-        key = session_key  # one spec per session; CLI resolves session from host env
-        path = _ensure_spec_scaffold(cwd, key, prompt)
+        key = session_key
+        path = _ensure_spec_scaffold(cwd, key, prompt, heavy=heavy)
         if path:
             context += (
                 f"\n\nunifable: evidence spec auto-created at {path}. "
@@ -101,10 +109,26 @@ def main() -> int:
                 f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
                 f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
                 f"  - unifable add-task --title '<requirement>' --check '<runnable check>'\n"
+            )
+            if heavy:
+                context += (
+                    f"  - HEAVY: unifable set-primary --title '...' --check '...'\n"
+                    f"  - HEAVY: unifable add-frontier --title '...' --check '...' (>=2; judge may auto-add)\n"
+                )
+            context += (
                 f"  - if a requirement is genuinely impossible: unifable dispute "
                 f"--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
                 f"Citations sync from your reads/fetches automatically; checks run on stop."
             )
+
+    try:
+        from ledger import load_ledger
+        ledger = load_ledger(input_data)
+        if ledger.get("inject_heavy_brief"):
+            context += "\n\n" + heavy_workflow_brief()
+    except Exception:
+        if heavy:
+            context += "\n\n" + heavy_workflow_brief()
 
     emit_json(
         {

@@ -49,7 +49,7 @@ def test_auto_validate_pass_stores_hint(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_task",
-        lambda sp, t, ec, out: (1, "ok", [], "consider adding an error-path test"),
+        lambda sp, t, ec, out: (1, "ok", [], "consider adding an error-path test", ""),
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     t = spec["tasks"][0]
@@ -62,7 +62,7 @@ def test_hint_with_failing_verdict_keeps_breaker_closed(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
     monkeypatch.setattr(
         spec_mod, "judge_task",
-        lambda sp, t, ec, out: (0, "no real evidence", [], "go run the actual suite"),
+        lambda sp, t, ec, out: (0, "no real evidence", [], "go run the actual suite", ""),
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     t = spec["tasks"][0]
@@ -106,7 +106,7 @@ def test_stop_loop_appends_hint_at_threshold_without_lifting_gate(tmp_path, monk
     save_spec(str(tmp_path), "hintsess", spec)
     payload = {"session_id": "hintsess", "cwd": str(tmp_path)}
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_task", lambda sp, t, ec, out: (0, "no", [], ""))
+    monkeypatch.setattr(spec_mod, "judge_task", lambda sp, t, ec, out: (0, "no", [], "", ""))
     monkeypatch.setattr(
         spec_mod, "judge_hint",
         lambda sp, *, signal, recent="": "fix the check before trying to finish",

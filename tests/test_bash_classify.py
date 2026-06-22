@@ -30,6 +30,8 @@ ALLOWED = [
     "ls | rg foo",
     "unifable restate 'do the thing well'",
     "unifable add-task --title t --check true",
+    "unifable set-primary --title p --check true",
+    "unifable add-frontier --title f --check true",
     "unifable-spec restate 'do the thing well'",
     "python3 scripts/gate/spec.py restate 'do the thing well'",
     "unifable dispute --task T1 --evidence proof",

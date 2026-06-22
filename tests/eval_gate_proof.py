@@ -70,11 +70,24 @@ MR = [{"cite": "src/mw.py:42", "why": "rate-limit hook"}, {"cite": "src/router.p
 PRIOR = [{"cite": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429", "why": "429 retry semantics"}]
 STD_CITED = {"restated_goal": "Add rate limiting.", "acceptance_criteria": GOOD_ACC,
              "repo_context": MR, "prior_art": PRIOR}
-HEAVY_FULL = {"restated_goal": "Migrate auth to JWT.", "acceptance_criteria": GOOD_ACC,
-              "constraints": ["Keep sessions valid."],
-              "rejected_alternatives": ["cookies stateful.", "hmac no expiry."],
-              "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
-              "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT spec"}]}
+HEAVY_FULL = {
+    "restated_goal": "Migrate auth to JWT.",
+    "acceptance_criteria": GOOD_ACC,
+    "heavy_workflow": True,
+    "tasks": [
+        {"id": "T1", "title": "Session cookies", "check": "pytest tests/test_sess.py", "status": "pending",
+         "approach_kind": "frontier", "added_by": "agent", "exit": None, "output": "",
+         "judge_verdict": None, "judge_reason": "", "judge_hint": ""},
+        {"id": "T2", "title": "Rotating JWT", "check": "pytest tests/test_jwt.py", "status": "pending",
+         "approach_kind": "frontier", "added_by": "agent", "exit": None, "output": "",
+         "judge_verdict": None, "judge_reason": "", "judge_hint": ""},
+        {"id": "T3", "title": "HMAC bearer", "check": "pytest tests/test_hmac.py", "status": "blocked",
+         "approach_kind": "primary", "added_by": "agent", "exit": None, "output": "",
+         "judge_verdict": None, "judge_reason": "", "judge_hint": ""},
+    ],
+    "repo_context": [{"cite": "src/auth.py:30", "why": "auth entrypoint"}],
+    "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc7519", "why": "JWT spec"}],
+}
 
 # The evidence gate is unconditional (no env disable). EV is empty: with the gate
 # vars scrubbed in run(), the production default (gate ON) is exercised. OFF keeps the
