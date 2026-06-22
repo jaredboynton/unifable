@@ -34,6 +34,7 @@ Disable with UNIFABLE_BREAKER=0. Cap override: UNIFABLE_BREAKER_MAX_BLOCKS.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -66,6 +67,27 @@ BREAKER_MAX_BLOCKS_DEFAULT = 3
 
 _TRANSCRIPT_TOKEN_BUDGET = TRANSCRIPT_TOKEN_BUDGET
 
+# Harness-self-referential claims (gate waiver, spec state, breaker state) cannot be
+# grounded via read-only research without circularity -- never arm on them.
+_HARNESS_SELF_REF_RE = re.compile(
+    r"\b("
+    r"unifable|fablize|evidence[\s-]spec|evidence[\s-]gate|groundedness[\s-]breaker|"
+    r"pre[\s-]?(?:edit|tooluse)[\s-]?gate|gate_stop|gate_prompt|gate_post_tool|"
+    r"hooks\.json|UNIFABLE_|"
+    r"(?:quick\s*/?\s*)?LIGHT(?:\s+(?:mode|grade|task))?|"
+    r"provisional[\s-]lift|spec[\s-]waiver|goal_seeded|"
+    r"breaker[\s-]?(?:armed|open|block|lift)|unifable[\s-]spec|"
+    r"unproven[\s-]claim.*(?:waiv|LIGHT|spec[\s-]task|provisional)"
+    r")\b",
+    re.I,
+)
+
+
+def is_harness_self_referential(text: str) -> bool:
+    """True when text is about unifable gate/hook state -- not verifiable externally."""
+    return bool(_HARNESS_SELF_REF_RE.search(str(text or "")))
+
+
 _JUDGE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -78,7 +100,11 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "or run, or a fact the model must treat as settled to proceed with THAT work. 0 for "
                 "narration, background explanations, speculative root-cause stories about host/tool "
                 "errors the model is not using to drive the immediate action, passing asides, or "
-                "claims the model retracted or labeled uncertain. When load_bearing=0, verdict MUST be 0."
+                "claims the model retracted or labeled uncertain. Claims about unifable/fablize "
+                "HARNESS state (LIGHT/quick waiver, evidence spec validation, provisional lift, "
+                "hook block messages, breaker armed/disarmed, whether edits are allowed) are "
+                "self-referential and NOT verifiable -- set load_bearing=0. When load_bearing=0, "
+                "verdict MUST be 0."
             ),
         },
         "verdict": {
@@ -108,8 +134,11 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "is found, tell the model to dig in and start empirical reverse-engineering "
                 "(capture/read an actual response: HTTP body fields, status, sample payload). "
                 "Prior art is a starting point, not a substitute for verifying behavior that "
-                "matters to the user goal. Do NOT insist on official docs alone when community "
-                "RE or fresh probing is the correct path. NEVER steer toward blocked shell "
+                "matters to the user goal. NEVER steer toward verifying unifable/fablize harness "
+                "gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those "
+                "claims are self-referential and must not arm. Do NOT insist on official docs alone "
+                "when community RE or fresh probing is the correct path. NEVER steer toward blocked "
+                "shell "
                 "commands. Name a specific path only if it already appears in the transcript. "
                 "Empty when verdict=0."
             ),
@@ -260,6 +289,13 @@ _JUDGE_SYSTEM = (
     "actual work is an unrelated repo change; a post-mortem about a prior error; status commentary; "
     "or a hypothesis the model marks as uncertain or retracts. If the model says the aside is not "
     "load-bearing or retracts the claim, load_bearing=0. "
+    "HARNESS SELF-REFERENCE (never arm): Claims about unifable/fablize ITSELF -- whether the run "
+    "is waived under LIGHT/quick mode, whether the evidence spec is satisfied, whether a "
+    "provisional lift exists, what a PreToolUse/Stop hook message means, or whether edits are "
+    "currently allowed -- are self-referential. The model cannot verify gate state by fetching "
+    "unifable docs or inferring from plugin reload messages. Set load_bearing=0 and verdict=0; "
+    "steering MUST be empty. Only arm on claims about the USER's repo, external systems, or "
+    "domain facts the user asked about. "
     "(B) UNGROUNDED CONFIDENT ASSERTION? Only if load_bearing=1, ask whether the model asserted a "
     "root cause, fix, or fact as SETTLED without reading the source, running the check, or citing "
     "evidence (especially about an API, config, or file it never actually read). A normal hypothesis "
@@ -302,7 +338,9 @@ _DISARM_SYSTEM = (
     "(A) IS THE FLAGGED CLAIM STILL LOAD-BEARING FOR CURRENT WORK? Set load_bearing=0 when the "
     "claim is narration, a retracted/corrected aside, speculative root-cause storytelling about "
     "host/tool errors (TaskUpdate 'not found', plugin reload) that the model is NOT using to drive "
-    "the immediate repo edit/check, or otherwise not needed for the work NOW in the transcript. "
+    "the immediate repo edit/check, claims about unifable/fablize harness gate state (LIGHT "
+    "waiver, spec validation, provisional lift, hook block semantics), or otherwise not needed "
+    "for the work NOW in the transcript. "
     "Set load_bearing=1 only if the model still relies on that claim for the immediate next action. "
     "(B) SHOULD THE BREAKER RELEASE? Set grounded=1 if ANY hold: (1) load_bearing=0 -- release "
     "without requiring further evidence; (2) the claim was RETRACTED or corrected, or the model "
@@ -474,6 +512,10 @@ def arm_judge(
         verdict = 0
     steering = str(obj.get("steering", "") or "") if verdict == 1 else ""
     claim = str(obj.get("claim", "") or "") if verdict == 1 else ""
+    if verdict == 1 and (
+        is_harness_self_referential(claim) or is_harness_self_referential(steering)
+    ):
+        return 0, "", ""
     return verdict, steering, claim
 
 
@@ -508,6 +550,8 @@ def disarm_judge(
 ) -> ReleaseVerdict:
     if not segment.strip():
         return ReleaseVerdict(False, "", True, False, "", "")
+    if is_harness_self_referential(claim):
+        return ReleaseVerdict(True, "", False, False, "", "")
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
     user = (

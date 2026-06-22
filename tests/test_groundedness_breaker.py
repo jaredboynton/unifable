@@ -349,6 +349,55 @@ def test_arm_judge_forces_verdict0_when_load_bearing_false():
     assert verdict == 0 and steering == "" and claim == ""
 
 
+def test_arm_judge_rejects_harness_self_referential_claim():
+    def bad_judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "fetch authoritative unifable documentation",
+            "claim": (
+                "the run is waived under quick/LIGHT mode or a provisional lift exists, "
+                "so edits are allowed despite unresolved spec tasks"
+            ),
+            "load_bearing": 1,
+        }
+
+    verdict, steering, claim = gb.arm_judge("segment", judge=bad_judge)
+    assert verdict == 0 and steering == "" and claim == ""
+
+
+def test_disarm_judge_releases_harness_self_referential_claim():
+    def bad_judge(system, user, schema):
+        return {
+            "grounded": 0,
+            "needed": "fetch unifable CLI help",
+            "load_bearing": 1,
+            "provisional_release": 0,
+            "lift_reason": "",
+            "lift_scope": "",
+        }
+
+    verdict = gb.disarm_judge(
+        "LIGHT mode waives the evidence gate for this session",
+        "transcript",
+        judge=bad_judge,
+    )
+    assert verdict.grounded is True and verdict.needed == ""
+
+
+def test_arm_prompt_forbids_harness_self_reference():
+    sysp = gb._JUDGE_SYSTEM.lower()
+    assert "self-referential" in sysp or "self reference" in sysp
+    assert "light" in sysp or "waiver" in sysp
+    lb_desc = gb._JUDGE_SCHEMA["properties"]["load_bearing"]["description"].lower()
+    assert "unifable" in lb_desc or "harness" in lb_desc
+
+
+def test_is_harness_self_referential_detects_gate_waiver_claims():
+    assert gb.is_harness_self_referential("quick/LIGHT mode waives the spec gate")
+    assert gb.is_harness_self_referential("a provisional lift exists for this run")
+    assert not gb.is_harness_self_referential("LinkedIn returns contentHtml in the response")
+
+
 def test_disarm_judge_releases_when_not_load_bearing():
     def release_judge(system, user, schema):
         return {
