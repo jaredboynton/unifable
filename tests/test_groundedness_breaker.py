@@ -381,18 +381,21 @@ def test_disarm_prompt_releases_on_retraction_and_bounded_negative():
     assert "load_bearing=0" in sysp or "not load-bearing" in sysp
 
 
-def test_arm_prompt_steers_external_claims_to_documentation():
+def test_arm_prompt_external_claims_allow_docs_or_empirical_re():
     sysp = gb._JUDGE_SYSTEM.lower()
-    assert "external" in sysp and "documentation" in sysp
-    assert "web search" in sysp or "webfetch" in sysp
+    assert "external" in sysp
+    assert "reverse" in sysp or "empirical" in sysp
+    assert "documentation" in sysp or "webfetch" in sysp
     desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
     assert "documentation" in desc
+    assert "reverse" in desc or "empirical" in desc
 
 
-def test_disarm_prompt_releases_on_fetched_external_documentation():
+def test_disarm_prompt_releases_on_empirical_reverse_engineering():
     sysp = gb._DISARM_SYSTEM.lower()
-    assert "external" in sysp and "documentation" in sysp
-    assert "fetch" in sysp
+    assert "reverse" in sysp or "empirical" in sysp
+    grounded_desc = gb._DISARM_SCHEMA["properties"]["grounded"]["description"].lower()
+    assert "reverse" in grounded_desc or "empirical" in grounded_desc
 
 
 def test_empty_segment_is_not_a_violation():
