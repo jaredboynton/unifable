@@ -30,12 +30,99 @@ _SPEC_APPEND_SUBCMDS = frozenset({
 })
 _SPEC_CLI_NAMES = frozenset({"unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
-_SPLIT_RE = re.compile(r"\|\||&&|\||;|\n")
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 
 
+def _logical_lines(command: str) -> list[str]:
+    """Split on newlines, joining backslash-continued lines into one logical line."""
+    lines: list[str] = []
+    buf = ""
+    for raw in command.splitlines():
+        part = raw.strip()
+        if not part and not buf:
+            continue
+        if buf:
+            buf += " " + part
+        else:
+            buf = part
+        if buf.endswith("\\"):
+            buf = buf[:-1].rstrip()
+            continue
+        lines.append(buf)
+        buf = ""
+    if buf:
+        lines.append(buf)
+    return lines
+
+
+def _join_flag_lines(lines: list[str]) -> list[str]:
+    """Join lines that are only flags onto the preceding command (multiline cite)."""
+    joined: list[str] = []
+    for line in lines:
+        if line.startswith("-") and joined:
+            joined[-1] = joined[-1] + " " + line
+        else:
+            joined.append(line)
+    return joined
+
+
+def _split_shell_operators(segment: str) -> list[str]:
+    """Split on shell operators outside of quoted strings."""
+    parts: list[str] = []
+    buf: list[str] = []
+    i = 0
+    n = len(segment)
+    in_single = False
+    in_double = False
+    while i < n:
+        ch = segment[i]
+        if in_single:
+            buf.append(ch)
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            buf.append(ch)
+            if ch == "\\" and i + 1 < n:
+                buf.append(segment[i + 1])
+                i += 2
+                continue
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if ch == "'":
+            in_single = True
+            buf.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            buf.append(ch)
+            i += 1
+            continue
+        if segment.startswith("&&", i) or segment.startswith("||", i):
+            parts.append("".join(buf))
+            buf = []
+            i += 2
+            continue
+        if ch in "|;":
+            parts.append("".join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    parts.append("".join(buf))
+    return [p.strip() for p in parts if p.strip()]
+
+
 def _segments(command: str) -> list[str]:
-    return [part.strip() for part in _SPLIT_RE.split(command) if part.strip()]
+    segments: list[str] = []
+    for line in _join_flag_lines(_logical_lines(command)):
+        segments.extend(_split_shell_operators(line))
+    return segments
 
 
 def _basename(token: str) -> str:

@@ -67,10 +67,10 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
     ctx = build_spec_context_from_output(text)
     if ctx:
         return ctx
-    if not is_mutating_spec_cli(command):
-        return ""
     _sub, task_id = parse_spec_cli_invocation(command)
     if not task_id:
+        return ""
+    if not is_mutating_spec_cli(command) and _sub != "status":
         return ""
     try:
         from spec import load_spec

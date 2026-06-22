@@ -863,7 +863,7 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
     if added:
         print(f"judge added requirement(s): {', '.join(added)}")
     if verdict == 1:
-        headline = f"{args.task} validated."
+        headline = f"{args.task} check passed (exit {exit_code}); judge accepted the evidence."
         if added:
             headline += f" Judge added {', '.join(added)}."
         if all_tasks_validated(spec)[0]:
@@ -875,7 +875,7 @@ def _cmd_validate_task(args: argparse.Namespace) -> int:
             judge_reason=str(reason or ""),
         )
     else:
-        headline = f"{args.task} failed validation."
+        headline = f"{args.task} check ran (exit {exit_code}); judge rejected the evidence."
         if added:
             headline += f" Judge added {', '.join(added)}."
         notify_spec_update(
@@ -952,7 +952,7 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     task["status"] = "disputed"
     task["dispute_evidence"] = args.evidence
     save_spec(args.root, args.task_id, spec)
-    print(f"{args.task} -> disputed. Run validate-task to have the judge adjudicate the impossibility claim.")
+    print(f"{args.task} -> disputed. Run validate-task (harness runs check, judge reviews output) to adjudicate the impossibility claim.")
     notify_spec_update(spec, f"{args.task} disputed as impossible.", highlight_task=args.task)
     return 0
 
@@ -962,9 +962,8 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if spec is None:
         print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
         return 1
-    ok, _incomplete = all_tasks_validated(spec)
     print(format_spec_status(spec))
-    return 0 if ok else 2
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1020,7 +1019,7 @@ def main(argv: list[str] | None = None) -> int:
     p_deliver.add_argument("--task-id", required=True, dest="task_id")
     p_deliver.add_argument("--task", required=True, help="Task id, e.g. T1.")
 
-    p_vt = sub.add_parser("validate-task", help="Run a task's check + judge it; mark validated/failed.")
+    p_vt = sub.add_parser("validate-task", help="Run the task's check command, then have the judge review the output.")
     p_vt.add_argument("--root", default=".")
     p_vt.add_argument("--task-id", required=True, dest="task_id")
     p_vt.add_argument("--task", required=True, help="Task id, e.g. T1.")

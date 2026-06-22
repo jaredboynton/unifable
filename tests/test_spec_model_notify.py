@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO / "hooks"))
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 import model_notify as mn  # noqa: E402
-from spec import save_spec, spec_template  # noqa: E402
+from spec import save_spec, spec_template, _cmd_status  # noqa: E402
 
 
 def _sample_spec(*, judge_reason: str = "") -> dict:
@@ -59,7 +59,7 @@ def test_notify_spec_update_emits_prefixes_and_full_judge():
     with redirect_stderr(buf):
         mn.notify_spec_update(
             spec,
-            "T1 failed validation.",
+            "T1 check ran (exit 2); judge rejected the evidence.",
             highlight_task="T1",
             judge_reason=LONG_JUDGE,
         )
@@ -77,14 +77,14 @@ def test_build_spec_context_from_output_roundtrip():
     with redirect_stderr(buf):
         mn.notify_spec_update(
             spec,
-            "T1 failed validation. Judge added T4.",
+            "T1 check ran (exit 2); judge rejected the evidence. Judge added T4.",
             highlight_task="T1",
             judge_reason=LONG_JUDGE,
         )
     combined = "stdout noise\n" + buf.getvalue()
     ctx = mn.build_spec_context_from_output(combined)
     assert ctx.startswith("unifable spec update:")
-    assert "T1 failed validation" in ctx
+    assert "judge rejected the evidence" in ctx
     assert f"Judge: {LONG_JUDGE}" in ctx
     assert "[--] T4" in ctx
     assert "breaker: CLOSED" in ctx
@@ -115,7 +115,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
     with redirect_stderr(buf):
         mn.notify_spec_update(
             spec,
-            "T1 failed validation. Judge added T4, T5.",
+            "T1 check ran (exit 2); judge rejected the evidence. Judge added T4, T5.",
             highlight_task="T1",
             judge_reason=LONG_JUDGE,
         )
@@ -138,7 +138,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert "unifable spec update:" in ctx
-    assert "T1 failed validation" in ctx
+    assert "judge rejected the evidence" in ctx
     assert LONG_JUDGE in ctx
     assert "T4" in ctx
     assert "breaker: CLOSED" in ctx
@@ -185,4 +185,39 @@ def test_post_tool_add_task_success_no_failure_nag():
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert "Requirement T9 added" in ctx
+    assert "observed a tool failure" not in ctx
+
+
+def test_status_exits_zero_when_breaker_closed(tmp_path):
+    spec = _sample_spec()
+    save_spec(str(tmp_path), "sess-status", spec)
+    rc = _cmd_status(
+        type("Args", (), {"root": str(tmp_path), "task_id": "sess-status"})()
+    )
+    assert rc == 0
+
+
+def test_post_tool_status_injects_board_without_notify_stderr():
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["UNIFABLE_DATA"] = tmp
+        spec = _sample_spec(judge_reason=LONG_JUDGE)
+        save_spec(tmp, "sess-status", spec)
+        payload = {
+            "session_id": "spec-status-test",
+            "cwd": tmp,
+            "tool_name": "Bash",
+            "tool_input": {
+                "command": "unifable-spec status --task-id sess-status",
+            },
+            "tool_response": {
+                "exit_code": 0,
+                "stdout": mn.format_spec_status(spec),
+                "stderr": "",
+            },
+        }
+        out = _run_post_tool(payload)
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert "unifable spec update:" in ctx
+    assert "[XX] T1" in ctx
+    assert "breaker: CLOSED" in ctx
     assert "observed a tool failure" not in ctx

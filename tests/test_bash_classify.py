@@ -35,6 +35,9 @@ ALLOWED = [
     "unifable-spec status --task-id x",
     "unifable-spec restate --task-id x --goal 'do the thing well'",
     "unifable-spec cite --task-id x --repo-context a.py:1::why",
+    "unifable-spec cite --task-id x \\\n  --repo-context 'a.py:1::why with ; and && safe'",
+    "unifable-spec cite --task-id x\n  --repo-context 'a.py:1::semi;colons ok'",
+    "unifable-spec cite --task-id x --repo-context 'a.py:1::semi;colons ok'",
     "/Users/me/.local/bin/unifable-spec validate --task-id x --grade STANDARD",
     # Legacy: direct plugin-path invocation still allowed (e.g. unifable dev repo).
     "python3 scripts/gate/spec.py add-task --task-id x --title t --check true",

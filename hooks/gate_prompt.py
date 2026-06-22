@@ -106,7 +106,7 @@ def main() -> int:
                 f"  - add evidence: unifable-spec cite --task-id {key} "
                 f"--repo-context 'path:line::why' --prior-art '<url>::why'\n"
                 f"  - submit a requirement: unifable-spec deliver --task-id {key} --task <id>; "
-                f"then validate-task --task-id {key} --task <id> (the judge decides)\n"
+                f"then validate-task --task-id {key} --task <id> (runs the check, then the judge reviews the output)\n"
                 f"  - if a requirement is genuinely impossible: unifable-spec dispute "
                 f"--task-id {key} --task <id> --evidence '<proof>' (the judge adjudicates; only it can retract)"
             )

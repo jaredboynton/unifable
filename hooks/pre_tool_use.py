@@ -199,7 +199,7 @@ def _enforce_spec(input_data: dict, cwd: str) -> int:
             "(never edit the JSON, never run create):\n"
             f"  unifable-spec add-task --task-id {task_id} --title '<requirement>' --check '<runnable check>'\n"
             f"  unifable-spec cite --task-id {task_id} --repo-context 'path:line::why' --prior-art '<url>::why'\n"
-            f"  unifable-spec deliver --task-id {task_id} --task <id>; then validate-task (the judge decides). "
+            f"  unifable-spec deliver --task-id {task_id} --task <id>; then validate-task (runs the check, judge reviews output). "
             f"{contract_string(grade, True)}"
         )
 
@@ -251,7 +251,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
             f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
             f"To unblock other Bash, fill the auto-created spec at {sp} through the append-only "
             f"CLI: add-task (>=1 requirement), cite (repo_context + prior_art), then deliver + "
-            "validate-task until the judge validates it. Never edit the JSON; never run create."
+            "validate-task until the judge accepts the check output. Never edit the JSON; never run create."
         )
 
     emit_json({})
@@ -279,7 +279,7 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
         f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
         f"Bash, fill the auto-created spec at {sp} through the append-only CLI (add-task, cite, "
-        "deliver, validate-task) until the judge validates it; never edit the JSON, never run create."
+        "deliver, validate-task) until the judge accepts the check output; never edit the JSON, never run create."
     )
 
 
