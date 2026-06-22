@@ -140,11 +140,9 @@ def test_notify_spec_update_omits_hint_when_empty():
 
 
 def test_parse_spec_cli_invocation():
-    sub, tid = mn.parse_spec_cli_invocation(
-        "unifable-spec validate-task --task-id abc-123 --task T1"
-    )
+    sub, tid = mn.parse_spec_cli_invocation("unifable-spec validate-task --task T1")
     assert sub == "validate-task"
-    assert tid == "abc-123"
+    assert tid is None
 
 
 def _run_post_tool(payload: dict) -> dict:
@@ -176,7 +174,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec validate-task --task-id sess-1 --task T1",
+                "command": "unifable-spec validate-task --task T1",
             },
             "tool_response": {
                 "exit_code": 2,
@@ -200,11 +198,11 @@ def test_post_tool_reload_fallback_when_stderr_missing():
         spec = _sample_spec(judge_reason=LONG_JUDGE)
         save_spec(tmp, "sess-reload", spec)
         payload = {
-            "session_id": "spec-reload-test",
+            "session_id": "sess-reload",
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec add-task --task-id sess-reload --title x --check true",
+                "command": "unifable-spec add-task --title x --check true",
             },
             "tool_response": {"exit_code": 0, "stdout": "Added T9: x"},
         }
@@ -227,7 +225,7 @@ def test_post_tool_add_task_success_no_failure_nag():
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec add-task --task-id sess-1 --title new --check true",
+                "command": "unifable-spec add-task --title new --check true",
             },
             "tool_response": {"exit_code": 0, "stdout": "Added T9", "stderr": buf.getvalue()},
         }
@@ -252,11 +250,11 @@ def test_post_tool_status_injects_board_without_notify_stderr():
         spec = _sample_spec(judge_reason=LONG_JUDGE)
         save_spec(tmp, "sess-status", spec)
         payload = {
-            "session_id": "spec-status-test",
+            "session_id": "sess-status",
             "cwd": tmp,
             "tool_name": "Bash",
             "tool_input": {
-                "command": "unifable-spec status --task-id sess-status",
+                "command": "unifable-spec status",
             },
             "tool_response": {
                 "exit_code": 0,

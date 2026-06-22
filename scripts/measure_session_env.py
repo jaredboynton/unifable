@@ -13,7 +13,7 @@ Computes:
 - % match to resolved (when both present)
 - per-host (claude/codex/cursor) breakdown if inferable from SOURCE or env
 - absent / none cases
-- flags cases where explicit --task-id would have been required (no env)
+- flags cases where no session env was available (SOURCE=none)
 
 Intended for post-collection analysis after running the probe documented in AGENTS.md.
 Does not drive hosts; feed it logs from real sessions.
@@ -99,7 +99,7 @@ def analyze(runs: list[dict[str, Any]]) -> dict[str, Any]:
         else:
             absent += 1
             by_host[host]["absent"] += 1
-            notes.append(f"no resolved id (source={src}); explicit --task-id likely used")
+            notes.append(f"no resolved id (source={src}); session env absent in shell")
 
     pct = lambda n, d: (100.0 * n / d) if d else 0.0
     summary = {
@@ -136,7 +136,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"total probe runs: {s['total_runs']}")
     print(f"env present: {s['env_present']} ({s['env_present_pct']:.1f}%)")
     print(f"  of which resolved matched an env value: {s['resolved_and_env_match']} ({s['match_pct_of_present']:.1f}% of present)")
-    print(f"absent/none (explicit --task-id was/would be used): {s['absent_or_none']} ({s['absent_pct']:.1f}%)")
+    print(f"absent/none (no session env in shell): {s['absent_or_none']} ({s['absent_pct']:.1f}%)")
     print()
     print("Per-host:")
     for h, d in sorted(s["by_host"].items()):
@@ -148,9 +148,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {n}")
     print()
     print("Interpretation notes:")
-    print("  - High present+match across cd/subdir/resume supports promoting strict for that host.")
-    print("  - Frequent 'absent' means shells did not receive the env; agents needed the prompt's --task-id.")
-    print("  - Compare resolved values to the exact --task-id strings the gate_prompt hook printed in the session.")
+    print("  - High present+match across cd/subdir/resume supports env-only binding for that host.")
+    print("  - Frequent 'absent' means shells did not receive the session env; fix host injection.")
+    print("  - Compare UNIFABLE_SESSION_RESOLVED to the conversation id from hook payload/logs.")
     print("  - Do not average hosts; report Claude Code / Codex / Cursor separately.")
     return 0
 

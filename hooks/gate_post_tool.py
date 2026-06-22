@@ -68,14 +68,15 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
     ctx = build_spec_context_from_output(text)
     if ctx:
         return ctx
-    _sub, task_id = parse_spec_cli_invocation(command)
-    if not task_id:
-        return ""
-    if not is_mutating_spec_cli(command) and _sub not in ("status", "where"):
-        return ""
+    _sub, _parsed_tid = parse_spec_cli_invocation(command)
     try:
-        from spec import load_spec
+        from spec import load_spec, resolve_session_id
 
+        task_id = _parsed_tid or resolve_session_id(input_data, default=None)
+        if not task_id:
+            return ""
+        if not is_mutating_spec_cli(command) and _sub not in ("status", "where"):
+            return ""
         spec = load_spec(cwd, task_id)
         if spec:
             return "unifable spec update:\n" + format_spec_status(spec)

@@ -15,8 +15,8 @@ Provides:
 
 State is one spec.json per (canonical project root, session), so a new session never
 inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
-within the same repo resolve to the same canonical root. The CLI's ``--root`` defaults
-to the canonical project root and ``--task-id`` to the host session env when omitted.
+within the same repo resolve to the same canonical root. The CLI always resolves
+project root from cwd and session id from the host env (no flags).
 """
 
 from __future__ import annotations
@@ -247,7 +247,7 @@ def validate_spec(
         reasons.append(
             "restate the goal in your own words first: restated_goal is still the raw "
             "prompt the hook seeded, not a restatement. Run `unifable-spec "
-            "restate --task-id <id> --goal '<the intended outcome, in your own words>'`."
+            "restate --goal '<the intended outcome, in your own words>'`."
         )
 
     # acceptance_criteria — required for all grades, >=1 item with a non-empty check.
@@ -265,7 +265,7 @@ def validate_spec(
         # Auto-created task-spec with no requirement yet: the agent must add >=1.
         reasons.append(
             "no requirements yet: add at least one with "
-            "`unifable-spec add-task --task-id <id> --title '<req>' --check '<runnable check>'`, "
+            "`unifable-spec add-task --title '<req>' --check '<runnable check>'`, "
             "then deliver + validate-task."
         )
     elif not isinstance(criteria, list) or not criteria:
@@ -513,7 +513,7 @@ def format_spec_location(cwd: str | Path, session_id: str | None) -> str:
     return (
         f"session-id: {sid}\n"
         f"project: {root}\n"
-        f"dirhash: {dh} (path segment only -- not your --task-id)\n"
+        f"dirhash: {dh} (path segment only -- not your session-id)\n"
         f"spec: {path}"
     )
 
@@ -1233,10 +1233,9 @@ def _cmd_status(args: argparse.Namespace) -> int:
 
 
 def _cmd_where(args: argparse.Namespace) -> int:
-    # Always emit a machine-scannable diagnostic for the env-resolved session
-    # (independent of any explicit --task-id). This line appears in Bash tool
-    # results so that probes can empirically validate whether the shell
-    # subprocess receives the same session id/env as the hook/prompt scaffold.
+    # Always emit a machine-scannable diagnostic for the env-resolved session.
+    # This line appears in Bash tool results so probes can validate whether the
+    # shell subprocess receives the same session id/env as the hook/prompt scaffold.
     resolved_sid, source = resolve_session_id_with_source(default=None)
     print(f"UNIFABLE_SESSION_RESOLVED={resolved_sid or ''} SOURCE={source}", file=sys.stderr)
 
@@ -1256,27 +1255,16 @@ def _cmd_where(args: argparse.Namespace) -> int:
     return 0
 
 
-def _normalize_cli_args(args: argparse.Namespace) -> int | None:
-    """Apply canonical root + session defaults. Return exit code on error, else None."""
-    if hasattr(args, "root") and args.root is not None:
-        args.root = str(canonical_project_root(args.root))
-    env_sid = resolve_session_id(default=None)
-    if not hasattr(args, "task_id"):
+def _apply_cli_context(args: argparse.Namespace) -> int | None:
+    """Resolve canonical root + session from cwd/env. Return exit code on error, else None."""
+    args.root = str(canonical_project_root(os.getcwd()))
+    if args.cmd == "contract":
         return None
-    strict = os.environ.get("UNIFABLE_STRICT_SESSION", "").strip().lower() in ("1", "true", "yes")
-    if args.task_id and env_sid and strict and str(args.task_id) != env_sid:
-        print(
-            f"--task-id {args.task_id!r} does not match session env {env_sid!r}. "
-            "The dirhash path segment is not your session id; run `unifable-spec where`.",
-            file=sys.stderr,
-        )
-        return 1
-    if not args.task_id:
-        args.task_id = env_sid
+    args.task_id = resolve_session_id(default=None)
     if args.cmd not in (None, "contract") and not args.task_id:
         print(
-            "No session id: pass --task-id or set CLAUDE_CODE_SESSION_ID, "
-            "CODEX_THREAD_ID, or CURSOR_CONVERSATION_ID (Cursor).",
+            "No session id: set CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, "
+            "or CURSOR_CONVERSATION_ID (Cursor). Run `unifable-spec where`.",
             file=sys.stderr,
         )
         return 1
@@ -1291,15 +1279,11 @@ def main(argv: list[str] | None = None) -> int:
     sub = parser.add_subparsers(dest="cmd")
 
     p_validate = sub.add_parser("validate", help="Validate an existing spec.")
-    p_validate.add_argument("--root", default=".", help="Project root (default: cwd).")
     p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
-    p_validate.add_argument("--task-id", default=None, dest="task_id", help="Session id (default: host env).")
     p_validate.add_argument("--require-evidence", action="store_true", dest="require_evidence",
                             help="Also require citation evidence (repo_context, prior_art).")
 
     p_init = sub.add_parser("init", help="Write a blank spec template.")
-    p_init.add_argument("--root", default=".", help="Project root (default: cwd).")
-    p_init.add_argument("--task-id", default=None, dest="task_id", help="Session id (default: host env).")
 
     p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier.")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
@@ -1307,8 +1291,6 @@ def main(argv: list[str] | None = None) -> int:
                             help="Include the evidence-gate citation requirements.")
 
     p_create = sub.add_parser("create", help="Create a task spec (restated_goal + tasks).")
-    p_create.add_argument("--root", default=".")
-    p_create.add_argument("--task-id", default=None, dest="task_id")
     p_create.add_argument("--goal", required=True, help="Restated goal in your own words.")
     p_create.add_argument("--task", action="append", default=[], help="Task as 'title::check command' (repeatable).")
     p_create.add_argument("--repo-context", action="append", default=[], dest="repo_context",
@@ -1326,29 +1308,19 @@ def main(argv: list[str] | None = None) -> int:
     p_create.add_argument("--force", action="store_true", help="Replace an existing spec.")
 
     p_add = sub.add_parser("add-task", help="Append a task to an existing spec.")
-    p_add.add_argument("--root", default=".")
-    p_add.add_argument("--task-id", default=None, dest="task_id")
     p_add.add_argument("--title", required=True)
     p_add.add_argument("--check", required=True, help="Runnable command that proves the task.")
 
     p_deliver = sub.add_parser("deliver", help="Mark a task delivered (code written).")
-    p_deliver.add_argument("--root", default=".")
-    p_deliver.add_argument("--task-id", default=None, dest="task_id")
     p_deliver.add_argument("--task", required=True, help="Task id, e.g. T1.")
 
     p_vt = sub.add_parser("validate-task", help="Run the task's check command, then have the judge review the output.")
-    p_vt.add_argument("--root", default=".")
-    p_vt.add_argument("--task-id", default=None, dest="task_id")
     p_vt.add_argument("--task", required=True, help="Task id, e.g. T1.")
 
     p_restate = sub.add_parser("restate", help="Restate the goal in your own words (clears the seeded placeholder).")
-    p_restate.add_argument("--root", default=".")
-    p_restate.add_argument("--task-id", default=None, dest="task_id")
     p_restate.add_argument("--goal", required=True, help="The intended outcome, restated in your own words.")
 
     p_cite = sub.add_parser("cite", help="Append repo_context / prior_art evidence (append-only).")
-    p_cite.add_argument("--root", default=".")
-    p_cite.add_argument("--task-id", default=None, dest="task_id")
     p_cite.add_argument("--repo-context", action="append", default=[], dest="repo_context",
                         help="Evidence citation 'path:line::why' (repeatable).")
     p_cite.add_argument("--must-read", action="append", default=[], dest="repo_context",
@@ -1360,22 +1332,15 @@ def main(argv: list[str] | None = None) -> int:
         "dispute",
         help="Submit evidence a requirement is impossible; judge adjudicates on validate-task.",
     )
-    p_dispute.add_argument("--root", default=".")
-    p_dispute.add_argument("--task-id", default=None, dest="task_id")
     p_dispute.add_argument("--task", required=True, help="Task id, e.g. T1.")
     p_dispute.add_argument("--evidence", required=True,
                            help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
 
     p_status = sub.add_parser("status", help="Show task statuses + breaker state.")
-    p_status.add_argument("--root", default=".")
-    p_status.add_argument("--task-id", default=None, dest="task_id")
-
-    p_where = sub.add_parser("where", help="Show canonical spec path and breaker state.")
-    p_where.add_argument("--root", default=".", help="Project root (default: canonical root of cwd).")
-    p_where.add_argument("--task-id", default=None, dest="task_id", help="Session id (default: host env).")
+    sub.add_parser("where", help="Show canonical spec path and breaker state.")
 
     args = parser.parse_args(argv)
-    err = _normalize_cli_args(args)
+    err = _apply_cli_context(args)
     if err is not None:
         return err
     dispatch = {

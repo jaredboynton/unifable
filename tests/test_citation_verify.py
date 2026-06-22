@@ -157,11 +157,12 @@ def test_post_tool_records_generic_tool_result_activity():
 
 def _create_spec(cwd, task_id, repo_context, prior_art, data_dir):
     args = [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), "create",
-            "--root", cwd, "--task-id", task_id, "--goal", "wire citation verify",
+            "--goal", "wire citation verify",
             "--task", "smoke::true", "--repo-context", repo_context, "--prior-art", prior_art]
     env = dict(os.environ)
-    env["UNIFABLE_DATA"] = data_dir  # write where the gate (UNIFABLE_DATA=dd) reads
-    return subprocess.run(args, capture_output=True, text=True, env=env)
+    env["UNIFABLE_DATA"] = data_dir
+    env["CLAUDE_CODE_SESSION_ID"] = task_id
+    return subprocess.run(args, capture_output=True, text=True, env=env, cwd=cwd)
 
 
 def test_pre_tool_use_allows_when_citations_backed():

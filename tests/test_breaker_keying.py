@@ -150,11 +150,11 @@ def test_impl_edit_allowed_after_appendonly_spec():
 
         def _spec(*a):
             env = dict(os.environ)
-            env["UNIFABLE_DATA"] = dd  # CLI must write where the gate reads
+            env["UNIFABLE_DATA"] = dd
+            env["CLAUDE_CODE_SESSION_ID"] = key
             return subprocess.run(
-                [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), *a,
-                 "--root", cwd, "--task-id", key],
-                capture_output=True, text=True, env=env,
+                [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), *a],
+                capture_output=True, text=True, env=env, cwd=cwd,
             )
 
         # FIRST action: restate the seeded goal in the agent's own words (the gate

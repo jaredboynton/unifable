@@ -81,15 +81,16 @@ def test_cli_must_read_flag_populates_repo_context(tmp_path):
     data = str(tmp_path / "data")
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data
+    env["CLAUDE_CODE_SESSION_ID"] = "T"
     subprocess.run(
         [
             sys.executable, str(GATE / "spec.py"), "create",
-            "--root", root, "--task-id", "T", "--goal", "g",
+            "--goal", "g",
             "--task", "t::true",
             "--must-read", "a.py:1::why it matters",
             "--prior-art", "https://example.com::why",
         ],
-        check=True, env=env,
+        check=True, env=env, cwd=root,
     )
     # spec.json now lives at the keyed global path; read it back via load_spec.
     old = os.environ.get("UNIFABLE_DATA")

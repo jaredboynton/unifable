@@ -92,23 +92,23 @@ def main() -> int:
     # the agent how to drive it (append-only: add requirements + evidence; dispute
     # the impossible; never edit the JSON). LIGHT work is waived (no spec).
     if grade_of(mode) != "LIGHT":
-        key = session_key  # one spec per session; CLI --task-id carries the session id
+        key = session_key  # one spec per session; CLI resolves session from host env
         path = _ensure_spec_scaffold(cwd, key, prompt)
         if path:
             context += (
                 f"\n\nunifable: evidence spec auto-created at {path}. Drive it via the "
                 f"append-only CLI (never edit the JSON):\n"
                 f"  - FIRST, restate the goal in your own words (what is the intended outcome?): "
-                f"unifable-spec restate --task-id {key} --goal '<your restatement>' "
+                f"unifable-spec restate --goal '<your restatement>' "
                 f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
-                f"  - add a requirement: unifable-spec add-task --task-id {key} "
+                f"  - add a requirement: unifable-spec add-task "
                 f"--title '<requirement>' --check '<runnable check>'\n"
-                f"  - add evidence: unifable-spec cite --task-id {key} "
+                f"  - add evidence: unifable-spec cite "
                 f"--repo-context 'path:line::why' --prior-art '<url>::why'\n"
-                f"  - submit a requirement: unifable-spec deliver --task-id {key} --task <id>; "
-                f"then validate-task --task-id {key} --task <id> (runs the check, then the judge reviews the output)\n"
+                f"  - submit a requirement: unifable-spec deliver --task <id>; "
+                f"then validate-task --task <id> (runs the check, then the judge reviews the output)\n"
                 f"  - if a requirement is genuinely impossible: unifable-spec dispute "
-                f"--task-id {key} --task <id> --evidence '<proof>' (the judge adjudicates; only it can retract)"
+                f"--task <id> --evidence '<proof>' (the judge adjudicates; only it can retract)"
             )
 
     emit_json(

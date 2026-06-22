@@ -20,7 +20,7 @@ from spec import (  # noqa: E402
     spec_path,
     spec_template,
     _cmd_where,
-    _normalize_cli_args,
+    _apply_cli_context,
     _safe_session,
 )
 
@@ -95,34 +95,27 @@ def test_relocate_fragmented_spec(tmp_path):
     assert not fragmented.exists()
 
 
-def test_cli_auto_task_id_from_env(tmp_path, monkeypatch):
+def test_apply_cli_context_resolves_env(tmp_path, monkeypatch):
     repo = tmp_path / "repo"
     repo.mkdir()
     _git_init(repo)
+    monkeypatch.chdir(repo)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "env-session-1")
-    args = type("Args", (), {"cmd": "status", "root": str(repo), "task_id": None})()
-    assert _normalize_cli_args(args) is None
+    args = type("Args", (), {"cmd": "status"})()
+    assert _apply_cli_context(args) is None
     assert args.task_id == "env-session-1"
     assert args.root == str(canonical_project_root(repo))
 
 
-def test_strict_session_rejects_mismatch(tmp_path, monkeypatch):
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git_init(repo)
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "real-session")
-    monkeypatch.setenv("UNIFABLE_STRICT_SESSION", "1")
-    args = type("Args", (), {"cmd": "status", "root": str(repo), "task_id": "wrong-session"})()
-    assert _normalize_cli_args(args) == 1
-
-
-def test_where_shows_location(tmp_path, capsys):
+def test_where_shows_location(tmp_path, capsys, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()
     _with_data(str(data))
     repo = tmp_path / "repo"
     repo.mkdir()
     _git_init(repo)
+    monkeypatch.chdir(repo)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-w")
     save_spec(repo, "sess-w", _spec_with_task())
     rc = _cmd_where(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
     captured = capsys.readouterr()
@@ -131,7 +124,7 @@ def test_where_shows_location(tmp_path, capsys):
     assert rc == 0
     assert "session-id: sess-w" in out
     assert "dirhash:" in out
-    assert "not your --task-id" in out
+    assert "not your session-id" in out
     assert "[--] T1" in out
     # diagnostic for empirical env validation is emitted on stderr
     assert "UNIFABLE_SESSION_RESOLVED=" in err

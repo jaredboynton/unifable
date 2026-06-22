@@ -413,7 +413,7 @@ def main() -> int:
                 ev_reason = (
                     "no evidence spec for this session (the prompt hook auto-creates one for "
                     "non-trivial work). Add a requirement with `unifable-spec "
-                    f"add-task --task-id {task_key} --title '<requirement>' --check '<runnable check>'`, "
+                    f"add-task --title '<requirement>' --check '<runnable check>'`, "
                     "then deliver + validate-task it before finishing."
                 )
             elif spec is not None:
@@ -424,7 +424,7 @@ def main() -> int:
                 if not ok_tasks:
                     ev_reason = (
                         f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
-                        f"Run `unifable-spec validate-task --task-id {task_key} --task <id>` "
+                        f"Run `unifable-spec validate-task --task <id>` "
                         "for each until the judge passes it."
                     )
                     # Advisory nudge if the agent has been stuck here repeatedly.

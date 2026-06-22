@@ -20,7 +20,6 @@ HINT_PREFIX = "UNIFABLE_MODEL_HINT\t"
 _HEADLINE_MAX = 320
 
 _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spec\.py)")
-_TASK_ID_RE = re.compile(r"--task-id(?:=|\s+)([^\s]+)")
 _SUBCMD_RE = re.compile(
     r"(?i)(?:unifable-spec|scripts/gate/spec\.py|/gate/spec\.py)\s+"
     r"(restate|add-task|cite|deliver|validate-task|dispute|status|where|validate|contract|create|init)\b"
@@ -207,13 +206,11 @@ def is_spec_cli_command(command: str) -> bool:
 
 
 def parse_spec_cli_invocation(command: str) -> tuple[str | None, str | None]:
-    """Return (subcommand, task_id) parsed from a spec CLI Bash command."""
+    """Return (subcommand, task_id). Session id is env-resolved; task_id is always None."""
     cmd = str(command or "")
     sub_match = _SUBCMD_RE.search(cmd)
     subcommand = sub_match.group(1).lower() if sub_match else None
-    id_match = _TASK_ID_RE.search(cmd)
-    task_id = id_match.group(1) if id_match else None
-    return subcommand, task_id
+    return subcommand, None
 
 
 def is_mutating_spec_cli(command: str) -> bool:
