@@ -72,7 +72,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_stop.py\"",
-            "timeout": 10
+            "timeout": 120
           }
         ]
       }

@@ -40,6 +40,17 @@ ALLOWED = [
     "rg foo | head",
     "rg foo | head -20",
     "ls && rg foo | head",
+    # Standalone variable-declaration segments: a long path assigned once and
+    # reused is a legit research pattern (the codex-thread bug). The assignment
+    # segment carries no executable, but the OTHER segments do.
+    "T=value; rg --files",
+    "T=/Users/me/some/long/path; rg -n '.' \"$T/run_data.sh\"",
+    "A=1 B=2; rg foo",
+    "export T=value; rg --files",
+    "DIR=/tmp/x; ls -la \"$DIR\"",
+    "T=value rg --files",
+    # Plain variable expansion ($VAR) is not command substitution.
+    "rg \"$HOME\" .",
 ]
 
 BLOCKED = [
@@ -73,6 +84,19 @@ BLOCKED = [
     "ls && cat README.md",
     "bash other.sh",
     "python trace.sh",
+    # Command/process substitution executes arbitrary commands -> must stay blocked,
+    # now with an explicit, clear reason (previously blocked only by parser fallout).
+    "T=$(printf x); rg --files",
+    "T=\"$(printf x)\"; rg --files",
+    "T=`printf x`; rg --files",
+    "rg $(cat /etc/passwd) .",
+    "ls \"$(whoami)\"",
+    "T=<(cat x); rg foo",
+    # Dangerous declarations can alter command resolution.
+    "PATH=/tmp; rg --files",
+    "IFS=x; rg foo",
+    # A bare declaration keyword with no command is not useful research.
+    "export",
 ]
 
 

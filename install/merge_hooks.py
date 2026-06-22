@@ -38,7 +38,7 @@ UNIFABLE = {
     ],
     "Stop": [
         {"hooks": [{"type": "command", "command": f"python3 {BASE}/gate_stop.py",
-                    "statusMessage": "unifable: completion verification gate", "timeout": 10}]},
+                    "statusMessage": "unifable: completion verification gate", "timeout": 120}]},
     ],
 }
 

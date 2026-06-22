@@ -24,6 +24,7 @@ import json
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -41,6 +42,14 @@ try:
     GOAL_STOP_BLOCK_CAP = int(os.environ.get("UNIFABLE_GOAL_STOP_BLOCK_CAP", "8"))
 except ValueError:
     GOAL_STOP_BLOCK_CAP = 8
+# Wall-clock budget for the judge/check work this Stop hook does, kept under the
+# host Stop-hook timeout (hooks.json wires gate_stop at 120s). auto_validate_spec
+# stops launching work past this deadline so the hook always returns cleanly
+# instead of being killed mid-judge (the codex-thread 10s timeout).
+try:
+    STOP_JUDGE_BUDGET = float(os.environ.get("UNIFABLE_STOP_BUDGET", "100"))
+except ValueError:
+    STOP_JUDGE_BUDGET = 100.0
 GOAL_JUDGE_SCHEMA = {
     "type": "object",
     "properties": {
@@ -431,7 +440,7 @@ def main() -> int:
                     )
                     if sync_citations_from_activity(spec, activity, cwd):
                         save_spec(cwd, task_key, spec)
-                    spec, _val_msgs = auto_validate_spec(spec, cwd)
+                    spec, _val_msgs = auto_validate_spec(spec, cwd, time_budget=STOP_JUDGE_BUDGET)
                     save_spec(cwd, task_key, spec)
                 except Exception:
                     pass  # fail open

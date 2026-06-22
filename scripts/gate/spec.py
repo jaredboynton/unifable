@@ -28,6 +28,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -643,44 +644,45 @@ def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 AUTO_VALIDATE_MAX_TASKS = 3
+# Per-check subprocess ceiling. On the Stop path auto_validate_spec further bounds
+# each check by the remaining wall-clock budget so a slow check can't outlive the
+# host Stop-hook timeout (the codex-thread 10s kill).
+_CHECK_TIMEOUT = 600
 
 
-def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Path) -> list[str]:
-    """Run check+judge or dispute adjudication for one task. Mutates spec in place."""
+def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
+    """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
     tid = str(task.get("id") or "")
     headlines: list[str] = []
+    verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
+    task["judge_verdict"] = verdict
+    task["judge_reason"] = reason
+    task["judge_hint"] = hint
+    task["status"] = "retracted" if verdict == 1 else "failed"
+    if verdict != 1:
+        notify_spec_update(
+            spec, f"Dispute rejected for {tid}.",
+            highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
+        )
+        headlines.append(f"{tid}: dispute rejected")
+    else:
+        headline = f"{tid} retracted — judge accepted impossibility."
+        if all_tasks_validated(spec)[0]:
+            headline += " Completion breaker open."
+        notify_spec_update(
+            spec, headline,
+            highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
+        )
+        headlines.append(headline)
+    return headlines
 
-    if task.get("status") == "disputed":
-        verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
-        task["judge_verdict"] = verdict
-        task["judge_reason"] = reason
-        task["judge_hint"] = hint
-        task["status"] = "retracted" if verdict == 1 else "failed"
-        if verdict != 1:
-            notify_spec_update(
-                spec,
-                f"Dispute rejected for {tid}.",
-                highlight_task=tid,
-                judge_reason=str(reason or ""),
-                hint=hint,
-            )
-            headlines.append(f"{tid}: dispute rejected")
-        else:
-            headline = f"{tid} retracted — judge accepted impossibility."
-            if all_tasks_validated(spec)[0]:
-                headline += " Completion breaker open."
-            notify_spec_update(
-                spec,
-                headline,
-                highlight_task=tid,
-                judge_reason=str(reason or ""),
-                hint=hint,
-            )
-            headlines.append(headline)
-        return headlines
 
-    exit_code, output = run_check(task.get("check", ""), cwd=cwd)
-    verdict, reason, new_reqs, hint = judge_task(spec, task, exit_code, output)
+def _apply_check_result(
+    spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str,
+    verdict: int, reason: str, new_reqs: list[dict[str, str]], hint: str,
+) -> list[str]:
+    """Record a check+judge outcome on the task and notify. Mutates spec in place."""
+    tid = str(task.get("id") or "")
     task["exit"] = exit_code
     task["output"] = output
     task["judge_verdict"] = verdict
@@ -700,27 +702,24 @@ def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Pa
             headline += f" Judge added {', '.join(added)}."
         if all_tasks_validated(spec)[0]:
             headline += " Completion breaker open."
-        notify_spec_update(
-            spec,
-            headline,
-            highlight_task=tid,
-            judge_reason=str(reason or ""),
-            hint=hint,
-        )
-        headlines.append(headline)
     else:
         headline = f"{tid} check ran (exit {exit_code}); judge rejected the evidence."
         if added:
             headline += f" Judge added {', '.join(added)}."
-        notify_spec_update(
-            spec,
-            headline,
-            highlight_task=tid,
-            judge_reason=str(reason or ""),
-            hint=hint,
-        )
-        headlines.append(headline)
-    return headlines
+    notify_spec_update(
+        spec, headline,
+        highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
+    )
+    return [headline]
+
+
+def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Path) -> list[str]:
+    """Validate ONE task (dispute adjudication or check+judge). Mutates spec in place."""
+    if task.get("status") == "disputed":
+        return _apply_dispute(spec, task)
+    exit_code, output = run_check(task.get("check", ""), cwd=cwd)
+    verdict, reason, new_reqs, hint = judge_task(spec, task, exit_code, output)
+    return _apply_check_result(spec, task, exit_code, output, verdict, reason, new_reqs, hint)
 
 
 def auto_validate_spec(
@@ -728,23 +727,59 @@ def auto_validate_spec(
     cwd: str | Path,
     *,
     max_tasks: int = AUTO_VALIDATE_MAX_TASKS,
+    time_budget: float | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Run checks+judge for up to max_tasks unresolved tasks. Mutates spec in place."""
+    """Validate up to max_tasks unresolved tasks. Mutates spec in place.
+
+    Disputes are adjudicated individually; check-based tasks have their checks run
+    (each bounded by the remaining wall-clock budget) and are then judged together
+    in ONE batched WebSocket round-trip, so a Stop validating several tasks costs a
+    single handshake and stays within the host timeout. When time_budget is set,
+    work stops once the deadline passes -- remaining tasks stay unresolved and are
+    picked up on the next stop (convergent), instead of the hook being killed."""
     messages: list[str] = []
-    judged = 0
+    deadline = (time.monotonic() + time_budget) if time_budget is not None else None
+
+    pending: list[dict[str, Any]] = []
     for task in list(spec.get("tasks") or []):
-        if not isinstance(task, dict):
+        if not isinstance(task, dict) or task.get("status") in RESOLVED_STATUSES:
             continue
-        if task.get("status") in RESOLVED_STATUSES:
-            continue
-        if judged >= max_tasks:
+        pending.append(task)
+        if len(pending) >= max_tasks:
             break
-        judged += 1
-        messages.extend(_validate_one_task(spec, task, cwd))
+
+    # Snapshot the partition BEFORE adjudicating: _apply_dispute mutates status to
+    # "retracted", which must not then sweep the task into the check+judge path.
+    disputes = [t for t in pending if t.get("status") == "disputed"]
+    checks = [t for t in pending if t.get("status") != "disputed"]
+
+    for task in disputes:
+        if deadline is not None and time.monotonic() >= deadline:
+            return spec, messages
+        messages.extend(_apply_dispute(spec, task))
+
+    items: list[dict[str, Any]] = []
+    for task in checks:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
+        if deadline is not None:
+            ct = max(1, int(min(_CHECK_TIMEOUT, deadline - time.monotonic())))
+            exit_code, output = run_check(task.get("check", ""), cwd=cwd, timeout=ct)
+        else:
+            exit_code, output = run_check(task.get("check", ""), cwd=cwd)
+        items.append({"task": task, "exit_code": exit_code, "output": output})
+
+    if items:
+        verdicts = judge_tasks(spec, items)
+        for it, (verdict, reason, new_reqs, hint) in zip(items, verdicts):
+            messages.extend(
+                _apply_check_result(spec, it["task"], it["exit_code"], it["output"],
+                                    verdict, reason, new_reqs, hint)
+            )
     return spec, messages
 
 
-def run_check(check: str, cwd: str | Path = ".", timeout: int = 600) -> tuple[int, str]:
+def run_check(check: str, cwd: str | Path = ".", timeout: int = _CHECK_TIMEOUT) -> tuple[int, str]:
     """Run a task's check command -> (exit_code, combined stdout+stderr, capped)."""
     try:
         proc = subprocess.run(
@@ -850,51 +885,98 @@ def _normalize_new_requirements(raw: Any) -> list[dict[str, str]]:
     return out
 
 
-def judge_task(
-    spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str
-) -> tuple[int, str, list[dict[str, str]], str]:
-    """Ask the codex judge whether the check output actually validates the task.
+_JUDGE_SYSTEM = (
+    "You are a strict, adversarial validator for a software task. You are given "
+    "the overall goal, one task with its check command, the command's exit code, "
+    "and its captured output. Decide whether the output is real evidence that the "
+    "task is genuinely complete and correct -- not merely that a command ran. "
+    "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
+    "output, errors, skipped or zero tests, and output that does not match the task. "
+    "If, while judging, you find the goal needs further requirements not yet "
+    "covered by a task, list them in new_requirements as {title, check} with a "
+    "runnable check; otherwise return an empty list. You may only ADD requirements. "
+    + _HINT_GUIDANCE
+)
 
-    Returns (verdict, reason, new_requirements, hint). verdict is 1 only when the
-    model is convinced the output genuinely demonstrates the task is done and
-    correct. new_requirements are additional tasks the judge discovered (it may
-    only add). hint is advisory-only guidance (never changes the verdict). Any
-    judge failure returns (0, reason, [], "") so an unreachable judge never
-    auto-passes a task and never fabricates a hint."""
-    try:
-        from codex_judge import JudgeError, ask_structured
-    except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}", [], ""
-    system = (
-        "You are a strict, adversarial validator for a software task. You are given "
-        "the overall goal, one task with its check command, the command's exit code, "
-        "and its captured output. Decide whether the output is real evidence that the "
-        "task is genuinely complete and correct -- not merely that a command ran. "
-        "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
-        "output, errors, skipped or zero tests, and output that does not match the task. "
-        "If, while judging, you find the goal needs further requirements not yet "
-        "covered by a task, list them in new_requirements as {title, check} with a "
-        "runnable check; otherwise return an empty list. You may only ADD requirements. "
-        + _HINT_GUIDANCE
-    )
-    user = json.dumps({
+
+def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str) -> str:
+    return json.dumps({
         "goal": spec.get("restated_goal", ""),
         "task_title": task.get("title", ""),
         "check": task.get("check", ""),
         "exit_code": exit_code,
         "output": output,
     }, ensure_ascii=False)
+
+
+def _judge_result(res: Any) -> tuple[int, str, list[dict[str, str]], str]:
+    verdict = 1 if isinstance(res, dict) and res.get("verdict") == 1 else 0
+    reason = str(res.get("reason") or "") if isinstance(res, dict) else ""
+    new_reqs = _normalize_new_requirements(res.get("new_requirements")) if isinstance(res, dict) else []
+    hint = _normalize_hint(res.get("hint")) if isinstance(res, dict) else ""
+    return verdict, reason, new_reqs, hint
+
+
+def judge_task(
+    spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str
+) -> tuple[int, str, list[dict[str, str]], str]:
+    """Ask the judge whether a single check output validates the task.
+
+    Returns (verdict, reason, new_requirements, hint); verdict is 1 only when the
+    judge is convinced the output genuinely demonstrates the task is done. Any judge
+    failure returns (0, reason, [], "") so an unreachable judge never auto-passes."""
     try:
-        res = ask_structured(system, user, _JUDGE_SCHEMA, schema_name="task_verdict")
+        from codex_judge import JudgeError, ask_structured
+    except ImportError as exc:  # pragma: no cover
+        return 0, f"judge unavailable: {exc}", [], ""
+    try:
+        res = ask_structured(
+            _JUDGE_SYSTEM, _judge_user(spec, task, exit_code, output),
+            _JUDGE_SCHEMA, schema_name="task_verdict",
+        )
     except JudgeError as exc:
         return 0, f"judge error: {exc}", [], ""
-    verdict = 1 if res.get("verdict") == 1 else 0
-    return (
-        verdict,
-        str(res.get("reason") or ""),
-        _normalize_new_requirements(res.get("new_requirements")),
-        _normalize_hint(res.get("hint")),
-    )
+    return _judge_result(res)
+
+
+def judge_tasks(
+    spec: dict[str, Any], items: list[dict[str, Any]]
+) -> list[tuple[int, str, list[dict[str, str]], str]]:
+    """Judge several (task, exit_code, output) items, batched into ONE WebSocket
+    round-trip when there is more than one.
+
+    items: [{task, exit_code, output}]. Returns (verdict, reason, new_requirements,
+    hint) per item, aligned to input. A single item delegates to judge_task (one
+    handshake either way); multiple items fire concurrent out-of-band responses on a
+    single socket, so a Stop validating several tasks costs one handshake instead of
+    N (the codex-thread serial-judge timeout). Any per-item judge failure yields
+    (0, reason, [], "") so an unreachable judge never auto-passes a task."""
+    if not items:
+        return []
+    if len(items) == 1:
+        it = items[0]
+        return [judge_task(spec, it["task"], it["exit_code"], it["output"])]
+    try:
+        from codex_judge import JudgeError, ask_structured_batch
+    except ImportError as exc:  # pragma: no cover
+        return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
+    reqs = [
+        {
+            "system": _JUDGE_SYSTEM,
+            "user": _judge_user(spec, it["task"], it["exit_code"], it["output"]),
+            "schema": _JUDGE_SCHEMA,
+            "schema_name": "task_verdict",
+        }
+        for it in items
+    ]
+    results = ask_structured_batch(reqs)
+    out: list[tuple[int, str, list[dict[str, str]], str]] = []
+    for res in results:
+        if isinstance(res, JudgeError):
+            out.append((0, f"judge error: {res}", [], ""))
+        else:
+            out.append(_judge_result(res))
+    return out
 
 
 def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str, str]:

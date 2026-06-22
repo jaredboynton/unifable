@@ -32,6 +32,18 @@ _SPEC_APPEND_SUBCMDS = frozenset({"restate", "add-task", "dispute"})
 _SPEC_CLI_NAMES = frozenset({"unifable", "unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_ASSIGN_NAME_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
+# Declaration builtins that take NAME=VALUE assignments. A standalone segment made
+# only of these (e.g. `T=/long/path` or `export A=1 B=2`) carries no executable but
+# is a harmless way to name a value for reuse in a later whitelisted segment.
+_SAFE_DECL_PREFIXES = frozenset({"export"})
+# Assigning these can change which binary the shell resolves or how words split,
+# so a standalone declaration of them is NOT a no-op and stays blocked.
+_DANGEROUS_ASSIGN_NAMES = frozenset({
+    "PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
+    "DYLD_LIBRARY_PATH", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4",
+    "GLOBIGNORE", "CDPATH",
+})
 
 
 def _logical_lines(command: str) -> list[str]:
@@ -199,7 +211,82 @@ def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
     return _validate_spec_append_args(rest[script_idx + 1:])
 
 
+def _command_substitution_reason(text: str) -> str:
+    """Reason if *text* contains a LIVE command/process substitution, else "".
+
+    Single-quoted regions are literal in the shell, so `$(`, backticks and
+    `<(`/`>(` inside single quotes are ignored (e.g. `rg '$(' file` is a real
+    search, not substitution). Double-quoted `$(`/backtick still execute, so they
+    are flagged. This is the only construct that can run an arbitrary command from
+    an otherwise-whitelisted line, so it is rejected before the spec unlocks."""
+    i, n = 0, len(text)
+    in_single = in_double = False
+    while i < n:
+        ch = text[i]
+        if in_single:
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            i += 2  # backslash escapes the next char outside single quotes
+            continue
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = not in_double
+            i += 1
+            continue
+        if ch == "`":
+            return "backtick command substitution is not allowed before the evidence spec is validated"
+        if ch == "$" and i + 1 < n and text[i + 1] == "(":
+            return "command substitution $(...) is not allowed before the evidence spec is validated"
+        if not in_double and ch in "<>" and i + 1 < n and text[i + 1] == "(":
+            return "process substitution <(...)/ >(...) is not allowed before the evidence spec is validated"
+        i += 1
+    return ""
+
+
+def _declaration_segment(seg: str) -> tuple[bool, tuple[bool, str] | None]:
+    """Classify a pure variable-declaration segment (`T=val`, `export A=1 B=2`).
+
+    Returns (handled, result). When handled is True, result is the final
+    (allowed, reason) for this segment. When False, the segment is not a pure
+    declaration and normal command classification applies (so prefix-env on a real
+    command, e.g. `FOO=bar rg ...`, still flows through _first_command). Command
+    substitution is rejected upstream, so a value reaching here is a literal."""
+    try:
+        tokens = shlex.split(seg)
+    except ValueError:
+        return False, None
+    if not tokens:
+        return False, None
+    idx = 0
+    if tokens[0] in _SAFE_DECL_PREFIXES:
+        idx = 1
+        if idx >= len(tokens):
+            return True, (False, f"'{tokens[0]}' with no command is not a research command")
+    names: list[str] = []
+    for tok in tokens[idx:]:
+        match = _ASSIGN_NAME_RE.match(tok)
+        if not match:
+            return False, None  # a non-assignment token -> not a pure declaration
+        names.append(match.group(1))
+    for name in names:
+        if name in _DANGEROUS_ASSIGN_NAMES:
+            return True, (False,
+                          f"{name}= changes command resolution and is not allowed "
+                          "before the evidence spec is validated")
+    return True, (True, "")
+
+
 def _allowed_segment(seg: str) -> tuple[bool, str]:
+    handled, result = _declaration_segment(seg)
+    if handled and result is not None:
+        return result
+
     try:
         tokens = shlex.split(seg)
     except ValueError:
@@ -276,6 +363,9 @@ def is_allowed_research_bash(command: str) -> tuple[bool, str]:
         return False, "empty command"
 
     for line in _join_flag_lines(_logical_lines(command)):
+        subst = _command_substitution_reason(line)
+        if subst:
+            return False, subst
         for compound in _split_compound(line):
             allowed, reason = _allowed_compound(compound)
             if not allowed:

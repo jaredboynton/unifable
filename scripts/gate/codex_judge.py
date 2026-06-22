@@ -58,7 +58,27 @@ MODEL = os.environ.get("UNIFABLE_JUDGE_MODEL", "gpt-realtime-2")
 
 _QUESTION_PREFIX = "QUESTION: "
 
-_HANDSHAKE_TIMEOUT = 30.0
+
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name) or default)
+    except (TypeError, ValueError):
+        return default
+
+
+# Judge deadlines are reconciled with the host Stop-hook budget (hooks.json wires
+# gate_stop with timeout 120s). Worst case = handshake + read, kept comfortably
+# under the host budget so the hook returns cleanly instead of being killed
+# mid-judge (the codex-thread 10s timeout). See tests/test_stop_timeout_budget.py.
+HANDSHAKE_TIMEOUT = _env_float("UNIFABLE_JUDGE_HANDSHAKE", 15.0)
+READ_TIMEOUT = _env_float("UNIFABLE_JUDGE_TIMEOUT", 90.0)
+REFRESH_TIMEOUT = _env_float("UNIFABLE_JUDGE_REFRESH_TIMEOUT", 15.0)
+# Conservative ceiling on responses launched on one socket per batch. The API
+# supports many concurrent out-of-band responses; we cap well below that and chunk
+# larger batches (the gate never needs more than a handful of judges at once).
+BATCH_MAX_INFLIGHT = int(os.environ.get("UNIFABLE_JUDGE_BATCH_MAX") or 16)
+
+_HANDSHAKE_TIMEOUT = HANDSHAKE_TIMEOUT  # back-compat alias
 
 
 class JudgeError(Exception):
@@ -119,7 +139,7 @@ def _refresh(doc: dict[str, Any], path: Path) -> dict[str, Any]:
         headers={"content-type": "application/json", "user-agent": ORIGINATOR},
     )
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
+        with urllib.request.urlopen(req, timeout=REFRESH_TIMEOUT) as resp:
             v = json.loads(resp.read())
     except urllib.error.HTTPError as exc:
         detail = ""
@@ -296,7 +316,7 @@ def ask_structured(
     schema_name: str = "result",
     model: str = MODEL,
     auth_path: str | os.PathLike[str] | None = None,
-    timeout: float = 180.0,
+    timeout: float = READ_TIMEOUT,
 ) -> dict[str, Any]:
     """Ask gpt-realtime-2 for one structured object via a required function tool.
 
@@ -399,6 +419,237 @@ def ask_structured(
     if not isinstance(obj, dict):
         raise JudgeError("output is not a json object")
     return obj
+
+
+# ---------------------------------------------------------------------------
+# Concurrent batch: many structured asks over ONE WebSocket (out-of-band responses)
+#
+# Each request becomes a response.create with conversation:"none" (out of band, so
+# responses run in parallel and never write the shared conversation), its own
+# instructions/tools/tool_choice/input, and metadata {cid} for correlation. Per the
+# Realtime docs, multiple responses may be created in parallel and disambiguated by
+# metadata; we map response.id -> cid at response.created and route every later
+# frame (function_call_arguments.*, output_text.delta, response.done) by response_id.
+# ---------------------------------------------------------------------------
+
+def _new_batch_state(n: int) -> dict[str, Any]:
+    return {
+        "n": n,
+        "rid_to_cid": {},
+        "args": {i: [] for i in range(n)},
+        "done_args": {i: None for i in range(n)},
+        "text": {i: [] for i in range(n)},
+        "error": {i: None for i in range(n)},
+        "finished": set(),
+        "session_error": None,
+    }
+
+
+def _register_metadata(state: dict[str, Any], env: dict[str, Any]) -> None:
+    resp = env.get("response")
+    if not isinstance(resp, dict):
+        return
+    rid = resp.get("id")
+    meta = resp.get("metadata") or {}
+    cid = meta.get("cid")
+    if rid is not None and cid is not None:
+        try:
+            state["rid_to_cid"][rid] = int(cid)
+        except (TypeError, ValueError):
+            pass
+
+
+def _cid_of(state: dict[str, Any], env: dict[str, Any]) -> int | None:
+    _register_metadata(state, env)
+    rid = env.get("response_id")
+    if rid is None and isinstance(env.get("response"), dict):
+        rid = env["response"].get("id")
+    cid = state["rid_to_cid"].get(rid)
+    return cid if isinstance(cid, int) and 0 <= cid < state["n"] else None
+
+
+def _batch_route(state: dict[str, Any], env: dict[str, Any]) -> None:
+    """Update batch *state* from one parsed server envelope (pure; no I/O)."""
+    kind = env.get("type", "")
+    if kind in ("error", "response.failed"):
+        cid = _cid_of(state, env)
+        err = env.get("error") if kind == "error" else (env.get("response") or {}).get("error")
+        if cid is None:
+            # No response context -> session-level failure; abort the whole batch.
+            state["session_error"] = _provider_error(err)
+            return
+        state["error"][cid] = _provider_error(err)
+        state["finished"].add(cid)
+        return
+    cid = _cid_of(state, env)
+    if cid is None:
+        return
+    if kind == "response.function_call_arguments.delta":
+        d = env.get("delta")
+        if isinstance(d, str):
+            state["args"][cid].append(d)
+    elif kind == "response.function_call_arguments.done":
+        a = env.get("arguments")
+        if isinstance(a, str):
+            state["done_args"][cid] = a
+    elif kind == "response.output_text.delta":
+        d = env.get("delta")
+        if isinstance(d, str):
+            state["text"][cid].append(d)
+    elif kind in ("response.done", "response.completed"):
+        if state["done_args"][cid] is None:
+            state["done_args"][cid] = _function_args_from_done(env)
+        state["finished"].add(cid)
+
+
+def _batch_chosen(state: dict[str, Any], cid: int) -> str:
+    return (
+        state["done_args"][cid]
+        or ("".join(state["args"][cid]) if state["args"][cid] else "")
+        or "".join(state["text"][cid])
+    )
+
+
+def _collect_batch(envelopes: list[dict[str, Any]], n: int) -> list[tuple[str | None, str | None]]:
+    """Route a full envelope sequence and return [(chosen_args, error)] per cid.
+
+    Pure helper used both by the live loop and by tests (synthetic frames)."""
+    state = _new_batch_state(n)
+    for env in envelopes:
+        _batch_route(state, env)
+        if state["session_error"]:
+            break
+    out: list[tuple[str | None, str | None]] = []
+    for i in range(n):
+        if state["session_error"] and i not in state["finished"]:
+            out.append((None, state["session_error"]))
+            continue
+        if state["error"][i]:
+            out.append((None, state["error"][i]))
+            continue
+        chosen = _batch_chosen(state, i)
+        out.append((chosen or None, None))
+    return out
+
+
+def _response_create(req: dict[str, Any], cid: int) -> dict[str, Any]:
+    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
+
+    system = cap_judge_message(str(req.get("system") or ""), JUDGE_EFFECTIVE_MAX_CHARS)
+    user = cap_judge_message(str(req.get("user") or ""), JUDGE_EFFECTIVE_MAX_CHARS - len(_QUESTION_PREFIX))
+    tool = {
+        "type": "function",
+        "name": str(req.get("schema_name") or "result"),
+        "description": "Return the structured result. Call exactly once with the complete object.",
+        "parameters": req.get("schema") or {},
+    }
+    return {
+        "type": "response.create",
+        "response": {
+            "conversation": "none",
+            "output_modalities": ["text"],
+            "instructions": system,
+            "tools": [tool],
+            "tool_choice": "required",
+            "metadata": {"cid": str(cid)},
+            "input": [{
+                "type": "message", "role": "user",
+                "content": [{"type": "input_text", "text": f"{_QUESTION_PREFIX}{user}"}],
+            }],
+        },
+    }
+
+
+def _batch_once(chunk: list[dict[str, Any]], model: str,
+                auth_path: str | os.PathLike[str] | None, timeout: float,
+                force_refresh: bool) -> dict[str, Any]:
+    tokens = _fresh_tokens(auth_path, force=force_refresh)
+    sock = _ws_connect(tokens, model, HANDSHAKE_TIMEOUT)
+    state = _new_batch_state(len(chunk))
+    try:
+        _send_text(sock, {"type": "session.update",
+                          "session": {"type": "realtime", "output_modalities": ["text"]}})
+        for cid, req in enumerate(chunk):
+            _send_text(sock, _response_create(req, cid))
+        deadline = time.monotonic() + timeout
+        while len(state["finished"]) < len(chunk) and not state["session_error"]:
+            if time.monotonic() >= deadline:
+                break
+            opcode, payload = _read_frame(sock)
+            if opcode == 0x8:
+                break
+            if opcode == 0x9:
+                sock.sendall(_encode_frame(payload, opcode=0xA))
+                continue
+            if opcode not in (0x0, 0x1, 0x2):
+                continue
+            try:
+                env = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue
+            _batch_route(state, env)
+        return state
+    finally:
+        try:
+            sock.sendall(_encode_frame(b"", opcode=0x8))
+            sock.close()
+        except OSError:
+            pass
+
+
+def ask_structured_batch(
+    requests: list[dict[str, Any]],
+    *,
+    model: str = MODEL,
+    auth_path: str | os.PathLike[str] | None = None,
+    timeout: float = READ_TIMEOUT,
+) -> list[dict[str, Any] | JudgeError]:
+    """Ask many structured questions concurrently over ONE WebSocket.
+
+    requests: [{system, user, schema, schema_name}]. Returns a list aligned to the
+    input: each entry is the parsed object, or a JudgeError for that slot (never
+    raises for a single bad slot, so one failed judge can't poison the others). A
+    handshake auth rejection refreshes the token and retries once, like
+    ask_structured."""
+    results: list[dict[str, Any] | JudgeError] = [
+        JudgeError("no result") for _ in requests
+    ]
+    if not requests:
+        return []
+    for start in range(0, len(requests), BATCH_MAX_INFLIGHT):
+        chunk = requests[start:start + BATCH_MAX_INFLIGHT]
+        try:
+            state = _batch_once(chunk, model, auth_path, timeout, force_refresh=False)
+        except JudgeError as exc:
+            if "handshake rejected" in str(exc):
+                try:
+                    state = _batch_once(chunk, model, auth_path, timeout, force_refresh=True)
+                except JudgeError as exc2:
+                    for j in range(len(chunk)):
+                        results[start + j] = exc2
+                    continue
+            else:
+                for j in range(len(chunk)):
+                    results[start + j] = exc
+                continue
+        for j in range(len(chunk)):
+            if state["session_error"] and j not in state["finished"]:
+                results[start + j] = JudgeError(state["session_error"])
+                continue
+            if state["error"][j]:
+                results[start + j] = JudgeError(state["error"][j])
+                continue
+            chosen = _batch_chosen(state, j)
+            if not chosen.strip():
+                results[start + j] = JudgeError("realtime stream produced no structured output")
+                continue
+            try:
+                obj = json.loads(chosen)
+            except json.JSONDecodeError as exc:
+                results[start + j] = JudgeError(f"output is not valid json: {exc}")
+                continue
+            results[start + j] = obj if isinstance(obj, dict) else JudgeError("output is not a json object")
+    return results
 
 
 if __name__ == "__main__":  # tiny live smoke test against gpt-realtime-2
