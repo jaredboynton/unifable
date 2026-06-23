@@ -103,16 +103,20 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
 
 
 def _attach_validate_context(payload: dict, ctx: str) -> None:
-    """Attach Stop-time judge feedback to reason and additionalContext."""
+    """Attach the Stop-time spec board to additionalContext only.
+
+    additionalContext is the documented channel Claude acts on
+    (https://code.claude.com/docs/en/hooks); the short blocking alarm stays in
+    ``reason``. Both channels surface on Claude Code, so writing the board into
+    both doubled the tokens injected into the model -- the board now rides
+    additionalContext once and is not duplicated into ``reason``.
+    """
     if not ctx or not ctx.strip():
         return
     hso = payload.setdefault("hookSpecificOutput", {})
     hso["hookEventName"] = "Stop"
     existing = str(hso.get("additionalContext") or "").strip()
     hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
-    if payload.get("decision") == "block":
-        reason = str(payload.get("reason") or "").strip()
-        payload["reason"] = f"{reason}\n\n{ctx}".strip() if reason else ctx
 
 
 def _build_stop_validate_context(spec: dict | None, val_msgs: list[str]) -> str:

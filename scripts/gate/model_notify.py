@@ -27,7 +27,12 @@ MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontie
 
 _TASK_ID_RE = re.compile(r"\bT\d+\b")
 _STOP_VALIDATE_CONTEXT_MAX = 16000
-_JUDGE_INLINE_STATUSES = frozenset({"failed", "retracted", "rejected_approach"})
+# Statuses whose judge reason is always worth re-showing: still-actionable work.
+# `retracted` is resolved/done, so it is NOT here -- a retracted task only shows
+# its judge reason on the stop it changed (its id appears in the headlines), and
+# otherwise collapses into the done-count line.
+_JUDGE_INLINE_STATUSES = frozenset({"failed", "rejected_approach"})
+_RESOLVED_STATUSES = frozenset({"validated", "retracted"})
 
 _STATUS_MARKS = {
     "validated": "OK",
@@ -52,8 +57,16 @@ def format_spec_status(
     *,
     highlight_task: str | None = None,
     show_judge_for: frozenset[str] | None = None,
+    collapse_resolved: bool = False,
 ) -> str:
-    """Compact task board matching the status CLI output shape."""
+    """Compact task board matching the status CLI output shape.
+
+    With ``collapse_resolved=True`` (model-facing contexts), resolved tasks
+    (validated/retracted) that are not highlighted or in ``show_judge_for`` fold
+    into a single ``done (N): T1, T2`` line instead of a full row each -- a task
+    that is already done needs only "done", not a re-narrated row every stop. The
+    human ``unifable status`` CLI leaves this False so it stays full.
+    """
     ok, incomplete = _all_tasks_validated(spec)
     lines = [f"goal: {str(spec.get('restated_goal', ''))[:100]}"]
     try:
@@ -68,15 +81,21 @@ def format_spec_status(
         pass
     highlight = str(highlight_task or "").strip()
     judge_tasks = show_judge_for or frozenset()
+    collapsed: list[str] = []
     for task in spec.get("tasks") or []:
         if not isinstance(task, dict):
             continue
         tid = str(task.get("id") or "")
-        mark = _STATUS_MARKS.get(str(task.get("status") or ""), "??")
+        status = str(task.get("status") or "")
+        shown = (highlight and tid == highlight) or tid in judge_tasks
+        if collapse_resolved and status in _RESOLVED_STATUSES and not shown:
+            collapsed.append(tid)
+            continue
+        mark = _STATUS_MARKS.get(status, "??")
         kind = str(task.get("approach_kind") or "req")
         title = str(task.get("title") or "")
         row = f"  [{mark}] {tid} ({kind}) {title}"
-        if (highlight and tid == highlight) or tid in judge_tasks:
+        if shown:
             reason = str(task.get("judge_reason") or "").strip()
             if reason:
                 row += f"\n    judge: {reason}"
@@ -84,6 +103,8 @@ def format_spec_status(
             if hint:
                 row += f"\n    hint: {hint}"
         lines.append(row)
+    if collapsed:
+        lines.append(f"  done ({len(collapsed)}): {', '.join(collapsed)}")
     if ok:
         lines.append("breaker: OPEN (all tasks validated)")
     else:
@@ -138,7 +159,7 @@ def notify_spec_update(
         _emit_judge(judge_reason)
     if hint:
         _emit_hint(hint)
-    _emit_status(format_spec_status(spec, highlight_task=highlight_task))
+    _emit_status(format_spec_status(spec, highlight_task=highlight_task, collapse_resolved=True))
 
 
 def extract_model_notifications(text: str) -> list[str]:
@@ -190,26 +211,20 @@ def _stop_validate_judge_tasks(spec: dict[str, Any], headlines: list[str]) -> fr
 
 
 def build_stop_validate_context(spec: dict[str, Any], headlines: list[str]) -> str:
-    """Format Stop-time auto_validate results for model feedback."""
+    """Format Stop-time auto_validate results for model feedback.
+
+    The headlines above the board are the per-stop delta. Judge/hint text is
+    rendered once -- inline in the board (see ``format_spec_status``) -- not also
+    as a flat ``Tn judge:`` preamble; and resolved tasks not changed this stop
+    collapse to a done-count line.
+    """
     msgs = [str(h).strip() for h in (headlines or []) if str(h).strip()]
     if not msgs:
         return ""
     parts: list[str] = ["unifable spec update (stop validation):"]
     parts.extend(msgs)
     show_judge_for = _stop_validate_judge_tasks(spec, msgs)
-    for task in spec.get("tasks") or []:
-        if not isinstance(task, dict):
-            continue
-        tid = str(task.get("id") or "")
-        if tid not in show_judge_for:
-            continue
-        reason = str(task.get("judge_reason") or "").strip()
-        if reason:
-            parts.append(f"{tid} judge: {reason}")
-        hint = str(task.get("judge_hint") or "").strip()
-        if hint:
-            parts.append(f"{tid} hint: {hint}")
-    parts.append(format_spec_status(spec, show_judge_for=show_judge_for))
+    parts.append(format_spec_status(spec, show_judge_for=show_judge_for, collapse_resolved=True))
     body = "\n".join(parts)
     if len(body) > _STOP_VALIDATE_CONTEXT_MAX:
         return body[: _STOP_VALIDATE_CONTEXT_MAX - 3] + "..."

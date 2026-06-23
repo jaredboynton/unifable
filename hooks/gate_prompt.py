@@ -15,8 +15,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
-from classify_task import classify_prompt, context_for_mode, grade_of
+from classify_task import operative_prompt, context_for_mode, grade_of
 from evidence_policy import higher_mode, mode_for_grade, resolve_grade
+from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
 from heavy_workflow import heavy_workflow_brief
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
 
@@ -73,10 +74,24 @@ def main() -> int:
 
     input_data = read_stdin_json()
     prompt = str(input_data.get("prompt") or input_data.get("user_prompt") or "")
-    mode, risks = classify_prompt(prompt)
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     new_key = _prompt_key(prompt)
     session_key = resolve_session_id(input_data, default="default") or "default"
+
+    # Judge-backed grade classification (single call per prompt). Fails open to
+    # normal/STANDARD on any judge/transport error.
+    operative = operative_prompt(prompt)
+    prior_spec = None
+    try:
+        prior_spec = load_spec(cwd, session_key)
+    except Exception:
+        pass
+    restated = str(prior_spec.get("restated_goal") or "") if isinstance(prior_spec, dict) else ""
+    task_summary = _task_summary(prior_spec) if isinstance(prior_spec, dict) else None
+    verdict = judge_grade_classify(operative, restated_goal=restated, task_summary=task_summary)
+    mode, risks, reason = parse_grade_verdict(verdict)
+    if verdict is None:
+        mode, risks, reason = "normal", [], "judge unavailable: classified as normal (fail-open)"
     grade = grade_of(mode)
 
     def apply(ledger):

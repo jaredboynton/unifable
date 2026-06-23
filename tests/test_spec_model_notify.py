@@ -181,7 +181,9 @@ def test_build_stop_validate_context_dispute_rejected():
     ctx = mn.build_stop_validate_context(spec, headlines)
     assert ctx.startswith("unifable spec update (stop validation):")
     assert "T5: dispute rejected" in ctx
-    assert f"T5 judge: {DISPUTE_REJECT_REASON}" in ctx
+    # judge reason rides the board inline, exactly once (no flat preamble dup)
+    assert DISPUTE_REJECT_REASON in ctx
+    assert ctx.count(DISPUTE_REJECT_REASON) == 1
     assert "breaker: CLOSED" in ctx
 
 
@@ -199,7 +201,9 @@ def test_build_stop_validate_context_dispute_accepted():
     headlines = ["T6 retracted — judge accepted impossibility. Completion breaker open."]
     ctx = mn.build_stop_validate_context(spec, headlines)
     assert "T6 retracted" in ctx
-    assert f"T6 judge: {DISPUTE_ACCEPT_REASON}" in ctx
+    # freshly retracted this stop (named in headlines) -> judge shown inline, once
+    assert DISPUTE_ACCEPT_REASON in ctx
+    assert ctx.count(DISPUTE_ACCEPT_REASON) == 1
     assert "breaker: OPEN" in ctx
 
 
@@ -208,8 +212,113 @@ def test_build_stop_validate_context_check_rejected():
     headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
     ctx = mn.build_stop_validate_context(spec, headlines)
     assert "T1 check ran (exit 1)" in ctx
-    assert f"T1 judge: {LONG_JUDGE}" in ctx
+    assert LONG_JUDGE in ctx
+    assert ctx.count(LONG_JUDGE) == 1
     assert "breaker: CLOSED" in ctx
+
+
+def test_build_stop_validate_context_no_judge_duplication():
+    spec = _sample_spec(judge_reason=LONG_JUDGE)
+    headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
+    ctx = mn.build_stop_validate_context(spec, headlines)
+    # The judge reason must appear once -- inline in the board -- not also as a
+    # flat "T1 judge:" preamble line.
+    assert ctx.count(LONG_JUDGE) == 1
+    assert "T1 judge:" not in ctx
+
+
+def test_format_spec_status_collapses_resolved():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = [
+        {"id": "T1", "title": "alpha", "check": "true", "status": "validated"},
+        {"id": "T2", "title": "beta", "check": "true", "status": "validated"},
+        {"id": "T3", "title": "gamma", "check": "true", "status": "validated"},
+        {"id": "T4", "title": "delta", "check": "true", "status": "validated"},
+        {"id": "T5", "title": "still failing", "check": "true", "status": "failed",
+         "judge_reason": LONG_JUDGE},
+        {"id": "T6", "title": "still pending", "check": "true", "status": "pending"},
+    ]
+    collapsed = mn.format_spec_status(spec, show_judge_for=frozenset({"T5"}), collapse_resolved=True)
+    # resolved tasks fold into one done-count line; their titles are gone
+    assert "done (4): T1, T2, T3, T4" in collapsed
+    assert "alpha" not in collapsed
+    assert "delta" not in collapsed
+    # incomplete tasks keep their full rows
+    assert "[XX] T5 (req) still failing" in collapsed
+    assert "[--] T6 (req) still pending" in collapsed
+    # the human `unifable status` CLI path (default) keeps every row in full
+    full = mn.format_spec_status(spec)
+    assert "[OK] T1 (req) alpha" in full
+    assert "[OK] T4 (req) delta" in full
+    assert "done (" not in full
+
+
+def test_just_resolved_task_still_explained():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = [
+        {"id": "T1", "title": "old done", "check": "true", "status": "validated"},
+        {"id": "T2", "title": "freshly retracted", "check": "true", "status": "retracted",
+         "judge_reason": DISPUTE_ACCEPT_REASON},
+    ]
+    headlines = ["T2 retracted — judge accepted impossibility."]
+    ctx = mn.build_stop_validate_context(spec, headlines)
+    # T1 (resolved, not changed) collapses; T2 (changed this stop) keeps its judge
+    assert "done (1): T1" in ctx
+    assert "old done" not in ctx
+    assert DISPUTE_ACCEPT_REASON in ctx
+
+
+def test_spec_board_not_duplicated_across_channels():
+    """gate_stop._attach_validate_context puts the board in additionalContext
+    only; the short alarm stays in reason (no cross-channel duplication)."""
+    import gate_stop
+
+    board = (
+        "unifable spec update (stop validation):\n"
+        "  [XX] T1 (req) something\nbreaker: CLOSED (1 left: T1)"
+    )
+    payload = {"decision": "block", "reason": "breaker CLOSED: 1 task(s) not validated (T1)."}
+    gate_stop._attach_validate_context(payload, board)
+    ctx = (payload.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert board in ctx                       # board rides additionalContext
+    assert board not in payload["reason"]     # not duplicated into reason
+    assert "breaker CLOSED" in payload["reason"]  # alarm stays in reason
+
+
+def test_collapse_already_done_tasks_to_count():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = [
+        {"id": "T1", "title": "alpha", "check": "true", "status": "validated"},
+        {"id": "T2", "title": "beta", "check": "true", "status": "validated"},
+        {"id": "T3", "title": "still failing", "check": "true", "status": "failed",
+         "judge_reason": "needs more"},
+    ]
+    out = mn.format_spec_status(spec, show_judge_for=frozenset({"T3"}), collapse_resolved=True)
+    assert "done (2): T1, T2" in out
+    assert "alpha" not in out
+    assert "[XX] T3" in out
+
+
+def test_human_unifable_status_cli_full():
+    """The human `unifable status` CLI path (collapse_resolved default False)
+    renders every resolved task in full -- no collapsing."""
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = [
+        {"id": "T1", "title": "alpha", "check": "true", "status": "validated"},
+        {"id": "T2", "title": "beta", "check": "true", "status": "validated"},
+    ]
+    full = mn.format_spec_status(spec)
+    assert "[OK] T1 (req) alpha" in full
+    assert "[OK] T2 (req) beta" in full
+    assert "done (" not in full
 
 
 def test_build_spec_context_from_output_collects_all_judges():

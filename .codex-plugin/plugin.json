@@ -1,6 +1,6 @@
 {
   "name": "unifable",
-  "version": "1.9.35",
+  "version": "1.9.36",
   "description": "A harness that makes Opus (or any Claude/Codex model) behave like Fable: completion, evidence, and verification enforced as procedure, auto-routed per task. Native Codex plugin (hooks self-contained, no ~/.codex/hooks.json merge).",
   "keywords": ["harness", "verification", "completion", "opus", "fable", "codex", "agentic"],
   "skills": "./skills/",

@@ -105,9 +105,41 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     assert out.get("decision") == "block"
     block_reason = out.get("reason") or ""
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert reason in block_reason
+    # reason carries only the short alarm; the board (judge reason + dispute
+    # headline) rides additionalContext and is no longer duplicated into reason.
+    assert "breaker CLOSED" in block_reason
     assert reason in ctx
-    assert "T1: dispute rejected" in block_reason
+    assert reason not in block_reason
+    assert "T1: dispute rejected" in ctx
+
+
+def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
+    """The spec board rides additionalContext only; reason keeps just the alarm."""
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "pending")]
+    save_spec(str(tmp_path), "sess", s)
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(
+        spec_mod, "judge_tasks", lambda sp, items: [(0, "T1 needs more proof", [], "", "") for _ in items]
+    )
+
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out.get("decision") == "block"
+    block_reason = out.get("reason") or ""
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert "breaker CLOSED" in block_reason
+    assert "T1 needs more proof" in ctx           # judge detail in additionalContext
+    assert "T1 needs more proof" not in block_reason  # not duplicated into reason
+    assert "unifable spec update" not in block_reason  # board not in reason at all
 
 
 def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):

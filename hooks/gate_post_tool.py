@@ -79,7 +79,7 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
             return ""
         spec = load_spec(cwd, task_id)
         if spec:
-            return "unifable spec update:\n" + format_spec_status(spec)
+            return "unifable spec update:\n" + format_spec_status(spec, collapse_resolved=True)
     except Exception:
         return ""
     return ""
@@ -208,12 +208,6 @@ def main() -> int:
                 and tool_name in research_tools
                 and len(frontier_tasks(spec)) < 2
             ):
-                from grade_override import try_adjudicate_grade
-
-                override_ctx = try_adjudicate_grade(input_data, "")
-                if override_ctx:
-                    grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
-                    grade_change_context = override_ctx
                 if grade == "HEAVY":
                     n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
                     discoveries = int(ledger.get("frontier_discovery_count") or 0)

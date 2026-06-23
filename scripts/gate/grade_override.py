@@ -1,63 +1,86 @@
 #!/usr/bin/env python3
-"""Judge-backed HEAVY grade adjudication and downgrade.
+"""Single-purpose judge-backed grade classifier.
 
-When effective grade is HEAVY, gpt-realtime-2 decides whether frontier-first
-enforcement is warranted or the task should run at STANDARD/LIGHT. Fail open on
-any judge/transport error.
+gpt-realtime-2 classifies the operative user prompt into a task mode
+(quick / normal / deep) that sets the enforcement grade (LIGHT / STANDARD /
+HEAVY). Replaces the legacy deterministic word-match classifier, which was too
+aggressive ("refactor" -> HEAVY on a 3-line tweak) and too brittle.
+
+Called once per UserPromptSubmit from gate_prompt.py. Fails open to
+normal/STANDARD on any judge/transport error.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
-from typing import Any
+from typing import Any, Callable
 
 try:
-    from classify_task import DEEP_RE, operative_prompt
-    from evidence_policy import MODES, grade_for_mode, resolve_grade
+    from evidence_policy import MODES, grade_for_mode
     from spec import load_spec, resolve_session_id, save_spec
 except ImportError:  # pragma: no cover
-    from scripts.gate.classify_task import DEEP_RE, operative_prompt
-    from scripts.gate.evidence_policy import MODES, grade_for_mode, resolve_grade
+    from scripts.gate.evidence_policy import MODES, grade_for_mode
     from scripts.gate.spec import load_spec, resolve_session_id, save_spec
 
-_WARRANT_SCHEMA = {
+_GRADE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "warrant_heavy": {"type": "boolean"},
-        "target_mode": {"type": "string", "enum": list(MODES)},
-        "reason": {"type": "string"},
+        "mode": {
+            "type": "string",
+            "enum": list(MODES),
+            "description": (
+                "quick: trivial question, explanation, read-only review, one-line answer. "
+                "normal: focused fix, bug fix, feature, test addition, routine refactor, "
+                "executing an approved plan. deep: genuinely architectural scope -- "
+                "production migration, auth/security overhaul, multi-system design, "
+                "unknown approach space."
+            ),
+        },
+        "risk_flags": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": (
+                "Short tags for risks the gates should know about: 'uncertainty' for "
+                "hedging language, 'production-deploy', 'auth-touch', etc. Empty if none."
+            ),
+        },
+        "reason": {
+            "type": "string",
+            "description": "One sentence explaining the classification.",
+        },
     },
-    "required": ["warrant_heavy", "target_mode", "reason"],
+    "required": ["mode", "risk_flags", "reason"],
     "additionalProperties": False,
 }
 
-_WARRANT_SYSTEM = (
-    "You are a gate for the unifable harness. Decide whether frontier-first HEAVY "
-    "enforcement is warranted for this task. Keep HEAVY only for genuinely "
-    "architectural scope: production migrations, auth/security overhauls, multi-system "
-    "design where exploring rejected alternatives first adds real value. Downgrade "
-    "(warrant_heavy=false) for focused fixes, harness/plugin self-work, test additions, "
-    "incremental refactors, operational prose (dispatch, briefing, Confluence), and "
-    "routine implementation without architectural exploration. Explicit operator "
-    "language requesting NORMAL/quick or waiving HEAVY is a strong downgrade signal. "
-    "When ambiguous, prefer downgrade to normal (STANDARD spec) over HEAVY ceremony. "
-    "target_mode should be 'normal' for standard spec-gated work, 'quick' only when "
-    "they explicitly want a trivial/light response."
+_GRADE_SYSTEM = (
+    "You classify an autonomous coding agent's prompt into a task mode that sets the "
+    "enforcement grade. Read the operative user message, the restated goal, and the "
+    "task board, then return ONE mode:\n"
+    "- quick (LIGHT): trivial question, explanation, read-only review, 'just explain', "
+    "one-line answer. Waives the evidence spec entirely.\n"
+    "- normal (STANDARD): focused fix, bug fix, feature implementation, test addition, "
+    "routine refactor, editing an already-approved plan into code. Needs the evidence "
+    "spec but no architectural exploration.\n"
+    "- deep (HEAVY): genuinely architectural scope -- production migration, "
+    "auth/security overhaul, multi-system design where exploring rejected alternatives "
+    "first adds real value, unknown approach space. Adds frontier-first workflow.\n"
+    "DECISION RULES:\n"
+    "- Editing code on an approved/bounded plan is NORMAL, not DEEP, even if it touches "
+    "'auth', 'security', 'production', or 'refactor' code paths. Those words describe "
+    "what code is being touched, not the task's architectural scope.\n"
+    "- Hedging language ('maybe', 'probably', 'not sure') signals research, not quick: "
+    "floor at normal and add 'uncertainty' to risk_flags.\n"
+    "- Explicit operator language ('this is a normal task', 'quick question', 'waive "
+    "HEAVY') is a strong signal -- obey it.\n"
+    "- When ambiguous, prefer normal over deep. HEAVY is for genuine architectural "
+    "exploration only, not for any task that happens to touch sensitive code.\n"
+    "risk_flags: free-form short tags for risks the gates should know about. Empty "
+    "array if none. reason: one sentence."
 )
 
-_RE_ESCALATE_RE = re.compile(
-    r"(?i)\b(escalate to deep|escalate to heavy|warrant heavy|frontier-first|"
-    r"resume heavy|restore heavy)\b"
-)
-
-_RE_WARRANT_SYSTEM = (
-    "The operator previously downgraded this session from HEAVY. They now signal "
-    "genuine architectural scope again. Return warrant_heavy=true only when the "
-    "operative text clearly requests re-escalation to deep/frontier work or carries "
-    "hard production/database/auth migration risks. Otherwise keep warrant_heavy=false."
-)
+_JUDGE_TIMEOUT = float(os.environ.get("UNIFABLE_GRADE_JUDGE_TIMEOUT", "90"))
 
 
 def _task_summary(spec: dict[str, Any] | None) -> list[dict[str, str]]:
@@ -79,82 +102,76 @@ def _task_summary(spec: dict[str, Any] | None) -> list[dict[str, str]]:
 def _judge_user(
     operative: str,
     *,
-    current_mode: str,
-    current_grade: str,
     restated_goal: str,
-    risk_flags: list[str] | None = None,
-    read_paths: list[str] | None = None,
-    task_summary: list[dict[str, str]] | None = None,
-    re_warrant: bool = False,
+    task_summary: list[dict[str, str]] | None,
 ) -> str:
-    payload: dict[str, Any] = {
-        "operative_user_message": operative,
-        "current_task_mode": current_mode or "unknown",
-        "current_grade": current_grade or "unknown",
-        "restated_goal": (restated_goal or "")[:500],
-        "risk_flags": risk_flags or [],
-        "recent_read_paths": (read_paths or [])[-20:],
-        "tasks": task_summary or [],
-        "re_warrant_request": re_warrant,
-    }
-    return json.dumps(payload, ensure_ascii=False)
+    return json.dumps(
+        {
+            "operative_user_message": operative,
+            "restated_goal": (restated_goal or "")[:500],
+            "tasks": task_summary or [],
+        },
+        ensure_ascii=False,
+    )
 
 
-def judge_grade_warrant(
+JudgeFn = Callable[..., dict[str, Any] | None]
+
+
+def judge_grade_classify(
     operative: str,
     *,
-    current_mode: str = "",
-    current_grade: str = "",
     restated_goal: str = "",
-    risk_flags: list[str] | None = None,
-    read_paths: list[str] | None = None,
     task_summary: list[dict[str, str]] | None = None,
-    re_warrant: bool = False,
+    judge_fn: JudgeFn | None = None,
 ) -> dict[str, Any] | None:
-    """Call gpt-realtime-2; return parsed verdict or None on failure."""
+    """Classify the prompt into {mode, risk_flags, reason}. Returns None on failure."""
+    if not operative.strip():
+        return None
+    if judge_fn is not None:
+        try:
+            return judge_fn(operative, restated_goal=restated_goal, task_summary=task_summary)
+        except Exception:
+            return None
     try:
         from codex_judge import JudgeError, ask_structured
     except ImportError:  # pragma: no cover
         from scripts.gate.codex_judge import JudgeError, ask_structured
 
-    system = _RE_WARRANT_SYSTEM if re_warrant else _WARRANT_SYSTEM
     try:
         return ask_structured(
-            system,
-            _judge_user(
-                operative,
-                current_mode=current_mode,
-                current_grade=current_grade,
-                restated_goal=restated_goal,
-                risk_flags=risk_flags,
-                read_paths=read_paths,
-                task_summary=task_summary,
-                re_warrant=re_warrant,
-            ),
-            _WARRANT_SCHEMA,
-            schema_name="grade_warrant",
+            _GRADE_SYSTEM,
+            _judge_user(operative, restated_goal=restated_goal, task_summary=task_summary),
+            _GRADE_SCHEMA,
+            schema_name="grade_classify",
+            timeout=_JUDGE_TIMEOUT,
         )
-    except JudgeError:
-        return None
-    except Exception:
+    except (JudgeError, Exception):
         return None
 
 
-def judge_grade_override(
-    operative: str,
-    *,
-    current_mode: str = "",
-    current_grade: str = "",
-    restated_goal: str = "",
-) -> dict[str, Any] | None:
-    """Legacy alias: operator-biased warrant call."""
-    return judge_grade_warrant(
-        operative,
-        current_mode=current_mode,
-        current_grade=current_grade,
-        restated_goal=restated_goal,
+def parse_grade_verdict(verdict: dict[str, Any] | None) -> tuple[str, list[str], str]:
+    """Coerce a raw judge verdict into (mode, risk_flags, reason).
+
+    Returns ('normal', [], '') on any parse failure -- the fail-open default."""
+    if not isinstance(verdict, dict):
+        return "normal", [], ""
+    mode = str(verdict.get("mode") or "").lower().strip()
+    if mode not in MODES:
+        mode = "normal"
+    raw_flags = verdict.get("risk_flags")
+    flags = (
+        [str(f).strip() for f in raw_flags if str(f).strip()]
+        if isinstance(raw_flags, list)
+        else []
     )
+    reason = str(verdict.get("reason") or "").strip()
+    return mode, flags, reason
 
+
+# ---------------------------------------------------------------------------
+# Ledger / spec application (used by gate_prompt.py and operator overrides)
+# ---------------------------------------------------------------------------
 
 def clear_heavy_spec_fields(spec: dict[str, Any]) -> None:
     spec["heavy_workflow"] = False
@@ -185,6 +202,28 @@ def clear_grade_override_pin(ledger: dict[str, Any]) -> None:
         ledger.pop(key, None)
 
 
+def apply_classified_grade_ledger(
+    ledger: dict[str, Any],
+    mode: str,
+    reason: str,
+    *,
+    by: str = "judge",
+) -> None:
+    """Set the classified mode/grade on the ledger. by='judge' for the classifier,
+    'operator' for a manual override."""
+    m = (mode or "normal").lower().strip()
+    if m not in MODES:
+        m = "normal"
+    ledger["task_mode"] = m
+    ledger["grade"] = grade_for_mode(m)
+    ledger["grade_override_applied"] = True
+    ledger["grade_override_target"] = grade_for_mode(m)
+    ledger["grade_override_by"] = (by or "judge").strip()[:32]
+    ledger["grade_override_reason"] = (reason or "").strip()[:500]
+    ledger["inject_heavy_brief"] = False
+
+
+# Back-compat alias for tests and any external callers.
 def apply_grade_override_ledger(
     ledger: dict[str, Any],
     target_mode: str,
@@ -192,175 +231,11 @@ def apply_grade_override_ledger(
     *,
     by: str = "judge",
 ) -> None:
-    mode = (target_mode or "normal").lower().strip()
-    if mode not in MODES:
-        mode = "normal"
-    ledger["task_mode"] = mode
-    ledger["grade"] = grade_for_mode(mode)
-    ledger["grade_override_applied"] = True
-    ledger["grade_override_target"] = grade_for_mode(mode)
-    ledger["grade_override_by"] = (by or "judge").strip()[:32]
-    ledger["grade_override_reason"] = (reason or "").strip()[:500]
-    ledger["inject_heavy_brief"] = False
+    apply_classified_grade_ledger(ledger, target_mode, reason, by=by)
 
 
-def apply_re_warrant_ledger(ledger: dict[str, Any], reason: str) -> None:
-    clear_grade_override_pin(ledger)
-    ledger["task_mode"] = "deep"
-    ledger["grade"] = "HEAVY"
-    ledger["inject_heavy_brief"] = False
-    if reason.strip():
-        ledger["grade_re_warrant_reason"] = reason.strip()[:500]
-
-
-def format_override_context(target_mode: str, reason: str, *, by: str = "judge") -> str:
-    grade = grade_for_mode(target_mode)
-    detail = reason.strip() or "grade adjudication accepted"
-    source = "judge grade adjudication" if by == "judge" else "operator override"
-    return (
-        f"unifable: HEAVY lifted to {grade} ({target_mode} task mode) by {source}. "
-        f"{detail}"
-    )
-
-
-def format_re_warrant_context(reason: str) -> str:
-    detail = reason.strip() or "architectural scope confirmed"
-    return f"unifable: grade pin cleared; HEAVY re-warranted by judge. {detail}"
-
-
-def _wants_re_escalation(operative: str, risk_flags: list[str] | None) -> bool:
-    flags = risk_flags or []
-    hard = [r for r in flags if r != "uncertainty"]
-    if any(r in hard for r in ("production", "database", "remote-write")):
-        return True
-    text = operative or ""
-    return bool(DEEP_RE.search(text)) or bool(_RE_ESCALATE_RE.search(text))
-
-
-def _collect_context(
-    input_data: dict,
-    prompt: str,
-) -> tuple[dict, str, str, str, dict[str, Any] | None, str]:
-    try:
-        from ledger import load_ledger
-
-        ledger = load_ledger(input_data)
-    except Exception:
-        return {}, "", "", "default", None, ""
-
-    try:
-        from spec import canonical_project_root
-
-        cwd = str(canonical_project_root(input_data.get("cwd") or ""))
-    except Exception:
-        cwd = str(input_data.get("cwd") or "")
-    session_key = resolve_session_id(input_data, default="default") or "default"
-    spec = load_spec(cwd, session_key) if cwd else None
-    operative = operative_prompt(prompt)
-    return ledger, cwd, session_key, operative, spec, cwd
-
-
-def _apply_downgrade(
-    input_data: dict,
-    cwd: str,
-    session_key: str,
-    target_mode: str,
-    reason: str,
-    *,
-    by: str = "judge",
-) -> str:
-    def apply(ledger_mut: dict) -> None:
-        apply_grade_override_ledger(ledger_mut, target_mode, reason, by=by)
-
-    try:
-        from ledger import update_ledger
-
-        update_ledger(input_data, apply)
-    except Exception:
-        return ""
-
-    if cwd:
-        apply_grade_override_to_spec(cwd, session_key)
-
-    return format_override_context(target_mode, reason, by=by)
-
-
-def try_adjudicate_grade(
-    input_data: dict,
-    prompt: str,
-    *,
-    judge_fn=judge_grade_warrant,
-) -> str:
-    """Judge whether HEAVY is warranted; apply downgrade when not. Returns context or ""."""
-    ledger, cwd, session_key, operative, spec, _ = _collect_context(input_data, prompt)
-    if not ledger:
-        return ""
-
-    env_grade = os.environ.get("UNIFABLE_GRADE")
-    restated = str(spec.get("restated_goal") or "") if isinstance(spec, dict) else ""
-    risk_flags = list(ledger.get("risk_flags") or [])
-    read_paths = list(ledger.get("read_paths") or [])
-    task_summary = _task_summary(spec)
-    current_mode = str(ledger.get("task_mode") or "")
-    current_grade = resolve_grade(ledger, env_grade)
-
-    pinned = bool(
-        ledger.get("grade_override_applied") and ledger.get("grade_override_target")
-    )
-
-    if pinned and _wants_re_escalation(operative, risk_flags):
-        verdict = judge_fn(
-            operative,
-            current_mode=current_mode,
-            current_grade=current_grade,
-            restated_goal=restated,
-            risk_flags=risk_flags,
-            read_paths=read_paths,
-            task_summary=task_summary,
-            re_warrant=True,
-        )
-        if isinstance(verdict, dict) and verdict.get("warrant_heavy"):
-            reason = str(verdict.get("reason") or "").strip()
-
-            def re_apply(ledger_mut: dict) -> None:
-                apply_re_warrant_ledger(ledger_mut, reason)
-
-            try:
-                from ledger import update_ledger
-
-                update_ledger(input_data, re_apply)
-            except Exception:
-                return ""
-            return format_re_warrant_context(reason)
-
-    if current_grade != "HEAVY":
-        return ""
-
-    verdict = judge_fn(
-        operative,
-        current_mode=current_mode,
-        current_grade=current_grade,
-        restated_goal=restated,
-        risk_flags=risk_flags,
-        read_paths=read_paths,
-        task_summary=task_summary,
-    )
-    if not isinstance(verdict, dict) or verdict.get("warrant_heavy"):
-        return ""
-
-    target_mode = str(verdict.get("target_mode") or "normal").lower().strip()
-    if grade_for_mode(target_mode) == "HEAVY":
-        return ""
-
-    reason = str(verdict.get("reason") or "").strip()
-    return _apply_downgrade(input_data, cwd, session_key, target_mode, reason, by="judge")
-
-
-def try_apply_grade_override(
-    input_data: dict,
-    prompt: str,
-    *,
-    judge_fn=judge_grade_warrant,
-) -> str:
-    """Legacy entry: proactive adjudication (operator phrases are judge signals)."""
-    return try_adjudicate_grade(input_data, prompt, judge_fn=judge_fn)
+def format_override_context(mode: str, reason: str, *, by: str = "judge") -> str:
+    grade = grade_for_mode(mode)
+    detail = reason.strip() or "grade classified"
+    source = "judge grade classification" if by == "judge" else "operator override"
+    return f"unifable: task mode {mode} ({grade}) by {source}. {detail}"
