@@ -30,7 +30,9 @@ import spec as spec_mod  # noqa: E402
 from spec import (  # noqa: E402
     JUDGE_MAX_UNRESOLVED_ADDED,
     _apply_adjustments,
+    _current_requirements_payload,
     _judge_user,
+    _normalize_new_requirements,
     all_tasks_validated,
     auto_validate_spec,
     judge_task,
@@ -272,6 +274,47 @@ def test_judge_user_lists_all_requirements():
     ids = {r.get("id") for r in current}
     assert "already covered thing" in titles  # the validated AGENT task is visible
     assert "T1" in ids
+    t1 = next(r for r in current if r.get("id") == "T1")
+    assert t1.get("check") == "pytest -k a"
+
+
+def test_current_requirements_payload_includes_all_tasks_not_truncated():
+    """Every prior task is passed to the judge -- no tail truncation."""
+    tasks = [_task(f"T{i}", "pending" if i % 2 else "validated", check=f"pytest -k t{i}")
+             for i in range(1, 46)]
+    spec = {"restated_goal": "g", "tasks": tasks}
+    payload = _current_requirements_payload(spec)
+    assert len(payload) == 45
+    assert payload[0]["id"] == "T1"
+    assert payload[-1]["id"] == "T45"
+    assert all("check" in row and "title" in row for row in payload)
+
+
+def test_normalize_drops_new_requirement_without_why_distinct():
+    raw = [{"title": "handle errors", "check": "pytest -k err"}]
+    assert _normalize_new_requirements(raw) == []
+
+
+def test_normalize_drops_placeholder_why_distinct():
+    raw = [{"title": "handle errors", "check": "pytest -k err", "why_distinct": "n/a"}]
+    assert _normalize_new_requirements(raw) == []
+
+
+def test_normalize_keeps_substantive_why_distinct():
+    raw = [{
+        "title": "validate timeouts",
+        "check": "pytest -k to",
+        "why_distinct": "Compared T1-T3; none obligate timeout handling on the API path.",
+    }]
+    assert _normalize_new_requirements(raw) == [
+        {"title": "validate timeouts", "check": "pytest -k to"},
+    ]
+
+
+def test_judge_system_requires_purpose_reasoning():
+    assert "why_distinct" in spec_mod._JUDGE_SYSTEM
+    assert "PURPOSE" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+    assert "current_requirements" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
 
 
 def test_dedup_drops_reworded_title_duplicate(tmp_path, monkeypatch):

@@ -749,12 +749,23 @@ def _normalize_title(title: Any) -> str:
 
 
 def _current_requirements_payload(spec: dict[str, Any]) -> list[dict[str, str]]:
-    """Every requirement on the board (all statuses) for judge context."""
-    return [
-        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
-         "status": str(t.get("status") or ""), "added_by": str(t.get("added_by") or "agent")}
-        for t in (spec.get("tasks") or []) if isinstance(t, dict)
-    ][-40:]
+    """Every requirement on the board (all statuses) for judge duplicate reasoning."""
+    out: list[dict[str, str]] = []
+    for t in (spec.get("tasks") or []):
+        if not isinstance(t, dict):
+            continue
+        entry: dict[str, str] = {
+            "id": str(t.get("id")),
+            "title": str(t.get("title") or ""),
+            "check": str(t.get("check") or ""),
+            "status": str(t.get("status") or ""),
+            "added_by": str(t.get("added_by") or "agent"),
+        }
+        kind = str(t.get("approach_kind") or "")
+        if kind:
+            entry["approach_kind"] = kind
+        out.append(entry)
+    return out
 
 
 def _check_inputs_for_task(
@@ -815,8 +826,9 @@ def _apply_check_result(
     #  - dedup: never re-append a requirement byte-identical (title+check) to an
     #    existing task, NOR one whose normalized title matches an existing task's
     #    (the trivially-reworded re-derivation: case/spacing/trailing parenthetical).
-    #    The semantic re-derivation is prevented upstream by showing the judge
-    #    current_requirements; this is the deterministic floor for the obvious case.
+    #    Semantic same-purpose re-derivation is prevented upstream: the judge sees
+    #    every prior task (title+check+status) and must supply why_distinct per
+    #    proposed requirement; entries without substantive reasoning are dropped.
     #  - backlog cap: never let the UNRESOLVED judge-added backlog exceed
     #    JUDGE_MAX_UNRESOLVED_ADDED, so even near-duplicates (different wording,
     #    same intent) cannot make the list diverge faster than it validates.
@@ -963,8 +975,18 @@ _NEW_REQ_SCHEMA = {
     "type": "array",
     "items": {
         "type": "object",
-        "properties": {"title": {"type": "string"}, "check": {"type": "string"}},
-        "required": ["title", "check"],
+        "properties": {
+            "title": {"type": "string"},
+            "check": {"type": "string"},
+            "why_distinct": {
+                "type": "string",
+                "description": (
+                    "One sentence naming which prior task ids you compared and why "
+                    "this adds coverage none of them already obligate."
+                ),
+            },
+        },
+        "required": ["title", "check", "why_distinct"],
         "additionalProperties": False,
     },
 }
@@ -1040,6 +1062,18 @@ _HINT_GUIDANCE = (
     "it empty when you have nothing genuinely useful to add."
 )
 
+_JUDGE_NEW_REQ_GUIDANCE = (
+    "Before adding ANY new_requirement you MUST reason against current_requirements "
+    "(every prior task: id, title, check, status, added_by). Compare PURPOSE -- "
+    "what outcome or obligation the task enforces when satisfied -- not just title "
+    "wording or check syntax. If any existing task (especially validated) already "
+    "obligates the same outcome, do NOT add it: a different title or check that "
+    "proves the same thing is a duplicate and traps completion. Only add genuinely "
+    "new coverage. For each item in new_requirements, why_distinct MUST name which "
+    "prior ids you compared and state in one sentence why none already cover that "
+    "purpose. If nothing is genuinely missing, return an empty new_requirements list."
+)
+
 # Placeholder tokens that disqualify a hint -- a hint must be concrete, not a
 # hedge. Mirrors the assumption-rejection the spec gate applies elsewhere.
 _HINT_PLACEHOLDERS = ("tbd", "n/a", "none", "no hint", "nothing", "unsure", "unclear")
@@ -1060,16 +1094,22 @@ def _normalize_hint(raw: Any) -> str:
 
 
 def _normalize_new_requirements(raw: Any) -> list[dict[str, str]]:
-    """Coerce the judge's new_requirements into a clean [{title, check}] list,
-    dropping anything without both fields."""
+    """Coerce the judge's new_requirements into a clean [{title, check}] list.
+
+    Drops entries missing both fields or without a substantive why_distinct
+    sentence -- the judge must reason against current_requirements before adding."""
     out: list[dict[str, str]] = []
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, dict):
                 title = str(item.get("title") or "").strip()
                 check = str(item.get("check") or "").strip()
-                if title and check:
-                    out.append({"title": title, "check": check})
+                why = " ".join(str(item.get("why_distinct") or "").split())
+                if not title or not check:
+                    continue
+                if not why or why.lower() in _HINT_PLACEHOLDERS or len(why) < 15:
+                    continue
+                out.append({"title": title, "check": check})
     return out
 
 
@@ -1081,19 +1121,17 @@ _JUDGE_SYSTEM = (
     "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
     "output, errors, skipped or zero tests, and output that does not match the task. "
     "If, while judging, you find the goal needs further requirements not yet "
-    "covered by a task, list them in new_requirements as {title, check} with a "
-    "runnable check; otherwise return an empty list. current_requirements lists "
-    "EVERY requirement already in the spec with its status. Before proposing a "
-    "new_requirement, check current_requirements: if its intent is already covered "
-    "by any existing requirement -- especially a validated one -- do NOT add it "
-    "(it is redundant and will trap completion). Only add genuinely new coverage. "
+    "covered by a task, list them in new_requirements as {title, check, why_distinct} "
+    "with a runnable check; otherwise return an empty list. "
+    + _JUDGE_NEW_REQ_GUIDANCE
+    + " "
     "You may also ADJUST requirements "
     "YOU previously added (shown in existing_judge_requirements) when one is "
     "duplicative, unsatisfiable as written, or superseded: return adjust_requirements "
     "entries naming the task id with action 'retract' (drop it) or 'revise' (supply "
     "a corrected title and/or check). Only adjust requirements you added yourself, "
     "never the agent's; every adjustment is reported to the main model. You may "
-    "retract the current task if you added it and its intent is already satisfied "
+    "retract the current task if you added it and its purpose is already satisfied "
     "by a validated requirement in current_requirements; do that instead of failing "
     "the same redundant judge-added task again. "
     "never remove or weaken the agent's own requirements. "
@@ -1110,6 +1148,8 @@ _FRONTIER_JUDGE_SYSTEM = (
     "evidence convincingly disqualifies the frontier — not merely because the check "
     "failed once. Return 'still_viable' when more exploration is warranted. "
     "Set verdict to 0 always (frontier resolution uses outcome, not verdict). "
+    + _JUDGE_NEW_REQ_GUIDANCE
+    + " "
     + _HINT_GUIDANCE
 )
 
@@ -1122,9 +1162,12 @@ _PRIMARY_JUDGE_SYSTEM = (
 
 _DISCOVER_SYSTEM = (
     "You identify realistic cutting-edge frontier approaches worth exploring before "
-    "committing to the evidence-backed primary fallback. Given the restated goal and "
-    "recent research activity (reads, fetches), propose 0-2 frontier approaches. "
-    "Each must be plausible, distinct, and testable with a runnable check command. "
+    "committing to the evidence-backed primary fallback. Given the restated goal, "
+    "current_requirements (every prior task with title and check), and recent "
+    "research activity (reads, fetches), propose 0-2 frontier approaches. "
+    "Each must be plausible, distinct from existing tasks AND from each other by "
+    "purpose (not just wording), and testable with a runnable check command. "
+    "Do not propose a frontier whose purpose duplicates an existing requirement. "
     "Include scope_paths (repo file paths the frontier would touch) when inferrable. "
     "Return an empty frontiers list if nothing useful to add."
 )
@@ -1177,11 +1220,8 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
         "exit_code": exit_code,
         "output": output,
     }
-    # EVERY requirement already in the spec (agent + judge, all statuses), so the
-    # judge can see a goal aspect is already covered -- especially by validated
-    # agent tasks it does not own -- and not re-derive it as a new requirement.
-    # Omitting this was the cause of the redundancy loop (the judge could only see
-    # its own added tasks, so it re-proposed the agent's requirements each cycle).
+    # EVERY requirement already in the spec (agent + judge, all statuses, full
+    # title+check) so the judge can reason about purpose overlap before adding.
     payload["current_requirements"] = _current_requirements_payload(spec)
     # Requirements the judge itself added and may now adjust (retract/revise).
     adjustable = [
@@ -1423,6 +1463,7 @@ def judge_discover_frontiers(
     user = json.dumps({
         "goal": spec.get("restated_goal", ""),
         "existing_frontiers": [t.get("title") for t in frontier_tasks(spec)],
+        "current_requirements": _current_requirements_payload(spec),
         "read_paths": (recent_activity.get("read_paths") or [])[-20:],
         "fetched_urls": (recent_activity.get("fetched_urls") or [])[-10:],
         "repo_context": spec.get("repo_context") or [],
