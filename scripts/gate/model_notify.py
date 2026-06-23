@@ -28,8 +28,6 @@ MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontie
 _TASK_ID_RE = re.compile(r"\bT(\d+)\b")
 _RETRACT_HEADLINE_RE = re.compile(r"^Judge retracted (T\d+):\s*(.+)$", re.IGNORECASE)
 _STOP_VALIDATE_CONTEXT_MAX = 16000
-_STOP_ACTION_DIGEST_RESERVE = 4000
-_BLOCKING_HINT_REASON_MAX = 200
 _RESOLVED_STATUSES = frozenset({"validated", "retracted", "superseded"})
 
 _STATUS_MARKS = {
@@ -301,6 +299,9 @@ def format_stop_action_digest(spec: dict[str, Any], changed_ids: set[str]) -> st
         reason = str(task.get("judge_reason") or "").strip()
         if reason:
             lines.append(f"    judge: {reason}")
+        hint = str(task.get("judge_hint") or "").strip()
+        if hint:
+            lines.append(f"    hint: {hint}")
     return "\n".join(lines)
 
 
@@ -336,7 +337,7 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
         hint = str(task.get("judge_hint") or "").strip()
         if tid in changed_ids and reason:
             lines.append(f"    judge: {reason}")
-        elif hint:
+        if hint:
             lines.append(f"    hint: {hint}")
     display = [
         _synthetic_incomplete_label(tid) or tid for tid in ordered
@@ -385,11 +386,7 @@ def format_blocking_task_hints(
             continue
         hint = str(task.get("judge_hint") or "").strip()
         reason = str(task.get("judge_reason") or "").strip()
-        text = hint
-        if not text and reason:
-            text = reason[:_BLOCKING_HINT_REASON_MAX]
-            if len(reason) > _BLOCKING_HINT_REASON_MAX:
-                text += "..."
+        text = hint or reason
         if text:
             hint_lines.append(f"  {tid}: {text}")
     if not hint_lines:
@@ -402,13 +399,6 @@ def _stop_validate_judge_tasks(spec: dict[str, Any], headlines: list[str]) -> fr
     return frozenset(_task_ids_from_headlines(headlines))
 
 
-def _truncate_board_section(board: str, max_len: int) -> str:
-    if len(board) <= max_len:
-        return board
-    trimmed = board[: max(0, max_len - 80)].rstrip()
-    return trimmed + "\n(board truncated; run unifable status for full board)"
-
-
 def build_stop_validate_context(
     spec: dict[str, Any],
     headlines: list[str],
@@ -417,9 +407,10 @@ def build_stop_validate_context(
 ) -> tuple[str, bool]:
     """Format Stop-time auto_validate results for model feedback.
 
-    Returns ``(context, truncated)``. The Stop context lists unresolved tasks
-    only, includes fresh judge detail for tasks changed this stop, and preserves
-    non-task loop guidance as notes.
+    Returns ``(context, truncated)``. The unresolved action block (requirements,
+    judge reasoning, hints) is never truncated — only optional Notes may be
+    dropped when over ``max_len``. If the action block alone exceeds the budget,
+    it is still returned in full and ``truncated`` is True (see persisted digest).
     """
     raw_msgs = [str(h).strip() for h in (headlines or []) if str(h).strip()]
     if not raw_msgs:
@@ -429,15 +420,17 @@ def build_stop_validate_context(
     action = format_stop_unresolved_actions(spec, changed_ids)
     notes = _stop_non_task_notes(raw_msgs)
 
-    parts: list[str] = ["unifable spec update (stop validation):", action]
-    if notes:
-        parts.extend(["Notes:", "\n".join(f"  {note}" for note in notes)])
-    body = "\n".join(parts)
-    if len(body) <= limit:
-        return body, False
+    header = "unifable spec update (stop validation):"
+    core = f"{header}\n{action}"
+    if not notes:
+        return core, len(core) > limit
 
-    body = body[: limit - 3] + "..."
-    return body, True
+    notes_block = "Notes:\n" + "\n".join(f"  {note}" for note in notes)
+    full = f"{core}\n{notes_block}"
+    if len(full) <= limit:
+        return full, False
+    # Drop optional notes only — never shorten judge/hint/requirement guidance.
+    return core, True
 
 
 def extract_hint(text: str) -> str | None:

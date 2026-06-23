@@ -544,12 +544,51 @@ def test_build_stop_validate_context_truncation_flag():
             "check": "true",
             "status": "failed",
             "judge_reason": "r; do the thing",
+            "judge_hint": "run the isolated behavioral test as proof",
         },
     ]
     headlines = ["T1 rejected"]
     ctx, truncated = mn.build_stop_validate_context(spec, headlines, max_len=100)
     assert truncated is True
     assert "do the thing" in ctx
+    assert "run the isolated behavioral test as proof" in ctx
+    assert "..." not in ctx
+
+
+def test_stop_validate_never_truncates_long_judge_or_hint():
+    long_judge = "J" * 600 + " ENDMARKER"
+    long_hint = "H" * 600 + " HINTEND"
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = [
+        {
+            "id": "T17",
+            "title": "needs proof",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": long_judge,
+            "judge_hint": long_hint,
+        },
+    ]
+    headlines = ["T17 check ran (exit 0); judge rejected the evidence."]
+    ctx, truncated = mn.build_stop_validate_context(spec, headlines, max_len=200)
+    assert long_judge in ctx
+    assert long_hint in ctx
+    assert "ENDMARKER" in ctx
+    assert "HINTEND" in ctx
+    assert "..." not in ctx
+
+
+def test_format_blocking_task_hints_never_truncates_reason():
+    long_reason = "R" * 500 + " TAIL"
+    spec = spec_template()
+    spec["tasks"] = [
+        {"id": "T1", "title": "x", "check": "true", "status": "failed", "judge_reason": long_reason},
+    ]
+    text = mn.format_blocking_task_hints(spec, ["T1"], changed_ids={"T1"})
+    assert "TAIL" in text
+    assert "..." not in text
 
 
 def test_stop_unresolved_synthetic_primary_missing():

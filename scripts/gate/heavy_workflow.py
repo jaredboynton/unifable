@@ -14,8 +14,10 @@ from typing import Any
 APPROACH_KINDS = ("requirement", "frontier", "primary")
 HEAVY_PHASES = ("declare", "frontier", "primary")
 
-# Statuses that resolve a frontier task (judge-only transition to rejected_approach).
-FRONTIER_RESOLVED = frozenset({"rejected_approach"})
+# Statuses that resolve a frontier task for HEAVY phase progression.
+# rejected_approach: explored and ruled out; retracted/superseded: judge withdrew
+# the frontier requirement — both unblock the primary fallback.
+FRONTIER_RESOLVED = frozenset({"rejected_approach", "retracted", "superseded"})
 
 
 def approach_kind(task: dict[str, Any]) -> str:
@@ -42,7 +44,7 @@ def all_frontiers_rejected(spec: dict[str, Any]) -> bool:
     frontiers = frontier_tasks(spec)
     if len(frontiers) < 2:
         return False
-    return all(str(t.get("status") or "") == "rejected_approach" for t in frontiers)
+    return all(str(t.get("status") or "") in FRONTIER_RESOLVED for t in frontiers)
 
 
 def heavy_declare_complete(spec: dict[str, Any]) -> bool:

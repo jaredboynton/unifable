@@ -1087,6 +1087,7 @@ def auto_validate_spec(
     time_budget is set, check runs stop at the deadline; remaining tasks stay
     open and are picked up on the next stop."""
     messages: list[str] = []
+    messages.extend(heal_judge_owned_requirements(spec))
     deadline = (time.monotonic() + time_budget) if time_budget is not None else None
 
     pending: list[tuple[int, dict[str, Any]]] = []
@@ -1222,12 +1223,25 @@ _HINT_SCHEMA = {
     "additionalProperties": False,
 }
 
+_JUDGE_AGENT_OWNERSHIP = (
+    "The main agent CANNOT retract, revise, or hand-edit judge-added requirements "
+    "(append-only spec). When a judge-added task has a broken, non-portable, or "
+    "brittle check, YOU must fix it via adjust_requirements (revise with a runnable "
+    "shell check, or retract if redundant) in THIS response — never instruct the "
+    "agent to replace the check, dispute it, or reset the spec."
+)
+
 _JUDGE_FEEDBACK_GUIDANCE = (
     "The `reason` field is the ONLY feedback surfaced to the agent for this verdict. "
-    "When verdict=0, reason must explain WHY the evidence fails AND include one "
-    "concrete next step (read a specific file, fix a check, run a specific "
-    "verification). When verdict=1, reason may be a brief confirmation only."
+    "When verdict=0 on an agent-authored task, reason must explain WHY the evidence "
+    "fails AND include one concrete next step (read a specific file, fix code, run a "
+    "verification). When verdict=0 on a judge-added task you are not revising/retracting "
+    "via adjust_requirements, reason must still avoid telling the agent to fix "
+    "judge-owned checks — use adjust_requirements instead. When verdict=1, reason may "
+    "be a brief confirmation only."
 )
+
+_JUDGE_HEAL_REASON_BRITTLE = "harness auto-retracted brittle version pin"
 
 _JUDGE_BRITTLE_CHECK_GUIDANCE = (
     "NEVER add brittle literal-string or version-pinning requirements. Do NOT embed "
@@ -1242,6 +1256,26 @@ _JUDGE_BRITTLE_CHECK_GUIDANCE = (
     "pinned duplicate. Reject evidence that only grep-matches a frozen version string "
     "when a structural manifest comparison is what the goal needs."
 )
+
+_JUDGE_HEAL_SYSTEM = (
+    "You self-correct judge-added requirements the coding agent CANNOT fix. "
+    "The agent has append-only spec access and cannot edit or retract judge tasks. "
+    "Review judge_owned_open and return adjust_requirements ONLY (no "
+    "new_requirements): action 'revise' with a runnable shell check when the check "
+    "is broken, non-portable, prose, or environment-specific; action 'retract' when "
+    "redundant with a validated requirement or unsatisfiable. Never tell the agent "
+    "to fix judge-owned checks. "
+    + _JUDGE_BRITTLE_CHECK_GUIDANCE
+)
+_JUDGE_HEAL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "adjust_requirements": _ADJUST_REQ_SCHEMA,
+        "reason": {"type": "string"},
+    },
+    "required": ["adjust_requirements"],
+    "additionalProperties": False,
+}
 
 _JUDGE_NEW_REQ_GUIDANCE = (
     "Before adding ANY new_requirement you MUST reason against current_requirements "
@@ -1321,6 +1355,8 @@ _JUDGE_SYSTEM = (
     "current task if you added it and its purpose is already satisfied by a validated "
     "requirement in current_requirements. Every adjustment is reported to the main "
     "model. "
+    + _JUDGE_AGENT_OWNERSHIP
+    + " "
     + _JUDGE_FEEDBACK_GUIDANCE
 )
 
@@ -1335,6 +1371,8 @@ _FRONTIER_JUDGE_SYSTEM = (
     "failed once. Return 'still_viable' when more exploration is warranted. "
     "Set verdict to 0 always (frontier resolution uses outcome, not verdict). "
     + _JUDGE_NEW_REQ_GUIDANCE
+    + " "
+    + _JUDGE_AGENT_OWNERSHIP
     + " "
     + _JUDGE_FEEDBACK_GUIDANCE
 )
@@ -1391,6 +1429,7 @@ _FRONTIER_JUDGE_SCHEMA = {
         "outcome": {"type": "string", "enum": ["rejected_approach", "still_viable"]},
         "reason": {"type": "string"},
         "new_requirements": _NEW_REQ_SCHEMA,
+        "adjust_requirements": _ADJUST_REQ_SCHEMA,
     },
     "required": ["verdict", "outcome", "reason"],
     "additionalProperties": False,
@@ -1439,6 +1478,8 @@ _VALIDATE_ALL_SYSTEM = (
     "and outcome for frontiers). Compare ALL tasks against current_requirements "
     "before adding anything new. "
     + _JUDGE_NEW_REQ_GUIDANCE
+    + " "
+    + _JUDGE_AGENT_OWNERSHIP
     + " "
     "You may ADJUST requirements via adjust_requirements on any task verdict. "
     + _JUDGE_FEEDBACK_GUIDANCE
@@ -1584,6 +1625,104 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             headline = f"{who} requirement {tid} revised: {reason[:80]}"
         notify_spec_update(spec, headline, highlight_task=tid)
         headlines.append(headline)
+    return headlines
+
+
+def _judge_owned_open_tasks(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """Open judge-added tasks the agent cannot retract or revise."""
+    out: list[dict[str, Any]] = []
+    for t in (spec.get("tasks") or []):
+        if not isinstance(t, dict):
+            continue
+        if t.get("added_by") != "judge":
+            continue
+        if str(t.get("status") or "") in RESOLVED_STATUSES:
+            continue
+        out.append(t)
+    return out
+
+
+def deterministic_heal_judge_requirements(spec: dict[str, Any]) -> list[str]:
+    """Harness-owned fixes for judge tasks the agent cannot resolve."""
+    adjustments: list[dict[str, str]] = []
+    for t in _judge_owned_open_tasks(spec):
+        tid = str(t.get("id") or "")
+        if not tid:
+            continue
+        title = str(t.get("title") or "")
+        check = str(t.get("check") or "")
+        if is_brittle_version_pinned_requirement(title, check):
+            adjustments.append(
+                {
+                    "id": tid,
+                    "action": "retract",
+                    "reason": _JUDGE_HEAL_REASON_BRITTLE,
+                }
+            )
+    if not adjustments:
+        return []
+    return _apply_adjustments(spec, {"adjust_requirements": adjustments})
+
+
+def judge_heal_own_requirements(spec: dict[str, Any]) -> list[str]:
+    """Judge-only pass: revise or retract open judge-added tasks. Fail-open."""
+    open_tasks = _judge_owned_open_tasks(spec)
+    if not open_tasks:
+        return []
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError:
+        return []
+    payload = {
+        "goal": spec.get("restated_goal", ""),
+        "current_requirements": _current_requirements_payload(spec),
+        "judge_owned_open": [
+            {
+                "id": str(t.get("id") or ""),
+                "title": str(t.get("title") or ""),
+                "check": str(t.get("check") or ""),
+                "status": str(t.get("status") or ""),
+                "judge_reason": str(t.get("judge_reason") or ""),
+                "exit": t.get("exit"),
+                "output": str(t.get("output") or "")[:1500],
+                "attempts": int(t.get("attempts") or 0),
+                "approach_kind": str(t.get("approach_kind") or ""),
+            }
+            for t in open_tasks
+        ],
+    }
+    try:
+        res = ask_structured(
+            _JUDGE_HEAL_SYSTEM,
+            json.dumps(payload, ensure_ascii=False),
+            _JUDGE_HEAL_SCHEMA,
+            schema_name="judge_heal",
+        )
+    except JudgeError:
+        return []
+    return _apply_adjustments(spec, res)
+
+
+def heal_judge_owned_requirements(spec: dict[str, Any]) -> list[str]:
+    """Self-heal judge-owned requirements before Stop validation."""
+    headlines = deterministic_heal_judge_requirements(spec)
+    try:
+        from heavy_workflow import advance_primary_if_ready, sync_heavy_phase
+
+        if sync_heavy_phase(spec):
+            pass
+        advance_primary_if_ready(spec)
+    except Exception:
+        pass
+    if _judge_owned_open_tasks(spec):
+        headlines.extend(judge_heal_own_requirements(spec))
+        try:
+            from heavy_workflow import advance_primary_if_ready, sync_heavy_phase
+
+            sync_heavy_phase(spec)
+            advance_primary_if_ready(spec)
+        except Exception:
+            pass
     return headlines
 
 

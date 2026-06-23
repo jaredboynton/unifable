@@ -160,3 +160,15 @@ def test_primary_blocked_until_frontiers_rejected(tmp_path):
         t["status"] = "rejected_approach"
     hw.advance_primary_if_ready(spec)
     assert primary["status"] == "pending"
+
+
+def test_retracted_frontier_unlocks_primary(tmp_path):
+    spec = _heavy_spec(tmp_path)
+    primary = hw.primary_task(spec)
+    frontiers = hw.frontier_tasks(spec)
+    frontiers[0]["status"] = "rejected_approach"
+    frontiers[1]["status"] = "retracted"
+    assert hw.all_frontiers_rejected(spec) is True
+    hw.advance_primary_if_ready(spec)
+    assert primary["status"] == "pending"
+    assert hw.compute_heavy_phase(spec) == "primary"
