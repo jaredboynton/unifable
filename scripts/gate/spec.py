@@ -1038,12 +1038,26 @@ def _apply_check_result(
     return [headline] + extra_headlines
 
 
-def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Path) -> list[str]:
+def _validate_one_task(
+    spec: dict[str, Any],
+    task: dict[str, Any],
+    cwd: str | Path,
+    *,
+    transcript_path: str | None = None,
+) -> list[str]:
     """Validate ONE task (dispute adjudication or check+judge). Mutates spec in place."""
     if task.get("status") == "disputed":
         return _apply_dispute(spec, task)
     exit_code, output = _check_inputs_for_task(task, cwd, deadline=None)
-    verdict, reason, new_reqs, frontier_outcome = judge_task(spec, task, exit_code, output)
+    transcript = _render_judge_transcript(transcript_path)
+    if transcript:
+        verdict, reason, new_reqs, frontier_outcome = judge_task(
+            spec, task, exit_code, output, transcript=transcript,
+        )
+    else:
+        verdict, reason, new_reqs, frontier_outcome = judge_task(
+            spec, task, exit_code, output,
+        )
     return _apply_check_result(
         spec, task, exit_code, output, verdict, reason, new_reqs,
         frontier_outcome=frontier_outcome,
@@ -1056,6 +1070,7 @@ def auto_validate_spec(
     *,
     max_tasks: int = AUTO_VALIDATE_MAX_TASKS,
     time_budget: float | None = None,
+    transcript_path: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate up to max_tasks unresolved tasks. Mutates spec in place.
 
@@ -1090,6 +1105,8 @@ def auto_validate_spec(
         pending.sort(key=lambda it: (int(it[1].get("attempts") or 0), it[0]))
     pending_tasks = [task for _, task in pending[:max_tasks]]
 
+    transcript = _render_judge_transcript(transcript_path)
+
     items: list[dict[str, Any]] = []
     for task in pending_tasks:
         if deadline is not None and time.monotonic() >= deadline:
@@ -1101,7 +1118,10 @@ def auto_validate_spec(
         items.append({"task": task, "exit_code": exit_code, "output": output})
 
     if items:
-        verdicts = judge_tasks(spec, items)
+        if transcript:
+            verdicts = judge_tasks(spec, items, transcript=transcript)
+        else:
+            verdicts = judge_tasks(spec, items)
         for it, (verdict, reason, new_reqs, frontier_outcome) in zip(items, verdicts):
             messages.extend(
                 _apply_check_result(spec, it["task"], it["exit_code"], it["output"],
@@ -1367,6 +1387,42 @@ _FRONTIER_JUDGE_SCHEMA = {
 }
 
 
+_JUDGE_TRANSCRIPT_SECTION = (
+    "\n\n--- SESSION TRANSCRIPT (context only; not proof) ---\n"
+    "Stripped tail of the agent session: tool results, hook outputs, and "
+    "conversation. Use it to understand what the model did and to avoid "
+    "re-deriving requirements already satisfied in current_requirements or "
+    "evidenced here. Return verdict 1 only when the check output proves the "
+    "task; transcript context alone is never sufficient proof.\n\n"
+)
+
+
+def _render_judge_transcript(transcript_path: str | None) -> str:
+    """Render stripped transcript tail for requirement-validation judges."""
+    if not transcript_path:
+        return ""
+    try:
+        from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
+    except ImportError:
+        return ""
+    return stripped_transcript_tail(transcript_path, TRANSCRIPT_TOKEN_BUDGET)
+
+
+def _judge_system_with_transcript(base: str, transcript: str) -> str:
+    """Append session transcript tail to judge instructions (tail-preserving cap)."""
+    if not (transcript and transcript.strip()):
+        return base
+    try:
+        from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
+    except ImportError:
+        return base
+    header = base + _JUDGE_TRANSCRIPT_SECTION
+    room = max(0, JUDGE_EFFECTIVE_MAX_CHARS - len(header) - 50)
+    if room < 500:
+        return base
+    return header + cap_judge_message(transcript.strip(), room)
+
+
 def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str) -> str:
     payload: dict[str, Any] = {
         "goal": spec.get("restated_goal", ""),
@@ -1468,13 +1524,15 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
     return headlines
 
 
-def _judge_system_for_task(task: dict[str, Any]) -> str:
+def _judge_system_for_task(task: dict[str, Any], *, transcript: str = "") -> str:
     kind = str(task.get("approach_kind") or "requirement")
     if kind == "frontier":
-        return _FRONTIER_JUDGE_SYSTEM
-    if kind == "primary":
-        return _PRIMARY_JUDGE_SYSTEM
-    return _JUDGE_SYSTEM
+        base = _FRONTIER_JUDGE_SYSTEM
+    elif kind == "primary":
+        base = _PRIMARY_JUDGE_SYSTEM
+    else:
+        base = _JUDGE_SYSTEM
+    return _judge_system_with_transcript(base, transcript)
 
 
 def _judge_schema_for_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -1498,7 +1556,12 @@ def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, st
 
 
 def judge_task(
-    spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str
+    spec: dict[str, Any],
+    task: dict[str, Any],
+    exit_code: int,
+    output: str,
+    *,
+    transcript: str = "",
 ) -> tuple[int, str, list[dict[str, str]], str]:
     """Ask the judge whether a single check output validates the task.
 
@@ -1510,7 +1573,8 @@ def judge_task(
         return 0, f"judge unavailable: {exc}", [], ""
     try:
         res = ask_structured(
-            _judge_system_for_task(task), _judge_user(spec, task, exit_code, output),
+            _judge_system_for_task(task, transcript=transcript),
+            _judge_user(spec, task, exit_code, output),
             _judge_schema_for_task(task), schema_name="task_verdict",
         )
     except JudgeError as exc:
@@ -1521,7 +1585,10 @@ def judge_task(
 
 
 def judge_tasks(
-    spec: dict[str, Any], items: list[dict[str, Any]]
+    spec: dict[str, Any],
+    items: list[dict[str, Any]],
+    *,
+    transcript: str = "",
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge several (task, exit_code, output) items, batched into ONE WebSocket
     round-trip when there is more than one."""
@@ -1529,6 +1596,10 @@ def judge_tasks(
         return []
     if len(items) == 1:
         it = items[0]
+        if transcript:
+            return [judge_task(
+                spec, it["task"], it["exit_code"], it["output"], transcript=transcript,
+            )]
         return [judge_task(spec, it["task"], it["exit_code"], it["output"])]
     try:
         from codex_judge import JudgeError, ask_structured_batch
@@ -1536,7 +1607,7 @@ def judge_tasks(
         return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
     reqs = [
         {
-            "system": _judge_system_for_task(it["task"]),
+            "system": _judge_system_for_task(it["task"], transcript=transcript),
             "user": _judge_user(spec, it["task"], it["exit_code"], it["output"]),
             "schema": _judge_schema_for_task(it["task"]),
             "schema_name": "task_verdict",

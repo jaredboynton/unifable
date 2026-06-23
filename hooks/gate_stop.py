@@ -559,7 +559,12 @@ def main() -> int:
                         save_spec(cwd, task_key, spec)
                     if advance_primary_if_ready(spec):
                         save_spec(cwd, task_key, spec)
-                    spec, val_msgs = auto_validate_spec(spec, cwd, time_budget=STOP_JUDGE_BUDGET)
+                    spec, val_msgs = auto_validate_spec(
+                        spec,
+                        cwd,
+                        time_budget=STOP_JUDGE_BUDGET,
+                        transcript_path=input_data.get("transcript_path"),
+                    )
                     save_spec(cwd, task_key, spec)
                     validate_ctx, validate_ctx_truncated = _build_stop_validate_context(
                         spec, val_msgs,
