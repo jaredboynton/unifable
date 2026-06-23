@@ -72,15 +72,16 @@ COMPLETION_HINT_STEP = 3  # re-offer a nudge every N blocks past the threshold
 def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -> str:
     """Advisory nudge for an agent stuck behind the completion breaker.
 
-    Bumps the persistent consecutive-block counter; once it crosses the threshold
-    (and every STEP blocks after), spends one judge call for a concrete next step.
-    Returns hint text to append to the still-blocking reason, or "" when it is not
-    time to nudge or the judge is silent. NEVER lifts the gate; fails open."""
+    Reads the persistent consecutive-block counter (owned by
+    note_completion_block) to decide when to offer a hint. Once it crosses the
+    threshold (and every STEP blocks after), spends one judge call for a concrete
+    next step. Returns hint text to append to the still-blocking reason, or ""
+    when it is not time to nudge or the judge is silent. NEVER lifts the gate;
+    NEVER mutates completion_stop_blocks (single-writer ownership is in
+    note_completion_block); fails open."""
     try:
         ledger = load_ledger(input_data)
-        count = int(ledger.get("completion_stop_blocks") or 0) + 1
-        ledger["completion_stop_blocks"] = count
-        save_ledger(input_data, ledger)
+        count = int(ledger.get("completion_stop_blocks") or 0)
         if count < COMPLETION_HINT_THRESHOLD or \
                 (count - COMPLETION_HINT_THRESHOLD) % COMPLETION_HINT_STEP != 0:
             return ""
@@ -99,17 +100,6 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
         return judge_hint(spec, signal=signal, recent=recent)
     except Exception:
         return ""  # fail open -- a hint never blocks
-
-
-def _reset_completion_blocks(input_data: dict) -> None:
-    """Clear the consecutive-block counter once the completion breaker opens."""
-    try:
-        ledger = load_ledger(input_data)
-        if ledger.get("completion_stop_blocks"):
-            ledger["completion_stop_blocks"] = 0
-            save_ledger(input_data, ledger)
-    except Exception:
-        pass
 
 
 def _attach_validate_context(payload: dict, ctx: str) -> None:
@@ -613,7 +603,6 @@ def main() -> int:
                         if loop_lift_ctx:
                             ev_reason += "\n\n" + loop_lift_ctx
                 else:
-                    _reset_completion_blocks(input_data)
                     try:
                         _led = load_ledger(input_data)
                         reset_completion_stall(_led)

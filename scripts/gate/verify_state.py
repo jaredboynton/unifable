@@ -41,6 +41,16 @@ MAX_STOP_BLOCKS = 2
 # the breaker resets after a threshold rather than staying open indefinitely).
 COMPLETION_MAX_STALLED_BLOCKS = 6
 
+# Hard cap on the RAW completion-block count, independent of the count-based
+# streak. The streak (completion_stall_blocks) resets when the incomplete count
+# drops by even one (8 -> 7 from task rotation), so a fluctuating runaway can
+# trap Stop forever with the streak bouncing 0/1. This raw counter never resets
+# except on a genuine full-open, so it is the termination guarantee: no matter
+# how much the incomplete set fluctuates, Stop is released after this many
+# blocked stops. Kept above the streak cap so the surgical streak path fires
+# first when it can; this is the blunt backstop.
+COMPLETION_MAX_STOP_BLOCKS = 12
+
 
 def note_completion_block(ledger: dict[str, Any], incomplete_count: int) -> bool:
     """Track consecutive completion-breaker blocks that make no NET progress.
@@ -65,13 +75,34 @@ def note_completion_block(ledger: dict[str, Any], incomplete_count: int) -> bool
         streak += 1  # stalled or growing -> diverging
     ledger["completion_stall_blocks"] = streak
     ledger["completion_prev_incomplete"] = incomplete_count
-    return streak >= COMPLETION_MAX_STALLED_BLOCKS
+    # Raw blocked-stop counter (the termination guarantee). A TEMPORARY dip
+    # (8->7->8 from task rotation) must NOT reset it -- only a SUSTAINED new
+    # low (strictly below the best-ever incomplete count) does, so genuine
+    # monotonic convergence resets the cap but a fluctuating runaway does not.
+    best = ledger.get("completion_best_incomplete")
+    stop_blocks = int(ledger.get("completion_stop_blocks") or 0)
+    if not isinstance(best, int) or incomplete_count < best:
+        # First observation or a new all-time low: genuine convergence.
+        stop_blocks = 0
+        ledger["completion_best_incomplete"] = incomplete_count
+    stop_blocks += 1
+    ledger["completion_stop_blocks"] = stop_blocks
+    if streak >= COMPLETION_MAX_STALLED_BLOCKS:
+        return True
+    if stop_blocks >= COMPLETION_MAX_STOP_BLOCKS:
+        return True
+    return False
 
 
 def reset_completion_stall(ledger: dict[str, Any]) -> None:
-    """Clear the stall tracking once the completion breaker opens (all validated)."""
+    """Clear all completion-breaker tracking once it opens (all validated).
+
+    Zeroes the streak, the raw stop-block counter, the best-incomplete low-water
+    mark, and the prev-incomplete snapshot so a fresh run starts clean."""
     ledger["completion_stall_blocks"] = 0
+    ledger["completion_stop_blocks"] = 0
     ledger.pop("completion_prev_incomplete", None)
+    ledger.pop("completion_best_incomplete", None)
 
 
 def completion_runaway_warning(incomplete_count: int) -> str:

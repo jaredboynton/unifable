@@ -55,12 +55,14 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # never accumulate to its cap (the backstop would be silently dead).
     "completion_stall_blocks": 0,
     "completion_prev_incomplete": None,
+    "completion_best_incomplete": None,
     # Completion suicide-loop detection and judge-adjudicated lift (loop_release.py).
     "completion_prev_incomplete_set": "",
     "loop_episode_id": "",
     "loop_same_set_streak": 0,
     "loop_judge_last_at": 0.0,
     "loop_judge_episode_id": "",
+    "loop_judge_at_stop_blocks": 0,
     "loop_lift_kind": "",
     "loop_lift_reason": "",
     "loop_lift_scope": "",

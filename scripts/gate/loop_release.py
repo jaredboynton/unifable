@@ -36,6 +36,16 @@ try:
 except ValueError:
     LOOP_STALL_SIGNATURE_BLOCKS = 3
 
+# Re-fire the loop judge every N additional raw stop-blocks past the first
+# judgment, even if the episode was already judged. Without this, a single
+# decline suppresses the judge forever for that episode -- but the raw counter
+# keeps climbing, and the judge deserves a second look with stronger evidence
+# (the set-based streak is unreliable under fluctuation).
+try:
+    LOOP_JUDGE_REFIRE_STEP = int(os.environ.get("UNIFABLE_LOOP_JUDGE_REFIRE_STEP", "4"))
+except ValueError:
+    LOOP_JUDGE_REFIRE_STEP = 4
+
 LOOP_EVENTS_MAX = 20
 
 _LOOP_RELEASE_SCHEMA = {
@@ -61,6 +71,14 @@ _LOOP_JUDGE_SYSTEM = (
     "with no net progress (same failing tasks, judge-added runaway, redundant or "
     "unsatisfiable checks). You may authorize a lift ONLY when suicide_loop=true "
     "with evidence from the task board and activity. "
+    "SIGNALS: completion_stop_blocks is the RAW blocked-stop count (never resets "
+    "except on genuine full-open); it is the strongest loop indicator. The "
+    "hard_cap field is the absolute limit -- once completion_stop_blocks reaches "
+    "hard_cap the harness will force-release Stop regardless of your verdict, so "
+    "your job is to make a SURGICAL decision (retract spurious judge tasks or "
+    "grant a provisional lift) BEFORE the blunt cap fires. loop_same_set_streak "
+    "and completion_stall_blocks can reset on fluctuation (task rotation), so a "
+    "low value there does NOT contradict a high completion_stop_blocks. "
     "lift=provisional: allow Stop through temporarily (1-3 times) so the agent can "
     "change approach; lift_scope MUST state allowed next actions. "
     "lift=permanent: retract specific judge-added spurious requirements listed in "
@@ -150,9 +168,19 @@ def should_invoke_loop_judge(
     if not stall_signature(ledger, incomplete_ids, pending_block=pending_block):
         return False
     episode = str(ledger.get("loop_episode_id") or "")
+    last_at = float(ledger.get("loop_judge_last_at") or 0.0)
+    # Re-fire on the raw stop-block counter: if completion_stop_blocks has
+    # climbed LOOP_JUDGE_REFIRE_STEP past the count when the judge last ran,
+    # give it another look (the set-based episode guard is unreliable under
+    # fluctuation, but the raw counter reliably climbs). This overrides the
+    # same-episode suppression.
+    last_judged_count = int(ledger.get("loop_judge_at_stop_blocks") or 0)
+    current_stops = int(ledger.get("completion_stop_blocks") or 0)
+    if last_judged_count and current_stops - last_judged_count >= LOOP_JUDGE_REFIRE_STEP:
+        if not (last_at and (time.monotonic() - last_at) < LOOP_JUDGE_DEBOUNCE_SEC):
+            return True
     if episode and episode == str(ledger.get("loop_judge_episode_id") or ""):
         return False
-    last_at = float(ledger.get("loop_judge_last_at") or 0.0)
     if last_at and (time.monotonic() - last_at) < LOOP_JUDGE_DEBOUNCE_SEC:
         return False
     return True
@@ -197,11 +225,15 @@ def judge_completion_loop_release(
         return LoopReleaseVerdict(False, "none", f"judge unavailable: {exc}", "", [], 0)
 
     tasks = spec.get("tasks") or []
+    stop_blocks = int(ledger.get("completion_stop_blocks") or 0)
+    from verify_state import COMPLETION_MAX_STOP_BLOCKS
+
     user = json.dumps(
         {
             "goal": spec.get("restated_goal", ""),
             "signal": signal,
-            "completion_stop_blocks": ledger.get("completion_stop_blocks"),
+            "completion_stop_blocks": stop_blocks,
+            "hard_cap": COMPLETION_MAX_STOP_BLOCKS,
             "completion_stall_blocks": ledger.get("completion_stall_blocks"),
             "loop_same_set_streak": ledger.get("loop_same_set_streak"),
             "incomplete_episode": ledger.get("loop_episode_id"),
@@ -258,6 +290,7 @@ def apply_loop_release_verdict(
     episode = str(ledger.get("loop_episode_id") or "")
     ledger["loop_judge_episode_id"] = episode
     ledger["loop_judge_last_at"] = time.monotonic()
+    ledger["loop_judge_at_stop_blocks"] = int(ledger.get("completion_stop_blocks") or 0)
 
     if verdict.lift == "none" or not verdict.suicide_loop:
         _append_loop_event(ledger, "LOOP_JUDGE_DECLINED", reason=verdict.reason[:200])
