@@ -26,17 +26,75 @@ evidence state updated in the background, then renders verdicts at the gates:
   fetched, commands run, verification outcomes) and written to a per-session ledger. Citations the
   spec needs sync automatically from this activity (`scripts/gate/citations.py`) — the worker does
   not hand-curate evidence; the harness records what actually happened.
-- **At the gates, judged** — the same `gpt-realtime-2` adjudicates the groundedness breaker
-  (`scripts/gate/groundedness.py`), spec task validation and disputes (`judge_task` / `judge_dispute`
-  in `scripts/gate/spec.py`), and goal completion at Stop (`goal_stop_decision` in
-  `hooks/gate_stop.py`). A faked "validated" cannot pass: the judge reads the actual check output,
-  not the worker's prose.
+- **At the gates, judged** — the same `gpt-realtime-2` renders verdicts at each host event: it grades
+  the task, arms the groundedness breaker, validates every requirement, and judges goal completion. A
+  faked "validated" cannot pass — the judge reads the actual check output, not the worker's prose. See
+  [How the judge flows through a session](#how-the-judge-flows-through-a-session) for the full lifecycle.
 
 Because the judge runs over transcript material on a 256,000-char per-message budget, that material
 is **pre-trimmed** before each call (`scripts/gate/transcript_tail.py` — tail-preserving truncation,
 a token budget, and a hard char ceiling). A far more advanced evolution of this judge-context
 pruning — keeping only the relevant slice of context — lives in
 [**patchpress**](https://github.com/jaredboynton/patchpress).
+
+## How the judge flows through a session
+
+The same judge fires at four host events, from the first prompt to the final Stop. Each box below is
+a hook on the critical path; each dotted line is a call to the one shared `gpt-realtime-2` instance
+over `scripts/gate/codex_judge.py`.
+
+```mermaid
+flowchart TB
+  P([user prompt]) --> UPS
+  UPS["UserPromptSubmit<br/>grade the task: LIGHT / STANDARD / HEAVY"] --> PTU
+  PTU["PreToolUse — every tool<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
+  POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; HEAVY frontier discovery"] --> STOP
+  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>judge active goals (goal_stop_decision)"]
+  UPS -.-> CJ
+  PTU -.-> CJ
+  POST -.-> CJ
+  STOP -.-> CJ
+  CJ[("one shared judge: gpt-realtime-2 via codex_judge<br/>ask_structured — fail-open")]
+```
+
+What happens at each stage:
+
+1. **Each prompt — UserPromptSubmit.** The judge grades the operative prompt into LIGHT / STANDARD /
+   HEAVY (`judge_grade_classify`, `scripts/gate/grade_override.py`), which sets how strict the
+   evidence gate is for the turn. Fail-open to normal on any judge or transport error.
+2. **Before each mutating tool — PreToolUse.** The judge arms the groundedness breaker on an
+   unproven, load-bearing, confident claim and blocks the edit or delegation until it is grounded;
+   reads, web, and whitelisted research Bash stay free (`scripts/gate/groundedness.py`, debounced to
+   one judge call per 15s).
+3. **After every tool — PostToolUse.** Real activity (files read, URLs fetched, commands run,
+   failures) is parsed into the per-session ledger and the spec's citations sync automatically; a
+   repeated failure spends one judge call for an advisory `judge_hint`, and a HEAVY task
+   under-supplied with approaches triggers `judge_discover_frontiers`.
+4. **On Stop — completion gate.** `auto_validate_spec` (`scripts/gate/spec.py`) runs each open
+   requirement's check and the judge renders a verdict (`judge_task` / `judge_tasks`), adjudicates
+   impossibility disputes (`judge_dispute`), then `goal_stop_decision` (`hooks/gate_stop.py`) judges
+   any active multi-step goal from the transcript. Stop stays blocked until every requirement is
+   validated or retracted.
+
+Where the judge decides, and what it falls back to:
+
+| Stage | Judge call | Decides | On judge error |
+|---|---|---|---|
+| UserPromptSubmit | `judge_grade_classify` | task grade -> evidence-gate strictness | fail-open: normal / STANDARD |
+| PreToolUse | `arm_judge` / `disarm_judge` | arm or release the groundedness breaker | fail-open: tool allowed |
+| PostToolUse | `judge_hint`, `judge_discover_frontiers` | advisory nudge; propose HEAVY frontiers | fail-open: no hint |
+| Stop | `judge_task` / `judge_tasks`, `judge_dispute` | validate or reject each requirement; accept or deny disputes | fail-open allow; dispute defaults to reject |
+| Stop | `goal_stop_decision` | active goal complete or impossible, from transcript | fail-open allow after cap |
+
+What the judge catches:
+
+| Scenario | What the judge does |
+|---|---|
+| Worker claims a requirement is "validated" but the check output disagrees | Reads the actual check output, marks the task `failed`, Stop stays blocked (`judge_task`) |
+| A confident, load-bearing claim is asserted before an edit with no evidence | Arms the breaker; the edit is blocked until the claim is grounded by a read or tool output (`groundedness.py`) |
+| Worker argues a requirement is impossible to dodge it | `judge_dispute` accepts only with proof and defaults to reject (verdict 0), so impossibility is never granted by default |
+| The same failure class repeats and the worker is looping | One `judge_hint` offers a concrete next step — advisory only, it never unblocks anything |
+| A HEAVY task starts without two or more candidate approaches | `judge_discover_frontiers` proposes frontier approach tasks before primary-path edits are allowed |
 
 ## How enforcement is wired
 
