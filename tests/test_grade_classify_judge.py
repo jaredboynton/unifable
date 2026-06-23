@@ -44,6 +44,25 @@ def test_system_prompt_prefers_normal_on_ambiguity():
     assert "prefer normal over deep" in s
 
 
+def test_uncertainty_never_escalates_to_deep():
+    """The uncertainty flag must only prevent quick; it must never push toward deep."""
+    s = go._GRADE_SYSTEM.lower()
+    assert "uncertainty" in s
+    assert "never" in s and "deep" in s
+
+
+def test_continuation_words_are_never_deep():
+    s = go._GRADE_SYSTEM.lower()
+    assert "proceed" in s
+    assert "never deep" in s
+
+
+def test_task_board_is_context_only():
+    s = go._GRADE_SYSTEM.lower()
+    assert "context only" in s
+    assert "never drive the mode" in s or "must never drive" in s
+
+
 # Schema ---------------------------------------------------------------------
 
 def test_schema_is_mode_risk_flags_reason():

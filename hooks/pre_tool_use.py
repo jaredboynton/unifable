@@ -18,7 +18,7 @@ four cases:
      hand-written.
 
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
-     phase (grade STANDARD+, no valid spec yet), Bash may run only `ls`, `glob`,
+     phase (grade STANDARD+, no valid spec yet), Bash may run only `cd`, `ls`, `glob`,
      `rg`, a file whose basename is `trace.sh` (explore skill), or a user-facing
      unifusion skill script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`,
      `resolve_session.sh`). A valid spec unlocks the action phase (all shell
@@ -275,7 +275,7 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
 def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     """Research-phase whitelist for Bash (unconditional, no env disable).
 
-    Research phase (no valid spec): allow only ls, glob, rg, trace.sh, and the
+    Research phase (no valid spec): allow only cd, ls, glob, rg, trace.sh, and the
     user-facing unifusion skill scripts so the agent can explore or run a panel
     before unlock. Action phase (valid spec): all shell commands are allowed.
     LIGHT waives entirely."""
@@ -392,7 +392,7 @@ def main() -> int:
     # --- Overconfidence/groundedness breaker (runs on EVERY tool; judge debounced
     #     to <=1 call / 15s per session+prompt). Blocks ONLY mutation tools when
     #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free.
-    #     Whitelisted research Bash (ls/glob/rg/trace.sh/unifusion scripts/spec CLI) still passes. ---
+    #     Whitelisted research Bash (cd/ls/glob/rg/trace.sh/unifusion scripts/spec CLI) still passes. ---
     breaker_block, breaker_notify = _enforce_breaker(input_data)
     if breaker_block is not None:
         if tool_name == "Bash":

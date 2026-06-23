@@ -144,6 +144,8 @@ def scenarios(cwd: str):
            bash(cwd, "rg foo src", "BL7"))
     yield ("BL8", "bash-whitelist ls allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "ls -la", "BL8"))
+    yield ("BL13", "bash-whitelist cd && rg allowed pre-spec", ALLOW, EV, "STANDARD",
+           bash(cwd, "cd subdir && rg foo src", "BL13"))
     yield ("BL9", "bash-whitelist trace.sh allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "bash ./trace.sh --brief auth", "BL9"))
     yield ("BL9b", "bash-whitelist unifusion.sh allowed pre-spec", ALLOW, EV, "STANDARD",

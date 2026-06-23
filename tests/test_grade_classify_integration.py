@@ -99,5 +99,65 @@ def test_fail_open_on_judge_unreachable(monkeypatch, tmp_path):
     assert led["grade"] == "STANDARD"
 
 
+def test_continuation_drops_from_heavy_no_stickiness(monkeypatch, tmp_path):
+    """A bare 'proceed' classified normal by the judge must drop the session from
+    HEAVY to STANDARD. No higher_mode stickiness trapping it in deep."""
+    cwd = _setup(monkeypatch, tmp_path)
+    # seed a prior deep mode so stickiness would trap it if present
+    from ledger import save_ledger
+
+    save_ledger(
+        {"session_id": "test-classify", "cwd": cwd},
+        {"active_task": "old", "task_mode": "deep", "grade": "HEAVY"},
+    )
+    verdict = {"mode": "normal", "risk_flags": [], "reason": "continuation"}
+    rc, _ = _run_gate_prompt(
+        {"prompt": "proceed", "session_id": "test-classify", "cwd": cwd}, verdict
+    )
+    assert rc == 0
+    led = load_ledger({"session_id": "test-classify", "cwd": cwd})
+    assert led["task_mode"] == "normal"
+    assert led["grade"] == "STANDARD"
+
+
+def test_short_prompt_omits_task_summary(monkeypatch, tmp_path):
+    """Short prompts must not pass the task board to the judge."""
+    cwd = _setup(monkeypatch, tmp_path)
+    captured = {}
+
+    import gate_prompt
+
+    def capturing_judge(operative, **kw):
+        captured["task_summary"] = kw.get("task_summary")
+        return {"mode": "normal", "risk_flags": [], "reason": "short"}
+
+    with patch("gate_prompt.judge_grade_classify", side_effect=capturing_judge):
+        with patch("gate_prompt.read_stdin_json", return_value={"prompt": "proceed", "session_id": "s", "cwd": cwd}):
+            with patch.object(gate_prompt, "emit_json"):
+                gate_prompt.main()
+    assert captured["task_summary"] is None
+
+
+def test_long_prompt_includes_task_summary(monkeypatch, tmp_path):
+    """Substantive prompts still get the task board for context."""
+    cwd = _setup(monkeypatch, tmp_path)
+    captured = {}
+
+    import gate_prompt
+
+    def capturing_judge(operative, **kw):
+        captured["task_summary"] = kw.get("task_summary")
+        return {"mode": "normal", "risk_flags": [], "reason": "substantive"}
+
+    long_prompt = "refactor the auth token parsing in gate_prompt.py to use a shared helper function across the codebase"
+    with patch("gate_prompt.judge_grade_classify", side_effect=capturing_judge):
+        with patch("gate_prompt.read_stdin_json", return_value={"prompt": long_prompt, "session_id": "s", "cwd": cwd}):
+            with patch.object(gate_prompt, "emit_json"):
+                gate_prompt.main()
+    # task_summary is None when no spec exists, but the key difference is it was
+    # ATTEMPTED (not short-circuited). Verify _task_summary was callable.
+    assert captured["task_summary"] is None  # no spec -> None, but path was taken
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

@@ -433,7 +433,7 @@ def test_non_whitelisted_bash_blocks_without_spec():
     rc, out, stderr = run_pre_tool(_bash_payload("echo hi"), grade="STANDARD")
     assert rc == 2
     assert "Allowed before unlock" in stderr
-    assert "ls, glob, rg" in stderr
+    assert "cd, ls, glob, rg" in stderr
     assert "append-only" in stderr
 
 

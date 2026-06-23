@@ -127,7 +127,7 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "description": (
                 "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
                 "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
-                "WebFetch, Grep, Glob) and whitelisted research Bash (ls, glob, rg, the explore "
+                "WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, the explore "
                 "skill's trace.sh, unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of "
                 "evidence that would "
                 "disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER "
@@ -329,7 +329,7 @@ _JUDGE_SYSTEM = (
     "ARM ONLY when load_bearing=1 AND the assertion is genuinely ungrounded: verdict=1, name the "
     "claim, write a 2-3 sentence steering prompt telling the model its tools are restricted to "
     "read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
-    "(ls, glob, rg, the explore skill's trace.sh, unifusion skill scripts, spec CLI) until it grounds THAT claim. NEVER "
+    "(cd, ls, glob, rg, the explore skill's trace.sh, unifusion skill scripts, spec CLI) until it grounds THAT claim. NEVER "
     "steer toward running "
     "a blocked command (node, npm test, mutating shell) to prove a repo claim -- point at files "
     "to read instead. Otherwise verdict=0, load_bearing=0 or 1 as appropriate, steering MUST be "

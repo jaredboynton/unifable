@@ -11,6 +11,10 @@ from bash_classify import is_allowed_research_bash  # noqa: E402
 
 
 ALLOWED = [
+    "cd subdir",
+    "cd /abs/path",
+    "cd .. && rg foo",
+    "cd src; ls",
     "ls",
     "ls -la",
     "/bin/ls -la src",
@@ -89,6 +93,7 @@ BLOCKED = [
     "echo hi > /dev/null",
     "rg foo | cat",
     "ls && cat README.md",
+    "cd subdir && cat file",
     "bash other.sh",
     "bash skills/unifusion/scripts/run_codex.sh /tmp/p /tmp/o",
     "python trace.sh",

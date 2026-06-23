@@ -2,7 +2,7 @@
 """Classify whether a Bash command is allowed during the pre-spec research phase.
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
-spec, Bash may run only `ls`, `glob`, `rg`, a file whose basename is `trace.sh`
+spec, Bash may run only `cd`, `ls`, `glob`, `rg`, a file whose basename is `trace.sh`
 (explore skill), or a file whose basename is one of the user-facing unifusion
 skill scripts (panel research). Once a valid spec exists, pre_tool_use.py skips
 this classifier and unlocks the normal action phase.
@@ -14,14 +14,14 @@ import re
 import shlex
 
 ALLOWED_RESEARCH_BASH = (
-    "ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
+    "cd, ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
     "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), "
     "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
     "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
     "(unifable restate|add-task|set-primary|add-frontier|dispute; legacy unifable-spec alias still accepted)"
 )
 
-_ALLOWED_COMMANDS = frozenset({"ls", "glob", "rg"})
+_ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg"})
 _PIPELINE_SINKS = frozenset({"head", "tail", "wc", "sort", "uniq"})
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
 _UNIFUSION_SCRIPT_NAMES = frozenset({

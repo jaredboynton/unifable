@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from classify_task import operative_prompt, context_for_mode, grade_of
-from evidence_policy import higher_mode, mode_for_grade, resolve_grade
+from evidence_policy import mode_for_grade, resolve_grade
 from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
 from heavy_workflow import heavy_workflow_brief
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
@@ -87,7 +87,12 @@ def main() -> int:
     except Exception:
         pass
     restated = str(prior_spec.get("restated_goal") or "") if isinstance(prior_spec, dict) else ""
-    task_summary = _task_summary(prior_spec) if isinstance(prior_spec, dict) else None
+    # Only feed the task board to the judge for substantive prompts. Short
+    # continuations ("proceed", "continue") have almost no operative signal, so
+    # board noise (stale/speculative task titles) can pollute the classification.
+    task_summary = None
+    if len(operative.split()) >= 20:
+        task_summary = _task_summary(prior_spec) if isinstance(prior_spec, dict) else None
     verdict = judge_grade_classify(operative, restated_goal=restated, task_summary=task_summary)
     mode, risks, reason = parse_grade_verdict(verdict)
     if verdict is None:
@@ -95,7 +100,6 @@ def main() -> int:
     grade = grade_of(mode)
 
     def apply(ledger):
-        prior_mode = (ledger.get("task_mode") or "").lower().strip()
         ledger["active_task"] = new_key
         pinned_target = (
             ledger.get("grade_override_target")
@@ -105,7 +109,10 @@ def main() -> int:
         if pinned_target:
             ledger["task_mode"] = mode_for_grade(str(pinned_target))
         else:
-            ledger["task_mode"] = higher_mode(prior_mode, mode) if prior_mode else mode
+            # The judge classification is authoritative per-prompt. No
+            # higher_mode stickiness: a bounded "proceed" correctly drops from
+            # HEAVY to STANDARD when the judge says normal.
+            ledger["task_mode"] = mode
         ledger["grade"] = grade_of(ledger["task_mode"])
         ledger["warning_count"] = 0
         ledger["warnings"] = []

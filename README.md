@@ -58,7 +58,7 @@ host-agnostic; host wiring lives in `hooks/` and `install/`.
 ## Evidence gate
 
 On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delegate with
-`Task`/`Agent`, run Bash outside the research whitelist (`ls`, `glob`, `rg`, the explore skill's
+`Task`/`Agent`, run Bash outside the research whitelist (`cd`, `ls`, `glob`, `rg`, the explore skill's
 `trace.sh`, or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
 `resolve_session.sh`), or finish until the session's evidence spec
 (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec
