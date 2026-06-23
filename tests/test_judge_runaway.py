@@ -198,3 +198,26 @@ def test_reset_completion_stall_clears_counters():
     reset_completion_stall(led)
     assert int(led.get("completion_stall_blocks") or 0) == 0
     assert "completion_prev_incomplete" not in led
+
+
+def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
+    """The stall counters MUST be registered in DEFAULT_LEDGER. load_ledger rebuilds
+    the ledger from DEFAULT_LEDGER's keys and DROPS unknown keys, so an unregistered
+    counter resets to 0 every stop and the stall-release backstop never accumulates
+    to its cap (the backstop would be silently dead). Round-trip proves persistence."""
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    from ledger import DEFAULT_LEDGER, load_ledger, save_ledger
+    assert "completion_stall_blocks" in DEFAULT_LEDGER
+    assert "completion_prev_incomplete" in DEFAULT_LEDGER
+    inp = {"session_id": "stall-test", "cwd": str(tmp_path)}
+    led = load_ledger(inp)
+    # Simulate two consecutive no-progress blocks, then persist + reload.
+    note_completion_block(led, 6)
+    note_completion_block(led, 6)
+    save_ledger(inp, led)
+    reloaded = load_ledger(inp)
+    assert reloaded["completion_stall_blocks"] == 2          # survived the round-trip
+    assert reloaded["completion_prev_incomplete"] == 6
+    # And a third no-progress block keeps accumulating (it would reset to 1 if dropped).
+    assert note_completion_block(reloaded, 6) is (3 >= COMPLETION_MAX_STALLED_BLOCKS)
+    assert reloaded["completion_stall_blocks"] == 3

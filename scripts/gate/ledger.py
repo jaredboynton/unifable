@@ -47,6 +47,14 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # re-blocked this many times it is plausibly stuck, so the judge offers a nudge.
     # Reset to 0 the moment the breaker opens. Never gates -- advisory only.
     "completion_stop_blocks": 0,
+    # Host-agnostic completion-breaker stall-release (verify_state.note_completion_block).
+    # completion_stall_blocks counts CONSECUTIVE completion blocks with no NET progress;
+    # completion_prev_incomplete is the prior block's unresolved-task count, used to
+    # detect progress. Both MUST live here so load_ledger preserves them across stops --
+    # otherwise the stall counter resets every cycle and the stall-release backstop can
+    # never accumulate to its cap (the backstop would be silently dead).
+    "completion_stall_blocks": 0,
+    "completion_prev_incomplete": None,
     # Judge-pinned grade downgrade (grade_override.py). Must be in DEFAULT_LEDGER so
     # load_ledger preserves pin state across turns and gate_prompt re-escalation.
     "grade_override_applied": False,
