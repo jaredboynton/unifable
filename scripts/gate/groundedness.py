@@ -33,6 +33,7 @@ Disable with UNIFABLE_BREAKER=0. Cap override: UNIFABLE_BREAKER_MAX_BLOCKS.
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -124,6 +125,62 @@ def is_harness_self_referential(text: str) -> bool:
 def is_task_board_status_claim(text: str) -> bool:
     """True when text asserts evidence-spec task status (T7 validated, breaker OPEN, etc.)."""
     return bool(_TASK_BOARD_STATUS_CLAIM_RE.search(str(text or "")))
+
+
+# A skill loaded via the Skill tool injects its own documentation as the
+# authoritative definition of what that skill does. That content is NOT in the
+# breaker judge's transcript view (only "Successfully loaded skill" is), so a
+# claim that merely paraphrases a just-loaded skill ("the release skill handles
+# X") looks like an ungrounded confident assertion and falsely arms the breaker.
+# Such a claim cannot be grounded by read-only research without re-reading the
+# skill the harness just handed the model -- treat it like harness self-reference.
+_SKILL_TOOL_USE_RE = re.compile(r"\[tool_use name=Skill\][^\n]*\n([^\n]+)")
+_QUOTED_VALUE_RE = re.compile(r'"([^"\\]+)"')
+
+
+def loaded_skill_names(segment: str) -> set[str]:
+    """Skill names loaded via the Skill tool in the transcript segment."""
+    names: set[str] = set()
+    for m in _SKILL_TOOL_USE_RE.finditer(str(segment or "")):
+        line = m.group(1).strip()
+        parsed: Any = None
+        try:
+            parsed = json.loads(line)
+        except Exception:
+            parsed = None
+        if isinstance(parsed, dict):
+            for value in parsed.values():
+                if isinstance(value, str) and value.strip():
+                    names.add(value.strip().lower())
+        elif isinstance(parsed, str) and parsed.strip():
+            names.add(parsed.strip().lower())
+        else:
+            for value in _QUOTED_VALUE_RE.findall(line):
+                if value.strip():
+                    names.add(value.strip().lower())
+    return names
+
+
+def claim_describes_loaded_skill(claim: str, segment: str) -> bool:
+    """True when the claim attributes behavior to a skill just loaded via Skill.
+
+    Requires explicit skill context ("<name> skill" / "skill <name>") so a repo
+    claim that merely reuses a skill-name word (e.g. 'the release workflow') is
+    not suppressed -- only paraphrases of the loaded skill's own behavior are.
+    """
+    c = str(claim or "").strip().lower()
+    if not c:
+        return False
+    names = loaded_skill_names(segment)
+    if not names:
+        return False
+    for name in names:
+        n = re.escape(name)
+        if re.search(rf"\b{n}\b[\s\-]*skills?\b", c):
+            return True
+        if re.search(rf"\bskills?[\s:(\-]*{n}\b", c):
+            return True
+    return False
 
 
 def _task_ids_in_text(text: str) -> list[str]:
@@ -384,6 +441,11 @@ _JUDGE_SYSTEM = (
     "verify task status instead of arming. Set load_bearing=0 and verdict=0; "
     "steering MUST be empty. Only arm on claims about the USER's repo, external systems, or "
     "domain facts the user asked about. "
+    "LOADED SKILL (never arm): a claim that paraphrases what a SKILL just loaded via the Skill "
+    "tool does (e.g. 'the release skill handles the full release tail') describes "
+    "harness-provided instructions the model was just handed, not the user's repo or an "
+    "external system. Its content is authoritative and cannot be re-grounded by read-only "
+    "research; set load_bearing=0 and verdict=0. "
     "(B) UNGROUNDED CONFIDENT ASSERTION? Only if load_bearing=1, ask whether the model asserted a "
     "root cause, fix, or fact as SETTLED without reading the source, running the check, or citing "
     "evidence (especially about an API, config, or file it never actually read). A normal hypothesis "
@@ -630,6 +692,8 @@ def arm_judge(
         or is_task_board_status_claim(claim)
     ):
         return 0, "", ""
+    if verdict == 1 and claim_describes_loaded_skill(claim, segment):
+        return 0, "", ""
     return verdict, steering, claim
 
 
@@ -691,6 +755,8 @@ def disarm_judge(
     if _claim_supported_by_spec_board(claim, segment):
         return ReleaseVerdict(True, "", False, False, "", "")
     if is_harness_self_referential(claim):
+        return ReleaseVerdict(True, "", False, False, "", "")
+    if claim_describes_loaded_skill(claim, segment):
         return ReleaseVerdict(True, "", False, False, "", "")
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""

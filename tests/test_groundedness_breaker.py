@@ -836,5 +836,88 @@ def test_full_disarm_clears_provisional(monkeypatch):
     assert "breaker open" in msg.lower()
 
 
+def test_loaded_skill_names_parses_skill_tool_use():
+    seg = (
+        '<record line="000001" type="assistant" role="assistant">\n'
+        '[tool_use name=Skill]\n{"command": "release"}\n</record>\n'
+        '<record line="000002" type="user" role="user">\n'
+        "[tool_result]\nSuccessfully loaded skill\n</record>"
+    )
+    assert "release" in gb.loaded_skill_names(seg)
+    assert gb.loaded_skill_names("no skill loaded here") == set()
+
+
+def test_claim_describes_loaded_skill_requires_skill_context():
+    seg = '[tool_use name=Skill]\n{"command": "release"}'
+    assert gb.claim_describes_loaded_skill("the release skill handles X", seg) is True
+    assert gb.claim_describes_loaded_skill("use skill: release to ship", seg) is True
+    # bare skill-name word with no skill context is NOT suppressed (repo claim)
+    assert gb.claim_describes_loaded_skill("the release workflow in ci.yml runs publish", seg) is False
+    # no skill loaded -> never suppressed
+    assert gb.claim_describes_loaded_skill("the release skill handles X", "no load") is False
+
+
+def test_arm_judge_does_not_arm_on_just_loaded_skill_behavior():
+    segment = (
+        '<record line="000001" type="assistant" role="assistant">\n'
+        '[tool_use name=Skill]\n{"command": "release"}\n</record>\n'
+        '<record line="000002" type="user" role="user">\n'
+        "[tool_result]\nSuccessfully loaded skill\n</record>"
+    )
+
+    def judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "ground the claim that the release skill handles the release tail",
+            "claim": (
+                "the release skill handles the full release tail end-to-end "
+                "(commit, version bump, push, npm publish, verify)"
+            ),
+            "load_bearing": 1,
+        }
+
+    verdict, steering, claim = gb.arm_judge(segment, judge=judge)
+    assert verdict == 0 and steering == "" and claim == ""
+
+
+def test_arm_judge_still_arms_on_repo_claim_despite_loaded_skill():
+    segment = '[tool_use name=Skill]\n{"command": "release"}\n[tool_result]\nok'
+
+    def judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "read ci.yml before asserting publish behavior",
+            "claim": "the release workflow in ci.yml runs npm publish on tag push",
+            "load_bearing": 1,
+        }
+
+    verdict, steering, claim = gb.arm_judge(segment, judge=judge)
+    assert verdict == 1 and claim
+
+
+def test_disarm_judge_releases_claim_about_loaded_skill():
+    segment = (
+        '[tool_use name=Skill]\n{"command": "release"}\n'
+        "[tool_result]\nSuccessfully loaded skill"
+    )
+
+    def judge(system, user, schema):
+        return {
+            "grounded": 0,
+            "needed": "read the release skill source",
+            "load_bearing": 1,
+            "provisional_release": 0,
+            "lift_reason": "",
+            "lift_scope": "",
+        }
+
+    verdict = gb.disarm_judge(
+        "the release skill handles the full release tail end-to-end",
+        segment,
+        judge=judge,
+    )
+    assert verdict.grounded is True and verdict.needed == ""
+
+
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-q"]))
