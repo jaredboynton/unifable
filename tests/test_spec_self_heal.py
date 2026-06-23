@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
@@ -79,3 +80,56 @@ def test_garden_declines_when_no_suicide_loop():
     headlines, _ = apply_loop_release_verdict(spec, {}, verdict)
     assert headlines == []
     assert {t["id"]: t["status"] for t in spec["tasks"]}["T5"] == "failed"  # unchanged
+
+
+def test_deterministic_heal_retracts_brittle_version_pin():
+    from spec import deterministic_heal_judge_requirements
+
+    spec = {"requires_tasks": True, "restated_goal": "g", "tasks": [
+        _task("T1", "validated", "agent"),
+        {
+            "id": "T9",
+            "title": "Active plugin version is explicitly verified as 1.9.32",
+            "check": "grep -q 1.9.32 .claude-plugin/plugin.json",
+            "status": "failed",
+            "added_by": "judge",
+        },
+    ]}
+    headlines = deterministic_heal_judge_requirements(spec)
+    assert spec["tasks"][1]["status"] == "retracted"
+    assert headlines
+    assert all_tasks_validated(spec)[0] is True
+
+
+def test_judge_heal_revises_broken_judge_check(monkeypatch):
+    from spec import judge_heal_own_requirements
+
+    spec = {"requires_tasks": True, "restated_goal": "g", "tasks": [
+        {
+            "id": "T9",
+            "title": "grep for pattern",
+            "check": "rg -P 'foo' bar.py",
+            "status": "failed",
+            "added_by": "judge",
+            "judge_reason": "needs portable grep",
+        },
+    ]}
+
+    def fake_ask(_system, _user, _schema, schema_name=""):
+        assert schema_name == "judge_heal"
+        return {
+            "adjust_requirements": [{
+                "id": "T9",
+                "action": "revise",
+                "reason": "portable extended-regex grep",
+                "check": "grep -E 'foo' bar.py",
+            }],
+        }
+
+    import codex_judge
+    monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
+    with patch("spec.notify_spec_update"):
+        headlines = judge_heal_own_requirements(spec)
+    assert spec["tasks"][0]["check"] == "grep -E 'foo' bar.py"
+    assert spec["tasks"][0]["status"] == "pending"
+    assert headlines
