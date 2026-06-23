@@ -82,7 +82,7 @@ def format_spec_status(
                 row += f"\n    judge: {reason}"
             hint = str(task.get("judge_hint") or "").strip()
             if hint:
-                row += f"\n    hint (advisory, not a gate): {hint}"
+                row += f"\n    hint: {hint}"
         lines.append(row)
     if ok:
         lines.append("breaker: OPEN (all tasks validated)")
@@ -208,7 +208,7 @@ def build_stop_validate_context(spec: dict[str, Any], headlines: list[str]) -> s
             parts.append(f"{tid} judge: {reason}")
         hint = str(task.get("judge_hint") or "").strip()
         if hint:
-            parts.append(f"{tid} hint (advisory, not a gate): {hint}")
+            parts.append(f"{tid} hint: {hint}")
     parts.append(format_spec_status(spec, show_judge_for=show_judge_for))
     body = "\n".join(parts)
     if len(body) > _STOP_VALIDATE_CONTEXT_MAX:
@@ -266,7 +266,7 @@ def build_spec_context_from_output(text: str) -> str:
         parts.append(f"Judge: {judge}")
     hint = extract_hint(text)
     if hint:
-        parts.append(f"Hint (advisory, not a gate): {hint}")
+        parts.append(f"Hint: {hint}")
     status = extract_spec_status(text)
     if status:
         parts.append(status)

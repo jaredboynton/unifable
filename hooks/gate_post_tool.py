@@ -253,7 +253,7 @@ def main() -> int:
         hint = _repeated_failure_hint(input_data, ledger, cwd, count)
         parts: list[str] = []
         if hint:
-            parts.append("Hint (advisory, not a gate): " + hint)
+            parts.append("Hint: " + hint)
         if spec_context:
             parts.append(spec_context)
         if grade_change_context:

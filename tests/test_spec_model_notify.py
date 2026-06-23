@@ -97,7 +97,7 @@ def test_format_spec_status_shows_advisory_hint_on_highlight():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     spec["tasks"][0]["judge_hint"] = HINT
     text = mn.format_spec_status(spec, highlight_task="T1")
-    assert f"hint (advisory, not a gate): {HINT}" in text
+    assert f"hint: {HINT}" in text
     # a non-highlighted task does not leak its hint
     spec["tasks"][1]["judge_hint"] = "other hint"
     text2 = mn.format_spec_status(spec, highlight_task="T1")
@@ -128,7 +128,7 @@ def test_build_spec_context_includes_advisory_hint():
             spec, "T1 rejected.", highlight_task="T1", judge_reason=LONG_JUDGE, hint=HINT
         )
     ctx = mn.build_spec_context_from_output("noise\n" + buf.getvalue())
-    assert f"Hint (advisory, not a gate): {HINT}" in ctx
+    assert f"Hint: {HINT}" in ctx
 
 
 def test_notify_spec_update_omits_hint_when_empty():

@@ -114,4 +114,4 @@ def test_stop_loop_appends_hint_at_threshold_without_lifting_gate(tmp_path, monk
 
     outs = [_run_stop(gate_stop, payload) for _ in range(3)]
     assert all(o.get("decision") == "block" for o in outs)
-    assert "Hint (advisory, does not lift the gate): fix the check" in outs[2].get("reason", "")
+    assert "fix the check" in outs[2].get("reason", "")

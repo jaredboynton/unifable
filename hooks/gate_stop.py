@@ -178,15 +178,10 @@ def _handle_completion_loop_release(
             val_msgs = list(val_msgs) + headlines
             validate_ctx = _build_stop_validate_context(spec, val_msgs)
         elif verdict is not None and getattr(verdict, "lift", "none") == "none":
-            # Loop judge ran and declined to lift: tell the model it was checked and
-            # the remaining requirements are treated as legitimate work (still blocks).
-            note = (
-                "unifable completion loop check ran: no suicide loop detected and no lift "
-                "granted; remaining requirements are treated as legitimate work."
-            )
+            note = "Completion loop check: no suicide loop detected."
             reason = str(getattr(verdict, "reason", "") or "").strip()
             if reason:
-                note += f" Judge: {reason[:200]}"
+                note += f" {reason[:200]}"
             val_msgs = list(val_msgs) + [note]
             validate_ctx = _build_stop_validate_context(spec, val_msgs)
         save_spec(cwd, task_key, spec)
@@ -589,17 +584,11 @@ def main() -> int:
                         except Exception:
                             pass  # fail open -- the safety cap never hard-blocks on its own bug
                         ev_reason = (
-                            f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
-                            "Complete the remaining work; the harness re-runs checks on each stop "
-                            "until the judge passes every requirement."
+                            f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)})."
                         )
-                        # Advisory nudge if the agent has been stuck here repeatedly.
-                        # Rides alongside the block; it does NOT lift the breaker.
                         hint = _completion_stop_hint(input_data, spec, incomplete)
                         if hint:
-                            ev_reason += (
-                                "\n\nHint (advisory, does not lift the gate): " + hint
-                            )
+                            ev_reason += "\n\n" + hint
                         if loop_lift_ctx:
                             ev_reason += "\n\n" + loop_lift_ctx
                 else:
@@ -641,7 +630,7 @@ def main() -> int:
                     return 0
                 payload = {
                     "decision": "block",
-                    "reason": ev_reason + " See packs/completion-checklist.md for the pre-completion checklist.",
+                    "reason": ev_reason,
                 }
                 _attach_validate_context(payload, validate_ctx)
                 if loop_lift_ctx:
@@ -693,7 +682,7 @@ def main() -> int:
             {
                 "decision": "block",
                 "reason": f"{len(blockers)} open high/critical finding(s) to resolve or reject "
-                f"before completing: {ids}. See packs/completion-checklist.md.",
+                f"before completing: {ids}.",
             }
         )
         return 0
@@ -711,7 +700,7 @@ def main() -> int:
             ledger["stop_blocks"] = int(ledger.get("stop_blocks") or 0) + 1
             save_ledger(input_data, ledger)
             emit_json(
-                {"decision": "block", "reason": obs_reason + " See packs/completion-checklist.md for the pre-completion checklist."}
+                {"decision": "block", "reason": obs_reason}
             )
             return 0
 

@@ -400,7 +400,7 @@ _MONITOR_SYSTEM = (
 )
 
 _USER_GOAL_MAX = 400
-_SCOPE_HINT_PREFIX = "Hint (advisory, not a gate): "
+_SCOPE_HINT_PREFIX = "Hint: "
 
 
 def enabled() -> bool:

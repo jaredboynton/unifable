@@ -682,7 +682,7 @@ def test_provisional_monitor_hints_on_minor_drift(monkeypatch):
     blocked, _, notify = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False
     assert state["breaker_provisional"] is True
-    assert "advisory, not a gate" in notify.lower()
+    assert "hint:" in notify.lower()
     assert "Chromium IV" in notify
     assert any(e.get("kind") == "SCOPE_HINT" for e in state["events"])
 
