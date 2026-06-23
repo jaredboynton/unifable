@@ -47,6 +47,17 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # re-blocked this many times it is plausibly stuck, so the judge offers a nudge.
     # Reset to 0 the moment the breaker opens. Never gates -- advisory only.
     "completion_stop_blocks": 0,
+    # Judge-pinned grade downgrade (grade_override.py). Must be in DEFAULT_LEDGER so
+    # load_ledger preserves pin state across turns and gate_prompt re-escalation.
+    "grade_override_applied": False,
+    "grade_override_target": "",
+    "grade_override_by": "",
+    "grade_override_reason": "",
+    "grade_re_warrant_reason": "",
+    "inject_heavy_brief": False,
+    "heavy_brief_injected": False,
+    "frontier_discovery_count": 0,
+    "frontier_research_tools": 0,
     # Citation-verification activity log: what the session ACTUALLY did, so the
     # gate can cross-check that a spec's citations are real (see citations.py).
     # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).

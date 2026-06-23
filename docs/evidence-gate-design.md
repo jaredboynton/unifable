@@ -23,7 +23,9 @@ agent thrashes through edits first and only "cites" at the end.
   `acceptance_criteria[{check, evidence}]` and rejects placeholder evidence via `FAKE_MARKERS`
   (`spec.py:78-99`); HEAVY uses frontier-first workflow (>=2 frontier approach tasks + 1 primary;
   see `heavy_workflow.py`). Classification uses the operative user instruction, not pasted corpus.
-  Manual HEAVY override: UserPromptSubmit matcher + gpt-realtime-2 (`grade_override.py`).
+  Proactive grade adjudication: always-on UserPromptSubmit hook when effective grade is
+  HEAVY; gpt-realtime-2 (`grade_override.py`) downgrades mis-graded tasks to STANDARD
+  without operator action. Pinned `grade_override_target` survives `higher_mode` re-escalation.
   `scripts/gate/classify_task.py:75` maps quick->LIGHT / normal->STANDARD / deep->HEAVY. The
   lockdown is three deltas on this.
 

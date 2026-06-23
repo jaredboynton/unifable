@@ -20,8 +20,9 @@ live in exactly one place:
 
 Precedence for the effective grade (resolve_grade):
   1. a valid UNIFABLE_GRADE override (env_grade arg),
-  2. ledger grade_override_applied + task_mode (operator judge downgrade),
-  3. the active task's task_mode -> derived grade (only when active_task is set),
+  2. ledger grade_override_applied + grade_override_target (judge-pinned grade),
+  3. ledger grade_override_applied + task_mode (legacy pin without target),
+  4. the active task's task_mode -> derived grade (only when active_task is set),
   4. legacy ledger['grade'] (old ledgers predating this module),
   5. STANDARD.
 
@@ -45,6 +46,7 @@ MODES = ("quick", "normal", "deep")
 # full evidence spec (STANDARD); deep uses frontier-first HEAVY workflow
 # (>=2 frontier tasks + 1 primary; see heavy_workflow.py).
 MODE_TO_GRADE = {"quick": "LIGHT", "normal": "STANDARD", "deep": "HEAVY"}
+GRADE_TO_MODE = {"LIGHT": "quick", "STANDARD": "normal", "HEAVY": "deep"}
 
 DEFAULT_GRADE = "STANDARD"
 
@@ -52,6 +54,11 @@ DEFAULT_GRADE = "STANDARD"
 def grade_for_mode(mode: str | None) -> str:
     """Derive the enforcement grade for a classifier *mode*. Unknown -> STANDARD."""
     return MODE_TO_GRADE.get((mode or "").lower().strip(), DEFAULT_GRADE)
+
+
+def mode_for_grade(grade: str | None) -> str:
+    """Inverse of grade_for_mode for pin restoration. Unknown -> normal."""
+    return GRADE_TO_MODE.get(_norm_grade(grade), "normal")
 
 
 def _norm_grade(value: Any) -> str:
@@ -128,6 +135,9 @@ def resolve_grade(ledger: dict[str, Any] | None, env_grade: Any = None) -> str:
     ledger = ledger if isinstance(ledger, dict) else {}
 
     if ledger.get("grade_override_applied"):
+        pinned = _norm_grade(ledger.get("grade_override_target"))
+        if pinned in GRADES:
+            return pinned
         mode = (ledger.get("task_mode") or "").lower().strip()
         if mode in MODE_TO_GRADE:
             return MODE_TO_GRADE[mode]

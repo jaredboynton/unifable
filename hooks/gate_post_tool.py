@@ -16,7 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
-from ledger import add_unique, emit_json, read_stdin_json, update_ledger
+from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from spec import canonical_project_root
 from model_notify import (
     bash_output_text,
@@ -190,8 +190,7 @@ def main() -> int:
     try:
         from citations import activity_from_ledger, sync_citations_from_activity
         from evidence_policy import resolve_grade
-        from heavy_workflow import format_approach_board
-        from model_notify import format_spec_status
+        from heavy_workflow import format_approach_board, frontier_tasks
         from spec import judge_discover_frontiers, load_spec, resolve_session_id, save_spec
 
         task_id = resolve_session_id(input_data, default=None)
@@ -208,29 +207,34 @@ def main() -> int:
                 and tool_name in research_tools
                 and len(frontier_tasks(spec)) < 2
             ):
-                n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
-                discoveries = int(ledger.get("frontier_discovery_count") or 0)
+                from grade_override import try_adjudicate_grade
 
-                def bump_discovery(ld):
-                    ld["frontier_research_tools"] = n_tools
+                if try_adjudicate_grade(input_data, ""):
+                    grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
+                if grade == "HEAVY":
+                    n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
+                    discoveries = int(ledger.get("frontier_discovery_count") or 0)
 
-                update_ledger(input_data, bump_discovery)
+                    def bump_discovery(ld):
+                        ld["frontier_research_tools"] = n_tools
 
-                if n_tools >= 3 and discoveries < 3:
-                    added = judge_discover_frontiers(spec, activity)
-                    if added:
-                        save_spec(cwd, task_id, spec)
+                    update_ledger(input_data, bump_discovery)
 
-                        def record_discovery(ld):
-                            ld["frontier_discovery_count"] = discoveries + 1
+                    if n_tools >= 3 and discoveries < 3:
+                        added = judge_discover_frontiers(spec, activity)
+                        if added:
+                            save_spec(cwd, task_id, spec)
 
-                        update_ledger(input_data, record_discovery)
-                        ids = ", ".join(t["id"] for t in added)
-                        discovery_context = (
-                            "unifable spec update:\n"
-                            f"Judge added frontier approach(s): {ids}. Explore before primary.\n"
-                            + format_approach_board(spec)
-                        )
+                            def record_discovery(ld):
+                                ld["frontier_discovery_count"] = discoveries + 1
+
+                            update_ledger(input_data, record_discovery)
+                            ids = ", ".join(t["id"] for t in added)
+                            discovery_context = (
+                                "unifable spec update:\n"
+                                f"Judge added frontier approach(s): {ids}. Explore before primary.\n"
+                                + format_approach_board(spec)
+                            )
     except Exception:
         pass
 

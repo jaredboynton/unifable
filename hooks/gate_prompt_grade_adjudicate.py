@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit — legacy alias for grade adjudication.
+"""UserPromptSubmit — proactive judge-backed HEAVY grade adjudication.
 
-Prefer gate_prompt_grade_adjudicate.py (always-on). This module remains for
-back-compat references.
+Runs after gate_prompt when effective grade is HEAVY. Fails open on any error.
 """
 
 from __future__ import annotations
@@ -38,5 +37,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:  # noqa: BLE001 — fail open
-        emit_json({"systemMessage": f"unifable grade override hook failed open: {exc}"})
+        emit_json({"systemMessage": f"unifable grade adjudicate hook failed open: {exc}"})
         raise SystemExit(0)

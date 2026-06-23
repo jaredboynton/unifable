@@ -27,6 +27,65 @@ except ImportError:  # pragma: no cover
 
 MAX_STOP_BLOCKS = 2
 
+# Host-agnostic safety cap for the COMPLETION breaker (the evidence-spec gate in
+# gate_stop). Unlike the observation gate above, the completion breaker is meant
+# to block every Stop until every requirement validates -- but with no bound it
+# can be trapped forever by a runaway judge that appends requirements faster than
+# they validate (see tests/test_judge_runaway.py). This is the circuit-breaker
+# "bounded open state": after this many consecutive Stop blocks that make no net
+# progress, the breaker releases Stop with a loud escalation instead of trapping
+# the session. Kept below the host's own generic Stop-block cap (Claude Code's
+# CLAUDE_CODE_STOP_HOOK_BLOCK_CAP defaults to 9) so it fires first AND so Codex /
+# other hosts -- which have no such backstop -- are protected too.
+# Prior art: martinfowler.com/bliki/CircuitBreaker.html (open state is bounded;
+# the breaker resets after a threshold rather than staying open indefinitely).
+COMPLETION_MAX_STALLED_BLOCKS = 6
+
+
+def note_completion_block(ledger: dict[str, Any], incomplete_count: int) -> bool:
+    """Track consecutive completion-breaker blocks that make no NET progress.
+
+    Returns True once the breaker has stalled past COMPLETION_MAX_STALLED_BLOCKS,
+    meaning Stop must be released (host-agnostic backstop against a judge-driven
+    runaway where the task list grows at least as fast as it validates). Progress
+    is measured purely from observed state -- a strictly smaller unresolved-task
+    count than the previous block resets the streak -- so a legitimately
+    converging multi-cycle task is never released early; only a stalled or
+    growing one is. Mutates the ledger. Fail-safe: on bad input it counts the
+    block as a stall rather than masking a runaway."""
+    try:
+        incomplete_count = int(incomplete_count)
+    except (TypeError, ValueError):
+        incomplete_count = 0
+    prev = ledger.get("completion_prev_incomplete")
+    streak = int(ledger.get("completion_stall_blocks") or 0)
+    if isinstance(prev, int) and incomplete_count < prev:
+        streak = 0  # fewer unresolved tasks than last block -> genuine progress
+    else:
+        streak += 1  # stalled or growing -> diverging
+    ledger["completion_stall_blocks"] = streak
+    ledger["completion_prev_incomplete"] = incomplete_count
+    return streak >= COMPLETION_MAX_STALLED_BLOCKS
+
+
+def reset_completion_stall(ledger: dict[str, Any]) -> None:
+    """Clear the stall tracking once the completion breaker opens (all validated)."""
+    ledger["completion_stall_blocks"] = 0
+    ledger.pop("completion_prev_incomplete", None)
+
+
+def completion_runaway_warning(incomplete_count: int) -> str:
+    """Loud escalation emitted when the completion breaker releases on a runaway."""
+    return (
+        "unifable completion breaker RELEASED after "
+        f"{COMPLETION_MAX_STALLED_BLOCKS} consecutive stops with no net progress "
+        f"({incomplete_count} requirement(s) still unvalidated). The judge was "
+        "adding requirements at least as fast as they validate (a runaway). "
+        "Surfacing for human review instead of trapping the session -- inspect "
+        "the spec and reset it (or dispute the spurious requirements) if these "
+        "are not real."
+    )
+
 
 def has_successful_verification(ledger: dict[str, Any]) -> bool:
     return any(result.get("success") is True for result in ledger.get("verification_results", []))

@@ -14,9 +14,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
-from ledger import add_unique, emit_json, read_stdin_json, update_ledger
+from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from classify_task import classify_prompt, context_for_mode, grade_of
-from evidence_policy import higher_mode
+from evidence_policy import higher_mode, mode_for_grade, resolve_grade
 from heavy_workflow import heavy_workflow_brief
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
 
@@ -78,12 +78,19 @@ def main() -> int:
     new_key = _prompt_key(prompt)
     session_key = resolve_session_id(input_data, default="default") or "default"
     grade = grade_of(mode)
-    heavy = grade == "HEAVY"
 
     def apply(ledger):
         prior_mode = (ledger.get("task_mode") or "").lower().strip()
         ledger["active_task"] = new_key
-        ledger["task_mode"] = higher_mode(prior_mode, mode) if prior_mode else mode
+        pinned_target = (
+            ledger.get("grade_override_target")
+            if ledger.get("grade_override_applied")
+            else None
+        )
+        if pinned_target:
+            ledger["task_mode"] = mode_for_grade(str(pinned_target))
+        else:
+            ledger["task_mode"] = higher_mode(prior_mode, mode) if prior_mode else mode
         ledger["grade"] = grade_of(ledger["task_mode"])
         ledger["warning_count"] = 0
         ledger["warnings"] = []
@@ -96,7 +103,8 @@ def main() -> int:
         ledger["stop_blocks"] = 0
         ledger["frontier_discovery_count"] = ledger.get("frontier_discovery_count", 0)
         add_unique(ledger, "risk_flags", risks)
-        if heavy and not ledger.get("heavy_brief_injected"):
+        effective = resolve_grade(ledger)
+        if effective == "HEAVY" and not ledger.get("heavy_brief_injected"):
             ledger["heavy_brief_injected"] = True
             ledger["inject_heavy_brief"] = True
         else:
@@ -104,11 +112,15 @@ def main() -> int:
 
     update_ledger(input_data, apply)
 
+    ledger = load_ledger(input_data)
+    effective_grade = resolve_grade(ledger)
+    heavy_scaffold = effective_grade == "HEAVY"
+
     context = context_for_mode(mode, risks)
 
-    if grade_of(mode) != "LIGHT":
+    if effective_grade != "LIGHT":
         key = session_key
-        path = _ensure_spec_scaffold(cwd, key, prompt, heavy=heavy)
+        path = _ensure_spec_scaffold(cwd, key, prompt, heavy=heavy_scaffold)
         if path:
             context += (
                 f"\n\nunifable: evidence spec auto-created at {path}. "
@@ -117,7 +129,7 @@ def main() -> int:
                 f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
                 f"  - unifable add-task --title '<requirement>' --check '<runnable check>'\n"
             )
-            if heavy:
+            if heavy_scaffold:
                 context += (
                     f"  - HEAVY: unifable set-primary --title '...' --check '...'\n"
                     f"  - HEAVY: unifable add-frontier --title '...' --check '...' (>=2; judge may auto-add)\n"
@@ -129,12 +141,10 @@ def main() -> int:
             )
 
     try:
-        from ledger import load_ledger
-        ledger = load_ledger(input_data)
         if ledger.get("inject_heavy_brief"):
             context += "\n\n" + heavy_workflow_brief()
     except Exception:
-        if heavy:
+        if heavy_scaffold:
             context += "\n\n" + heavy_workflow_brief()
 
     emit_json(

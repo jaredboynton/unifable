@@ -35,7 +35,9 @@ from atomicio import write_text_atomic
 from evidence_policy import resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
-from verify_state import MAX_STOP_BLOCKS, should_block_stop, warning_after_max_blocks
+from verify_state import (MAX_STOP_BLOCKS, completion_runaway_warning,
+                          note_completion_block, reset_completion_stall,
+                          should_block_stop, warning_after_max_blocks)
 
 GOAL_TRANSCRIPT_TOKENS = TRANSCRIPT_TOKEN_BUDGET
 try:
@@ -417,8 +419,6 @@ def main() -> int:
             from spec import all_tasks_validated, load_spec, resolve_session_id, validate_spec
 
             ledger = load_ledger(input_data)
-            if ledger.get("grade_override_applied"):
-                grade = "STANDARD"
 
             # Spec key = the session (one spec per directory+session). None ->
             # nothing resolvable -> fail open (skip the gate).
@@ -456,6 +456,28 @@ def main() -> int:
                 # stop until then.
                 ok_tasks, incomplete = all_tasks_validated(spec)
                 if not ok_tasks:
+                    # Host-agnostic safety cap (the circuit-breaker "bounded open
+                    # state"): if the completion breaker has re-blocked Stop with no
+                    # NET progress COMPLETION_MAX_STALLED_BLOCKS times, it is a
+                    # runaway (judge adding requirements at least as fast as they
+                    # validate). Release Stop with a loud escalation instead of
+                    # trapping the session forever. Mirrors MAX_STOP_BLOCKS for the
+                    # observation gate; fails open. Protects Codex/other hosts that
+                    # lack a generic Stop-block cap.
+                    try:
+                        _led = load_ledger(input_data)
+                        if note_completion_block(_led, len(incomplete)):
+                            save_ledger(input_data, _led)
+                            _warn = completion_runaway_warning(len(incomplete))
+                            emit_json({
+                                "systemMessage": _warn,
+                                "hookSpecificOutput": {
+                                    "hookEventName": "Stop", "additionalContext": _warn},
+                            })
+                            return 0
+                        save_ledger(input_data, _led)
+                    except Exception:
+                        pass  # fail open -- the safety cap never hard-blocks on its own bug
                     ev_reason = (
                         f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
                         "Complete the remaining work; the harness re-runs checks on each stop "
@@ -470,6 +492,12 @@ def main() -> int:
                         )
                 else:
                     _reset_completion_blocks(input_data)
+                    try:
+                        _led = load_ledger(input_data)
+                        reset_completion_stall(_led)
+                        save_ledger(input_data, _led)
+                    except Exception:
+                        pass  # fail open
                     ok, reasons = validate_spec(spec, grade, require_evidence=True)
                     if not ok:
                         ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)

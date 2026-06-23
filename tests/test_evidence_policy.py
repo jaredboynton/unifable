@@ -124,9 +124,29 @@ def test_grade_override_beats_active_task_deep():
         "active_task": "k",
         "task_mode": "normal",
         "grade_override_applied": True,
+        "grade_override_target": "STANDARD",
         "grade": "HEAVY",
     }
     assert resolve_grade(ledger) == "STANDARD"
+
+
+def test_grade_override_pin_beats_re_escalated_task_mode():
+    ledger = {
+        "active_task": "k",
+        "task_mode": "deep",
+        "grade_override_applied": True,
+        "grade_override_target": "STANDARD",
+        "grade": "HEAVY",
+    }
+    assert resolve_grade(ledger) == "STANDARD"
+
+
+def test_mode_for_grade_inverse():
+    from evidence_policy import mode_for_grade
+
+    assert mode_for_grade("STANDARD") == "normal"
+    assert mode_for_grade("HEAVY") == "deep"
+    assert mode_for_grade("LIGHT") == "quick"
 
 
 def test_resolve_policy_carries_task_mode():

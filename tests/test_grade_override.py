@@ -24,11 +24,13 @@ from grade_override import (  # noqa: E402
     apply_grade_override_ledger,
     apply_grade_override_to_spec,
     clear_heavy_spec_fields,
+    try_adjudicate_grade,
     try_apply_grade_override,
 )
 from spec import load_spec, save_spec, spec_template  # noqa: E402
 
-HOOK = REPO / "hooks" / "gate_prompt_grade_override.py"
+HOOK = REPO / "hooks" / "gate_prompt_grade_adjudicate.py"
+LEGACY_HOOK = REPO / "hooks" / "gate_prompt_grade_override.py"
 PY = sys.executable
 
 
@@ -89,10 +91,64 @@ class TestGradeOverrideApply(unittest.TestCase):
 
     def test_apply_grade_override_ledger(self) -> None:
         ledger: dict = {"task_mode": "deep", "grade": "HEAVY"}
-        apply_grade_override_ledger(ledger, "normal", "operator prose task")
+        apply_grade_override_ledger(ledger, "normal", "operator prose task", by="operator")
         self.assertEqual(ledger["task_mode"], "normal")
         self.assertEqual(ledger["grade"], "STANDARD")
+        self.assertEqual(ledger["grade_override_target"], "STANDARD")
+        self.assertEqual(ledger["grade_override_by"], "operator")
         self.assertTrue(ledger["grade_override_applied"])
+
+
+class TestTryAdjudicateGrade(unittest.TestCase):
+    def test_mock_judge_downgrades_heavy(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp, tempfile.TemporaryDirectory() as data_dir:
+            os.environ["UNIFABLE_DATA"] = str(data_dir)
+            spec = spec_template()
+            spec["heavy_workflow"] = True
+            spec["restated_goal"] = "Add regression test for judge runaway"
+            save_spec(tmp, "sess", spec)
+
+            from ledger import save_ledger
+
+            payload = {
+                "prompt": "implement better heavy-to-normal override behavior",
+                "session_id": "sess",
+                "cwd": tmp,
+            }
+            save_ledger(payload, {
+                "active_task": "abc",
+                "task_mode": "deep",
+                "grade": "HEAVY",
+            })
+
+            def fake_judge(*_a, **_k):
+                return {
+                    "warrant_heavy": False,
+                    "target_mode": "normal",
+                    "reason": "focused harness fix with tests",
+                }
+
+            ctx = try_adjudicate_grade(payload, payload["prompt"], judge_fn=fake_judge)
+            self.assertIn("HEAVY lifted", ctx)
+            loaded = load_spec(tmp, "sess")
+            assert loaded is not None
+            self.assertFalse(loaded.get("heavy_workflow"))
+
+    def test_non_heavy_fast_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as data_dir:
+            os.environ["UNIFABLE_DATA"] = str(data_dir)
+            from ledger import save_ledger
+
+            payload = {"prompt": "quick question", "session_id": "s", "cwd": "/tmp"}
+            save_ledger(payload, {"active_task": "k", "task_mode": "normal", "grade": "STANDARD"})
+
+            def boom(*_a, **_k):
+                raise RuntimeError("judge should not run")
+
+            self.assertEqual(
+                try_adjudicate_grade(payload, payload["prompt"], judge_fn=boom),
+                "",
+            )
 
 
 class TestTryApplyGradeOverride(unittest.TestCase):
@@ -106,7 +162,7 @@ class TestTryApplyGradeOverride(unittest.TestCase):
 
             def fake_judge(*_a, **_k):
                 return {
-                    "apply_override": True,
+                    "warrant_heavy": False,
                     "target_mode": "normal",
                     "reason": "prose dispatch task",
                 }
@@ -116,6 +172,9 @@ class TestTryApplyGradeOverride(unittest.TestCase):
                 "session_id": "sess",
                 "cwd": tmp,
             }
+            from ledger import save_ledger
+
+            save_ledger(payload, {"active_task": "x", "task_mode": "deep", "grade": "HEAVY"})
             ctx = try_apply_grade_override(payload, payload["prompt"], judge_fn=fake_judge)
             self.assertIn("HEAVY lifted", ctx)
             loaded = load_spec(tmp, "sess")
@@ -126,14 +185,30 @@ class TestTryApplyGradeOverride(unittest.TestCase):
         def boom(*_a, **_k):
             return None
 
-        payload = {"prompt": "manual override of heavy", "session_id": "s", "cwd": "/tmp"}
-        self.assertEqual(try_apply_grade_override(payload, payload["prompt"], judge_fn=boom), "")
+        with tempfile.TemporaryDirectory() as data_dir:
+            os.environ["UNIFABLE_DATA"] = str(data_dir)
+            from ledger import save_ledger
+
+            payload = {"prompt": "manual override of heavy", "session_id": "s", "cwd": "/tmp"}
+            save_ledger(payload, {"active_task": "x", "task_mode": "deep", "grade": "HEAVY"})
+            self.assertEqual(try_apply_grade_override(payload, payload["prompt"], judge_fn=boom), "")
 
 
-class TestOverrideHook(unittest.TestCase):
+class TestAdjudicateHook(unittest.TestCase):
     def test_hook_fail_open_on_error(self) -> None:
         proc = subprocess.run(
             [PY, str(HOOK)],
+            input="not json",
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        self.assertEqual(proc.returncode, 0)
+        self.assertEqual(json.loads(proc.stdout or "{}"), {})
+
+    def test_legacy_hook_fail_open_on_error(self) -> None:
+        proc = subprocess.run(
+            [PY, str(LEGACY_HOOK)],
             input="not json",
             text=True,
             capture_output=True,

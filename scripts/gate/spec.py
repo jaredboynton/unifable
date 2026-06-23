@@ -680,6 +680,16 @@ def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 AUTO_VALIDATE_MAX_TASKS = 3
+# Ceiling on the live UNRESOLVED judge-discovered backlog (not a lifetime total).
+# The judge may add requirements while validating (new_requirements), but
+# auto_validate only drains AUTO_VALIDATE_MAX_TASKS per Stop cycle; with no bound
+# the list grows faster than it validates and the completion breaker is trapped
+# forever (the observed runaway: 77 -> 176 tasks, ~+13/cycle). Bounding the
+# *unresolved* judge backlog (rather than a lifetime cap) lets a legitimately
+# long task keep receiving new requirements as it resolves old ones, while a
+# runaway -- whose judge tasks never validate -- cannot grow its backlog past
+# this. Agent-added requirements are never capped; only judge ones.
+JUDGE_MAX_UNRESOLVED_ADDED = 5
 # Per-check subprocess ceiling. On the Stop path auto_validate_spec further bounds
 # each check by the remaining wall-clock budget so a slow check can't outlive the
 # host Stop-hook timeout (the codex-thread 10s kill).
@@ -749,11 +759,34 @@ def _apply_check_result(
     advance_primary_if_ready(spec)
     sync_heavy_phase(spec)
     added: list[str] = []
+    # Bound the judge as a requirement source (defense in depth against runaway):
+    #  - dedup: never re-append a requirement byte-identical (title+check) to an
+    #    existing task -- the verbatim re-add the judge does when it re-derives the
+    #    same requirement each cycle.
+    #  - backlog cap: never let the UNRESOLVED judge-added backlog exceed
+    #    JUDGE_MAX_UNRESOLVED_ADDED, so even near-duplicates (different wording,
+    #    same intent) cannot make the list diverge faster than it validates.
+    existing_pairs = {
+        (str(t.get("title") or "").strip(), str(t.get("check") or "").strip())
+        for t in (spec.get("tasks") or []) if isinstance(t, dict)
+    }
+    judge_unresolved = sum(
+        1 for t in (spec.get("tasks") or [])
+        if isinstance(t, dict) and t.get("added_by") == "judge"
+        and t.get("status") not in RESOLVED_STATUSES
+    )
     for req in new_reqs:
+        if judge_unresolved >= JUDGE_MAX_UNRESOLVED_ADDED:
+            break  # bounded enforcement loop: backlog is full until some validate
+        pair = (str(req.get("title") or "").strip(), str(req.get("check") or "").strip())
+        if pair in existing_pairs:
+            continue  # dedup: verbatim repeat of an existing requirement
         spec.setdefault("tasks", [])
         nt = _new_task(spec, req["title"], req["check"])
         nt["added_by"] = "judge"
         spec["tasks"].append(nt)
+        existing_pairs.add(pair)
+        judge_unresolved += 1  # the new task is pending -> unresolved
         added.append(nt["id"])
     if kind == "frontier" and task["status"] == "rejected_approach":
         headline = f"{tid} frontier ruled out by judge: {reason[:80]}."
@@ -878,14 +911,37 @@ _NEW_REQ_SCHEMA = {
         "additionalProperties": False,
     },
 }
+# Adjustments the judge may make to requirements IT previously added: retract one
+# it now sees as duplicative/unsatisfiable/superseded, or revise its title/check
+# (e.g. tighten a brittle literal-string check). Applied only to judge-added
+# tasks; every adjustment is reported to the main model. This lets the judge
+# self-correct instead of re-adding equivalent requirements each cycle.
+_ADJUST_REQ_SCHEMA = {
+    "type": "array",
+    "items": {
+        "type": "object",
+        "properties": {
+            "id": {"type": "string"},
+            "action": {"type": "string", "enum": ["retract", "revise"]},
+            "reason": {"type": "string"},
+            "title": {"type": "string"},
+            "check": {"type": "string"},
+        },
+        "required": ["id", "action", "reason"],
+        "additionalProperties": False,
+    },
+}
 _JUDGE_SCHEMA = {
     "type": "object",
     "properties": {
         "verdict": {"type": "integer", "enum": [0, 1]},
         "reason": {"type": "string"},
         # The judge may DISCOVER further requirements the goal needs while judging
-        # this task. It can only ADD them; it never removes existing ones.
+        # this task. New ones are deduped and the unresolved backlog is capped.
         "new_requirements": _NEW_REQ_SCHEMA,
+        # The judge may ADJUST requirements it itself added (retract or revise),
+        # listed under existing_judge_requirements in the prompt.
+        "adjust_requirements": _ADJUST_REQ_SCHEMA,
         # Advisory only. A concrete next step if the agent looks stuck or is making
         # poor judgement. NEVER changes the verdict and NEVER lifts a gate.
         "hint": {"type": "string"},
@@ -969,7 +1025,14 @@ _JUDGE_SYSTEM = (
     "output, errors, skipped or zero tests, and output that does not match the task. "
     "If, while judging, you find the goal needs further requirements not yet "
     "covered by a task, list them in new_requirements as {title, check} with a "
-    "runnable check; otherwise return an empty list. You may only ADD requirements. "
+    "runnable check; otherwise return an empty list. Do NOT re-add a requirement "
+    "that already exists (it will be ignored). You may also ADJUST requirements "
+    "YOU previously added (shown in existing_judge_requirements) when one is "
+    "duplicative, unsatisfiable as written, or superseded: return adjust_requirements "
+    "entries naming the task id with action 'retract' (drop it) or 'revise' (supply "
+    "a corrected title and/or check). Only adjust requirements you added yourself, "
+    "never the agent's; every adjustment is reported to the main model. You may "
+    "never remove or weaken the agent's own requirements. "
     + _HINT_GUIDANCE
 )
 
@@ -1050,6 +1113,17 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
         "exit_code": exit_code,
         "output": output,
     }
+    # Requirements the judge itself added and may now adjust (retract/revise). The
+    # current task is excluded -- it is being judged this cycle, not adjusted.
+    adjustable = [
+        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
+         "check": str(t.get("check") or ""), "status": str(t.get("status") or "")}
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict) and t.get("added_by") == "judge"
+        and str(t.get("id")) != str(task.get("id")) and t.get("status") != "retracted"
+    ]
+    if adjustable:
+        payload["existing_judge_requirements"] = adjustable[-20:]
     kind = str(task.get("approach_kind") or "requirement")
     if kind in ("frontier", "primary"):
         payload["approach_kind"] = kind
@@ -1057,6 +1131,76 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
         if primary:
             payload["primary_approach"] = primary.get("title", "")
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _normalize_adjustments(raw: Any) -> list[dict[str, str]]:
+    """Coerce the judge's adjust_requirements into a clean list of
+    {id, action, reason[, title][, check]}, dropping malformed or no-op entries."""
+    out: list[dict[str, str]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        tid = str(item.get("id") or "").strip()
+        action = str(item.get("action") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if not tid or action not in ("retract", "revise"):
+            continue
+        entry: dict[str, str] = {"id": tid, "action": action, "reason": reason}
+        if action == "revise":
+            title = str(item.get("title") or "").strip()
+            check = str(item.get("check") or "").strip()
+            if title:
+                entry["title"] = title
+            if check:
+                entry["check"] = check
+            if "title" not in entry and "check" not in entry:
+                continue  # a revise with nothing to change is a no-op
+        out.append(entry)
+    return out
+
+
+def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> list[str]:
+    """Apply judge self-adjustments (retract/revise) to judge-added tasks. Only
+    tasks with added_by=='judge' are touched (never the agent's), never one whose
+    id is in skip_ids (e.g. a task being judged this same cycle), and never one
+    already retracted. Each applied adjustment notifies the main model. Mutates
+    spec; returns the headlines emitted. Fails open on bad input."""
+    if not isinstance(res, dict):
+        return []
+    adjustments = _normalize_adjustments(res.get("adjust_requirements"))
+    if not adjustments:
+        return []
+    skip = {str(s) for s in (skip_ids or ())}
+    by_id = {str(t.get("id")): t for t in (spec.get("tasks") or []) if isinstance(t, dict)}
+    headlines: list[str] = []
+    for adj in adjustments:
+        tid = adj["id"]
+        if tid in skip:
+            continue
+        t = by_id.get(tid)
+        if t is None or t.get("added_by") != "judge" or t.get("status") == "retracted":
+            continue  # only the judge's own, still-live requirements
+        reason = adj.get("reason", "")
+        if adj["action"] == "retract":
+            t["status"] = "retracted"
+            t["judge_reason"] = reason
+            headline = f"Judge retracted {tid}: {reason[:80]}"
+        else:  # revise: correct the requirement and re-open it for validation
+            if "title" in adj:
+                t["title"] = adj["title"]
+            if "check" in adj:
+                t["check"] = adj["check"]
+            t["status"] = "pending"
+            t["exit"] = None
+            t["output"] = ""
+            t["judge_verdict"] = None
+            t["judge_reason"] = reason
+            headline = f"Judge revised {tid}: {reason[:80]}"
+        notify_spec_update(spec, headline, highlight_task=tid, judge_reason=reason)
+        headlines.append(headline)
+    return headlines
 
 
 def _judge_system_for_task(task: dict[str, Any]) -> str:
@@ -1107,6 +1251,8 @@ def judge_task(
         )
     except JudgeError as exc:
         return 0, f"judge error: {exc}", [], "", ""
+    # Apply any self-adjustments to OTHER judge-added tasks (not this one).
+    _apply_adjustments(spec, res, skip_ids={str(task.get("id"))})
     return _judge_result(res, task)
 
 
@@ -1134,11 +1280,15 @@ def judge_tasks(
         for it in items
     ]
     results = ask_structured_batch(reqs)
+    judged_ids = {str(it["task"].get("id")) for it in items}
     out: list[tuple[int, str, list[dict[str, str]], str, str]] = []
     for it, res in zip(items, results):
         if isinstance(res, JudgeError):
             out.append((0, f"judge error: {res}", [], "", ""))
         else:
+            # Self-adjustments target OTHER judge-added tasks, never one being
+            # judged this same cycle.
+            _apply_adjustments(spec, res, skip_ids=judged_ids)
             out.append(_judge_result(res, it["task"]))
     return out
 
