@@ -65,7 +65,7 @@ def _single_pending(tmp_path, monkeypatch, new_reqs, base_check="pytest -k base"
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_task",
-        lambda sp, t, ec, out: (1, "ok", [dict(r) for r in new_reqs], "", ""),
+        lambda sp, t, ec, out: (1, "ok", [dict(r) for r in new_reqs], ""),
     )
     return load_spec(str(tmp_path), "K")
 
@@ -197,12 +197,11 @@ def test_judge_added_current_task_can_self_retract(monkeypatch):
         }
 
     monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
-    verdict, reason, new_reqs, hint, frontier_outcome = judge_task(spec, spec["tasks"][1], 0, "ok")
+    verdict, reason, new_reqs, frontier_outcome = judge_task(spec, spec["tasks"][1], 0, "ok")
     assert verdict == 0
     assert spec["tasks"][1]["status"] == "retracted"
     assert "duplicates" in reason
     assert new_reqs == []
-    assert hint == ""
     assert frontier_outcome == ""
 
 
@@ -232,6 +231,34 @@ def test_reset_completion_stall_clears_counters():
     reset_completion_stall(led)
     assert int(led.get("completion_stall_blocks") or 0) == 0
     assert "completion_prev_incomplete" not in led
+
+
+def test_breaker_runaway_fails_before_fix(monkeypatch):
+    """Failing-first regression for the original Stop-hook runaway.
+
+    Before the fix the completion breaker had NO stop-block cap, so a
+    non-decreasing incomplete count (the runaway signature) blocked Stop forever.
+    'before-fix' is reproduced by lifting both caps out of reach: across many
+    stalled blocks the breaker NEVER releases (the bug). With the real shipped
+    caps the same stalled signature releases (the fix). Marker: fails-before-fix.
+    """
+    import verify_state as vs
+
+    # before-fix: caps effectively infinite -> the runaway never releases Stop
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STALLED_BLOCKS", 10**9)
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STOP_BLOCKS", 10**9)
+    trapped: dict = {}
+    released_before = any(vs.note_completion_block(trapped, 7) for _ in range(50))
+    assert released_before is False  # trapped forever -> the original runaway
+
+    # after-fix: the real bounded caps release on the same stalled signature
+    monkeypatch.undo()
+    bounded: dict = {}
+    released_after = any(
+        vs.note_completion_block(bounded, 7)
+        for _ in range(vs.COMPLETION_MAX_STALLED_BLOCKS + 1)
+    )
+    assert released_after is True  # bounded release -> the fix
 
 
 def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
@@ -320,6 +347,49 @@ def test_dedup_drops_reworded_title_duplicate(tmp_path, monkeypatch):
     assert any(t["title"] == "validate timeouts" for t in spec["tasks"])  # distinct kept
 
 
+def test_dedup_drops_extension_title_duplicate_in_same_batch(tmp_path, monkeypatch):
+    """Two new_requirements where one title extends the other (same purpose,
+    extra qualifier) must collapse to one task. Prefer the longer title."""
+    short = {
+        "title": "Active plugin version is explicitly verified as 1.9.32",
+        "check": "pytest -k version_short",
+    }
+    long = {
+        "title": "Active plugin version is explicitly verified as 1.9.32 in a runtime probe or test",
+        "check": "pytest -k version_probe",
+    }
+    spec = _single_pending(tmp_path, monkeypatch, [short, long])
+    spec, _ = auto_validate_spec(spec, str(tmp_path))
+    version_titles = [
+        t["title"] for t in spec["tasks"]
+        if "1.9.32" in str(t.get("title") or "") and t.get("added_by") == "judge"
+    ]
+    assert len(version_titles) == 1
+    assert "runtime probe" in version_titles[0]
+
+
+def test_dedup_drops_shorter_when_longer_already_on_board(tmp_path, monkeypatch):
+    """A judge re-derivation whose title is a prefix of an existing requirement
+    is refused even when the check differs."""
+    existing = _task(
+        "E1", "validated",
+        title="Active plugin version is explicitly verified as 1.9.32 in a runtime probe or test",
+        check="pytest -k probe",
+        added_by="agent",
+    )
+    rederive = {
+        "title": "Active plugin version is explicitly verified as 1.9.32",
+        "check": "grep 1.9.32 plugin.json",
+    }
+    spec = _single_pending(tmp_path, monkeypatch, [rederive], extra=[existing])
+    spec, _ = auto_validate_spec(spec, str(tmp_path))
+    judge_added = [
+        t for t in spec["tasks"]
+        if t.get("added_by") == "judge" and "1.9.32" in str(t.get("title") or "")
+    ]
+    assert judge_added == []
+
+
 def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
     """End-to-end: once the judge can see a covering requirement in
     current_requirements it stops re-deriving it, so auto_validate converges and the
@@ -342,7 +412,7 @@ def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
         # Re-derive the covering requirement (distinct check) unless already visible.
         want = {"title": "no duplicate judge or hint", "check": "pytest -k rederived"}
         new = [] if want["title"].lower() in titles else [want]
-        return (1, "ok", new, "", "")
+        return (1, "ok", new, "")
     monkeypatch.setattr(spec_mod, "judge_task", judge_via_payload)
 
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))

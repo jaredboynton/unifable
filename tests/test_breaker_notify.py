@@ -37,7 +37,7 @@ class _Judge:
     def __call__(self, system, user, schema):
         s = system.lower()
         if "provisional-lift monitor" in s:
-            return {"drift_level": 0, "hint": "", "corrective": ""}
+            return {"drift_level": 0, "feedback": ""}
         if "release monitor" in s:
             self.disarm_calls += 1
             if self.grounded:

@@ -702,15 +702,14 @@ def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
     tid = str(task.get("id") or "")
     headlines: list[str] = []
     task["attempts"] = int(task.get("attempts") or 0) + 1
-    verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
+    verdict, reason = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
     task["judge_verdict"] = verdict
     task["judge_reason"] = reason
-    task["judge_hint"] = hint
     task["status"] = "retracted" if verdict == 1 else "failed"
     if verdict != 1:
         notify_spec_update(
             spec, f"Dispute rejected for {tid}.",
-            highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
+            highlight_task=tid,
         )
         headlines.append(f"{tid}: dispute rejected")
     else:
@@ -719,7 +718,7 @@ def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
             headline += " Completion breaker open."
         notify_spec_update(
             spec, headline,
-            highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
+            highlight_task=tid,
         )
         headlines.append(headline)
     return headlines
@@ -747,6 +746,65 @@ def _normalize_title(title: Any) -> str:
     that the byte-identical (title, check) pair check misses."""
     base = _TITLE_PARENS_RE.sub("", str(title or "").strip())
     return " ".join(base.lower().split())
+
+
+# Purpose-level duplicate: one normalized title extends the other (same obligation,
+# extra qualifier). Requires a minimum length so "verify auth" does not match
+# "verify auth token expiry in integration tests".
+_PURPOSE_DEDUP_MIN_LEN = 24
+_PURPOSE_DEDUP_MIN_CONTAINMENT = 0.65
+
+
+def _titles_purpose_duplicate(norm_a: str, norm_b: str) -> bool:
+    if not norm_a or not norm_b:
+        return False
+    if norm_a == norm_b:
+        return True
+    short, long = (norm_a, norm_b) if len(norm_a) <= len(norm_b) else (norm_b, norm_a)
+    if len(short) < _PURPOSE_DEDUP_MIN_LEN:
+        return False
+    if not long.startswith(short):
+        return False
+    return (len(short) / len(long)) >= _PURPOSE_DEDUP_MIN_CONTAINMENT
+
+
+def _norm_title_conflicts(norm: str, existing: set[str]) -> bool:
+    return any(_titles_purpose_duplicate(norm, ex) for ex in existing if ex)
+
+
+def _filter_judge_new_requirements(
+    new_reqs: list[dict[str, Any]],
+    existing_pairs: set[tuple[str, str]],
+    existing_norm_titles: set[str],
+) -> list[dict[str, Any]]:
+    """Drop purpose-duplicates against the board and within one judge response.
+
+    Prefer the longest (most specific) title when several entries cover the same
+    obligation -- e.g. 'verify version 1.9.32' vs 'verify version 1.9.32 in probe'.
+    """
+    pairs = set(existing_pairs)
+    norms = set(existing_norm_titles)
+    out: list[dict[str, Any]] = []
+    candidates = sorted(
+        new_reqs,
+        key=lambda r: len(_normalize_title(r.get("title"))),
+        reverse=True,
+    )
+    for req in candidates:
+        title = str(req.get("title") or "").strip()
+        check = str(req.get("check") or "").strip()
+        if not title or not check:
+            continue
+        pair = (title, check)
+        if pair in pairs:
+            continue
+        norm = _normalize_title(title)
+        if not norm or norm in norms or _norm_title_conflicts(norm, norms):
+            continue
+        out.append(req)
+        pairs.add(pair)
+        norms.add(norm)
+    return out
 
 
 def detect_requirement_fragmentation(spec: dict[str, Any]) -> dict[str, Any] | None:
@@ -805,7 +863,7 @@ def _apply_supersedes_bundle(
             t["superseded_by"] = new_tid
             t["judge_reason"] = base_reason
             headline = f"{sid} superseded by {new_tid} (no longer blocking)"
-        notify_spec_update(spec, headline, highlight_task=sid, judge_reason=base_reason)
+        notify_spec_update(spec, headline, highlight_task=sid)
         headlines.append(headline)
     return headlines
 
@@ -854,7 +912,7 @@ def _check_inputs_for_task(
 
 def _apply_check_result(
     spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str,
-    verdict: int, reason: str, new_reqs: list[dict[str, str]], hint: str,
+    verdict: int, reason: str, new_reqs: list[dict[str, str]],
     *,
     frontier_outcome: str = "",
 ) -> list[str]:
@@ -864,21 +922,20 @@ def _apply_check_result(
         headline = f"{tid} check revised by judge; re-validate on next stop."
         notify_spec_update(
             spec, headline,
-            highlight_task=tid, judge_reason=str(task.get("judge_reason") or ""), hint=hint,
+            highlight_task=tid,
         )
         return [headline]
     task["exit"] = exit_code
     task["output"] = output
     task["judge_verdict"] = verdict
     task["judge_reason"] = reason
-    task["judge_hint"] = hint
     kind = str(task.get("approach_kind") or "requirement")
     task["attempts"] = int(task.get("attempts") or 0) + 1
     if task.get("status") == "retracted" and task.get("added_by") == "judge":
         headline = f"{tid} retracted by judge: {str(task.get('judge_reason') or reason)[:80]}"
         notify_spec_update(
             spec, headline,
-            highlight_task=tid, judge_reason=str(task.get("judge_reason") or reason or ""), hint=hint,
+            highlight_task=tid,
         )
         return [headline]
     added: list[str] = []
@@ -898,14 +955,18 @@ def _apply_check_result(
         if isinstance(t, dict) and t.get("added_by") == "judge"
         and t.get("status") not in RESOLVED_STATUSES
     )
-    for req in new_reqs:
+    filtered_reqs = _filter_judge_new_requirements(new_reqs, existing_pairs, existing_norm_titles)
+    for req in filtered_reqs:
         if judge_unresolved >= JUDGE_MAX_UNRESOLVED_ADDED:
             break
         pair = (str(req.get("title") or "").strip(), str(req.get("check") or "").strip())
         if pair in existing_pairs:
             continue
         norm_title = _normalize_title(req.get("title"))
-        if norm_title and norm_title in existing_norm_titles:
+        if norm_title and (
+            norm_title in existing_norm_titles
+            or _norm_title_conflicts(norm_title, existing_norm_titles)
+        ):
             continue
         spec.setdefault("tasks", [])
         nt = _new_task(spec, req["title"], req["check"])
@@ -950,7 +1011,7 @@ def _apply_check_result(
             headline += f" Judge added {', '.join(added)}."
     notify_spec_update(
         spec, headline,
-        highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
+        highlight_task=tid,
     )
     return [headline] + extra_headlines
 
@@ -960,9 +1021,9 @@ def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Pa
     if task.get("status") == "disputed":
         return _apply_dispute(spec, task)
     exit_code, output = _check_inputs_for_task(task, cwd, deadline=None)
-    verdict, reason, new_reqs, hint, frontier_outcome = judge_task(spec, task, exit_code, output)
+    verdict, reason, new_reqs, frontier_outcome = judge_task(spec, task, exit_code, output)
     return _apply_check_result(
-        spec, task, exit_code, output, verdict, reason, new_reqs, hint,
+        spec, task, exit_code, output, verdict, reason, new_reqs,
         frontier_outcome=frontier_outcome,
     )
 
@@ -1019,10 +1080,10 @@ def auto_validate_spec(
 
     if items:
         verdicts = judge_tasks(spec, items)
-        for it, (verdict, reason, new_reqs, hint, frontier_outcome) in zip(items, verdicts):
+        for it, (verdict, reason, new_reqs, frontier_outcome) in zip(items, verdicts):
             messages.extend(
                 _apply_check_result(spec, it["task"], it["exit_code"], it["output"],
-                                    verdict, reason, new_reqs, hint,
+                                    verdict, reason, new_reqs,
                                     frontier_outcome=frontier_outcome)
             )
     return spec, messages
@@ -1087,9 +1148,6 @@ _JUDGE_SCHEMA = {
         # The judge may ADJUST requirements it itself added (retract or revise),
         # listed under existing_judge_requirements in the prompt.
         "adjust_requirements": _ADJUST_REQ_SCHEMA,
-        # Advisory only. A concrete next step if the agent looks stuck or is making
-        # poor judgement. NEVER changes the verdict and NEVER lifts a gate.
-        "hint": {"type": "string"},
     },
     "required": ["verdict", "reason"],
     "additionalProperties": False,
@@ -1099,16 +1157,12 @@ _DISPUTE_SCHEMA = {
     "properties": {
         "verdict": {"type": "integer", "enum": [0, 1]},
         "reason": {"type": "string"},
-        # Advisory only, same contract as _JUDGE_SCHEMA.hint.
-        "hint": {"type": "string"},
     },
     "required": ["verdict", "reason"],
     "additionalProperties": False,
 }
 
-# A dedicated, verdict-free schema for the proactive nudge path (judge_hint):
-# the model returns ONLY guidance, never a verdict, so it structurally cannot
-# resolve a task or open a breaker.
+# Proactive nudge path only (judge_hint): verdict-free schema.
 _HINT_SCHEMA = {
     "type": "object",
     "properties": {"hint": {"type": "string"}},
@@ -1116,16 +1170,11 @@ _HINT_SCHEMA = {
     "additionalProperties": False,
 }
 
-# Advisory-hint guidance shared by every judge prompt that can emit a hint. The
-# hint is forward-looking ("what to do next"), distinct from `reason` ("why this
-# verdict"), and is surfaced to the agent on a clearly-advisory channel.
-_HINT_GUIDANCE = (
-    "Separately from your verdict, if the agent appears stuck, looping, or making "
-    "poor judgement (checks that reference nonexistent files, the same failure "
-    "repeating, disputing instead of doing easy work, a spec that has fragmented), "
-    "set `hint` to ONE concrete, actionable next step to get unstuck. The hint is "
-    "ADVISORY ONLY: it never changes your verdict and never lifts any gate. Leave "
-    "it empty when you have nothing genuinely useful to add."
+_JUDGE_FEEDBACK_GUIDANCE = (
+    "The `reason` field is the ONLY feedback surfaced to the agent for this verdict. "
+    "When verdict=0, reason must explain WHY the evidence fails AND include one "
+    "concrete next step (read a specific file, fix a check, run a specific "
+    "verification). When verdict=1, reason may be a brief confirmation only."
 )
 
 _JUDGE_NEW_REQ_GUIDANCE = (
@@ -1204,7 +1253,7 @@ _JUDGE_SYSTEM = (
     "current task if you added it and its purpose is already satisfied by a validated "
     "requirement in current_requirements. Every adjustment is reported to the main "
     "model. "
-    + _HINT_GUIDANCE
+    + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _FRONTIER_JUDGE_SYSTEM = (
@@ -1219,14 +1268,14 @@ _FRONTIER_JUDGE_SYSTEM = (
     "Set verdict to 0 always (frontier resolution uses outcome, not verdict). "
     + _JUDGE_NEW_REQ_GUIDANCE
     + " "
-    + _HINT_GUIDANCE
+    + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _PRIMARY_JUDGE_SYSTEM = (
     "You are validating delivery of the evidence-backed PRIMARY fallback approach "
     "after all frontier approaches were ruled out. Return verdict 1 only if the "
     "check output proves the primary approach was implemented correctly. "
-    + _HINT_GUIDANCE
+    + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _DISCOVER_SYSTEM = (
@@ -1274,7 +1323,6 @@ _FRONTIER_JUDGE_SCHEMA = {
         "outcome": {"type": "string", "enum": ["rejected_approach", "still_viable"]},
         "reason": {"type": "string"},
         "new_requirements": _NEW_REQ_SCHEMA,
-        "hint": {"type": "string"},
     },
     "required": ["verdict", "outcome", "reason"],
     "additionalProperties": False,
@@ -1377,7 +1425,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["_revised_this_cycle"] = True
             who = "Judge" if t.get("added_by") == "judge" else "Agent req"
             headline = f"{who} requirement {tid} revised: {reason[:80]}"
-        notify_spec_update(spec, headline, highlight_task=tid, judge_reason=reason)
+        notify_spec_update(spec, headline, highlight_task=tid)
         headlines.append(headline)
     return headlines
 
@@ -1398,38 +1446,37 @@ def _judge_schema_for_task(task: dict[str, Any]) -> dict[str, Any]:
     return _JUDGE_SCHEMA
 
 
-def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, str, list[dict[str, str]], str, str]:
+def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, str, list[dict[str, str]], str]:
     verdict = 1 if isinstance(res, dict) and res.get("verdict") == 1 else 0
     reason = str(res.get("reason") or "") if isinstance(res, dict) else ""
     new_reqs = _normalize_new_requirements(res.get("new_requirements")) if isinstance(res, dict) else []
-    hint = _normalize_hint(res.get("hint")) if isinstance(res, dict) else ""
     frontier_outcome = ""
     if task and str(task.get("approach_kind") or "") == "frontier" and isinstance(res, dict):
         outcome = str(res.get("outcome") or "").strip()
         if outcome in ("rejected_approach", "still_viable"):
             frontier_outcome = outcome
         verdict = 0
-    return verdict, reason, new_reqs, hint, frontier_outcome
+    return verdict, reason, new_reqs, frontier_outcome
 
 
 def judge_task(
     spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str
-) -> tuple[int, str, list[dict[str, str]], str, str]:
+) -> tuple[int, str, list[dict[str, str]], str]:
     """Ask the judge whether a single check output validates the task.
 
-    Returns (verdict, reason, new_requirements, hint, frontier_outcome).
+    Returns (verdict, reason, new_requirements, frontier_outcome).
     frontier_outcome is 'rejected_approach' or 'still_viable' for frontier tasks."""
     try:
         from codex_judge import JudgeError, ask_structured
     except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}", [], "", ""
+        return 0, f"judge unavailable: {exc}", [], ""
     try:
         res = ask_structured(
             _judge_system_for_task(task), _judge_user(spec, task, exit_code, output),
             _judge_schema_for_task(task), schema_name="task_verdict",
         )
     except JudgeError as exc:
-        return 0, f"judge error: {exc}", [], "", ""
+        return 0, f"judge error: {exc}", [], ""
     # skip_ids blocks retract on listed ids only; revise always allowed.
     _apply_adjustments(spec, res, skip_ids=set())
     return _judge_result(res, task)
@@ -1437,7 +1484,7 @@ def judge_task(
 
 def judge_tasks(
     spec: dict[str, Any], items: list[dict[str, Any]]
-) -> list[tuple[int, str, list[dict[str, str]], str, str]]:
+) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge several (task, exit_code, output) items, batched into ONE WebSocket
     round-trip when there is more than one."""
     if not items:
@@ -1448,7 +1495,7 @@ def judge_tasks(
     try:
         from codex_judge import JudgeError, ask_structured_batch
     except ImportError as exc:  # pragma: no cover
-        return [(0, f"judge unavailable: {exc}", [], "", "") for _ in items]
+        return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
     reqs = [
         {
             "system": _judge_system_for_task(it["task"]),
@@ -1460,10 +1507,10 @@ def judge_tasks(
     ]
     results = ask_structured_batch(reqs)
     judged_ids = {str(it["task"].get("id")) for it in items}
-    out: list[tuple[int, str, list[dict[str, str]], str, str]] = []
+    out: list[tuple[int, str, list[dict[str, str]], str]] = []
     for it, res in zip(items, results):
         if isinstance(res, JudgeError):
-            out.append((0, f"judge error: {res}", [], "", ""))
+            out.append((0, f"judge error: {res}", [], ""))
         else:
             current_id = str(it["task"].get("id"))
             skip = set(judged_ids)
@@ -1572,19 +1619,18 @@ def judge_discover_frontiers(
     return added
 
 
-def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str, str]:
+def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str]:
     """Adjudicate an agent's claim that a requirement is IMPOSSIBLE.
 
     The agent has submitted `evidence` that the task cannot be satisfied. Return
-    (verdict, reason, hint): verdict 1 accepts the impossibility (the caller
-    retracts the requirement), 0 rejects it (the requirement stays open with
-    feedback). hint is advisory-only guidance (never changes the verdict). A judge
-    failure returns (0, reason, "") so an unreachable judge never auto-retracts a
+    (verdict, reason): verdict 1 accepts the impossibility (the caller retracts the
+    requirement), 0 rejects it (the requirement stays open with feedback). A judge
+    failure returns (0, reason) so an unreachable judge never auto-retracts a
     requirement -- impossibility must be earned, not granted by default."""
     try:
         from codex_judge import JudgeError, ask_structured
     except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}", ""
+        return 0, f"judge unavailable: {exc}"
     system = (
         "You are a strict adjudicator. An agent claims a REQUIRED task is impossible "
         "and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely "
@@ -1594,7 +1640,7 @@ def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> 
         "work; in reason, tell the agent bluntly what real proof would be required. "
         "Do not accept a claim that work is 'complete' here -- this is only about "
         "whether the requirement is genuinely impossible. "
-        + _HINT_GUIDANCE
+        + _JUDGE_FEEDBACK_GUIDANCE
     )
     user = json.dumps({
         "goal": spec.get("restated_goal", ""),
@@ -1606,11 +1652,10 @@ def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> 
     try:
         res = ask_structured(system, user, _DISPUTE_SCHEMA, schema_name="dispute_verdict")
     except JudgeError as exc:
-        return 0, f"judge error: {exc}", ""
+        return 0, f"judge error: {exc}"
     return (
         1 if res.get("verdict") == 1 else 0,
         str(res.get("reason") or ""),
-        _normalize_hint(res.get("hint")),
     )
 
 

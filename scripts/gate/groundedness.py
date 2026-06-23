@@ -89,10 +89,95 @@ _HARNESS_SELF_REF_RE = re.compile(
     re.I,
 )
 
+# Evidence-spec task board narration (T7 validated, [OK] T7, breaker OPEN, etc.).
+_TASK_BOARD_STATUS_CLAIM_RE = re.compile(
+    r"(?:"
+    r"\bT\d+\b[^\n.]{0,100}\b(?:validated|retracted|failed|disputed|superseded|"
+    r"\[OK\]|\[XX\]|\[--\]|\[~~\]|flipped\s+to|already\s+(?:done|validated|ok))"
+    r"|(?:validated|retracted|failed|\[OK\]|\[XX\]|already\s+(?:done|validated))"
+    r"[^\n.]{0,60}\bT\d+\b"
+    r"|breaker\s*:\s*(?:OPEN|CLOSED)"
+    r"|all\s+tasks\s+validated"
+    r"|completion\s+breaker\s+(?:open|closed)"
+    r"|task\s+board"
+    r"|judge\s+(?:accepted|rejected)\s+(?:the\s+)?evidence"
+    r")",
+    re.I,
+)
+
+_TASK_ID_RE = re.compile(r"\bT(\d+)\b", re.I)
+
+_SPEC_BOARD_BEGIN = "=== EVIDENCE SPEC BOARD (authoritative task status) ==="
+_SPEC_BOARD_END = "=== END EVIDENCE SPEC BOARD ==="
+_SPEC_BOARD_MAX = 12_000
+_USER_GOAL_MAX = 400
+
 
 def is_harness_self_referential(text: str) -> bool:
-    """True when text is about unifable gate/hook state -- not verifiable externally."""
-    return bool(_HARNESS_SELF_REF_RE.search(str(text or "")))
+    """True when text is about unifable gate/hook/spec-board state."""
+    t = str(text or "")
+    if _HARNESS_SELF_REF_RE.search(t):
+        return True
+    return is_task_board_status_claim(t)
+
+
+def is_task_board_status_claim(text: str) -> bool:
+    """True when text asserts evidence-spec task status (T7 validated, breaker OPEN, etc.)."""
+    return bool(_TASK_BOARD_STATUS_CLAIM_RE.search(str(text or "")))
+
+
+def _task_ids_in_text(text: str) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for m in _TASK_ID_RE.finditer(str(text or "")):
+        tid = f"T{m.group(1)}"
+        if tid not in seen:
+            seen.add(tid)
+            out.append(tid)
+    return out
+
+
+def _extract_spec_board(segment: str) -> str:
+    begin = str(segment or "").find(_SPEC_BOARD_BEGIN)
+    if begin < 0:
+        return ""
+    start = begin + len(_SPEC_BOARD_BEGIN)
+    end = segment.find(_SPEC_BOARD_END, start)
+    body = segment[start:end if end >= 0 else None].strip()
+    return body
+
+
+def _claim_supported_by_spec_board(claim: str, segment: str) -> bool:
+    """True when an evidence-spec status claim matches the injected board snapshot."""
+    if not is_task_board_status_claim(claim):
+        return False
+    board = _extract_spec_board(segment)
+    if not board:
+        return False
+    claim_l = claim.lower()
+    for tid in _task_ids_in_text(claim):
+        tid_pat = re.escape(tid)
+        if re.search(rf"\[OK\]\s*{tid_pat}\b", board, re.I):
+            if re.search(r"\b(valid|ok|done|accept|pass|flip)", claim_l):
+                return True
+        if re.search(rf"\[XX\]\s*{tid_pat}\b", board, re.I):
+            if re.search(r"\b(fail|reject|xx|not\s+valid)", claim_l):
+                return True
+        if re.search(rf"\[~~\]\s*{tid_pat}\b", board, re.I):
+            if re.search(r"\b(retract|impossib)", claim_l):
+                return True
+        if re.search(rf"\[--\]\s*{tid_pat}\b", board, re.I):
+            if re.search(r"\b(pending|open|not\s+yet)", claim_l):
+                return True
+    if re.search(r"breaker\s*:\s*OPEN", board, re.I) and re.search(
+        r"breaker\s*(?:open|all\s+tasks\s+validated)", claim_l
+    ):
+        return True
+    if re.search(r"breaker\s*:\s*CLOSED", board, re.I) and re.search(
+        r"breaker\s*closed", claim_l
+    ):
+        return True
+    return False
 
 
 _JUDGE_SCHEMA: dict[str, Any] = {
@@ -261,22 +346,16 @@ _MONITOR_SCHEMA: dict[str, Any] = {
                 "over 2."
             ),
         },
-        "hint": {
+        "feedback": {
             "type": "string",
             "description": (
-                "When drift_level=1, ONE concrete advisory nudge (ADVISORY ONLY -- it never blocks). "
-                "Empty when drift_level is 0 or 2."
-            ),
-        },
-        "corrective": {
-            "type": "string",
-            "description": (
-                "When drift_level=2, 1-2 sentences re-arming guidance: what veered egregiously and "
-                "what to do instead. Empty when drift_level is 0 or 1."
+                "When drift_level=1, ONE concrete advisory nudge (never blocks). "
+                "When drift_level=2, 1-2 sentences re-arming guidance. "
+                "Empty when drift_level=0."
             ),
         },
     },
-    "required": ["drift_level", "hint", "corrective"],
+    "required": ["drift_level", "feedback"],
     "additionalProperties": False,
 }
 
@@ -298,9 +377,11 @@ _JUDGE_SYSTEM = (
     "load-bearing or retracts the claim, load_bearing=0. "
     "HARNESS SELF-REFERENCE (never arm): Claims about unifable/fablize ITSELF -- whether the run "
     "is waived under LIGHT/quick mode, whether the evidence spec is satisfied, whether a "
-    "provisional lift exists, what a PreToolUse/Stop hook message means, or whether edits are "
-    "currently allowed -- are self-referential. The model cannot verify gate state by fetching "
-    "unifable docs or inferring from plugin reload messages. Set load_bearing=0 and verdict=0; "
+    "provisional lift exists, what a PreToolUse/Stop hook message means, whether edits are "
+    "currently allowed, OR narration of evidence-spec TASK BOARD status (T7 validated, "
+    "[OK] T7, breaker OPEN/CLOSED, task validated this cycle) -- are self-referential. "
+    "The segment includes an EVIDENCE SPEC BOARD block when a spec exists; use it to "
+    "verify task status instead of arming. Set load_bearing=0 and verdict=0; "
     "steering MUST be empty. Only arm on claims about the USER's repo, external systems, or "
     "domain facts the user asked about. "
     "(B) UNGROUNDED CONFIDENT ASSERTION? Only if load_bearing=1, ask whether the model asserted a "
@@ -391,15 +472,13 @@ _MONITOR_SYSTEM = (
     "empirical steps that already produced valid tool output when the imminent tool is downstream "
     "verification or goal progress. "
     "Set drift_level=1 for minor drift worth an advisory nudge (slightly outside lift_scope but still "
-    "goal-adjacent). Write ONE concrete hint; it is ADVISORY ONLY and never blocks. "
+    "goal-adjacent). Write ONE concrete message in feedback; it is ADVISORY ONLY and never blocks. "
     "Set drift_level=2 ONLY for egregious off-track work: clearly unrelated refactors, new confident "
-    "ungrounded claims, or abandoning verification entirely. Write corrective re-arming guidance. "
-    "When uncertain, prefer drift_level=0 or 1 over 2. When drift_level=0, hint and corrective MUST "
-    "be empty. When drift_level=1, corrective MUST be empty. When drift_level=2, hint MUST be empty. "
+    "ungrounded claims, or abandoning verification entirely. Write re-arming guidance in feedback. "
+    "When uncertain, prefer drift_level=0 or 1 over 2. When drift_level=0, feedback MUST be empty. "
     "Call the function once."
 )
 
-_USER_GOAL_MAX = 400
 _SCOPE_HINT_PREFIX = "Hint: "
 
 
@@ -453,23 +532,44 @@ def judge_transcript(
     fresh_tool: str | None = None,
     max_tokens: int = _TRANSCRIPT_TOKEN_BUDGET,
 ) -> str:
-    """Merged judge input: breaker events + host transcript tail + optional fresh tool block."""
-    parts: list[str] = []
+    """Merged judge input: breaker events + transcript tail + spec board + fresh tool.
+
+    The spec board and fresh tool output are reserved at the end so tail truncation
+    does not drop authoritative task status.
+    """
+    from transcript_tail import MAX_CHARS_PER_TOKEN
+
+    head_parts: list[str] = []
     rendered = render_events(events)
     if rendered:
-        parts.append(rendered.rstrip())
-    host = transcript_segment(input_data, max_tokens=max_tokens)
-    if host:
-        parts.append(host.rstrip())
+        head_parts.append(rendered.rstrip())
+
+    board = _spec_board_block(input_data)
+    tail_parts: list[str] = []
+    if board:
+        tail_parts.append(board.rstrip())
     if fresh_tool and fresh_tool.strip():
-        parts.append(
+        tail_parts.append(
             '<record line="000000" type="fresh_tool" role="tool">\n'
             + fresh_tool.strip()
             + "\n</record>"
         )
-    if not parts:
+
+    reserve_chars = sum(len(p) + 2 for p in tail_parts)
+    host_budget_chars = max(
+        2000,
+        (max_tokens * MAX_CHARS_PER_TOKEN) - reserve_chars - sum(len(p) + 2 for p in head_parts),
+    )
+    host = transcript_segment(input_data, max_tokens=max_tokens)
+    if host:
+        if len(host) > host_budget_chars:
+            host = host[-host_budget_chars:]
+        head_parts.append(host.rstrip())
+
+    if not head_parts and not tail_parts:
         return ""
-    return tail_tokens("\n\n".join(parts), max_tokens)
+    combined = "\n\n".join(head_parts + tail_parts)
+    return tail_tokens(combined, max_tokens)
 
 
 JudgeFn = Callable[[str, str, dict], dict]
@@ -522,23 +622,51 @@ def arm_judge(
         verdict = 0
     steering = str(obj.get("steering", "") or "") if verdict == 1 else ""
     claim = str(obj.get("claim", "") or "") if verdict == 1 else ""
+    if verdict == 1 and _claim_supported_by_spec_board(claim, segment):
+        return 0, "", ""
     if verdict == 1 and (
-        is_harness_self_referential(claim) or is_harness_self_referential(steering)
+        is_harness_self_referential(claim)
+        or is_harness_self_referential(steering)
+        or is_task_board_status_claim(claim)
     ):
         return 0, "", ""
     return verdict, steering, claim
 
 
+def _spec_board_block(input_data: dict) -> str:
+    """Current evidence-spec task board for breaker judges (authoritative status)."""
+    try:
+        from model_notify import format_spec_status
+        from spec import canonical_project_root, load_spec, resolve_session_id
+
+        cwd = canonical_project_root(input_data.get("cwd") or os.getcwd())
+        session_key = resolve_session_id(input_data, default=None)
+        if not session_key:
+            return ""
+        spec = load_spec(cwd, session_key)
+        if not spec:
+            return ""
+        board = format_spec_status(spec, collapse_resolved=True)
+        if not board.strip():
+            return ""
+        body = f"{_SPEC_BOARD_BEGIN}\n{board}\n{_SPEC_BOARD_END}"
+        if len(body) > _SPEC_BOARD_MAX:
+            body = body[: _SPEC_BOARD_MAX - 24] + "\n(spec board truncated)\n" + _SPEC_BOARD_END
+        return body
+    except Exception:
+        return ""
+
+
 def _user_goal_block(input_data: dict, active_task: str) -> str:
     """Best-effort restated goal from the session spec for judge context."""
     try:
-        from spec import canonical_project_root, load_spec
+        from spec import canonical_project_root, load_spec, resolve_session_id
 
         cwd = canonical_project_root(input_data.get("cwd") or os.getcwd())
-        task_key = str(active_task or "").strip()
-        if not task_key:
+        session_key = resolve_session_id(input_data, default=None)
+        if not session_key:
             return ""
-        spec = load_spec(cwd, task_key)
+        spec = load_spec(cwd, session_key)
         if not spec:
             return ""
         goal = str(spec.get("restated_goal") or "").strip()
@@ -560,6 +688,8 @@ def disarm_judge(
 ) -> ReleaseVerdict:
     if not segment.strip():
         return ReleaseVerdict(False, "", True, False, "", "")
+    if _claim_supported_by_spec_board(claim, segment):
+        return ReleaseVerdict(True, "", False, False, "", "")
     if is_harness_self_referential(claim):
         return ReleaseVerdict(True, "", False, False, "", "")
     fn = judge or _default_judge
@@ -592,9 +722,9 @@ def monitor_provisional_judge(
     user_goal: str = "",
     judge: JudgeFn | None = None,
 ) -> tuple[int, str, str]:
-    """Returns (drift_level, corrective, hint). drift_level 0=on track, 1=hint only, 2=re-arm."""
+    """Returns (drift_level, feedback). drift_level 0=on track, 1=advisory, 2=re-arm."""
     if not segment.strip():
-        return 0, "", ""
+        return 0, ""
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
     prefix = (
@@ -606,9 +736,8 @@ def monitor_provisional_judge(
     drift = int(obj.get("drift_level", 0) or 0)
     if drift not in (0, 1, 2):
         drift = 0
-    hint = str(obj.get("hint", "") or "").strip() if drift == 1 else ""
-    corrective = str(obj.get("corrective", "") or "").strip() if drift == 2 else ""
-    return drift, corrective, hint
+    feedback = str(obj.get("feedback", "") or "").strip() if drift in (1, 2) else ""
+    return drift, feedback
 
 
 def _provisional_lift_message(reason: str, scope: str) -> str:
@@ -762,16 +891,16 @@ def evaluate_pre_tool(
             if state.get("breaker_provisional") and is_mutation_tool(tool):
                 scope = str(state.get("breaker_lift_scope") or "")
                 if claim and scope:
-                    drift, corrective, hint = monitor_provisional_judge(
+                    drift, feedback = monitor_provisional_judge(
                         claim, scope, segment, tool, user_goal=user_goal, judge=judge,
                     )
                     if drift == 2:
-                        append_event(state, "REINSTATE", claim=claim, corrective=corrective)
-                        reinstate(state, claim, corrective or "Return to the verification scope.")
-                        return True, corrective or "Return to the verification scope.", ""
-                    if drift == 1 and hint:
-                        append_event(state, "SCOPE_HINT", claim=claim, hint=hint)
-                        hint_msg = f"{_SCOPE_HINT_PREFIX}{hint}"
+                        append_event(state, "REINSTATE", claim=claim, corrective=feedback)
+                        reinstate(state, claim, feedback or "Return to the verification scope.")
+                        return True, feedback or "Return to the verification scope.", ""
+                    if drift == 1 and feedback:
+                        append_event(state, "SCOPE_HINT", claim=claim, hint=feedback)
+                        hint_msg = f"{_SCOPE_HINT_PREFIX}{feedback}"
                         existing = str(state.get("breaker_pending_notify") or "")
                         state["breaker_pending_notify"] = (
                             f"{existing}\n{hint_msg}".strip() if existing else hint_msg

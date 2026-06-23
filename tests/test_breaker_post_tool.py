@@ -37,7 +37,7 @@ class ScriptedReleaseJudge:
     def __call__(self, system, user, schema):
         self.calls += 1
         if "provisional-lift monitor" in system.lower():
-            return {"drift_level": 0, "hint": "", "corrective": ""}
+            return {"drift_level": 0, "feedback": ""}
         lb = 1
         if self.grounded:
             return {

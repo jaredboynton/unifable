@@ -58,8 +58,7 @@ class RoutingJudge:
         lift_reason="",
         lift_scope="",
         monitor_drift_level=0,
-        monitor_hint="",
-        monitor_corrective="",
+        monitor_feedback="",
     ):
         self.arm_ret = arm
         self.grounded = grounded
@@ -70,8 +69,7 @@ class RoutingJudge:
         self.lift_reason = lift_reason
         self.lift_scope = lift_scope
         self.monitor_drift_level = monitor_drift_level
-        self.monitor_hint = monitor_hint
-        self.monitor_corrective = monitor_corrective
+        self.monitor_feedback = monitor_feedback
         self.arm_calls = 0
         self.disarm_calls = 0
         self.monitor_calls = 0
@@ -81,10 +79,10 @@ class RoutingJudge:
             self.monitor_calls += 1
             drift = self.monitor_drift_level
             if drift == 1:
-                return {"drift_level": 1, "hint": self.monitor_hint, "corrective": ""}
+                return {"drift_level": 1, "feedback": self.monitor_feedback}
             if drift == 2:
-                return {"drift_level": 2, "hint": "", "corrective": self.monitor_corrective}
-            return {"drift_level": 0, "hint": "", "corrective": ""}
+                return {"drift_level": 2, "feedback": self.monitor_feedback}
+            return {"drift_level": 0, "feedback": ""}
         if "release monitor" in system.lower():
             self.disarm_calls += 1
             lb = self.release_load_bearing
@@ -317,6 +315,22 @@ def test_arm_prompt_skips_host_error_speculation_while_editing_repo():
     assert "not load-bearing" in sysp or "load_bearing=0" in sysp
 
 
+def test_completion_stall_circuit_breaker_backstop_releases():
+    """The completion breaker is a bounded circuit breaker: on a stalled
+    (no-net-progress) run of blocks it trips and releases Stop instead of
+    trapping the session. Covers the unsat-budget stall-release backstop
+    (stall / backstop / circuit)."""
+    import verify_state as vs
+
+    led: dict = {}
+    released = any(
+        vs.note_completion_block(led, 8)  # constant incomplete count -> stalled
+        for _ in range(vs.COMPLETION_MAX_STALLED_BLOCKS + 1)
+    )
+    assert released is True
+    assert int(led["completion_stall_blocks"]) >= vs.COMPLETION_MAX_STALLED_BLOCKS
+
+
 def test_non_load_bearing_explanation_does_not_arm(monkeypatch):
     monkeypatch.setattr(
         gb,
@@ -396,6 +410,93 @@ def test_is_harness_self_referential_detects_gate_waiver_claims():
     assert gb.is_harness_self_referential("quick/LIGHT mode waives the spec gate")
     assert gb.is_harness_self_referential("a provisional lift exists for this run")
     assert not gb.is_harness_self_referential("LinkedIn returns contentHtml in the response")
+
+
+def test_is_task_board_status_claim_detects_validated_narration():
+    assert gb.is_task_board_status_claim("T7 already flipped to [OK] this cycle")
+    assert gb.is_task_board_status_claim("skip T9 because T7 is validated")
+    assert gb.is_task_board_status_claim("breaker: OPEN (all tasks validated)")
+    assert not gb.is_task_board_status_claim("fix validation logic in spec.py")
+
+
+def test_arm_judge_rejects_task_board_status_claim():
+    def bad_judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "read the authoritative spec state",
+            "claim": "T7 already flipped to [OK] this cycle",
+            "load_bearing": 1,
+        }
+
+    board = (
+        f"{gb._SPEC_BOARD_BEGIN}\n"
+        "goal: ship\n  [OK] T7 (req) version probe\nbreaker: CLOSED (1 left: T9)\n"
+        f"{gb._SPEC_BOARD_END}"
+    )
+    verdict, steering, claim = gb.arm_judge(f"transcript\n\n{board}", judge=bad_judge)
+    assert verdict == 0 and steering == "" and claim == ""
+
+
+def test_arm_judge_no_arm_when_board_confirms_validated():
+    def bad_judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "should not appear",
+            "claim": "T7 is validated and complete",
+            "load_bearing": 1,
+        }
+
+    board = (
+        f"{gb._SPEC_BOARD_BEGIN}\n"
+        "goal: ship\n  [OK] T7 (req) version probe\nbreaker: CLOSED (1 left: T9)\n"
+        f"{gb._SPEC_BOARD_END}"
+    )
+    verdict, steering, claim = gb.arm_judge(f"assistant said T7 done\n\n{board}", judge=bad_judge)
+    assert verdict == 0 and steering == "" and claim == ""
+
+
+def test_disarm_judge_releases_task_board_status_claim():
+    board = (
+        f"{gb._SPEC_BOARD_BEGIN}\n"
+        "goal: ship\n  [XX] T7 (req) version probe\nbreaker: CLOSED (1 left: T7)\n"
+        f"{gb._SPEC_BOARD_END}"
+    )
+
+    def bad_judge(system, user, schema):
+        return {
+            "grounded": 0,
+            "needed": "read spec.json",
+            "load_bearing": 1,
+            "provisional_release": 0,
+            "lift_reason": "",
+            "lift_scope": "",
+        }
+
+    verdict = gb.disarm_judge(
+        "T7 already flipped to [OK] this cycle",
+        f"transcript\n\n{board}",
+        judge=bad_judge,
+    )
+    assert verdict.grounded is True and verdict.needed == ""
+
+
+def test_judge_transcript_includes_spec_board(tmp_path, monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "host transcript")
+    spec_path_root = tmp_path / "specs"
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+
+    def fake_board(input_data):
+        return (
+            f"{gb._SPEC_BOARD_BEGIN}\n"
+            "goal: g\n  [OK] T7 (req) done\nbreaker: OPEN\n"
+            f"{gb._SPEC_BOARD_END}"
+        )
+
+    monkeypatch.setattr(gb, "_spec_board_block", fake_board)
+    seg = gb.judge_transcript({"session_id": "S", "cwd": str(tmp_path)}, [])
+    assert "host transcript" in seg
+    assert gb._SPEC_BOARD_BEGIN in seg
+    assert "[OK] T7" in seg
 
 
 def test_disarm_judge_releases_when_not_load_bearing():
@@ -657,7 +758,7 @@ def test_provisional_monitor_reinstates_on_egregious_drift(monkeypatch):
     judge = RoutingJudge(
         grounded=0,
         monitor_drift_level=2,
-        monitor_corrective="Stop unrelated refactors.",
+        monitor_feedback="Stop unrelated refactors.",
     )
     blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is True
@@ -677,7 +778,7 @@ def test_provisional_monitor_hints_on_minor_drift(monkeypatch):
     judge = RoutingJudge(
         grounded=0,
         monitor_drift_level=1,
-        monitor_hint="Consider citing the Chromium IV from source.",
+        monitor_feedback="Consider citing the Chromium IV from source.",
     )
     blocked, _, notify = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False
@@ -694,7 +795,7 @@ def test_provisional_disarm_on_pre_tool_after_grounding(monkeypatch):
     state = _state()
     lift_provisional(state, "claim X", "reason", "scope", "")
     state["breaker_key"] = gb.breaker_key("S", "P")
-    judge = RoutingJudge(grounded=1, monitor_drift_level=2, monitor_corrective="should not run")
+    judge = RoutingJudge(grounded=1, monitor_drift_level=2, monitor_feedback="should not run")
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False
     assert state["breaker_provisional"] is False

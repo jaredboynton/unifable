@@ -67,7 +67,7 @@ def test_auto_validate_accepts_dispute_and_retracts(tmp_path, monkeypatch):
     args = _seed(tmp_path)
     args.evidence = "proven impossible"
     _cmd_dispute(args)
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (1, "genuinely impossible", ""))
+    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (1, "genuinely impossible"))
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "retracted"
 
@@ -79,7 +79,7 @@ def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_task",
-        lambda sp, t, ec, out: (1, "ok", [{"title": "also handle errors", "check": "true"}], "", ""),
+        lambda sp, t, ec, out: (1, "ok", [{"title": "also handle errors", "check": "true"}], ""),
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     tasks = spec["tasks"]
@@ -135,6 +135,6 @@ def test_end_to_end_add_task_and_auto_validate(tmp_path, monkeypatch):
     ok, reasons = validate_spec(s, "STANDARD", require_evidence=True)
     assert ok, reasons
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_task", lambda sp, t, ec, out: (1, "ok", [], "", ""))
+    monkeypatch.setattr(spec_mod, "judge_task", lambda sp, t, ec, out: (1, "ok", [], ""))
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert all_tasks_validated(spec) == (True, [])
