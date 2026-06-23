@@ -33,10 +33,37 @@ AMBIGUOUS_RE = re.compile(
     r"not sure|not quite sure|not entirely sure|not certain|i'm not sure)\b)|"
     r"아마|잘 모르|모르겠|확실하지 않|불확실|애매|긴가민가"
 )
+OPS_PROSE_RE = re.compile(
+    r"(?i)\b("
+    r"dispatch|customer dispatch|briefing|confluence|roll-up|rollup|"
+    r"send-out-ready|send out ready|voice pipeline|revoice|read-only distillation|"
+    r"report synthesis|working notes|executive summary|highlights section"
+    r")\b"
+)
+_OPERATIVE_MAX_CHARS = 4096
+_USER_TURN_MARKERS = ("\n❯ ", "\n> ", "\nuser:", "\nUSER:")
 
 
-def classify_prompt(prompt: str) -> tuple[str, list[str]]:
-    text = prompt or ""
+def operative_prompt(prompt: str, *, max_chars: int = _OPERATIVE_MAX_CHARS) -> str:
+    """Return the user's operative instruction, not pasted corpus/tool output.
+
+    Prefer text after the final user-turn marker; otherwise the trailing slice of
+    the prompt. Risk/deep regexes must run on this slice only."""
+    text = (prompt or "").strip()
+    if not text:
+        return ""
+    chunk = text
+    for marker in _USER_TURN_MARKERS:
+        idx = text.rfind(marker)
+        if idx >= 0:
+            chunk = text[idx + len(marker):].strip()
+            break
+    if len(chunk) > max_chars:
+        chunk = chunk[-max_chars:]
+    return chunk
+
+
+def _classify_operative(text: str) -> tuple[str, list[str]]:
     lowered = text.lower()
     risks: list[str] = []
     if "production" in lowered or "배포" in text:
@@ -69,14 +96,22 @@ def classify_prompt(prompt: str) -> tuple[str, list[str]]:
     return "quick", risks
 
 
+def classify_prompt(prompt: str) -> tuple[str, list[str]]:
+    text = operative_prompt(prompt)
+    mode, risks = _classify_operative(text)
+    if OPS_PROSE_RE.search(text) and mode in ("deep", "quick"):
+        return "normal", risks
+    return mode, risks
+
+
 # Map the observation-gate mode onto the spec-gate grade tier. quick work is
 # LIGHT (spec waived), normal is STANDARD (full spec), deep is HEAVY (adds
 # architectural constraints + >=2 rejected alternatives). The mapping itself now
 # lives in scripts/gate/evidence_policy.py; HEAVY uses frontier-first workflow.
 try:  # bare import on sys.path (hooks + tests); package import otherwise
-    from evidence_policy import MODE_TO_GRADE as GRADE_BY_MODE, grade_for_mode
+    from evidence_policy import grade_for_mode
 except ImportError:  # pragma: no cover
-    from scripts.gate.evidence_policy import MODE_TO_GRADE as GRADE_BY_MODE, grade_for_mode
+    from scripts.gate.evidence_policy import grade_for_mode
 
 
 def grade_of(mode: str) -> str:

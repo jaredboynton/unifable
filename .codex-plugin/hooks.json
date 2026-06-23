@@ -12,6 +12,12 @@
         ]
       },
       {
+        "matcher": "(?i)(manual override|overriding heavy|override heavy|this is a normal task|waive heavy|not heavy|downgrade heavy)",
+        "hooks": [
+          { "type": "command", "command": "python3 \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/gate_prompt_grade_override.py\"", "statusMessage": "unifable: grade override judge", "timeout": 95 }
+        ]
+      },
+      {
         "hooks": [
           { "type": "command", "command": "python3 \"${PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT}}/hooks/gate_prompt_effort.py\"", "statusMessage": "unifable: effort-gated playbook injection", "timeout": 10 }
         ]

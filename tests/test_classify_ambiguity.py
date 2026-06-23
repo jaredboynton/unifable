@@ -29,6 +29,8 @@ CASES = [
     ("implement the login form", "normal", False),
     ("just explain how this works", "quick", False),
     ("fix the failing test", "normal", False),
+    # pasted corpus must not force deep when operative ask is prose ops
+    ("production pilot " * 50 + "\n❯ cache dispatch send-out-ready", "normal", False),
     # bare 'should' is imperative, NOT uncertainty (precision guard)
     ("you should add a test for this", "normal", False),
 ]

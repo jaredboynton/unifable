@@ -64,6 +64,13 @@ def _ensure_spec_scaffold(cwd: str, key: str, prompt: str, *, heavy: bool = Fals
 
 
 def main() -> int:
+    try:
+        from cli_install import ensure_cli
+
+        ensure_cli()
+    except Exception:
+        pass
+
     input_data = read_stdin_json()
     prompt = str(input_data.get("prompt") or input_data.get("user_prompt") or "")
     mode, risks = classify_prompt(prompt)

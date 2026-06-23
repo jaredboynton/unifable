@@ -416,6 +416,10 @@ def main() -> int:
         try:
             from spec import all_tasks_validated, load_spec, resolve_session_id, validate_spec
 
+            ledger = load_ledger(input_data)
+            if ledger.get("grade_override_applied"):
+                grade = "STANDARD"
+
             # Spec key = the session (one spec per directory+session). None ->
             # nothing resolvable -> fail open (skip the gate).
             task_key = resolve_session_id(input_data, default=None)

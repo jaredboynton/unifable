@@ -22,6 +22,16 @@
         ]
       },
       {
+        "matcher": "(?i)(manual override|overriding heavy|override heavy|this is a normal task|waive heavy|not heavy|downgrade heavy)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_prompt_grade_override.py\"",
+            "timeout": 95
+          }
+        ]
+      },
+      {
         "matcher": "",
         "hooks": [
           {

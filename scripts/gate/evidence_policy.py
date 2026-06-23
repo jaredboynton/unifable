@@ -20,9 +20,10 @@ live in exactly one place:
 
 Precedence for the effective grade (resolve_grade):
   1. a valid UNIFABLE_GRADE override (env_grade arg),
-  2. the active task's task_mode -> derived grade (only when active_task is set),
-  3. legacy ledger['grade'] (old ledgers predating this module),
-  4. STANDARD.
+  2. ledger grade_override_applied + task_mode (operator judge downgrade),
+  3. the active task's task_mode -> derived grade (only when active_task is set),
+  4. legacy ledger['grade'] (old ledgers predating this module),
+  5. STANDARD.
 
 Host-agnostic: no Claude-only or Codex-only imports. GRADES is owned by spec.py
 (the validation layer); this module imports it rather than minting a second list.
@@ -125,6 +126,11 @@ def resolve_grade(ledger: dict[str, Any] | None, env_grade: Any = None) -> str:
         return env
 
     ledger = ledger if isinstance(ledger, dict) else {}
+
+    if ledger.get("grade_override_applied"):
+        mode = (ledger.get("task_mode") or "").lower().strip()
+        if mode in MODE_TO_GRADE:
+            return MODE_TO_GRADE[mode]
 
     # Derive from the active task's classification. Gating on active_task keeps a
     # fresh/never-classified ledger (no prompt processed yet) at the STANDARD

@@ -119,6 +119,16 @@ def test_active_task_with_invalid_mode_falls_back_to_legacy_grade():
     assert resolve_grade({"active_task": "k", "task_mode": "weird", "grade": "HEAVY"}) == "HEAVY"
 
 
+def test_grade_override_beats_active_task_deep():
+    ledger = {
+        "active_task": "k",
+        "task_mode": "normal",
+        "grade_override_applied": True,
+        "grade": "HEAVY",
+    }
+    assert resolve_grade(ledger) == "STANDARD"
+
+
 def test_resolve_policy_carries_task_mode():
     pol = resolve_policy({"active_task": "k", "task_mode": "deep"})
     assert pol.grade == "HEAVY" and pol.task_mode == "deep"
