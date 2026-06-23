@@ -53,21 +53,21 @@ def test_format_spec_status_shows_board_and_highlight_judge():
     assert "breaker: CLOSED" in text
 
 
-def test_notify_spec_update_emits_prefixes_and_full_judge():
-    spec = _sample_spec()
+def test_notify_spec_update_emits_headline_and_board_only():
+    spec = _sample_spec(judge_reason=LONG_JUDGE)
     buf = io.StringIO()
     with redirect_stderr(buf):
         mn.notify_spec_update(
             spec,
             "T1 check ran (exit 2); judge rejected the evidence.",
             highlight_task="T1",
-            judge_reason=LONG_JUDGE,
         )
     err = buf.getvalue()
     assert mn.NOTIFY_PREFIX in err
     assert mn.STATUS_PREFIX in err
-    assert mn.JUDGE_PREFIX in err
-    assert LONG_JUDGE in err
+    assert mn.JUDGE_PREFIX not in err
+    assert mn.HINT_PREFIX not in err
+    assert LONG_JUDGE in err.replace("\\n", "\n")
     assert "T4 (req) Verify capsule floor" in err.replace("\\n", "\n")
 
 
@@ -79,64 +79,24 @@ def test_build_spec_context_from_output_roundtrip():
             spec,
             "T1 check ran (exit 2); judge rejected the evidence. Judge added T4.",
             highlight_task="T1",
-            judge_reason=LONG_JUDGE,
         )
     combined = "stdout noise\n" + buf.getvalue()
     ctx = mn.build_spec_context_from_output(combined)
     assert ctx.startswith("unifable spec update:")
     assert "judge rejected the evidence" in ctx
-    assert f"Judge: {LONG_JUDGE}" in ctx
+    assert "Judge:" not in ctx
+    assert "Hint:" not in ctx
+    assert LONG_JUDGE in ctx
     assert "[--] T4" in ctx
     assert "breaker: CLOSED" in ctx
 
 
-HINT = "Run `unifable-spec where` -- the spec key looks fragmented; converge on one spec before validating."
-
-
-def test_format_spec_status_shows_advisory_hint_on_highlight():
+def test_format_spec_status_ignores_legacy_judge_hint_field():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
-    spec["tasks"][0]["judge_hint"] = HINT
+    spec["tasks"][0]["judge_hint"] = "legacy hint should not render"
     text = mn.format_spec_status(spec, highlight_task="T1")
-    assert f"hint: {HINT}" in text
-    # a non-highlighted task does not leak its hint
-    spec["tasks"][1]["judge_hint"] = "other hint"
-    text2 = mn.format_spec_status(spec, highlight_task="T1")
-    assert "other hint" not in text2
-
-
-def test_notify_spec_update_emits_hint_prefix():
-    spec = _sample_spec()
-    buf = io.StringIO()
-    with redirect_stderr(buf):
-        mn.notify_spec_update(
-            spec,
-            "T1 check ran (exit 2); judge rejected the evidence.",
-            highlight_task="T1",
-            judge_reason=LONG_JUDGE,
-            hint=HINT,
-        )
-    err = buf.getvalue()
-    assert mn.HINT_PREFIX in err
-    assert HINT in err
-
-
-def test_build_spec_context_includes_advisory_hint():
-    spec = _sample_spec(judge_reason=LONG_JUDGE)
-    buf = io.StringIO()
-    with redirect_stderr(buf):
-        mn.notify_spec_update(
-            spec, "T1 rejected.", highlight_task="T1", judge_reason=LONG_JUDGE, hint=HINT
-        )
-    ctx = mn.build_spec_context_from_output("noise\n" + buf.getvalue())
-    assert f"Hint: {HINT}" in ctx
-
-
-def test_notify_spec_update_omits_hint_when_empty():
-    spec = _sample_spec()
-    buf = io.StringIO()
-    with redirect_stderr(buf):
-        mn.notify_spec_update(spec, "T1 validated.", highlight_task="T1")
-    assert mn.HINT_PREFIX not in buf.getvalue()
+    assert f"judge: {LONG_JUDGE}" in text
+    assert "legacy hint" not in text
 
 
 def test_parse_spec_cli_invocation():
@@ -178,7 +138,7 @@ def test_build_stop_validate_context_dispute_rejected():
         }
     ]
     headlines = ["T5: dispute rejected"]
-    ctx = mn.build_stop_validate_context(spec, headlines)
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert ctx.startswith("unifable spec update (stop validation):")
     assert "T5: dispute rejected" in ctx
     # judge reason rides the board inline, exactly once (no flat preamble dup)
@@ -199,7 +159,7 @@ def test_build_stop_validate_context_dispute_accepted():
         }
     ]
     headlines = ["T6 retracted — judge accepted impossibility. Completion breaker open."]
-    ctx = mn.build_stop_validate_context(spec, headlines)
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert "T6 retracted" in ctx
     # freshly retracted this stop (named in headlines) -> judge shown inline, once
     assert DISPUTE_ACCEPT_REASON in ctx
@@ -210,7 +170,7 @@ def test_build_stop_validate_context_dispute_accepted():
 def test_build_stop_validate_context_check_rejected():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
-    ctx = mn.build_stop_validate_context(spec, headlines)
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert "T1 check ran (exit 1)" in ctx
     assert LONG_JUDGE in ctx
     assert ctx.count(LONG_JUDGE) == 1
@@ -220,10 +180,10 @@ def test_build_stop_validate_context_check_rejected():
 def test_build_stop_validate_context_no_judge_duplication():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
-    ctx = mn.build_stop_validate_context(spec, headlines)
-    # The judge reason must appear once -- inline in the board -- not also as a
-    # flat "T1 judge:" preamble line.
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
+    # The judge reason must appear once in the action digest -- not duplicated on the board.
     assert ctx.count(LONG_JUDGE) == 1
+    assert "Action required:" in ctx
     assert "T1 judge:" not in ctx
 
 
@@ -265,9 +225,9 @@ def test_just_resolved_task_still_explained():
          "judge_reason": DISPUTE_ACCEPT_REASON},
     ]
     headlines = ["T2 retracted — judge accepted impossibility."]
-    ctx = mn.build_stop_validate_context(spec, headlines)
-    # T1 (resolved, not changed) collapses; T2 (changed this stop) keeps its judge
-    assert "done (1): T1" in ctx
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
+    # T1 (resolved, not changed) collapses; T2 (changed this stop) keeps its judge in action digest
+    assert "done (2): T1, T2" in ctx
     assert "old done" not in ctx
     assert DISPUTE_ACCEPT_REASON in ctx
 
@@ -321,18 +281,19 @@ def test_human_unifable_status_cli_full():
     assert "done (" not in full
 
 
-def test_build_spec_context_from_output_collects_all_judges():
+def test_build_spec_context_from_output_ignores_legacy_judge_prefix_lines():
     combined = "\n".join(
         [
             f"{mn.NOTIFY_PREFIX}headline one",
-            f"{mn.JUDGE_PREFIX}first judge reason",
-            f"{mn.NOTIFY_PREFIX}headline two",
-            f"{mn.JUDGE_PREFIX}second judge reason",
+            f"{mn.JUDGE_PREFIX}legacy duplicate judge line",
+            f"{mn.STATUS_PREFIX}goal: g\\n  [--] T1 (req) x\\nbreaker: CLOSED (1 left: T1)",
         ]
     )
     ctx = mn.build_spec_context_from_output(combined)
-    assert "Judge: first judge reason" in ctx
-    assert "Judge: second judge reason" in ctx
+    assert "headline one" in ctx
+    assert "legacy duplicate judge line" not in ctx
+    assert "Judge:" not in ctx
+    assert "breaker: CLOSED" in ctx
 
 
 def _run_post_tool(payload: dict) -> dict:
@@ -354,7 +315,6 @@ def test_post_tool_forwards_failed_validate_task_stderr():
             spec,
             "T1 check ran (exit 2); judge rejected the evidence. Judge added T4, T5.",
             highlight_task="T1",
-            judge_reason=LONG_JUDGE,
         )
     stderr = buf.getvalue()
     with tempfile.TemporaryDirectory() as tmp:
@@ -423,3 +383,129 @@ def test_post_tool_add_task_success_no_failure_nag():
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert "Requirement T9 added" in ctx
     assert "observed a tool failure" not in ctx
+
+
+STALE_JUDGE = "x" * 800
+T17_HINT = "Run the isolated behavioral test as the real proof."
+T18_HINT = "Show the gated logic in context, not only a string grep."
+
+
+def test_collapse_stop_headlines_loop_release_batch():
+    reason = "completion_stop_blocks is elevated and judge-added tasks are duplicates"
+    headlines = [f"Judge retracted T{i}: {reason}" for i in range(6, 10)]
+    collapsed = mn.collapse_stop_headlines(headlines)
+    assert len(collapsed) == 1
+    assert "T6-T9 (loop release)" in collapsed[0]
+    assert reason in collapsed[0]
+
+
+def test_stop_action_digest_before_stale_board():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    tasks = []
+    for i in range(1, 10):
+        tasks.append({
+            "id": f"T{i}",
+            "title": f"stale {i}",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": STALE_JUDGE,
+        })
+    tasks.extend([
+        {
+            "id": "T17",
+            "title": "behavioral proof",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": f"Check passed but evidence is non-probative. {T17_HINT}",
+        },
+        {
+            "id": "T18",
+            "title": "grep only",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": f"String grep alone is insufficient. {T18_HINT}",
+        },
+    ])
+    spec["tasks"] = tasks
+    headlines = [
+        "T17 check ran (exit 0); judge rejected the evidence.",
+        "T18 check ran (exit 0); judge rejected the evidence.",
+    ]
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
+    action_pos = ctx.find("Action required:")
+    t17_hint_pos = ctx.find(T17_HINT)
+    stale_pos = ctx.find(STALE_JUDGE)
+    assert action_pos >= 0
+    assert t17_hint_pos >= 0
+    assert t17_hint_pos < action_pos + 2500
+    assert stale_pos == -1
+    assert ctx.find("Action required:") < ctx.find("Board:")
+
+
+def test_stop_context_prioritizes_hints_in_first_2kb():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    tasks = []
+    for i in range(1, 16):
+        tasks.append({
+            "id": f"T{i}",
+            "title": f"stale {i}",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": STALE_JUDGE,
+        })
+    tasks.append({
+        "id": "T17",
+        "title": "needs behavioral test",
+        "check": "true",
+        "status": "failed",
+        "judge_reason": f"Non-probative grep. {T17_HINT}",
+    })
+    spec["tasks"] = tasks
+    headlines = ["T17 check ran (exit 0); judge rejected the evidence."]
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
+    assert T17_HINT in ctx[:2048]
+
+
+def test_format_blocking_task_hints_prioritizes_changed():
+    """Action lines cover tasks adjudicated this stop only, not stale siblings."""
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["tasks"] = [
+        {"id": "T1", "title": "old", "check": "true", "status": "failed", "judge_reason": "stale"},
+        {
+            "id": "T17",
+            "title": "new",
+            "check": "true",
+            "status": "failed",
+            "judge_hint": T17_HINT,
+        },
+    ]
+    text = mn.format_blocking_task_hints(
+        spec, ["T1", "T17"], changed_ids={"T17"},
+    )
+    assert "Action:" in text
+    assert T17_HINT in text
+    assert "T1:" not in text
+
+
+def test_build_stop_validate_context_truncation_flag():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = [
+        {
+            "id": "T1",
+            "title": "x",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": "r; do the thing",
+        },
+    ]
+    headlines = ["T1 rejected"]
+    ctx, truncated = mn.build_stop_validate_context(spec, headlines, max_len=100)
+    assert truncated is True
+    assert "do the thing" in ctx

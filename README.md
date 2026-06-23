@@ -147,10 +147,12 @@ Checking is continuous, not a one-shot at the end:
   what the worker actually did, kept current in the background on every tool call.
 - On **Stop**, `auto_validate_spec` in `scripts/gate/spec.py` validates open requirements:
   pending/delivered tasks get fresh checks; failed tasks are re-judged on stored output;
-  disputed impossibility claims are adjudicated. The judge always sees the full board
-  (including validated tasks) and re-evaluates only what is still open. When a replacement
-  requirement is needed, the judge should include `supersedes: [ids]` so superseded agent
-  tasks stop blocking completion (`[SS]`); prefer revising a broken check over adding parallels.
+  disputed impossibility claims are adjudicated. Stop feedback is packaged as a **priority digest**
+  (`build_stop_validate_context` in `scripts/gate/model_notify.py`): **Action required** first
+  (full judge reasoning for tasks adjudicated this stop), then a collapsed delta summary, then a
+  compact incomplete-only board. Stale failed tasks no longer replay prior judge essays every stop.
+  The blocking `reason` field also carries `Action:` lines for those tasks so guidance survives
+  host preview truncation. Full digest is persisted to `last_stop_validation.txt` beside the spec.
 - **Completion is blocked** until every requirement is validated, retracted, or superseded —
   the worker cannot declare done with open requirements. Only the judge can retract one
   (by accepting a dispute) or supersede agent-authored tasks via a replacement bundle.
@@ -168,17 +170,20 @@ trap a session.
 
 ## Assistant-facing judge nudges
 
-The judge can also emit a **non-blocking advisory hint** — one concrete next step for a worker that
-looks stuck or is making a poor call (e.g. looping on a check that references a nonexistent file).
-The invariant is that a hint is the *opposite* of a gate: it **never** changes a verdict, changes a
-task's status, or opens/lifts any breaker. It is advisory context only, surfaced on a distinct
-`UNIFABLE_MODEL_HINT` channel (`scripts/gate/model_notify.py`) labelled "advisory, not a gate" so it
-cannot be mistaken for an instruction. The hint text is **reasoned by the judge**, never a canned
-string. Three surfaces, all fail-open (a judge error yields no hint and leaves gate behavior
+The judge surfaces feedback in two distinct paths:
+
+- **Verdict feedback** — `judge_task` / `judge_dispute` return a single `reason` that explains
+  why evidence failed and, when `verdict=0`, one concrete next step. On Stop, tasks changed this
+  stop appear first in an **Action required** section (full `judge:` + optional `hint:`); the
+  blocking `reason` repeats short `Action:` lines for the same tasks. PostToolUse still emits
+  headline + board only (no separate preamble channels).
+- **Proactive nudge** — when the worker looks stuck (completion-breaker loop or repeated failure),
+  one `judge_hint` call offers advisory guidance. This is verdict-free: it never changes task status
+  or opens/lifts any breaker.
+
+Proactive hints are fail-open (a judge error yields no hint and leaves gate behavior
 byte-identical):
 
-- **Verdict hint** — `judge_task` / `judge_dispute` carry an optional `hint` alongside the verdict;
-  no extra judge call, it rides the one already made.
 - **Completion-breaker loop** — after the worker re-blocks Stop past a threshold, one `judge_hint`
   call appends a nudge to the still-blocking reason.
 - **Repeated-failure loop** — when PostToolUse sees the same failure class repeat, a `judge_hint`

@@ -41,7 +41,7 @@ def test_failed_rejudged_without_check_rerun(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", fail_if_called)
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items: [(1, "ok", [], "", "") for _ in items],
+        lambda sp, items: [(1, "ok", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "validated"
@@ -60,7 +60,7 @@ def test_pending_still_runs_check(tmp_path, monkeypatch):
         return 0, "ok"
 
     monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert seen["check"] is True
 
@@ -72,7 +72,7 @@ def test_auto_validate_passes_pending_task(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
     spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "validated"
     assert all_tasks_validated(spec)[0] is True
@@ -93,9 +93,9 @@ def test_front_failures_do_not_starve_back_tasks(tmp_path, monkeypatch):
         for it in items:
             tid = it["task"]["id"]
             if tid in {"T1", "T2", "T3"}:
-                out.append((0, f"{tid} still failing", [], "", ""))
+                out.append((0, f"{tid} still failing", [], ""))
             else:
-                out.append((1, f"{tid} ok", [], "", ""))
+                out.append((1, f"{tid} ok", [], ""))
         return out
 
     monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
@@ -116,7 +116,7 @@ def test_auto_validate_adjudicates_dispute(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "K", s)
     args = SimpleNamespace(root=str(tmp_path), task_id="K", task="T1", evidence="impossible")
     _cmd_dispute(args)
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (1, "accepted", ""))
+    monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (1, "accepted"))
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "retracted"
 
@@ -143,7 +143,7 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
@@ -168,18 +168,19 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     args = SimpleNamespace(root=str(tmp_path), task_id="sess", task="T1", evidence="not possible")
     _cmd_dispute(args)
     reason = "Rejected. The evidence does not prove impossibility."
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (0, reason, ""))
+    monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (0, reason))
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
     block_reason = out.get("reason") or ""
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    # reason carries only the short alarm; the board (judge reason + dispute
-    # headline) rides additionalContext and is no longer duplicated into reason.
+    # reason carries the alarm plus Action lines; full digest rides additionalContext.
     assert "breaker CLOSED" in block_reason
     assert reason in ctx
-    assert reason not in block_reason
-    assert "T1: dispute rejected" in ctx
+    assert "Action:" in block_reason
+    assert "T1:" in block_reason
+    assert "unifable spec update" not in block_reason
+    assert "T1: dispute rejected" in ctx or "dispute rejected" in ctx
 
 
 def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
@@ -198,7 +199,7 @@ def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks", lambda sp, items: [(0, "T1 needs more proof", [], "", "") for _ in items]
+        spec_mod, "judge_tasks", lambda sp, items: [(0, "T1 needs more proof", [], "") for _ in items]
     )
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
@@ -206,9 +207,10 @@ def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
     block_reason = out.get("reason") or ""
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert "breaker CLOSED" in block_reason
-    assert "T1 needs more proof" in ctx           # judge detail in additionalContext
-    assert "T1 needs more proof" not in block_reason  # not duplicated into reason
-    assert "unifable spec update" not in block_reason  # board not in reason at all
+    assert "T1 needs more proof" in ctx
+    assert "Action:" in block_reason
+    assert "T1:" in block_reason
+    assert "unifable spec update" not in block_reason
 
 
 def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):
@@ -229,7 +231,7 @@ def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):
         out = []
         for it in items:
             tid = it["task"]["id"]
-            out.append((0, f"{tid} lacks evidence", [], "", ""))
+            out.append((0, f"{tid} lacks evidence", [], ""))
         return out
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
@@ -240,6 +242,50 @@ def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     for tid in ("T1", "T2", "T3"):
         assert f"{tid} lacks evidence" in ctx
+
+
+def test_stop_persists_digest_and_reason_hints(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [{
+        "id": "T1",
+        "title": "proof",
+        "check": "true",
+        "status": "pending",
+    }]
+    save_spec(str(tmp_path), "sess", s)
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(
+        spec_mod,
+        "judge_tasks",
+        lambda sp, items: [(
+            0,
+            "non-probative; run the behavioral test",
+            [],
+            "",
+        ) for _ in items],
+    )
+
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out.get("decision") == "block"
+    block_reason = out.get("reason") or ""
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert "run the behavioral test" in ctx
+    assert "Action:" in block_reason
+    assert "run the behavioral test" in block_reason
+    assert "Action required:" in ctx
+    digest = tmp_path / "specs"
+    matches = list(digest.rglob("last_stop_validation.txt")) if digest.is_dir() else []
+    assert matches, "expected persisted stop digest"
+    assert "Action required:" in matches[0].read_text(encoding="utf-8")
 
 
 def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeypatch):
@@ -256,11 +302,11 @@ def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeyp
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "", "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "") for _ in items])
     monkeypatch.setattr(
         gate_stop,
         "_build_stop_validate_context",
-        lambda spec, val_msgs: (_ for _ in ()).throw(RuntimeError("boom")),
+        lambda spec, val_msgs, **kw: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})

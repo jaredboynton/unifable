@@ -119,13 +119,33 @@ def _attach_validate_context(payload: dict, ctx: str) -> None:
     hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
 
 
-def _build_stop_validate_context(spec: dict | None, val_msgs: list[str]) -> str:
+def _build_stop_validate_context(
+    spec: dict | None,
+    val_msgs: list[str],
+    *,
+    max_len: int | None = None,
+) -> tuple[str, bool]:
     if spec is None or not val_msgs:
-        return ""
+        return "", False
     try:
         from model_notify import build_stop_validate_context
 
-        return build_stop_validate_context(spec, val_msgs)
+        return build_stop_validate_context(spec, val_msgs, max_len=max_len)
+    except Exception:
+        return "", False
+
+
+def _persist_stop_digest(cwd: str, session_id: str | None, body: str) -> str:
+    """Write full stop validation digest; return path or "" on failure."""
+    if not body.strip() or not session_id:
+        return ""
+    try:
+        from atomicio import write_text_atomic
+        from spec import session_dir
+
+        path = session_dir(cwd, session_id) / "last_stop_validation.txt"
+        write_text_atomic(path, body)
+        return str(path)
     except Exception:
         return ""
 
@@ -180,14 +200,14 @@ def _handle_completion_loop_release(
         headlines, _lift_msg = apply_loop_release_verdict(spec, ledger, verdict)
         if headlines:
             val_msgs = list(val_msgs) + headlines
-            validate_ctx = _build_stop_validate_context(spec, val_msgs)
+            validate_ctx, _ = _build_stop_validate_context(spec, val_msgs)
         elif verdict is not None and getattr(verdict, "lift", "none") == "none":
             note = "Completion loop check: no suicide loop detected."
             reason = str(getattr(verdict, "reason", "") or "").strip()
             if reason:
                 note += f" {reason[:200]}"
             val_msgs = list(val_msgs) + [note]
-            validate_ctx = _build_stop_validate_context(spec, val_msgs)
+            validate_ctx, _ = _build_stop_validate_context(spec, val_msgs)
         save_spec(cwd, task_key, spec)
         save_ledger(input_data, ledger)
         ok_tasks, incomplete = all_tasks_validated(spec)
@@ -492,6 +512,8 @@ def main() -> int:
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
     validate_ctx = ""
+    validate_ctx_truncated = False
+    stop_digest_path = ""
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
     #    and validate (repo_context {cite,why}, acceptance_criteria with live output,
@@ -539,7 +561,14 @@ def main() -> int:
                         save_spec(cwd, task_key, spec)
                     spec, val_msgs = auto_validate_spec(spec, cwd, time_budget=STOP_JUDGE_BUDGET)
                     save_spec(cwd, task_key, spec)
-                    validate_ctx = _build_stop_validate_context(spec, val_msgs)
+                    validate_ctx, validate_ctx_truncated = _build_stop_validate_context(
+                        spec, val_msgs,
+                    )
+                    if validate_ctx:
+                        full_ctx, _ = _build_stop_validate_context(
+                            spec, val_msgs, max_len=1_000_000,
+                        )
+                        stop_digest_path = _persist_stop_digest(cwd, task_key, full_ctx)
                 except Exception:
                     pass  # fail open
                 # Breaker: a task-spec must have EVERY task validated (its check ran
@@ -559,6 +588,14 @@ def main() -> int:
                         if early is not None:
                             emit_json(early)
                             return 0
+                        validate_ctx, validate_ctx_truncated = _build_stop_validate_context(
+                            spec, val_msgs,
+                        )
+                        if validate_ctx:
+                            full_ctx, _ = _build_stop_validate_context(
+                                spec, val_msgs, max_len=1_000_000,
+                            )
+                            stop_digest_path = _persist_stop_digest(cwd, task_key, full_ctx)
                         from loop_release import format_loop_lift_context
 
                         loop_lift_ctx = format_loop_lift_context(_led)
@@ -592,6 +629,18 @@ def main() -> int:
                         ev_reason = (
                             f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)})."
                         )
+                        try:
+                            from model_notify import format_blocking_task_hints, task_ids_from_headlines
+
+                            ev_reason += format_blocking_task_hints(
+                                spec,
+                                incomplete,
+                                changed_ids=task_ids_from_headlines(val_msgs),
+                            )
+                        except Exception:
+                            pass
+                        if validate_ctx_truncated and stop_digest_path:
+                            ev_reason += f"\nFull digest: {stop_digest_path}"
                         hint = _completion_stop_hint(input_data, spec, incomplete)
                         if hint:
                             ev_reason += "\n\n" + hint

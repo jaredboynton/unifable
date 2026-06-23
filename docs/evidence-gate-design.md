@@ -107,17 +107,20 @@ applies the same cap at send time as a backstop. Regression: `tests/test_transcr
 
 ## Advisory judge hints — guidance, never a gate
 
-The judge can also emit a **non-blocking hint**: one concrete next step for an agent that looks
-stuck or is making poor judgement (e.g. validate-task looping on a check that references a
-nonexistent file). The load-bearing invariant is that a hint is the *opposite* of a gate — it
-**never** changes a verdict, changes a task status, or opens/lifts the completion breaker. It is
-advisory context only, surfaced on a distinct `UNIFABLE_MODEL_HINT` channel
-(`scripts/gate/model_notify.py`) labelled "advisory, not a gate" so the agent cannot mistake it
-for an instruction. Three surfaces, all fail-open (a judge error yields no hint and leaves gate
-behavior byte-identical):
+Verdict paths and proactive nudges are separate:
 
-- **Hint field on the verdict** — `judge_task` / `judge_dispute` carry an optional `hint` alongside
-  `verdict`/`reason` (`scripts/gate/spec.py`). No extra judge call; it rides the call already made.
+- **Verdict feedback** — `judge_task` / `judge_dispute` (`scripts/gate/spec.py`) return one `reason`
+  string (why evidence failed plus a next step when `verdict=0`). The task board shows it once via
+  the inline `judge:` row; `notify_spec_update` and Stop validation emit headline + board only (no
+  separate `Judge:` / `Hint:` stderr preamble).
+- **Proactive nudge** — threshold-bounded loops call `judge_hint`, which is verdict-free by
+  construction (schema returns only `hint`). A hint **never** changes a verdict, changes a task
+  status, or opens/lifts the completion breaker. Proactive hints use the distinct
+  `UNIFABLE_MODEL_HINT` channel (`scripts/gate/model_notify.py`).
+
+Proactive surfaces, all fail-open (a judge error yields no hint and leaves gate behavior
+byte-identical):
+
 - **Stop completion-breaker loop** — once the agent has re-blocked Stop `COMPLETION_HINT_THRESHOLD`
   times (`hooks/gate_stop.py`, counter `completion_stop_blocks` in the ledger), one `judge_hint`
   call appends a nudge to the still-blocking reason. The block is unchanged; only guidance is added.
@@ -126,9 +129,23 @@ behavior byte-identical):
   guidance itself is reasoned by the judge, never a canned string. Silent if the judge has nothing.
 
 The proactive loops are threshold-bounded (mirroring `BREAKER_MAX_BLOCKS`) so they never spend a
-judge call per tool. `judge_hint` (`scripts/gate/spec.py`) is verdict-free by construction: its
-schema returns only `hint`, so it structurally cannot resolve a task. Locked by
-`tests/test_judge_hint.py` (a hint with `verdict=0` keeps the task failed and the breaker closed).
+judge call per tool. Locked by `tests/test_judge_hint.py` (proactive hints never resolve tasks).
+
+## Stop validation digest — proactive judge surfacing
+
+`build_stop_validate_context` (`scripts/gate/model_notify.py`) packages Stop adjudication for the
+model in priority order:
+
+1. **Action required** — full judge reasoning (+ optional `hint:`) for every task ID referenced in
+   this stop's headlines (tasks adjudicated this stop).
+2. **This stop** — collapsed headline delta (batch loop-release retractions merge to one line).
+3. **Board** — incomplete tasks only; stale failures stay one-line rows without replaying prior
+   judge essays.
+
+The completion block **`reason`** also appends short `Action:` lines (tasks changed this stop) so
+actionable guidance survives host preview truncation. When the digest is truncated, `reason` points
+at `last_stop_validation.txt` beside the session spec. Regression: `tests/test_spec_model_notify.py`,
+`tests/test_auto_validate_stop.py`.
 
 ## Completion loop lift — judge-adjudicated Stop release (V1)
 

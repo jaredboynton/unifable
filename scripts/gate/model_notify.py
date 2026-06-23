@@ -2,7 +2,7 @@
 """Spec CLI notifications to the main model via PostToolUse additionalContext.
 
 spec.py emits prefixed stderr lines; gate_post_tool.py parses them (or reloads the
-spec from disk) and forwards headline, judge commentary, and the task board.
+spec from disk) and forwards headline plus the task board (judge detail inline).
 """
 
 from __future__ import annotations
@@ -25,13 +25,11 @@ _SUBCMD_RE = re.compile(
 
 MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
 
-_TASK_ID_RE = re.compile(r"\bT\d+\b")
+_TASK_ID_RE = re.compile(r"\bT(\d+)\b")
+_RETRACT_HEADLINE_RE = re.compile(r"^Judge retracted (T\d+):\s*(.+)$", re.IGNORECASE)
 _STOP_VALIDATE_CONTEXT_MAX = 16000
-# Statuses whose judge reason is always worth re-showing: still-actionable work.
-# `retracted` is resolved/done, so it is NOT here -- a retracted task only shows
-# its judge reason on the stop it changed (its id appears in the headlines), and
-# otherwise collapses into the done-count line.
-_JUDGE_INLINE_STATUSES = frozenset({"failed", "rejected_approach"})
+_STOP_ACTION_DIGEST_RESERVE = 4000
+_BLOCKING_HINT_REASON_MAX = 200
 _RESOLVED_STATUSES = frozenset({"validated", "retracted", "superseded"})
 
 _STATUS_MARKS = {
@@ -53,12 +51,29 @@ def _all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     return all_tasks_validated(spec)
 
 
+def _tasks_by_id(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {
+        str(t.get("id")): t
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict) and t.get("id")
+    }
+
+
+def _sort_task_ids(ids: set[str]) -> list[str]:
+    def key(tid: str) -> tuple[int, str]:
+        m = _TASK_ID_RE.search(tid)
+        return (int(m.group(1)), tid) if m else (0, tid)
+
+    return sorted(ids, key=key)
+
+
 def format_spec_status(
     spec: dict[str, Any],
     *,
     highlight_task: str | None = None,
     show_judge_for: frozenset[str] | None = None,
     collapse_resolved: bool = False,
+    incomplete_only: bool = False,
 ) -> str:
     """Compact task board matching the status CLI output shape.
 
@@ -67,6 +82,9 @@ def format_spec_status(
     into a single ``done (N): T1, T2`` line instead of a full row each -- a task
     that is already done needs only "done", not a re-narrated row every stop. The
     human ``unifable status`` CLI leaves this False so it stays full.
+
+    With ``incomplete_only=True`` (Stop board section), resolved tasks always
+    collapse into the done-count line.
     """
     ok, incomplete = _all_tasks_validated(spec)
     lines = [f"goal: {str(spec.get('restated_goal', ''))[:100]}"]
@@ -89,7 +107,7 @@ def format_spec_status(
         tid = str(task.get("id") or "")
         status = str(task.get("status") or "")
         shown = (highlight and tid == highlight) or tid in judge_tasks
-        if collapse_resolved and status in _RESOLVED_STATUSES and not shown:
+        if (collapse_resolved or incomplete_only) and status in _RESOLVED_STATUSES and not shown:
             collapsed.append(tid)
             continue
         mark = _STATUS_MARKS.get(status, "??")
@@ -100,9 +118,6 @@ def format_spec_status(
             reason = str(task.get("judge_reason") or "").strip()
             if reason:
                 row += f"\n    judge: {reason}"
-            hint = str(task.get("judge_hint") or "").strip()
-            if hint:
-                row += f"\n    hint: {hint}"
         lines.append(row)
     if collapsed:
         lines.append(f"  done ({len(collapsed)}): {', '.join(collapsed)}")
@@ -150,16 +165,9 @@ def notify_spec_update(
     headline: str,
     *,
     highlight_task: str | None = None,
-    judge_reason: str | None = None,
-    hint: str | None = None,
 ) -> None:
-    """Emit headline, optional full judge commentary, an optional advisory hint,
-    and the current task board."""
+    """Emit headline and the current task board (judge detail inline on highlighted rows)."""
     notify_model(headline)
-    if judge_reason:
-        _emit_judge(judge_reason)
-    if hint:
-        _emit_hint(hint)
     _emit_status(format_spec_status(spec, highlight_task=highlight_task, collapse_resolved=True))
 
 
@@ -190,46 +198,181 @@ def extract_all_judge_commentary(text: str) -> list[str]:
 
 
 def _task_ids_from_headlines(headlines: list[str]) -> set[str]:
+    """Return task ids referenced in headline text."""
     ids: set[str] = set()
     for headline in headlines:
-        ids.update(_TASK_ID_RE.findall(str(headline or "")))
+        for m in _TASK_ID_RE.finditer(str(headline or "")):
+            ids.add(f"T{m.group(1)}")
     return ids
 
 
-def _stop_validate_judge_tasks(spec: dict[str, Any], headlines: list[str]) -> frozenset[str]:
-    _, incomplete = _all_tasks_validated(spec)
-    show = set(incomplete) | _task_ids_from_headlines(headlines)
-    for task in spec.get("tasks") or []:
-        if not isinstance(task, dict):
+task_ids_from_headlines = _task_ids_from_headlines
+
+
+def _consecutive_task_ids(tids: list[str]) -> bool:
+    nums = []
+    for tid in tids:
+        m = _TASK_ID_RE.search(tid)
+        if not m:
+            return False
+        nums.append(int(m.group(1)))
+    nums.sort()
+    return all(nums[i] + 1 == nums[i + 1] for i in range(len(nums) - 1))
+
+
+def collapse_stop_headlines(headlines: list[str]) -> list[str]:
+    """Collapse repeated loop-release retraction headlines into one line."""
+    retract_by_reason: dict[str, list[str]] = {}
+    other: list[str] = []
+    seen_other: set[str] = set()
+    for raw in headlines or []:
+        h = str(raw or "").strip()
+        if not h:
             continue
-        tid = str(task.get("id") or "")
+        m = _RETRACT_HEADLINE_RE.match(h)
+        if m:
+            tid, reason = m.group(1).upper(), m.group(2).strip()
+            if not tid.startswith("T"):
+                tid = f"T{tid.lstrip('Tt')}"
+            retract_by_reason.setdefault(reason, []).append(tid)
+            continue
+        if h not in seen_other:
+            seen_other.add(h)
+            other.append(h)
+    out = list(other)
+    for reason, tids in retract_by_reason.items():
+        sorted_tids = _sort_task_ids(set(tids))
+        if len(sorted_tids) == 1:
+            out.append(f"Judge retracted {sorted_tids[0]}: {reason}")
+        elif _consecutive_task_ids(sorted_tids):
+            out.append(
+                f"Judge retracted {sorted_tids[0]}-{sorted_tids[-1]} (loop release): {reason}"
+            )
+        else:
+            out.append(
+                f"Judge retracted {', '.join(sorted_tids)} (loop release): {reason}"
+            )
+    return out
+
+
+def format_stop_action_digest(spec: dict[str, Any], changed_ids: set[str]) -> str:
+    """Full judge reasoning + hints for tasks adjudicated this stop."""
+    if not changed_ids:
+        return ""
+    by_id = _tasks_by_id(spec)
+    lines: list[str] = []
+    for tid in _sort_task_ids(changed_ids):
+        task = by_id.get(tid)
+        if not task:
+            continue
         status = str(task.get("status") or "")
-        if not tid or not str(task.get("judge_reason") or "").strip():
+        mark = _STATUS_MARKS.get(status, "??")
+        title = str(task.get("title") or "")
+        lines.append(f"  {tid} [{mark}] {title}")
+        reason = str(task.get("judge_reason") or "").strip()
+        if reason:
+            lines.append(f"    judge: {reason}")
+    return "\n".join(lines)
+
+
+def format_blocking_task_hints(
+    spec: dict[str, Any],
+    incomplete: list[str],
+    *,
+    changed_ids: set[str] | None = None,
+    max_tasks: int = 5,
+) -> str:
+    """Short actionable lines for the Stop ``reason`` field."""
+    if not incomplete:
+        return ""
+    changed = changed_ids or set()
+    by_id = _tasks_by_id(spec)
+    if changed:
+        incomplete_set = set(incomplete)
+        ordered = [t for t in _sort_task_ids(changed) if t in incomplete_set][:max_tasks]
+    else:
+        ordered = list(incomplete)[:max_tasks]
+    hint_lines: list[str] = []
+    for tid in ordered:
+        task = by_id.get(tid)
+        if not task:
             continue
-        if status in _JUDGE_INLINE_STATUSES or tid in show:
-            show.add(tid)
-    return frozenset(show)
+        hint = str(task.get("judge_hint") or "").strip()
+        reason = str(task.get("judge_reason") or "").strip()
+        text = hint
+        if not text and reason:
+            text = reason[:_BLOCKING_HINT_REASON_MAX]
+            if len(reason) > _BLOCKING_HINT_REASON_MAX:
+                text += "..."
+        if text:
+            hint_lines.append(f"  {tid}: {text}")
+    if not hint_lines:
+        return ""
+    return "\nAction:\n" + "\n".join(hint_lines)
 
 
-def build_stop_validate_context(spec: dict[str, Any], headlines: list[str]) -> str:
+def _stop_validate_judge_tasks(spec: dict[str, Any], headlines: list[str]) -> frozenset[str]:
+    """Tasks that get full judge inline on the Stop board (changed this stop only)."""
+    return frozenset(_task_ids_from_headlines(headlines))
+
+
+def _truncate_board_section(board: str, max_len: int) -> str:
+    if len(board) <= max_len:
+        return board
+    trimmed = board[: max(0, max_len - 80)].rstrip()
+    return trimmed + "\n(board truncated; run unifable status for full board)"
+
+
+def build_stop_validate_context(
+    spec: dict[str, Any],
+    headlines: list[str],
+    *,
+    max_len: int | None = None,
+) -> tuple[str, bool]:
     """Format Stop-time auto_validate results for model feedback.
 
-    The headlines above the board are the per-stop delta. Judge/hint text is
-    rendered once -- inline in the board (see ``format_spec_status``) -- not also
-    as a flat ``Tn judge:`` preamble; and resolved tasks not changed this stop
-    collapse to a done-count line.
+    Returns ``(context, truncated)``. Action-required judge detail for tasks
+    changed this stop leads; stale incomplete tasks stay one-line rows on the
+    board without replaying prior judge essays.
     """
-    msgs = [str(h).strip() for h in (headlines or []) if str(h).strip()]
-    if not msgs:
-        return ""
+    raw_msgs = [str(h).strip() for h in (headlines or []) if str(h).strip()]
+    if not raw_msgs:
+        return "", False
+    limit = max_len if max_len is not None else _STOP_VALIDATE_CONTEXT_MAX
+    changed_ids = _task_ids_from_headlines(raw_msgs)
+    collapsed = collapse_stop_headlines(raw_msgs)
+    action = format_stop_action_digest(spec, changed_ids)
+    board = format_spec_status(
+        spec,
+        show_judge_for=frozenset(),
+        collapse_resolved=True,
+        incomplete_only=True,
+    )
+
     parts: list[str] = ["unifable spec update (stop validation):"]
-    parts.extend(msgs)
-    show_judge_for = _stop_validate_judge_tasks(spec, msgs)
-    parts.append(format_spec_status(spec, show_judge_for=show_judge_for, collapse_resolved=True))
+    if action:
+        parts.extend(["Action required:", action])
+    if collapsed:
+        parts.extend(["This stop:", "\n".join(collapsed)])
+    parts.extend(["Board:", board])
     body = "\n".join(parts)
-    if len(body) > _STOP_VALIDATE_CONTEXT_MAX:
-        return body[: _STOP_VALIDATE_CONTEXT_MAX - 3] + "..."
-    return body
+    if len(body) <= limit:
+        return body, False
+
+    # Preserve action digest; truncate board first.
+    prefix_parts: list[str] = ["unifable spec update (stop validation):"]
+    if action:
+        prefix_parts.extend(["Action required:", action])
+    if collapsed:
+        prefix_parts.extend(["This stop:", "\n".join(collapsed)])
+    prefix_parts.append("Board:")
+    prefix = "\n".join(prefix_parts) + "\n"
+    board_budget = max(200, limit - len(prefix))
+    truncated_board = _truncate_board_section(board, board_budget)
+    body = prefix + truncated_board
+    if len(body) > limit:
+        body = body[: limit - 3] + "..."
+    return body, True
 
 
 def extract_hint(text: str) -> str | None:
@@ -272,17 +415,11 @@ def bash_output_text(value: Any, limit: int = 16000) -> str:
 
 
 def build_spec_context_from_output(text: str) -> str:
-    """Merge parsed headline, judge block, and status board for additionalContext."""
+    """Merge parsed headlines and status board for additionalContext."""
     parts: list[str] = []
     headlines = extract_model_notifications(text)
     if headlines:
         parts.extend(headlines)
-    judges = extract_all_judge_commentary(text)
-    for judge in judges:
-        parts.append(f"Judge: {judge}")
-    hint = extract_hint(text)
-    if hint:
-        parts.append(f"Hint: {hint}")
     status = extract_spec_status(text)
     if status:
         parts.append(status)
