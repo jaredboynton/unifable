@@ -211,7 +211,7 @@ def test_gate_stop_provisional_lift_allows_stop(tmp_path, monkeypatch):
     save_ledger({"session_id": "loopsess", "cwd": str(tmp_path)}, led)
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(0, "no", [], "") for _ in items])
 
     out = _run_stop(gate_stop, {"session_id": "loopsess", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
@@ -240,7 +240,7 @@ def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     save_ledger({"session_id": "loopsess2", "cwd": str(tmp_path)}, led)
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(0, "no", [], "") for _ in items])
 
     verdict = lr.LoopReleaseVerdict(
         True, "provisional", "loop detected", "rewrite check", [], 1
@@ -280,7 +280,7 @@ def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
     save_ledger({"session_id": "loopdecl", "cwd": str(tmp_path)}, led)
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(0, "no", [], "") for _ in items])
 
     verdict = lr.LoopReleaseVerdict(False, "none", "legit work remains", "", [], 0)
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
@@ -313,7 +313,7 @@ def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):
     save_ledger({"session_id": "loopsess3", "cwd": str(tmp_path)}, led)
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(1, "ok", [], "") for _ in items])
     monkeypatch.setattr(
         spec_mod, "auto_validate_spec", lambda spec, cwd, **kw: (spec, [])
     )

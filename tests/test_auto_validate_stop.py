@@ -28,6 +28,32 @@ def _task(tid, status, **extra):
     return t
 
 
+def test_auto_validate_one_judge_call_for_all_tasks(tmp_path, monkeypatch):
+    """Every open task (validate + dispute) goes through a single judge_tasks call."""
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [
+        _task("T1", "pending"),
+        _task("T2", "failed", exit=1, output="prior"),
+        _task("T3", "disputed", dispute_evidence="blocked upstream"),
+    ]
+    save_spec(str(tmp_path), "K", s)
+    calls = {"n": 0}
+
+    def fake_judge_tasks(sp, items, *, transcript=""):
+        calls["n"] += 1
+        assert len(items) == 3
+        kinds = {it.get("kind") for it in items}
+        assert kinds == {"validate", "dispute"}
+        return [(1, "ok", [], "") for _ in items]
+
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert calls["n"] == 1
+
+
 def test_failed_rejudged_without_check_rerun(tmp_path, monkeypatch):
     s = spec_template()
     s["requires_tasks"] = True
@@ -41,7 +67,7 @@ def test_failed_rejudged_without_check_rerun(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", fail_if_called)
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items: [(1, "ok", [], "") for _ in items],
+        lambda sp, items, *, transcript="": [(1, "ok", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "validated"
@@ -60,7 +86,7 @@ def test_pending_still_runs_check(tmp_path, monkeypatch):
         return 0, "ok"
 
     monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(1, "ok", [], "") for _ in items])
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert seen["check"] is True
 
@@ -72,7 +98,7 @@ def test_auto_validate_passes_pending_task(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(1, "ok", [], "") for _ in items])
     spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "validated"
     assert all_tasks_validated(spec)[0] is True
@@ -88,7 +114,7 @@ def test_front_failures_do_not_starve_back_tasks(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
 
-    def fake_judge_tasks(sp, items):
+    def fake_judge_tasks(sp, items, *, transcript=""):
         out = []
         for it in items:
             tid = it["task"]["id"]
@@ -100,8 +126,7 @@ def test_front_failures_do_not_starve_back_tasks(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
     spec = load_spec(str(tmp_path), "K")
-    for _ in range(3):
-        spec, _ = auto_validate_spec(spec, str(tmp_path))
+    spec, _ = auto_validate_spec(spec, str(tmp_path))
 
     by_id = {t["id"]: t for t in spec["tasks"]}
     assert [by_id[f"T{i}"]["status"] for i in range(4, 8)] == ["validated"] * 4
@@ -117,6 +142,10 @@ def test_auto_validate_adjudicates_dispute(tmp_path, monkeypatch):
     args = SimpleNamespace(root=str(tmp_path), task_id="K", task="T1", evidence="impossible")
     _cmd_dispute(args)
     monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (1, "accepted"))
+    monkeypatch.setattr(
+        spec_mod, "judge_tasks",
+        lambda sp, items, *, transcript="": [(1, "accepted", [], "") for _ in items],
+    )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "retracted"
 
@@ -143,7 +172,7 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(1, "ok", [], "") for _ in items])
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
@@ -168,7 +197,10 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     args = SimpleNamespace(root=str(tmp_path), task_id="sess", task="T1", evidence="not possible")
     _cmd_dispute(args)
     reason = "Rejected. The evidence does not prove impossibility."
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (0, reason))
+    monkeypatch.setattr(
+        spec_mod, "judge_tasks",
+        lambda sp, items, *, transcript="": [(0, reason, [], "") for _ in items],
+    )
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
@@ -199,7 +231,7 @@ def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks", lambda sp, items: [(0, "T1 needs more proof", [], "") for _ in items]
+        spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(0, "T1 needs more proof", [], "") for _ in items]
     )
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
@@ -227,7 +259,7 @@ def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "pending"), _task("T2", "pending"), _task("T3", "pending")]
     save_spec(str(tmp_path), "sess", s)
 
-    def fake_judge_tasks(sp, items):
+    def fake_judge_tasks(sp, items, *, transcript=""):
         out = []
         for it in items:
             tid = it["task"]["id"]
@@ -266,7 +298,7 @@ def test_stop_persists_digest_and_reason_hints(tmp_path, monkeypatch):
     monkeypatch.setattr(
         spec_mod,
         "judge_tasks",
-        lambda sp, items: [(
+        lambda sp, items, *, transcript="": [(
             0,
             "non-probative; run the behavioral test",
             [],
@@ -302,7 +334,7 @@ def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeyp
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="": [(0, "no", [], "") for _ in items])
     monkeypatch.setattr(
         gate_stop,
         "_build_stop_validate_context",

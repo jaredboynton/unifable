@@ -1,7 +1,7 @@
 """Regression: the completion breaker must not run away.
 
 Empirical origin: a Stop-hook runaway where the judge appended new requirements
-faster than auto_validate drained them (AUTO_VALIDATE_MAX_TASKS=3 per cycle), so
+faster than auto_validate drained them, so the task list grew monotonically
 the task list grew monotonically (observed 77 -> 85 -> ... -> 166 -> 176,
 ~+13/cycle) and the completion breaker -- which had NO stop-block cap -- blocked
 Stop forever. Only the host's generic CLAUDE_CODE_STOP_HOOK_BLOCK_CAP (9) finally
@@ -66,8 +66,10 @@ def _single_pending(tmp_path, monkeypatch, new_reqs, base_check="pytest -k base"
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
-        spec_mod, "judge_task",
-        lambda sp, t, ec, out: (1, "ok", [dict(r) for r in new_reqs], ""),
+        spec_mod, "judge_tasks",
+        lambda sp, items, *, transcript="": [
+            (1, "ok", [dict(r) for r in new_reqs], "") for _ in items
+        ],
     )
     return load_spec(str(tmp_path), "K")
 
@@ -450,15 +452,15 @@ def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
 
-    def judge_via_payload(sp, t, ec, out):
-        payload = json.loads(_judge_user(sp, t, ec, out))
+    def judge_via_payload(sp, items, *, transcript=""):
+        payload = json.loads(spec_mod._build_validate_all_user(sp, items))
         titles = {str(r.get("title") or "").strip().lower()
                   for r in payload.get("current_requirements") or []}
-        # Re-derive the covering requirement (distinct check) unless already visible.
         want = {"title": "no duplicate judge or hint", "check": "pytest -k rederived"}
         new = [] if want["title"].lower() in titles else [want]
-        return (1, "ok", new, "")
-    monkeypatch.setattr(spec_mod, "judge_task", judge_via_payload)
+        return [(1, "ok", new, "") for _ in items]
+
+    monkeypatch.setattr(spec_mod, "judge_tasks", judge_via_payload)
 
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert all_tasks_validated(spec)[0] is True  # breaker opens

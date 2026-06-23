@@ -680,13 +680,9 @@ def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     return (not incomplete), incomplete
 
 
-AUTO_VALIDATE_MAX_TASKS = 3
 # Ceiling on the live UNRESOLVED judge-discovered backlog (not a lifetime total).
-# The judge may add requirements while validating (new_requirements), but
-# auto_validate only drains AUTO_VALIDATE_MAX_TASKS per Stop cycle; with no bound
-# the list grows faster than it validates and the completion breaker is trapped
-# forever (the observed runaway: 77 -> 176 tasks, ~+13/cycle). Bounding the
-# *unresolved* judge backlog (rather than a lifetime cap) lets a legitimately
+# The judge may add requirements while validating (new_requirements); bounding
+# the *unresolved* judge backlog (rather than a lifetime cap) lets a legitimately
 # long task keep receiving new requirements as it resolves old ones, while a
 # runaway -- whose judge tasks never validate -- cannot grow its backlog past
 # this. Agent-added requirements are never capped; only judge ones.
@@ -697,12 +693,16 @@ JUDGE_MAX_UNRESOLVED_ADDED = 5
 _CHECK_TIMEOUT = 600
 
 
-def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
-    """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
+def _apply_dispute_verdict(
+    spec: dict[str, Any],
+    task: dict[str, Any],
+    verdict: int,
+    reason: str,
+) -> list[str]:
+    """Apply an impossibility-dispute verdict. Mutates spec in place."""
     tid = str(task.get("id") or "")
     headlines: list[str] = []
     task["attempts"] = int(task.get("attempts") or 0) + 1
-    verdict, reason = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
     task["judge_verdict"] = verdict
     task["judge_reason"] = reason
     task["status"] = "retracted" if verdict == 1 else "failed"
@@ -722,6 +722,12 @@ def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
         )
         headlines.append(headline)
     return headlines
+
+
+def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
+    """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
+    verdict, reason = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
+    return _apply_dispute_verdict(spec, task, verdict, reason)
 
 
 def _task_is_pending(task: dict[str, Any]) -> bool:
@@ -1068,20 +1074,18 @@ def auto_validate_spec(
     spec: dict[str, Any],
     cwd: str | Path,
     *,
-    max_tasks: int = AUTO_VALIDATE_MAX_TASKS,
     time_budget: float | None = None,
     transcript_path: str | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
-    """Validate up to max_tasks unresolved tasks. Mutates spec in place.
+    """Validate every open task on stop. Mutates spec in place.
 
-    Disputed tasks are impossibility-adjudicated individually. Failed tasks are
-    re-judged on stored check output (no check re-run). Pending/delivered tasks
-    get fresh checks (each bounded by the remaining wall-clock budget) and are
-    judged together in ONE batched WebSocket round-trip, so a Stop validating
-    several tasks costs a single handshake and stays within the host timeout.
-    When time_budget is set, work stops once the deadline passes -- remaining
-    tasks stay unresolved and are picked up on the next stop (convergent), instead
-    of the hook being killed."""
+    Failed tasks with stored output are re-judged (no check re-run).
+    Pending/delivered tasks get fresh checks bounded by the remaining wall-clock
+    budget. Disputed tasks are adjudicated in the same unified judge call as
+    validation tasks. One ask_structured round-trip judges all tasks together
+    from shared context (goal, board, transcript, check outputs). When
+    time_budget is set, check runs stop at the deadline; remaining tasks stay
+    open and are picked up on the next stop."""
     messages: list[str] = []
     deadline = (time.monotonic() + time_budget) if time_budget is not None else None
 
@@ -1092,8 +1096,6 @@ def auto_validate_spec(
             continue
         pending.append((idx, task))
 
-    # Frontier tasks before primary during genuine HEAVY workflow, then rotate
-    # by fewest attempts so repeated front failures cannot starve later tasks.
     if _is_heavy_spec(spec):
         pending.sort(key=lambda it: (
             0 if str(it[1].get("approach_kind") or "") == "frontier" else
@@ -1103,7 +1105,7 @@ def auto_validate_spec(
         ))
     else:
         pending.sort(key=lambda it: (int(it[1].get("attempts") or 0), it[0]))
-    pending_tasks = [task for _, task in pending[:max_tasks]]
+    pending_tasks = [task for _, task in pending]
 
     transcript = _render_judge_transcript(transcript_path)
 
@@ -1112,22 +1114,30 @@ def auto_validate_spec(
         if deadline is not None and time.monotonic() >= deadline:
             break
         if task.get("status") == "disputed":
-            messages.extend(_apply_dispute(spec, task))
+            items.append({"task": task, "kind": "dispute"})
             continue
         exit_code, output = _check_inputs_for_task(task, cwd, deadline)
-        items.append({"task": task, "exit_code": exit_code, "output": output})
+        items.append({
+            "task": task,
+            "kind": "validate",
+            "exit_code": exit_code,
+            "output": output,
+        })
 
     if items:
-        if transcript:
-            verdicts = judge_tasks(spec, items, transcript=transcript)
-        else:
-            verdicts = judge_tasks(spec, items)
+        verdicts = judge_tasks(spec, items, transcript=transcript)
         for it, (verdict, reason, new_reqs, frontier_outcome) in zip(items, verdicts):
-            messages.extend(
-                _apply_check_result(spec, it["task"], it["exit_code"], it["output"],
-                                    verdict, reason, new_reqs,
-                                    frontier_outcome=frontier_outcome)
-            )
+            task = it["task"]
+            if it.get("kind") == "dispute":
+                messages.extend(_apply_dispute_verdict(spec, task, verdict, reason))
+            else:
+                messages.extend(
+                    _apply_check_result(
+                        spec, task, it["exit_code"], it["output"],
+                        verdict, reason, new_reqs,
+                        frontier_outcome=frontier_outcome,
+                    )
+                )
     return spec, messages
 
 
@@ -1386,6 +1396,59 @@ _FRONTIER_JUDGE_SCHEMA = {
     "additionalProperties": False,
 }
 
+_TASK_VERDICT_ITEM_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "id": {"type": "string"},
+        "verdict": {"type": "integer", "enum": [0, 1]},
+        "reason": {"type": "string"},
+        "outcome": {"type": "string"},
+        "new_requirements": _NEW_REQ_SCHEMA,
+        "adjust_requirements": _ADJUST_REQ_SCHEMA,
+    },
+    "required": ["id", "verdict", "reason"],
+    "additionalProperties": False,
+}
+
+_VALIDATE_ALL_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "task_verdicts": {
+            "type": "array",
+            "items": _TASK_VERDICT_ITEM_SCHEMA,
+        },
+    },
+    "required": ["task_verdicts"],
+    "additionalProperties": False,
+}
+
+_VALIDATE_ALL_SYSTEM = (
+    "You are a strict adversarial validator for a software session. You receive "
+    "ALL open requirements to adjudicate in ONE pass, plus optional session "
+    "transcript context. For each entry in tasks_to_adjudicate:\n"
+    "- kind=validate: decide whether check output proves the task is genuinely "
+    "complete (same skepticism as a single-task validator).\n"
+    "- kind=dispute: adjudicate an agent impossibility claim. Accept (verdict 1) "
+    "ONLY if dispute_evidence proves the task cannot be done; reject weak excuses "
+    "(verdict 0).\n"
+    "- approach_kind=frontier: rule out or keep viable (outcome rejected_approach "
+    "vs still_viable; verdict always 0).\n"
+    "- approach_kind=primary: validate primary delivery after frontiers ruled out.\n"
+    "Return task_verdicts with one object per input id (same fields as single-task "
+    "validation: verdict, reason, optional new_requirements, adjust_requirements, "
+    "and outcome for frontiers). Compare ALL tasks against current_requirements "
+    "before adding anything new. "
+    + _JUDGE_NEW_REQ_GUIDANCE
+    + " "
+    "You may ADJUST requirements via adjust_requirements on any task verdict. "
+    + _JUDGE_FEEDBACK_GUIDANCE
+)
+
+_DISPUTE_ADJUDICATION = (
+    "For kind=dispute: accept (verdict 1) ONLY if dispute_evidence genuinely "
+    "proves impossibility; reject (verdict 0) if merely hard or inconvenient."
+)
+
 
 _JUDGE_TRANSCRIPT_SECTION = (
     "\n\n--- SESSION TRANSCRIPT (context only; not proof) ---\n"
@@ -1555,6 +1618,99 @@ def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, st
     return verdict, reason, new_reqs, frontier_outcome
 
 
+def _build_validate_all_user(
+    spec: dict[str, Any],
+    items: list[dict[str, Any]],
+) -> str:
+    """Build the unified validation payload for all open tasks."""
+    tasks_payload: list[dict[str, Any]] = []
+    for it in items:
+        task = it["task"]
+        entry: dict[str, Any] = {
+            "id": str(task.get("id") or ""),
+            "title": str(task.get("title") or ""),
+            "check": str(task.get("check") or ""),
+            "status": str(task.get("status") or ""),
+            "kind": str(it.get("kind") or "validate"),
+        }
+        kind = str(task.get("approach_kind") or "")
+        if kind:
+            entry["approach_kind"] = kind
+        if it.get("kind") == "dispute":
+            entry["dispute_evidence"] = str(task.get("dispute_evidence") or "")
+        else:
+            entry["exit_code"] = it.get("exit_code")
+            entry["output"] = str(it.get("output") or "")
+        tasks_payload.append(entry)
+    payload: dict[str, Any] = {
+        "goal": spec.get("restated_goal", ""),
+        "current_requirements": _current_requirements_payload(spec),
+        "tasks_to_adjudicate": tasks_payload,
+    }
+    adjustable = [
+        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
+         "check": str(t.get("check") or ""), "status": str(t.get("status") or "")}
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict) and t.get("added_by") == "judge"
+        and t.get("status") != "retracted"
+    ]
+    if adjustable:
+        payload["existing_judge_requirements"] = adjustable[-20:]
+    primary = primary_task(spec)
+    if primary:
+        payload["primary_approach"] = primary.get("title", "")
+    return json.dumps(payload, ensure_ascii=False)
+
+
+def _validate_all_system(transcript: str) -> str:
+    base = _VALIDATE_ALL_SYSTEM + " " + _DISPUTE_ADJUDICATION
+    return _judge_system_with_transcript(base, transcript)
+
+
+def judge_all_tasks(
+    spec: dict[str, Any],
+    items: list[dict[str, Any]],
+    *,
+    transcript: str = "",
+) -> list[tuple[int, str, list[dict[str, str]], str]]:
+    """Judge every open task in ONE structured call from shared session context."""
+    if not items:
+        return []
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError as exc:  # pragma: no cover
+        return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
+    try:
+        res = ask_structured(
+            _validate_all_system(transcript),
+            _build_validate_all_user(spec, items),
+            _VALIDATE_ALL_SCHEMA,
+            schema_name="validate_all",
+        )
+    except JudgeError as exc:
+        return [(0, f"judge error: {exc}", [], "") for _ in items]
+    raw_verdicts = res.get("task_verdicts") if isinstance(res, dict) else None
+    by_id: dict[str, dict[str, Any]] = {}
+    if isinstance(raw_verdicts, list):
+        for v in raw_verdicts:
+            if isinstance(v, dict) and v.get("id") is not None:
+                by_id[str(v.get("id"))] = v
+    judged_ids = {str(it["task"].get("id")) for it in items}
+    out: list[tuple[int, str, list[dict[str, str]], str]] = []
+    for it in items:
+        tid = str(it["task"].get("id"))
+        v = by_id.get(tid)
+        if not v:
+            out.append((0, f"judge omitted task {tid}", [], ""))
+            continue
+        skip = set(judged_ids)
+        if it["task"].get("added_by") == "judge":
+            skip.discard(tid)
+        _apply_adjustments(spec, v, skip_ids=skip)
+        out.append(_judge_result(v, it["task"]))
+    return out
+
+
 def judge_task(
     spec: dict[str, Any],
     task: dict[str, Any],
@@ -1590,44 +1746,8 @@ def judge_tasks(
     *,
     transcript: str = "",
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
-    """Judge several (task, exit_code, output) items, batched into ONE WebSocket
-    round-trip when there is more than one."""
-    if not items:
-        return []
-    if len(items) == 1:
-        it = items[0]
-        if transcript:
-            return [judge_task(
-                spec, it["task"], it["exit_code"], it["output"], transcript=transcript,
-            )]
-        return [judge_task(spec, it["task"], it["exit_code"], it["output"])]
-    try:
-        from codex_judge import JudgeError, ask_structured_batch
-    except ImportError as exc:  # pragma: no cover
-        return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
-    reqs = [
-        {
-            "system": _judge_system_for_task(it["task"], transcript=transcript),
-            "user": _judge_user(spec, it["task"], it["exit_code"], it["output"]),
-            "schema": _judge_schema_for_task(it["task"]),
-            "schema_name": "task_verdict",
-        }
-        for it in items
-    ]
-    results = ask_structured_batch(reqs)
-    judged_ids = {str(it["task"].get("id")) for it in items}
-    out: list[tuple[int, str, list[dict[str, str]], str]] = []
-    for it, res in zip(items, results):
-        if isinstance(res, JudgeError):
-            out.append((0, f"judge error: {res}", [], ""))
-        else:
-            current_id = str(it["task"].get("id"))
-            skip = set(judged_ids)
-            if it["task"].get("added_by") == "judge":
-                skip.discard(current_id)
-            _apply_adjustments(spec, res, skip_ids=skip)
-            out.append(_judge_result(res, it["task"]))
-    return out
+    """Judge all items in one unified structured call (validate + dispute)."""
+    return judge_all_tasks(spec, items, transcript=transcript)
 
 
 def _normalize_scope_paths(raw: Any) -> list[str]:

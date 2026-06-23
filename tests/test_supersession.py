@@ -65,11 +65,11 @@ def test_new_requirement_with_supersedes_drops_breaker_count(tmp_path, monkeypat
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-            lambda sp, items: [(
-                0, "still failing",
-                [{"title": "replacement", "check": "test -f x", "supersedes": ["T1", "T2", "T3"]}],
-                "",
-            ) for _ in items],
+        lambda sp, items, *, transcript="": [(
+            0, "still failing",
+            [{"title": "replacement", "check": "test -f x", "supersedes": ["T1", "T2", "T3"]}],
+            "",
+        ) for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     by = {t["id"]: t for t in spec["tasks"]}
@@ -87,17 +87,18 @@ def test_agent_revise_skips_verdict_this_stop(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "failed", check="bad prose check")]
     save_spec(str(tmp_path), "K", s)
 
-    def fake_judge(sp, t, ec, out):
-        _apply_adjustments(sp, {
-            "adjust_requirements": [{
-                "id": "T1", "action": "revise",
-                "reason": "check was non-executable",
-                "check": "test -f scratchpad/SPEC.md",
-            }],
-        })
-        return 0, "still failing old output", [], ""
+    def fake_judge(sp, items, *, transcript=""):
+        for it in items:
+            _apply_adjustments(sp, {
+                "adjust_requirements": [{
+                    "id": "T1", "action": "revise",
+                    "reason": "check was non-executable",
+                    "check": "test -f scratchpad/SPEC.md",
+                }],
+            })
+        return [(0, "still failing old output", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
+    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
     spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     t = spec["tasks"][0]
