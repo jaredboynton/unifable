@@ -55,6 +55,18 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # never accumulate to its cap (the backstop would be silently dead).
     "completion_stall_blocks": 0,
     "completion_prev_incomplete": None,
+    # Completion suicide-loop detection and judge-adjudicated lift (loop_release.py).
+    "completion_prev_incomplete_set": "",
+    "loop_episode_id": "",
+    "loop_same_set_streak": 0,
+    "loop_judge_last_at": 0.0,
+    "loop_judge_episode_id": "",
+    "loop_lift_kind": "",
+    "loop_lift_reason": "",
+    "loop_lift_scope": "",
+    "loop_lift_stops_remaining": 0,
+    "loop_lift_retracted": [],
+    "loop_events": [],
     # Judge-pinned grade downgrade (grade_override.py). Must be in DEFAULT_LEDGER so
     # load_ledger preserves pin state across turns and gate_prompt re-escalation.
     "grade_override_applied": False,
@@ -151,7 +163,7 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
     for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
                 "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
-                "observed_tool_results"):
+                "observed_tool_results", "loop_lift_retracted", "loop_events"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     return ledger

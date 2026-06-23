@@ -165,6 +165,61 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
             self.assertEqual(rc, 0)
             discover.assert_not_called()
 
+    def test_downgrade_context_surfaced_to_model(self) -> None:
+        import gate_post_tool
+
+        with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
+            os.environ["UNIFABLE_DATA"] = data_dir
+            spec = dict(VALID_SPEC)
+            spec["heavy_workflow"] = True
+            save_spec(cwd, "sess2", spec)
+            payload = {
+                "tool_name": "Read",
+                "tool_input": {"path": "hooks/gate_post_tool.py"},
+                "tool_response": {"success": True},
+                "session_id": "sess2",
+                "cwd": cwd,
+            }
+            save_ledger(payload, {
+                "active_task": "k",
+                "task_mode": "deep",
+                "grade": "HEAVY",
+                "frontier_research_tools": 2,
+                "frontier_discovery_count": 0,
+                "read_paths": ["hooks/gate_post_tool.py"],
+            })
+
+            override_ctx = (
+                "unifable: HEAVY lifted to STANDARD (normal task mode) by judge grade "
+                "adjudication. harness fix"
+            )
+
+            def fake_adjudicate(_input, _prompt, **_kw):
+                def apply(ld):
+                    from grade_override import apply_grade_override_ledger
+
+                    apply_grade_override_ledger(ld, "normal", "harness fix", by="judge")
+
+                from ledger import update_ledger
+
+                update_ledger(_input, apply)
+                return override_ctx
+
+            captured: dict = {}
+            with patch("gate_post_tool.read_stdin_json", return_value=payload):
+                with patch("grade_override.try_adjudicate_grade", side_effect=fake_adjudicate):
+                    with patch.object(
+                        gate_post_tool, "emit_json",
+                        side_effect=lambda d: captured.__setitem__("out", d),
+                    ):
+                        rc = gate_post_tool.main()
+            self.assertEqual(rc, 0)
+            ctx = (
+                (captured.get("out", {}).get("hookSpecificOutput") or {}).get("additionalContext")
+                or ""
+            )
+            self.assertIn("heavy lifted to standard", ctx.lower())
+
 
 if __name__ == "__main__":
     unittest.main()

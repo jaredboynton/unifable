@@ -329,6 +329,16 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
     )
 
 
+def _gate_block(rc: int, breaker_notify: str = "") -> int:
+    """Return a blocking exit code, but first surface any pending breaker notify
+    (a just-emitted breaker open / lift / fail-open / hint) to stderr so it is not
+    lost when a different gate blocks the same tool. Block stderr is shown to the
+    model, so both the gate reason and the breaker update reach it."""
+    if breaker_notify and breaker_notify.strip():
+        print(breaker_notify.strip(), file=sys.stderr)
+    return rc
+
+
 def _emit_allow(notify: str = "") -> int:
     if notify and notify.strip():
         emit_json(
@@ -399,31 +409,34 @@ def main() -> int:
 
         # Guard 1: PROTECTED_PATHS (includes .unifable/spec/* — specs are CLI-only)
         if target and _is_protected(target, cwd):
-            return _block(
-                f"write to protected unifable state file '{target}' is not allowed. "
-                "Specs are CLI-only: create and mutate them via "
-                "`unifable` (restate / add-task / set-primary / add-frontier / dispute), never by hand-editing the JSON. ledger, goals, "
-                "findings, and state are off-limits too."
+            return _gate_block(
+                _block(
+                    f"write to protected unifable state file '{target}' is not allowed. "
+                    "Specs are CLI-only: create and mutate them via "
+                    "`unifable` (restate / add-task / set-primary / add-frontier / dispute), never by hand-editing the JSON. ledger, goals, "
+                    "findings, and state are off-limits too."
+                ),
+                breaker_notify,
             )
 
         rc = _enforce_spec(input_data, cwd, write_target=target)
         if rc == 0:
             return _emit_allow(breaker_notify)
-        return rc
+        return _gate_block(rc, breaker_notify)
 
     # --- Bash: research whitelist (unconditional) ---
     if tool_name == "Bash":
         rc = _enforce_bash(input_data, tool_input, cwd)
         if rc == 0:
             return _emit_allow(breaker_notify)
-        return rc
+        return _gate_block(rc, breaker_notify)
 
     # --- Delegation: locked until the same evidence spec unlocks action phase ---
     if tool_name in DELEGATION_TOOLS:
         rc = _enforce_delegation(input_data, tool_name, cwd)
         if rc == 0:
             return _emit_allow(breaker_notify)
-        return rc
+        return _gate_block(rc, breaker_notify)
 
     # Any other tool — nothing to gate (read/search/web stay free).
     return _emit_allow(breaker_notify)

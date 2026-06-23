@@ -24,7 +24,6 @@ import json
 import os
 import re
 import sys
-import time
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
@@ -111,6 +110,103 @@ def _reset_completion_blocks(input_data: dict) -> None:
             save_ledger(input_data, ledger)
     except Exception:
         pass
+
+
+def _attach_validate_context(payload: dict, ctx: str) -> None:
+    """Attach Stop-time judge feedback to reason and additionalContext."""
+    if not ctx or not ctx.strip():
+        return
+    hso = payload.setdefault("hookSpecificOutput", {})
+    hso["hookEventName"] = "Stop"
+    existing = str(hso.get("additionalContext") or "").strip()
+    hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
+    if payload.get("decision") == "block":
+        reason = str(payload.get("reason") or "").strip()
+        payload["reason"] = f"{reason}\n\n{ctx}".strip() if reason else ctx
+
+
+def _build_stop_validate_context(spec: dict | None, val_msgs: list[str]) -> str:
+    if spec is None or not val_msgs:
+        return ""
+    try:
+        from model_notify import build_stop_validate_context
+
+        return build_stop_validate_context(spec, val_msgs)
+    except Exception:
+        return ""
+
+
+def _handle_completion_loop_release(
+    input_data: dict,
+    cwd: str,
+    task_key: str,
+    spec: dict,
+    ledger: dict,
+    incomplete: list[str],
+    val_msgs: list[str],
+    validate_ctx: str,
+) -> tuple[dict, bool, list[str], list[str], str, dict | None]:
+    """Loop signature, provisional consume, or loop judge. Returns updated state;
+    early_payload when Stop is allowed via provisional lift."""
+    from loop_release import (
+        apply_loop_release_verdict,
+        consume_provisional_stop_lift,
+        judge_completion_loop_release,
+        loop_lift_active,
+        provisional_allow_message,
+        should_invoke_loop_judge,
+        update_loop_signature,
+    )
+    from spec import all_tasks_validated, save_spec
+
+    update_loop_signature(ledger, incomplete)
+
+    if loop_lift_active(ledger) and consume_provisional_stop_lift(ledger):
+        msg = provisional_allow_message(ledger)
+        save_ledger(input_data, ledger)
+        payload = {
+            "systemMessage": msg,
+            "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": msg},
+        }
+        _attach_validate_context(payload, validate_ctx)
+        return spec, False, incomplete, val_msgs, validate_ctx, payload
+
+    if should_invoke_loop_judge(ledger, incomplete, pending_block=True):
+        recent = " | ".join(
+            (ledger.get("ran_commands") or [])[-6:]
+            + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
+        )
+        signal = (
+            f"Completion breaker blocked Stop with {len(incomplete)} incomplete task(s) "
+            f"({', '.join(incomplete)}). stall_blocks={ledger.get('completion_stall_blocks')} "
+            f"stop_blocks={ledger.get('completion_stop_blocks')} "
+            f"same_set_streak={ledger.get('loop_same_set_streak')}."
+        )
+        verdict = judge_completion_loop_release(spec, ledger, signal=signal, recent=recent)
+        headlines, _lift_msg = apply_loop_release_verdict(spec, ledger, verdict)
+        if headlines:
+            val_msgs = list(val_msgs) + headlines
+            validate_ctx = _build_stop_validate_context(spec, val_msgs)
+        elif verdict is not None and getattr(verdict, "lift", "none") == "none":
+            # Loop judge ran and declined to lift: tell the model it was checked and
+            # the remaining requirements are treated as legitimate work (still blocks).
+            note = (
+                "unifable completion loop check ran: no suicide loop detected and no lift "
+                "granted; remaining requirements are treated as legitimate work."
+            )
+            reason = str(getattr(verdict, "reason", "") or "").strip()
+            if reason:
+                note += f" Judge: {reason[:200]}"
+            val_msgs = list(val_msgs) + [note]
+            validate_ctx = _build_stop_validate_context(spec, val_msgs)
+        save_spec(cwd, task_key, spec)
+        save_ledger(input_data, ledger)
+        ok_tasks, incomplete = all_tasks_validated(spec)
+        return spec, ok_tasks, incomplete, val_msgs, validate_ctx, None
+
+    save_ledger(input_data, ledger)
+    ok_tasks, _ = all_tasks_validated(spec)
+    return spec, ok_tasks, incomplete, val_msgs, validate_ctx, None
 
 
 def _holdout_suppresses(input_data: dict) -> bool:
@@ -406,6 +502,7 @@ def main() -> int:
 
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
+    validate_ctx = ""
 
     # 1. Evidence gate — INFINITE. On a non-LIGHT task the evidence spec must EXIST
     #    and validate (repo_context {cite,why}, acceptance_criteria with live output,
@@ -424,7 +521,9 @@ def main() -> int:
             # nothing resolvable -> fail open (skip the gate).
             task_key = resolve_session_id(input_data, default=None)
             spec = load_spec(cwd, task_key) if task_key else None
+            val_msgs: list[str] = []
             ev_reason = ""
+            loop_lift_ctx = ""
             if task_key and spec is None:
                 ev_reason = (
                     "no evidence spec for this session (the prompt hook auto-creates one for "
@@ -447,8 +546,9 @@ def main() -> int:
                         save_spec(cwd, task_key, spec)
                     if advance_primary_if_ready(spec):
                         save_spec(cwd, task_key, spec)
-                    spec, _val_msgs = auto_validate_spec(spec, cwd, time_budget=STOP_JUDGE_BUDGET)
+                    spec, val_msgs = auto_validate_spec(spec, cwd, time_budget=STOP_JUDGE_BUDGET)
                     save_spec(cwd, task_key, spec)
+                    validate_ctx = _build_stop_validate_context(spec, val_msgs)
                 except Exception:
                     pass  # fail open
                 # Breaker: a task-spec must have EVERY task validated (its check ran
@@ -456,40 +556,62 @@ def main() -> int:
                 # stop until then.
                 ok_tasks, incomplete = all_tasks_validated(spec)
                 if not ok_tasks:
-                    # Host-agnostic safety cap (the circuit-breaker "bounded open
-                    # state"): if the completion breaker has re-blocked Stop with no
-                    # NET progress COMPLETION_MAX_STALLED_BLOCKS times, it is a
-                    # runaway (judge adding requirements at least as fast as they
-                    # validate). Release Stop with a loud escalation instead of
-                    # trapping the session forever. Mirrors MAX_STOP_BLOCKS for the
-                    # observation gate; fails open. Protects Codex/other hosts that
-                    # lack a generic Stop-block cap.
+                    loop_lift_ctx = ""
                     try:
                         _led = load_ledger(input_data)
-                        if note_completion_block(_led, len(incomplete)):
-                            save_ledger(input_data, _led)
-                            _warn = completion_runaway_warning(len(incomplete))
-                            emit_json({
-                                "systemMessage": _warn,
-                                "hookSpecificOutput": {
-                                    "hookEventName": "Stop", "additionalContext": _warn},
-                            })
-                            return 0
-                        save_ledger(input_data, _led)
-                    except Exception:
-                        pass  # fail open -- the safety cap never hard-blocks on its own bug
-                    ev_reason = (
-                        f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
-                        "Complete the remaining work; the harness re-runs checks on each stop "
-                        "until the judge passes every requirement."
-                    )
-                    # Advisory nudge if the agent has been stuck here repeatedly.
-                    # Rides alongside the block; it does NOT lift the breaker.
-                    hint = _completion_stop_hint(input_data, spec, incomplete)
-                    if hint:
-                        ev_reason += (
-                            "\n\nHint (advisory, does not lift the gate): " + hint
+                        spec, ok_tasks, incomplete, val_msgs, validate_ctx, early = (
+                            _handle_completion_loop_release(
+                                input_data, cwd, task_key, spec, _led, incomplete,
+                                val_msgs, validate_ctx,
+                            )
                         )
+                        if early is not None:
+                            emit_json(early)
+                            return 0
+                        from loop_release import format_loop_lift_context
+
+                        loop_lift_ctx = format_loop_lift_context(_led)
+                    except Exception:
+                        pass  # fail open
+                    if not ok_tasks:
+                        # Host-agnostic safety cap (the circuit-breaker "bounded open
+                        # state"): if the completion breaker has re-blocked Stop with no
+                        # NET progress COMPLETION_MAX_STALLED_BLOCKS times, it is a
+                        # runaway (judge adding requirements at least as fast as they
+                        # validate). Release Stop with a loud escalation instead of
+                        # trapping the session forever. Mirrors MAX_STOP_BLOCKS for the
+                        # observation gate; fails open. Protects Codex/other hosts that
+                        # lack a generic Stop-block cap.
+                        try:
+                            _led = load_ledger(input_data)
+                            if note_completion_block(_led, len(incomplete)):
+                                save_ledger(input_data, _led)
+                                _warn = completion_runaway_warning(len(incomplete))
+                                payload = {
+                                    "systemMessage": _warn,
+                                    "hookSpecificOutput": {
+                                        "hookEventName": "Stop", "additionalContext": _warn},
+                                }
+                                _attach_validate_context(payload, validate_ctx)
+                                emit_json(payload)
+                                return 0
+                            save_ledger(input_data, _led)
+                        except Exception:
+                            pass  # fail open -- the safety cap never hard-blocks on its own bug
+                        ev_reason = (
+                            f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)}). "
+                            "Complete the remaining work; the harness re-runs checks on each stop "
+                            "until the judge passes every requirement."
+                        )
+                        # Advisory nudge if the agent has been stuck here repeatedly.
+                        # Rides alongside the block; it does NOT lift the breaker.
+                        hint = _completion_stop_hint(input_data, spec, incomplete)
+                        if hint:
+                            ev_reason += (
+                                "\n\nHint (advisory, does not lift the gate): " + hint
+                            )
+                        if loop_lift_ctx:
+                            ev_reason += "\n\n" + loop_lift_ctx
                 else:
                     _reset_completion_blocks(input_data)
                     try:
@@ -528,10 +650,18 @@ def main() -> int:
                     _log_holdout(input_data, ev_reason)
                     emit_json({})
                     return 0
-                emit_json(
-                    {"decision": "block",
-                     "reason": ev_reason + " See packs/completion-checklist.md for the pre-completion checklist."}
-                )
+                payload = {
+                    "decision": "block",
+                    "reason": ev_reason + " See packs/completion-checklist.md for the pre-completion checklist.",
+                }
+                _attach_validate_context(payload, validate_ctx)
+                if loop_lift_ctx:
+                    hso = payload.setdefault("hookSpecificOutput", {})
+                    hso["hookEventName"] = "Stop"
+                    existing = str(hso.get("additionalContext") or "").strip()
+                    merged = f"{existing}\n{loop_lift_ctx}".strip() if existing else loop_lift_ctx
+                    hso["additionalContext"] = merged
+                emit_json(payload)
                 return 0
         except Exception:
             pass  # fail open — a gate bug never interrupts the host
@@ -541,6 +671,7 @@ def main() -> int:
     try:
         goal_payload = goal_stop_decision(input_data, cwd)
         if goal_payload:
+            _attach_validate_context(goal_payload, validate_ctx)
             emit_json(goal_payload)
             return 0
     except Exception:
@@ -597,11 +728,15 @@ def main() -> int:
 
     warning = warning_after_max_blocks(ledger)
     if warning:
+        payload = {
+            "systemMessage": warning,
+            "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": warning},
+        }
+        _attach_validate_context(payload, validate_ctx)
+        emit_json(payload)
+    elif validate_ctx:
         emit_json(
-            {
-                "systemMessage": warning,
-                "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": warning},
-            }
+            {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": validate_ctx}}
         )
     else:
         emit_json({})

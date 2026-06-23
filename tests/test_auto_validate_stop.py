@@ -52,6 +52,14 @@ def test_auto_validate_adjudicates_dispute(tmp_path, monkeypatch):
     assert spec["tasks"][0]["status"] == "retracted"
 
 
+def _run_stop(gate_stop, payload):
+    captured = {"out": {}}
+    gate_stop.read_stdin_json = lambda: payload
+    gate_stop.emit_json = lambda d: captured.__setitem__("out", d)
+    gate_stop.main()
+    return captured["out"]
+
+
 def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
@@ -68,9 +76,92 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
 
-    captured = {"out": {}}
-    gate_stop.read_stdin_json = lambda: {"session_id": "sess", "cwd": str(tmp_path)}
-    gate_stop.emit_json = lambda d: captured.__setitem__("out", d)
-    gate_stop.main()
-    assert captured["out"] == {}  # not blocked
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out.get("decision") != "block"
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert "stop validation" in ctx
     assert load_spec(str(tmp_path), "sess")["tasks"][0]["status"] == "validated"
+
+
+def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "failed")]
+    save_spec(str(tmp_path), "sess", s)
+    args = SimpleNamespace(root=str(tmp_path), task_id="sess", task="T1", evidence="not possible")
+    _cmd_dispute(args)
+    reason = "Rejected. The evidence does not prove impossibility."
+    monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (0, reason, ""))
+
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out.get("decision") == "block"
+    block_reason = out.get("reason") or ""
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert reason in block_reason
+    assert reason in ctx
+    assert "T1: dispute rejected" in block_reason
+
+
+def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "pending"), _task("T2", "pending"), _task("T3", "pending")]
+    save_spec(str(tmp_path), "sess", s)
+
+    def fake_judge_tasks(sp, items):
+        out = []
+        for it in items:
+            tid = it["task"]["id"]
+            out.append((0, f"{tid} lacks evidence", [], "", ""))
+        return out
+
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out.get("decision") == "block"
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    for tid in ("T1", "T2", "T3"):
+        assert f"{tid} lacks evidence" in ctx
+
+
+def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "pending")]
+    save_spec(str(tmp_path), "sess", s)
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(0, "no", [], "", "") for _ in items])
+    monkeypatch.setattr(
+        gate_stop,
+        "_build_stop_validate_context",
+        lambda spec, val_msgs: (_ for _ in ()).throw(RuntimeError("boom")),
+    )
+
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out.get("decision") == "block"
+    assert "breaker CLOSED" in (out.get("reason") or "")

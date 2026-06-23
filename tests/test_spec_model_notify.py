@@ -145,6 +145,87 @@ def test_parse_spec_cli_invocation():
     assert tid is None
 
 
+def test_format_spec_status_multi_judge_with_show_judge_for():
+    spec = _sample_spec(judge_reason=LONG_JUDGE)
+    spec["tasks"].append(
+        {
+            "id": "T3",
+            "title": "Another failed req",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": "Insufficient test coverage",
+        }
+    )
+    text = mn.format_spec_status(spec, show_judge_for=frozenset({"T1", "T3"}))
+    assert f"judge: {LONG_JUDGE}" in text
+    assert "judge: Insufficient test coverage" in text
+    assert "judge:" not in text.split("T2")[1].split("T3")[0]
+
+
+DISPUTE_REJECT_REASON = "Rejected. The evidence does not prove impossibility."
+DISPUTE_ACCEPT_REASON = "The upstream API has no such endpoint; genuinely impossible."
+
+
+def test_build_stop_validate_context_dispute_rejected():
+    spec = _sample_spec()
+    spec["tasks"] = [
+        {
+            "id": "T5",
+            "title": "impossible req",
+            "check": "true",
+            "status": "failed",
+            "judge_reason": DISPUTE_REJECT_REASON,
+        }
+    ]
+    headlines = ["T5: dispute rejected"]
+    ctx = mn.build_stop_validate_context(spec, headlines)
+    assert ctx.startswith("unifable spec update (stop validation):")
+    assert "T5: dispute rejected" in ctx
+    assert f"T5 judge: {DISPUTE_REJECT_REASON}" in ctx
+    assert "breaker: CLOSED" in ctx
+
+
+def test_build_stop_validate_context_dispute_accepted():
+    spec = _sample_spec()
+    spec["tasks"] = [
+        {
+            "id": "T6",
+            "title": "impossible req",
+            "check": "true",
+            "status": "retracted",
+            "judge_reason": DISPUTE_ACCEPT_REASON,
+        }
+    ]
+    headlines = ["T6 retracted — judge accepted impossibility. Completion breaker open."]
+    ctx = mn.build_stop_validate_context(spec, headlines)
+    assert "T6 retracted" in ctx
+    assert f"T6 judge: {DISPUTE_ACCEPT_REASON}" in ctx
+    assert "breaker: OPEN" in ctx
+
+
+def test_build_stop_validate_context_check_rejected():
+    spec = _sample_spec(judge_reason=LONG_JUDGE)
+    headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
+    ctx = mn.build_stop_validate_context(spec, headlines)
+    assert "T1 check ran (exit 1)" in ctx
+    assert f"T1 judge: {LONG_JUDGE}" in ctx
+    assert "breaker: CLOSED" in ctx
+
+
+def test_build_spec_context_from_output_collects_all_judges():
+    combined = "\n".join(
+        [
+            f"{mn.NOTIFY_PREFIX}headline one",
+            f"{mn.JUDGE_PREFIX}first judge reason",
+            f"{mn.NOTIFY_PREFIX}headline two",
+            f"{mn.JUDGE_PREFIX}second judge reason",
+        ]
+    )
+    ctx = mn.build_spec_context_from_output(combined)
+    assert "Judge: first judge reason" in ctx
+    assert "Judge: second judge reason" in ctx
+
+
 def _run_post_tool(payload: dict) -> dict:
     import gate_post_tool
 

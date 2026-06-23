@@ -619,6 +619,34 @@ def _provisional_lift_message(reason: str, scope: str) -> str:
     )
 
 
+def _disarm_message() -> str:
+    return (
+        "unifable breaker open: the flagged claim is grounded. "
+        "Write/Edit/Bash are unrestricted again."
+    )
+
+
+def _needed_message(needed: str) -> str:
+    return f"unifable breaker: still armed. {needed}"
+
+
+def _fail_open_message(count: int, claim: str) -> str:
+    detail = f" Claim: {claim}" if claim else ""
+    return (
+        f"unifable breaker auto-released after {count} consecutive blocks (fail-open). "
+        "The flagged claim was never grounded; Write/Edit/Bash are unrestricted again -- "
+        f"verify it yourself before relying on it.{detail}"
+    )
+
+
+def _stale_arm_message(claim: str) -> str:
+    detail = f" (claim: {claim})" if claim else ""
+    return (
+        "unifable breaker: cleared a stale groundedness arm from a previous "
+        f"prompt/session{detail}; Write/Edit/Bash are unrestricted."
+    )
+
+
 def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bool, str]:
     """Record release outcome on `state`. Returns (fully_disarmed, lift_notify_message)."""
     if verdict.grounded:
@@ -708,14 +736,17 @@ def evaluate_pre_tool(
     key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
     events = state.get("events") if isinstance(state.get("events"), list) else []
     notify_out = ""
+    stale_notify = ""
     try:
         armed = bool(state.get("breaker_armed"))
         provisional = bool(state.get("breaker_provisional"))
         if (armed or provisional) and state.get("breaker_key") != key:
-            append_event(state, "STALE_ARM_DROPPED", claim=str(state.get("breaker_claim") or ""))
+            stale_claim = str(state.get("breaker_claim") or "")
+            append_event(state, "STALE_ARM_DROPPED", claim=stale_claim)
             disarm(state)
             armed = False
             provisional = False
+            stale_notify = _stale_arm_message(stale_claim)
         if provisional:
             claim = str(state.get("breaker_claim") or "")
             user_goal = _user_goal_block(input_data, active_task)
@@ -725,6 +756,7 @@ def evaluate_pre_tool(
                 disarmed, lift_msg = _apply_release(state, claim, release_verdict)
                 if disarmed:
                     provisional = False
+                    state["breaker_pending_notify"] = _disarm_message()
                 elif lift_msg:
                     state["breaker_pending_notify"] = lift_msg
             if state.get("breaker_provisional") and is_mutation_tool(tool):
@@ -761,9 +793,13 @@ def evaluate_pre_tool(
                 segment = judge_transcript(input_data, events)
                 user_goal = _user_goal_block(input_data, active_task)
                 release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
-                _disarmed, lift_msg = _apply_release(state, claim, release_verdict)
-                if lift_msg:
+                disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+                if disarmed:
+                    state["breaker_pending_notify"] = _disarm_message()
+                elif lift_msg:
                     state["breaker_pending_notify"] = lift_msg
+                elif release_verdict.needed:
+                    state["breaker_pending_notify"] = _needed_message(release_verdict.needed)
     except Exception:
         return False, "", ""
     if is_mutation_tool(tool) and state.get("breaker_armed"):
@@ -774,12 +810,15 @@ def evaluate_pre_tool(
             claim = str(state.get("breaker_claim") or "")
             append_event(state, "FAIL_OPEN", claim=claim, block_count=count)
             disarm(state)
-            return False, "", ""
+            return False, "", _fail_open_message(count, claim)
+        state["breaker_pending_notify"] = ""
         return True, str(state.get("breaker_steering") or ""), ""
     pending = str(state.get("breaker_pending_notify") or "")
     if pending:
         state["breaker_pending_notify"] = ""
         notify_out = pending
+    if stale_notify:
+        notify_out = f"{stale_notify}\n{notify_out}".strip() if notify_out else stale_notify
     return False, "", notify_out
 
 
@@ -810,14 +849,11 @@ def evaluate_post_tool_release(
         release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
         disarmed, lift_msg = _apply_release(state, claim, release_verdict)
         if disarmed:
-            return True, "", (
-                "unifable breaker open: the flagged claim is grounded. "
-                "Write/Edit/Bash are unrestricted again."
-            )
+            return True, "", _disarm_message()
         if lift_msg:
             return False, "", lift_msg
         if release_verdict.needed:
-            return False, release_verdict.needed, f"unifable breaker: still armed. {release_verdict.needed}"
+            return False, release_verdict.needed, _needed_message(release_verdict.needed)
     except Exception:
         return False, "", ""
     return False, "", ""

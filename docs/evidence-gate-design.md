@@ -127,6 +127,35 @@ judge call per tool. `judge_hint` (`scripts/gate/spec.py`) is verdict-free by co
 schema returns only `hint`, so it structurally cannot resolve a task. Locked by
 `tests/test_judge_hint.py` (a hint with `verdict=0` keeps the task failed and the breaker closed).
 
+## Completion loop lift — judge-adjudicated Stop release (V1)
+
+When the completion breaker traps a session in a suicide loop (Stop re-blocked with no net
+progress — same failing tasks, judge-added runaway, repeated rejections), a **separate**
+loop-release judge may lift the gate. This is distinct from advisory hints (which never lift)
+and from the deterministic stall cap (`COMPLETION_MAX_STALLED_BLOCKS = 6` in
+`scripts/gate/verify_state.py`), which remains the hard backstop.
+
+**Trigger** (observable from ledger + spec, in `scripts/gate/loop_release.py`):
+
+- `completion_stall_blocks >= 3`, OR
+- `completion_stop_blocks` reaches `COMPLETION_LOOP_JUDGE_THRESHOLD` (default 4), OR
+- the same incomplete task set repeats across consecutive blocks.
+
+One judge call per loop episode (debounced; not every Stop).
+
+**Verdicts** (`judge_completion_loop_release`):
+
+- **Provisional** — allow Stop through for 1–3 attempts (`loop_lift_stops_remaining` in the
+  ledger) so the agent can change approach; `lift_scope` states allowed next actions.
+- **Permanent (V1)** — retract specific **judge-added** spurious requirements (never
+  agent-authored tasks); may open the breaker if enough tasks clear.
+- **None** — gate unchanged; fail-open on judge error.
+
+**Hook wiring** — `hooks/gate_stop.py` runs loop detection after `auto_validate_spec` and
+before the completion block decision: consume provisional budget, invoke loop judge when
+triggered, notify via `systemMessage` + `additionalContext`. Regression:
+`tests/test_loop_release.py`.
+
 ## Rollout
 
 Unconditional (always on, no env disable), fail-open on malformed input. Graded: LIGHT waives;

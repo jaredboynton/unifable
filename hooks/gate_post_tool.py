@@ -187,6 +187,7 @@ def main() -> int:
     ledger = update_ledger(input_data, apply)
 
     discovery_context = ""
+    grade_change_context = ""
     try:
         from citations import activity_from_ledger, sync_citations_from_activity
         from evidence_policy import resolve_grade
@@ -209,8 +210,10 @@ def main() -> int:
             ):
                 from grade_override import try_adjudicate_grade
 
-                if try_adjudicate_grade(input_data, ""):
+                override_ctx = try_adjudicate_grade(input_data, "")
+                if override_ctx:
                     grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
+                    grade_change_context = override_ctx
                 if grade == "HEAVY":
                     n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
                     discoveries = int(ledger.get("frontier_discovery_count") or 0)
@@ -253,12 +256,15 @@ def main() -> int:
             parts.append("Hint (advisory, not a gate): " + hint)
         if spec_context:
             parts.append(spec_context)
+        if grade_change_context:
+            parts.append(grade_change_context)
         _emit_context(parts)
     elif failure and not spec_context:
         _emit_context(
             [
                 "unifable gate observed a tool failure. Do not report completion until "
-                "it is fixed, isolated as a known baseline, or explicitly documented."
+                "it is fixed, isolated as a known baseline, or explicitly documented.",
+                grade_change_context,
             ]
         )
     else:
@@ -270,6 +276,8 @@ def main() -> int:
             )
         if spec_context:
             parts.append(spec_context)
+        if grade_change_context:
+            parts.append(grade_change_context)
         if discovery_context:
             parts.append(discovery_context)
         if breaker_context:

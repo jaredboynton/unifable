@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""Judge-adjudicated completion breaker loop release (V1: Stop/completion only).
+
+Detects completion suicide-loop signatures from ledger + spec state, invokes a
+structured loop-release judge, and applies provisional Stop lifts or permanent
+retraction of judge-added spurious requirements. Fail-open on judge errors.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from dataclasses import dataclass
+from typing import Any
+
+try:
+    COMPLETION_LOOP_JUDGE_THRESHOLD = int(
+        os.environ.get("UNIFABLE_LOOP_JUDGE_THRESHOLD", "4")
+    )
+except ValueError:
+    COMPLETION_LOOP_JUDGE_THRESHOLD = 4
+
+try:
+    LOOP_JUDGE_DEBOUNCE_SEC = float(os.environ.get("UNIFABLE_LOOP_JUDGE_DEBOUNCE_SEC", "60"))
+except ValueError:
+    LOOP_JUDGE_DEBOUNCE_SEC = 60.0
+
+try:
+    LOOP_PROVISIONAL_STOPS_MAX = int(os.environ.get("UNIFABLE_LOOP_PROVISIONAL_STOPS_MAX", "3"))
+except ValueError:
+    LOOP_PROVISIONAL_STOPS_MAX = 3
+
+try:
+    LOOP_STALL_SIGNATURE_BLOCKS = int(os.environ.get("UNIFABLE_LOOP_STALL_SIGNATURE_BLOCKS", "3"))
+except ValueError:
+    LOOP_STALL_SIGNATURE_BLOCKS = 3
+
+LOOP_EVENTS_MAX = 20
+
+_LOOP_RELEASE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "suicide_loop": {"type": "boolean"},
+        "lift": {"type": "string", "enum": ["none", "provisional", "permanent"]},
+        "reason": {"type": "string"},
+        "lift_scope": {"type": "string"},
+        "retract_task_ids": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+        "provisional_stops": {"type": "integer"},
+    },
+    "required": ["suicide_loop", "lift", "reason"],
+    "additionalProperties": False,
+}
+
+_LOOP_JUDGE_SYSTEM = (
+    "You adjudicate whether an autonomous coding agent is trapped in a COMPLETION "
+    "suicide loop: the Stop hook keeps blocking because requirements fail validation, "
+    "with no net progress (same failing tasks, judge-added runaway, redundant or "
+    "unsatisfiable checks). You may authorize a lift ONLY when suicide_loop=true "
+    "with evidence from the task board and activity. "
+    "lift=provisional: allow Stop through temporarily (1-3 times) so the agent can "
+    "change approach; lift_scope MUST state allowed next actions. "
+    "lift=permanent: retract specific judge-added spurious requirements listed in "
+    "retract_task_ids (never agent-authored tasks). "
+    "lift=none: when work is legitimately remaining, the incomplete set is shrinking, "
+    "or evidence is insufficient. On uncertainty, lift=none."
+)
+
+
+@dataclass(frozen=True)
+class LoopReleaseVerdict:
+    suicide_loop: bool
+    lift: str
+    reason: str
+    lift_scope: str
+    retract_task_ids: list[str]
+    provisional_stops: int
+
+
+def _incomplete_set_key(incomplete_ids: list[str]) -> str:
+    return ",".join(sorted(str(i) for i in incomplete_ids if str(i).strip()))
+
+
+def _append_loop_event(ledger: dict[str, Any], kind: str, **fields: Any) -> None:
+    events = ledger.get("loop_events")
+    if not isinstance(events, list):
+        events = []
+    entry: dict[str, Any] = {"kind": kind, "ts": time.time(), **fields}
+    events.append(entry)
+    ledger["loop_events"] = events[-LOOP_EVENTS_MAX:]
+
+
+def update_loop_signature(ledger: dict[str, Any], incomplete_ids: list[str]) -> None:
+    """Track consecutive blocks with the same incomplete task set."""
+    key = _incomplete_set_key(incomplete_ids)
+    prev = str(ledger.get("completion_prev_incomplete_set") or "")
+    if key == prev:
+        ledger["loop_same_set_streak"] = int(ledger.get("loop_same_set_streak") or 0) + 1
+    else:
+        ledger["loop_same_set_streak"] = 1
+        ledger["loop_episode_id"] = key
+    ledger["completion_prev_incomplete_set"] = key
+
+
+def stall_signature(
+    ledger: dict[str, Any], incomplete_ids: list[str], *, pending_block: bool = False
+) -> bool:
+    """True when observable signals indicate a completion suicide loop."""
+    if int(ledger.get("completion_stall_blocks") or 0) >= LOOP_STALL_SIGNATURE_BLOCKS:
+        return True
+    stop_blocks = int(ledger.get("completion_stop_blocks") or 0)
+    if pending_block:
+        stop_blocks += 1
+    if stop_blocks >= COMPLETION_LOOP_JUDGE_THRESHOLD:
+        return True
+    if int(ledger.get("loop_same_set_streak") or 0) >= 2 and _incomplete_set_key(incomplete_ids):
+        return True
+    return False
+
+
+def loop_lift_active(ledger: dict[str, Any]) -> bool:
+    return (
+        str(ledger.get("loop_lift_kind") or "") == "provisional"
+        and int(ledger.get("loop_lift_stops_remaining") or 0) > 0
+    )
+
+
+def consume_provisional_stop_lift(ledger: dict[str, Any]) -> bool:
+    """Decrement provisional budget; return True if Stop may pass this attempt."""
+    if not loop_lift_active(ledger):
+        return False
+    remaining = int(ledger.get("loop_lift_stops_remaining") or 0)
+    if remaining <= 0:
+        return False
+    ledger["loop_lift_stops_remaining"] = remaining - 1
+    if ledger["loop_lift_stops_remaining"] <= 0:
+        ledger["loop_lift_kind"] = ""
+        ledger["loop_lift_scope"] = ""
+    return True
+
+
+def should_invoke_loop_judge(
+    ledger: dict[str, Any], incomplete_ids: list[str], *, pending_block: bool = False
+) -> bool:
+    if loop_lift_active(ledger):
+        return False
+    if not stall_signature(ledger, incomplete_ids, pending_block=pending_block):
+        return False
+    episode = str(ledger.get("loop_episode_id") or "")
+    if episode and episode == str(ledger.get("loop_judge_episode_id") or ""):
+        return False
+    last_at = float(ledger.get("loop_judge_last_at") or 0.0)
+    if last_at and (time.monotonic() - last_at) < LOOP_JUDGE_DEBOUNCE_SEC:
+        return False
+    return True
+
+
+def _parse_verdict(res: Any) -> LoopReleaseVerdict:
+    if not isinstance(res, dict):
+        return LoopReleaseVerdict(False, "none", "", "", [], 0)
+    lift = str(res.get("lift") or "none").strip().lower()
+    if lift not in ("none", "provisional", "permanent"):
+        lift = "none"
+    suicide = bool(res.get("suicide_loop"))
+    if not suicide:
+        lift = "none"
+    ids_raw = res.get("retract_task_ids")
+    ids = [str(x).strip() for x in ids_raw if str(x).strip()] if isinstance(ids_raw, list) else []
+    try:
+        prov = int(res.get("provisional_stops") or 0)
+    except (TypeError, ValueError):
+        prov = 0
+    return LoopReleaseVerdict(
+        suicide_loop=suicide,
+        lift=lift,
+        reason=str(res.get("reason") or "").strip(),
+        lift_scope=str(res.get("lift_scope") or "").strip(),
+        retract_task_ids=ids,
+        provisional_stops=prov,
+    )
+
+
+def judge_completion_loop_release(
+    spec: dict[str, Any],
+    ledger: dict[str, Any],
+    *,
+    signal: str,
+    recent: str = "",
+) -> LoopReleaseVerdict:
+    """Invoke the loop-release judge. Fail-open to lift=none on error."""
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError as exc:  # pragma: no cover
+        return LoopReleaseVerdict(False, "none", f"judge unavailable: {exc}", "", [], 0)
+
+    tasks = spec.get("tasks") or []
+    user = json.dumps(
+        {
+            "goal": spec.get("restated_goal", ""),
+            "signal": signal,
+            "completion_stop_blocks": ledger.get("completion_stop_blocks"),
+            "completion_stall_blocks": ledger.get("completion_stall_blocks"),
+            "loop_same_set_streak": ledger.get("loop_same_set_streak"),
+            "incomplete_episode": ledger.get("loop_episode_id"),
+            "tasks": [
+                {
+                    "id": t.get("id"),
+                    "title": t.get("title"),
+                    "status": t.get("status"),
+                    "added_by": t.get("added_by"),
+                    "judge_reason": t.get("judge_reason"),
+                }
+                for t in tasks
+                if isinstance(t, dict)
+            ],
+            "recent_activity": (recent or "")[:2000],
+        },
+        ensure_ascii=False,
+    )
+    try:
+        res = ask_structured(
+            _LOOP_JUDGE_SYSTEM, user, _LOOP_RELEASE_SCHEMA, schema_name="loop_release"
+        )
+    except JudgeError as exc:
+        return LoopReleaseVerdict(False, "none", f"judge error: {exc}", "", [], 0)
+    return _parse_verdict(res)
+
+
+def _filter_retract_ids(spec: dict[str, Any], ids: list[str]) -> list[str]:
+    """V1: only judge-added, non-retracted tasks."""
+    by_id = {
+        str(t.get("id")): t
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict)
+    }
+    out: list[str] = []
+    for tid in ids:
+        t = by_id.get(tid)
+        if t is None:
+            continue
+        if t.get("added_by") != "judge":
+            continue
+        if t.get("status") in ("retracted", "validated"):
+            continue
+        out.append(tid)
+    return out
+
+
+def apply_loop_release_verdict(
+    spec: dict[str, Any],
+    ledger: dict[str, Any],
+    verdict: LoopReleaseVerdict,
+) -> tuple[list[str], str]:
+    """Apply lift verdict. Mutates spec and ledger. Returns (headlines, notify_msg)."""
+    episode = str(ledger.get("loop_episode_id") or "")
+    ledger["loop_judge_episode_id"] = episode
+    ledger["loop_judge_last_at"] = time.monotonic()
+
+    if verdict.lift == "none" or not verdict.suicide_loop:
+        _append_loop_event(ledger, "LOOP_JUDGE_DECLINED", reason=verdict.reason[:200])
+        return [], ""
+
+    if verdict.lift == "provisional":
+        if not verdict.lift_scope.strip():
+            _append_loop_event(ledger, "LOOP_JUDGE_DECLINED", reason="provisional missing scope")
+            return [], ""
+        stops = verdict.provisional_stops
+        if stops < 1:
+            stops = 1
+        stops = min(stops, LOOP_PROVISIONAL_STOPS_MAX)
+        ledger["loop_lift_kind"] = "provisional"
+        ledger["loop_lift_reason"] = verdict.reason
+        ledger["loop_lift_scope"] = verdict.lift_scope
+        ledger["loop_lift_stops_remaining"] = stops
+        _append_loop_event(
+            ledger,
+            "LOOP_LIFT_PROVISIONAL",
+            reason=verdict.reason[:200],
+            scope=verdict.lift_scope[:200],
+            stops=stops,
+        )
+        msg = format_loop_lift_context(ledger)
+        headline = f"Completion loop lift (provisional): {verdict.reason[:120]}"
+        return [headline], msg
+
+    if verdict.lift == "permanent":
+        allowed = _filter_retract_ids(spec, verdict.retract_task_ids)
+        if not allowed:
+            _append_loop_event(ledger, "LOOP_JUDGE_DECLINED", reason="no retractable judge tasks")
+            return [], ""
+        from spec import _apply_adjustments
+
+        adjustments = [
+            {"id": tid, "action": "retract", "reason": verdict.reason or "loop release retract"}
+            for tid in allowed
+        ]
+        headlines = _apply_adjustments(spec, {"adjust_requirements": adjustments})
+        ledger["loop_lift_kind"] = "permanent"
+        ledger["loop_lift_reason"] = verdict.reason
+        retracted = list(ledger.get("loop_lift_retracted") or [])
+        for tid in allowed:
+            if tid not in retracted:
+                retracted.append(tid)
+        ledger["loop_lift_retracted"] = retracted
+        _append_loop_event(
+            ledger,
+            "LOOP_LIFT_PERMANENT",
+            reason=verdict.reason[:200],
+            retracted=allowed,
+        )
+        try:
+            from verify_state import reset_completion_stall
+
+            reset_completion_stall(ledger)
+        except Exception:
+            pass
+        msg = format_loop_lift_context(ledger)
+        if headlines:
+            return headlines, msg
+        headline = f"Completion loop lift (permanent): retracted {', '.join(allowed)}"
+        return [headline], msg
+
+    return [], ""
+
+
+def format_loop_lift_context(ledger: dict[str, Any]) -> str:
+    kind = str(ledger.get("loop_lift_kind") or "")
+    if not kind:
+        return ""
+    reason = str(ledger.get("loop_lift_reason") or "").strip()
+    if kind == "provisional":
+        remaining = int(ledger.get("loop_lift_stops_remaining") or 0)
+        scope = str(ledger.get("loop_lift_scope") or "").strip()
+        return (
+            "unifable completion loop lift (provisional):\n"
+            f"{reason}\n"
+            f"Stop lifts remaining: {remaining}. Stay within scope: {scope}"
+        )
+    retracted = ledger.get("loop_lift_retracted") or []
+    ids = ", ".join(str(x) for x in retracted) if retracted else "(none)"
+    return (
+        "unifable completion loop lift (permanent):\n"
+        f"{reason}\n"
+        f"Retracted judge-added requirements: {ids}"
+    )
+
+
+def provisional_allow_message(ledger: dict[str, Any]) -> str:
+    """Message when provisional lift consumes one Stop pass."""
+    remaining = int(ledger.get("loop_lift_stops_remaining") or 0)
+    scope = str(ledger.get("loop_lift_scope") or "").strip()
+    reason = str(ledger.get("loop_lift_reason") or "").strip()
+    return (
+        "unifable completion breaker: provisional Stop lift active. "
+        f"{reason} Stay within scope: {scope}. "
+        f"Lifts remaining after this stop: {remaining}."
+    )

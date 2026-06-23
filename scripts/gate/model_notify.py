@@ -25,6 +25,10 @@ _SUBCMD_RE = re.compile(
 
 MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
 
+_TASK_ID_RE = re.compile(r"\bT\d+\b")
+_STOP_VALIDATE_CONTEXT_MAX = 16000
+_JUDGE_INLINE_STATUSES = frozenset({"failed", "retracted", "rejected_approach"})
+
 _STATUS_MARKS = {
     "validated": "OK",
     "failed": "XX",
@@ -43,7 +47,12 @@ def _all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     return all_tasks_validated(spec)
 
 
-def format_spec_status(spec: dict[str, Any], *, highlight_task: str | None = None) -> str:
+def format_spec_status(
+    spec: dict[str, Any],
+    *,
+    highlight_task: str | None = None,
+    show_judge_for: frozenset[str] | None = None,
+) -> str:
     """Compact task board matching the status CLI output shape."""
     ok, incomplete = _all_tasks_validated(spec)
     lines = [f"goal: {str(spec.get('restated_goal', ''))[:100]}"]
@@ -58,6 +67,7 @@ def format_spec_status(spec: dict[str, Any], *, highlight_task: str | None = Non
     except Exception:
         pass
     highlight = str(highlight_task or "").strip()
+    judge_tasks = show_judge_for or frozenset()
     for task in spec.get("tasks") or []:
         if not isinstance(task, dict):
             continue
@@ -66,7 +76,7 @@ def format_spec_status(spec: dict[str, Any], *, highlight_task: str | None = Non
         kind = str(task.get("approach_kind") or "req")
         title = str(task.get("title") or "")
         row = f"  [{mark}] {tid} ({kind}) {title}"
-        if highlight and tid == highlight:
+        if (highlight and tid == highlight) or tid in judge_tasks:
             reason = str(task.get("judge_reason") or "").strip()
             if reason:
                 row += f"\n    judge: {reason}"
@@ -143,12 +153,67 @@ def extract_model_notifications(text: str) -> list[str]:
 
 
 def extract_judge_commentary(text: str) -> str | None:
+    judges = extract_all_judge_commentary(text)
+    return judges[0] if judges else None
+
+
+def extract_all_judge_commentary(text: str) -> list[str]:
+    out: list[str] = []
     for line in (text or "").splitlines():
         if line.startswith(JUDGE_PREFIX):
             body = line[len(JUDGE_PREFIX) :].strip()
-            if body:
-                return body
-    return None
+            if body and body not in out:
+                out.append(body)
+    return out
+
+
+def _task_ids_from_headlines(headlines: list[str]) -> set[str]:
+    ids: set[str] = set()
+    for headline in headlines:
+        ids.update(_TASK_ID_RE.findall(str(headline or "")))
+    return ids
+
+
+def _stop_validate_judge_tasks(spec: dict[str, Any], headlines: list[str]) -> frozenset[str]:
+    _, incomplete = _all_tasks_validated(spec)
+    show = set(incomplete) | _task_ids_from_headlines(headlines)
+    for task in spec.get("tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        tid = str(task.get("id") or "")
+        status = str(task.get("status") or "")
+        if not tid or not str(task.get("judge_reason") or "").strip():
+            continue
+        if status in _JUDGE_INLINE_STATUSES or tid in show:
+            show.add(tid)
+    return frozenset(show)
+
+
+def build_stop_validate_context(spec: dict[str, Any], headlines: list[str]) -> str:
+    """Format Stop-time auto_validate results for model feedback."""
+    msgs = [str(h).strip() for h in (headlines or []) if str(h).strip()]
+    if not msgs:
+        return ""
+    parts: list[str] = ["unifable spec update (stop validation):"]
+    parts.extend(msgs)
+    show_judge_for = _stop_validate_judge_tasks(spec, msgs)
+    for task in spec.get("tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        tid = str(task.get("id") or "")
+        if tid not in show_judge_for:
+            continue
+        reason = str(task.get("judge_reason") or "").strip()
+        if reason:
+            parts.append(f"{tid} judge: {reason}")
+        hint = str(task.get("judge_hint") or "").strip()
+        if hint:
+            parts.append(f"{tid} hint (advisory, not a gate): {hint}")
+    parts.append(format_spec_status(spec, show_judge_for=show_judge_for))
+    body = "\n".join(parts)
+    if len(body) > _STOP_VALIDATE_CONTEXT_MAX:
+        return body[: _STOP_VALIDATE_CONTEXT_MAX - 3] + "..."
+    return body
 
 
 def extract_hint(text: str) -> str | None:
@@ -196,8 +261,8 @@ def build_spec_context_from_output(text: str) -> str:
     headlines = extract_model_notifications(text)
     if headlines:
         parts.extend(headlines)
-    judge = extract_judge_commentary(text)
-    if judge:
+    judges = extract_all_judge_commentary(text)
+    for judge in judges:
         parts.append(f"Judge: {judge}")
     hint = extract_hint(text)
     if hint:
