@@ -14,6 +14,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import bump_version as bv  # noqa: E402
@@ -66,6 +68,34 @@ def test_version_field_captures_semver():
 # ---------------------------------------------------------------------------
 # End-to-end on a throwaway tree
 # ---------------------------------------------------------------------------
+
+def test_rejects_explicit_downgrade():
+    old_repo = bv.REPO
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        (tmp / ".claude-plugin").mkdir()
+        (tmp / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "1.9.30"}))
+        bv.REPO = tmp
+        try:
+            with pytest.raises(SystemExit, match="downgrades are not allowed"):
+                bv.main(["1.9.29"])
+        finally:
+            bv.REPO = old_repo
+
+
+def test_rejects_same_explicit_version():
+    old_repo = bv.REPO
+    with tempfile.TemporaryDirectory() as td:
+        tmp = Path(td)
+        (tmp / ".claude-plugin").mkdir()
+        (tmp / ".claude-plugin" / "plugin.json").write_text(json.dumps({"version": "1.9.30"}))
+        bv.REPO = tmp
+        try:
+            with pytest.raises(SystemExit, match="already the current version"):
+                bv.main(["1.9.30"])
+        finally:
+            bv.REPO = old_repo
+
 
 def test_end_to_end_syncs_agents_md_and_manifest():
     old_repo = bv.REPO

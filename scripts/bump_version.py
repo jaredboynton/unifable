@@ -65,6 +65,27 @@ def current_version() -> str:
     return v
 
 
+def semver_tuple(version: str) -> tuple[int, int, int]:
+    return tuple(int(x) for x in version.split("."))  # type: ignore[return-value]
+
+
+def validate_version_increase(old: str, new: str) -> None:
+    """Refuse same-version and down-version bumps before any file is written."""
+    if old == new:
+        sys.exit(
+            f"bump_version: refused — target {new} is already the current version "
+            f"({CANONICAL}). Pass patch, minor, or major to advance, or an explicit "
+            f"semver strictly higher than {old}."
+        )
+    if semver_tuple(new) < semver_tuple(old):
+        sys.exit(
+            f"bump_version: refused — downgrades are not allowed ({old} -> {new}). "
+            "Managed manifests only move forward; re-tag an older commit manually "
+            "if you need to point users at a prior release without rewriting version "
+            "fields in the tree."
+        )
+
+
 def resolve_target(arg: str, old: str) -> str:
     if SEMVER.match(arg):
         return arg
@@ -83,6 +104,7 @@ def main(argv: list[str]) -> int:
         sys.exit("usage: bump_version.py <X.Y.Z|major|minor|patch>")
     old = current_version()
     new = resolve_target(argv[0], old)
+    validate_version_increase(old, new)
 
     total = 0
     changed: list[tuple[str, int]] = []
@@ -101,9 +123,6 @@ def main(argv: list[str]) -> int:
     for rel, n in changed:
         print(f"  {rel}: {n} field(s)")
 
-    if old == new:
-        print("bump_version: already at target; nothing to change")
-        return 0
     if total == 0:
         sys.exit(f"bump_version: no version fields matched; nothing changed (old={old})")
 
