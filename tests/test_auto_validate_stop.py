@@ -79,6 +79,36 @@ def test_auto_validate_passes_pending_task(tmp_path, monkeypatch):
     assert msgs
 
 
+def test_front_failures_do_not_starve_back_tasks(tmp_path, monkeypatch):
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task(f"T{i}", "pending") for i in range(1, 8)]
+    save_spec(str(tmp_path), "K", s)
+
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+
+    def fake_judge_tasks(sp, items):
+        out = []
+        for it in items:
+            tid = it["task"]["id"]
+            if tid in {"T1", "T2", "T3"}:
+                out.append((0, f"{tid} still failing", [], "", ""))
+            else:
+                out.append((1, f"{tid} ok", [], "", ""))
+        return out
+
+    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    spec = load_spec(str(tmp_path), "K")
+    for _ in range(3):
+        spec, _ = auto_validate_spec(spec, str(tmp_path))
+
+    by_id = {t["id"]: t for t in spec["tasks"]}
+    assert [by_id[f"T{i}"]["status"] for i in range(4, 8)] == ["validated"] * 4
+    assert all(by_id[f"T{i}"]["attempts"] >= 1 for i in range(4, 8))
+    assert all(by_id[f"T{i}"]["status"] == "failed" for i in range(1, 4))
+
+
 def test_auto_validate_adjudicates_dispute(tmp_path, monkeypatch):
     s = spec_template()
     s["requires_tasks"] = True

@@ -33,6 +33,7 @@ from spec import (  # noqa: E402
     _judge_user,
     all_tasks_validated,
     auto_validate_spec,
+    judge_task,
     load_spec,
     save_spec,
     spec_template,
@@ -173,6 +174,34 @@ def test_adjust_skips_task_being_judged_this_cycle():
     res = {"adjust_requirements": [{"id": "T2", "action": "retract", "reason": "x"}]}
     _apply_adjustments(spec, res, skip_ids={"T2"})
     assert spec["tasks"][0]["status"] == "pending"  # not adjusted while being judged
+
+
+def test_judge_added_current_task_can_self_retract(monkeypatch):
+    spec = {"restated_goal": "g", "tasks": [
+        _task("T1", "validated", added_by="agent"),
+        _task("T2", "failed", check="true", added_by="judge"),
+    ]}
+
+    import codex_judge
+
+    def fake_ask(system, user, schema, schema_name):
+        return {
+            "verdict": 0,
+            "reason": "T2 duplicates validated T1",
+            "new_requirements": [],
+            "adjust_requirements": [
+                {"id": "T2", "action": "retract", "reason": "duplicate of validated T1"}
+            ],
+        }
+
+    monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
+    verdict, reason, new_reqs, hint, frontier_outcome = judge_task(spec, spec["tasks"][1], 0, "ok")
+    assert verdict == 0
+    assert spec["tasks"][1]["status"] == "retracted"
+    assert "duplicates" in reason
+    assert new_reqs == []
+    assert hint == ""
+    assert frontier_outcome == ""
 
 
 # --- layer 4: breaker release ----------------------------------------------

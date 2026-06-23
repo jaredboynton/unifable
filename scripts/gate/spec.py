@@ -700,6 +700,7 @@ def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
     """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
     tid = str(task.get("id") or "")
     headlines: list[str] = []
+    task["attempts"] = int(task.get("attempts") or 0) + 1
     verdict, reason, hint = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
     task["judge_verdict"] = verdict
     task["judge_reason"] = reason
@@ -792,6 +793,14 @@ def _apply_check_result(
     task["judge_reason"] = reason
     task["judge_hint"] = hint
     kind = str(task.get("approach_kind") or "requirement")
+    task["attempts"] = int(task.get("attempts") or 0) + 1
+    if task.get("status") == "retracted" and task.get("added_by") == "judge":
+        headline = f"{tid} retracted by judge: {str(task.get('judge_reason') or reason)[:80]}"
+        notify_spec_update(
+            spec, headline,
+            highlight_task=tid, judge_reason=str(task.get("judge_reason") or reason or ""), hint=hint,
+        )
+        return [headline]
     if kind == "frontier":
         if frontier_outcome == "rejected_approach":
             task["status"] = "rejected_approach"
@@ -894,24 +903,28 @@ def auto_validate_spec(
     messages: list[str] = []
     deadline = (time.monotonic() + time_budget) if time_budget is not None else None
 
-    pending: list[dict[str, Any]] = []
+    pending: list[tuple[int, dict[str, Any]]] = []
     advance_primary_if_ready(spec)
-    for task in list(spec.get("tasks") or []):
+    for idx, task in enumerate(list(spec.get("tasks") or [])):
         if not isinstance(task, dict) or not _task_is_pending(task):
             continue
-        pending.append(task)
-        if len(pending) >= max_tasks:
-            break
+        pending.append((idx, task))
 
-    # Frontier tasks before primary during HEAVY workflow
+    # Frontier tasks before primary during genuine HEAVY workflow, then rotate
+    # by fewest attempts so repeated front failures cannot starve later tasks.
     if _is_heavy_spec(spec):
-        pending.sort(key=lambda t: (
-            0 if str(t.get("approach_kind") or "") == "frontier" else
-            1 if str(t.get("approach_kind") or "") == "primary" else 2
+        pending.sort(key=lambda it: (
+            0 if str(it[1].get("approach_kind") or "") == "frontier" else
+            1 if str(it[1].get("approach_kind") or "") == "primary" else 2,
+            int(it[1].get("attempts") or 0),
+            it[0],
         ))
+    else:
+        pending.sort(key=lambda it: (int(it[1].get("attempts") or 0), it[0]))
+    pending_tasks = [task for _, task in pending[:max_tasks]]
 
     items: list[dict[str, Any]] = []
-    for task in pending:
+    for task in pending_tasks:
         if deadline is not None and time.monotonic() >= deadline:
             break
         if task.get("status") == "disputed":
@@ -1080,6 +1093,9 @@ _JUDGE_SYSTEM = (
     "entries naming the task id with action 'retract' (drop it) or 'revise' (supply "
     "a corrected title and/or check). Only adjust requirements you added yourself, "
     "never the agent's; every adjustment is reported to the main model. You may "
+    "retract the current task if you added it and its intent is already satisfied "
+    "by a validated requirement in current_requirements; do that instead of failing "
+    "the same redundant judge-added task again. "
     "never remove or weaken the agent's own requirements. "
     + _HINT_GUIDANCE
 )
@@ -1167,14 +1183,13 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
     # Omitting this was the cause of the redundancy loop (the judge could only see
     # its own added tasks, so it re-proposed the agent's requirements each cycle).
     payload["current_requirements"] = _current_requirements_payload(spec)
-    # Requirements the judge itself added and may now adjust (retract/revise). The
-    # current task is excluded -- it is being judged this cycle, not adjusted.
+    # Requirements the judge itself added and may now adjust (retract/revise).
     adjustable = [
         {"id": str(t.get("id")), "title": str(t.get("title") or ""),
          "check": str(t.get("check") or ""), "status": str(t.get("status") or "")}
         for t in (spec.get("tasks") or [])
         if isinstance(t, dict) and t.get("added_by") == "judge"
-        and str(t.get("id")) != str(task.get("id")) and t.get("status") != "retracted"
+        and t.get("status") != "retracted"
     ]
     if adjustable:
         payload["existing_judge_requirements"] = adjustable[-20:]
@@ -1305,8 +1320,10 @@ def judge_task(
         )
     except JudgeError as exc:
         return 0, f"judge error: {exc}", [], "", ""
-    # Apply any self-adjustments to OTHER judge-added tasks (not this one).
-    _apply_adjustments(spec, res, skip_ids={str(task.get("id"))})
+    # Apply self-adjustments. The current task may be retracted only when it is a
+    # judge-added redundant requirement; agent-authored current tasks remain skipped.
+    skip = set() if task.get("added_by") == "judge" else {str(task.get("id"))}
+    _apply_adjustments(spec, res, skip_ids=skip)
     return _judge_result(res, task)
 
 
@@ -1340,9 +1357,11 @@ def judge_tasks(
         if isinstance(res, JudgeError):
             out.append((0, f"judge error: {res}", [], "", ""))
         else:
-            # Self-adjustments target OTHER judge-added tasks, never one being
-            # judged this same cycle.
-            _apply_adjustments(spec, res, skip_ids=judged_ids)
+            current_id = str(it["task"].get("id"))
+            skip = set(judged_ids)
+            if it["task"].get("added_by") == "judge":
+                skip.discard(current_id)
+            _apply_adjustments(spec, res, skip_ids=skip)
             out.append(_judge_result(res, it["task"]))
     return out
 
@@ -1622,7 +1641,7 @@ def _new_task(spec: dict[str, Any], title: str, check: str) -> dict[str, Any]:
     return {
         "id": _next_task_id(spec), "title": title.strip(), "check": check.strip(),
         "status": "pending", "exit": None, "output": "",
-        "judge_verdict": None, "judge_reason": "", "judge_hint": "",
+        "judge_verdict": None, "judge_reason": "", "judge_hint": "", "attempts": 0,
     }
 
 

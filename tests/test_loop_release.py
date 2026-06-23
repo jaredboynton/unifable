@@ -96,6 +96,23 @@ def test_apply_permanent_retracts_judge_added_only():
     assert headlines or msg
 
 
+def test_permanent_redundancy_retract_still_judge_added_only():
+    spec = spec_template()
+    spec["tasks"] = [
+        _task("T1", "validated", added_by="agent"),
+        _task("T2", "failed", added_by="judge"),
+    ]
+    led = {"loop_episode_id": "T1,T2"}
+    verdict = lr.LoopReleaseVerdict(
+        True, "permanent", "T2 duplicates validated T1", "", ["T1", "T2"], 0
+    )
+    with patch("spec.notify_spec_update"):
+        lr.apply_loop_release_verdict(spec, led, verdict)
+    assert spec["tasks"][0]["status"] == "validated"
+    assert spec["tasks"][1]["status"] == "retracted"
+    assert led["loop_lift_retracted"] == ["T2"]
+
+
 def test_apply_declined_verdict_no_state_change():
     spec = spec_template()
     spec["tasks"] = [_task("T1", "failed")]

@@ -18,7 +18,7 @@ from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_l
 from classify_task import operative_prompt, context_for_mode, grade_of
 from evidence_policy import mode_for_grade, resolve_grade
 from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
-from heavy_workflow import heavy_workflow_brief
+from heavy_workflow import clear_stale_heavy_workflow, heavy_workflow_brief
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
 
 
@@ -58,6 +58,10 @@ def _ensure_spec_scaffold(cwd: str, key: str, prompt: str, *, heavy: bool = Fals
             s = load_spec(cwd, key)
             if isinstance(s, dict) and not s.get("heavy_workflow"):
                 s["heavy_workflow"] = True
+                save_spec(cwd, key, s)
+        else:
+            s = load_spec(cwd, key)
+            if isinstance(s, dict) and clear_stale_heavy_workflow(s, "STANDARD"):
                 save_spec(cwd, key, s)
         return str(path)
     except Exception:

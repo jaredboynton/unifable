@@ -83,6 +83,9 @@ _LOOP_JUDGE_SYSTEM = (
     "change approach; lift_scope MUST state allowed next actions. "
     "lift=permanent: retract specific judge-added spurious requirements listed in "
     "retract_task_ids (never agent-authored tasks). "
+    "If a judge-added requirement's intent is already covered by a VALIDATED "
+    "requirement, treat it as a redundancy loop: set suicide_loop=true, "
+    "lift=permanent, and put those judge-added ids in retract_task_ids. "
     "lift=none: when work is legitimately remaining, the incomplete set is shrinking, "
     "or evidence is insufficient. On uncertainty, lift=none."
 )

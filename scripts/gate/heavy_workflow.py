@@ -79,6 +79,28 @@ def sync_heavy_phase(spec: dict[str, Any]) -> bool:
     return False
 
 
+def clear_stale_heavy_workflow(spec: dict[str, Any], grade: str) -> bool:
+    """Clear a stale heavy_workflow flag on non-HEAVY specs with no approach tasks.
+
+    Genuine HEAVY specs, or specs that still contain frontier/primary approach
+    tasks, are left untouched. Returns True when the spec was mutated.
+    """
+    if str(grade or "").upper() == "HEAVY":
+        return False
+    if not spec.get("heavy_workflow"):
+        return False
+    if frontier_tasks(spec) or primary_task(spec) is not None:
+        return False
+    changed = False
+    if spec.get("heavy_workflow"):
+        spec["heavy_workflow"] = False
+        changed = True
+    if spec.get("heavy_phase") is not None:
+        spec.pop("heavy_phase", None)
+        changed = True
+    return changed
+
+
 def advance_primary_if_ready(spec: dict[str, Any]) -> bool:
     """Unblock primary task when all frontiers are rejected_approach. Returns True if mutated."""
     changed = sync_heavy_phase(spec)

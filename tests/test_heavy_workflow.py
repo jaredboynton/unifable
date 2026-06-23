@@ -76,6 +76,28 @@ def test_all_tasks_validated_heavy_completion(tmp_path):
     assert ok, incomplete
 
 
+def test_clear_stale_heavy_flag_for_standard_without_approach_tasks():
+    spec = spec_template()
+    spec["heavy_workflow"] = True
+    spec["heavy_phase"] = "declare"
+    spec["requires_tasks"] = True
+    spec["tasks"] = [{"id": "T1", "title": "T1", "check": "true", "status": "validated"}]
+
+    assert hw.clear_stale_heavy_workflow(spec, "STANDARD") is True
+    assert spec["heavy_workflow"] is False
+    assert "heavy_phase" not in spec
+    assert all_tasks_validated(spec) == (True, [])
+
+
+def test_clear_stale_heavy_flag_preserves_genuine_approach_tasks(tmp_path):
+    spec = _heavy_spec(tmp_path)
+
+    assert hw.clear_stale_heavy_workflow(spec, "STANDARD") is False
+    assert spec["heavy_workflow"] is True
+    assert len(hw.frontier_tasks(spec)) == 2
+    assert hw.primary_task(spec) is not None
+
+
 def test_cli_set_primary_and_add_frontier(tmp_path):
     save_spec(str(tmp_path), "K", spec_template())
     _cmd_restate(SimpleNamespace(root=str(tmp_path), task_id="K", goal="Build auth middleware"))
