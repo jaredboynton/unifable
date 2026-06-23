@@ -75,7 +75,7 @@ What happens at each stage:
    requirement's check and the judge renders a verdict (`judge_task` / `judge_tasks`), adjudicates
    impossibility disputes (`judge_dispute`), then `goal_stop_decision` (`hooks/gate_stop.py`) judges
    any active multi-step goal from the transcript. Stop stays blocked until every requirement is
-   validated or retracted.
+   validated, retracted, or superseded.
 
 Where the judge decides, and what it falls back to:
 
@@ -148,9 +148,12 @@ Checking is continuous, not a one-shot at the end:
 - On **Stop**, `auto_validate_spec` in `scripts/gate/spec.py` validates open requirements:
   pending/delivered tasks get fresh checks; failed tasks are re-judged on stored output;
   disputed impossibility claims are adjudicated. The judge always sees the full board
-  (including validated tasks) and re-evaluates only what is still open.
-- **Completion is blocked** until every requirement is validated or retracted — the worker cannot
-  declare done with open requirements, and only the judge can retract one (by accepting a dispute).
+  (including validated tasks) and re-evaluates only what is still open. When a replacement
+  requirement is needed, the judge should include `supersedes: [ids]` so superseded agent
+  tasks stop blocking completion (`[SS]`); prefer revising a broken check over adding parallels.
+- **Completion is blocked** until every requirement is validated, retracted, or superseded —
+  the worker cannot declare done with open requirements. Only the judge can retract one
+  (by accepting a dispute) or supersede agent-authored tasks via a replacement bundle.
 
 ## Groundedness breaker
 

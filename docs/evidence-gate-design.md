@@ -41,7 +41,9 @@ agent thrashes through edits first and only "cites" at the end.
   gate's pass condition, now richer). Citations sync from ledger activity automatically
   (`sync_citations_from_activity` in `scripts/gate/citations.py`); on Stop, `auto_validate_spec`
   runs fresh checks for pending/delivered tasks, re-judges failed tasks on stored output, and
-  adjudicates disputed impossibility claims (`scripts/gate/spec.py`). Agent-facing CLI: `unifable restate`,
+  adjudicates disputed impossibility claims (`scripts/gate/spec.py`). Resolved statuses are
+  `validated`, `retracted`, and `superseded` (agent tasks replaced by a judge-added requirement
+  via `supersedes: [ids]` — non-blocking). Agent-facing CLI: `unifable restate`,
   `unifable add-task`, and `unifable dispute`.
 
 ## Delta 1 — broaden the locked surface (pre_tool_use.py)
@@ -140,7 +142,10 @@ and from the deterministic stall cap (`COMPLETION_MAX_STALLED_BLOCKS = 6` in
 
 - `completion_stall_blocks >= 3`, OR
 - `completion_stop_blocks` reaches `COMPLETION_LOOP_JUDGE_THRESHOLD` (default 4), OR
-- the same incomplete task set repeats across consecutive blocks.
+- the same incomplete task set repeats across consecutive blocks, OR
+- **requirement fragmentation** — many failed agent tasks plus overlapping pending judge-added
+  replacements (`detect_requirement_fragmentation` in `scripts/gate/spec.py`; title collisions or
+  >=5 failed tasks with judge backlog).
 
 One judge call per loop episode (debounced; not every Stop).
 
@@ -156,6 +161,21 @@ One judge call per loop episode (debounced; not every Stop).
 before the completion block decision: consume provisional budget, invoke loop judge when
 triggered, notify via `systemMessage` + `additionalContext`. Regression:
 `tests/test_loop_release.py`.
+
+## Requirement supersession — converging failed sprawl
+
+When the judge rejects evidence but the requirement itself is wrong (not merely unproven),
+it should **revise** the check via `adjust_requirements` rather than add a parallel requirement.
+When a genuinely new replacement is needed, `new_requirements` may include optional
+`supersedes: [task_ids]`:
+
+- **Agent-authored** targets become `superseded` (`[SS]`) — non-blocking, linked via
+  `superseded_by`.
+- **Judge-added** duplicates in the bundle are **retracted**.
+
+`_apply_check_result` applies the supersedes bundle before mutating the current task status so
+batch Stop adjudication cannot re-fail siblings already superseded in the same pass.
+Regression: `tests/test_supersession.py`.
 
 ## Rollout
 

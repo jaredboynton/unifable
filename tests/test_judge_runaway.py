@@ -298,7 +298,7 @@ def test_normalize_accepts_title_and_check_only():
 def test_judge_system_requires_purpose_reasoning():
     assert "PURPOSE" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
     assert "current_requirements" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
-    assert "internally" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+    assert "supersedes" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
     assert "why_distinct" not in spec_mod._JUDGE_NEW_REQ_GUIDANCE
 
 

@@ -641,9 +641,10 @@ def find_task(spec: dict[str, Any], task_id: str) -> dict[str, Any] | None:
 
 
 # A task no longer blocks completion once the judge has resolved it: either the
-# work was validated, or the judge accepted a dispute and retracted the requirement
-# as impossible. Every other status (pending/delivered/failed/disputed) is open.
-RESOLVED_STATUSES = ("validated", "retracted")
+# work was validated, the judge accepted a dispute and retracted the requirement
+# as impossible, or an agent requirement was explicitly superseded by a newer one.
+# Every other status (pending/delivered/failed/disputed) is open.
+RESOLVED_STATUSES = ("validated", "retracted", "superseded")
 
 
 def _is_heavy_spec(spec: dict[str, Any]) -> bool:
@@ -657,7 +658,7 @@ def _is_heavy_spec(spec: dict[str, Any]) -> bool:
 
 def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     """Return (ok, incomplete_ids). ok is True when every task is resolved
-    (validated or judge-retracted). A spec with no tasks returns (True, []) so
+    (validated or judge-retracted, or superseded by a replacement requirement).
     legacy acceptance-criteria specs are unaffected -- UNLESS it carries
     `requires_tasks` (set by the auto-creation hook): such a spec must gain >=1
     requirement before it can complete, so an empty one blocks. The agent adds
@@ -748,6 +749,67 @@ def _normalize_title(title: Any) -> str:
     return " ".join(base.lower().split())
 
 
+def detect_requirement_fragmentation(spec: dict[str, Any]) -> dict[str, Any] | None:
+    """Detect many failed requirements plus overlapping pending judge additions."""
+    tasks = [t for t in (spec.get("tasks") or []) if isinstance(t, dict)]
+    failed = [t for t in tasks if str(t.get("status") or "") == "failed"]
+    pending_judge = [
+        t for t in tasks
+        if str(t.get("status") or "") in ("pending", "delivered")
+        and t.get("added_by") == "judge"
+    ]
+    if len(failed) < 3 or not pending_judge:
+        return None
+    failed_by_norm = {_normalize_title(t.get("title")): str(t.get("id")) for t in failed}
+    collisions: list[dict[str, str]] = []
+    for p in pending_judge:
+        pn = _normalize_title(p.get("title"))
+        fid = failed_by_norm.get(pn)
+        if fid:
+            collisions.append({"pending_id": str(p.get("id")), "failed_id": fid})
+    return {
+        "failed_count": len(failed),
+        "pending_judge_count": len(pending_judge),
+        "failed_ids": [str(t.get("id")) for t in failed],
+        "pending_judge_ids": [str(p.get("id")) for p in pending_judge],
+        "title_collisions": collisions,
+    }
+
+
+def _apply_supersedes_bundle(
+    spec: dict[str, Any],
+    new_tid: str,
+    supersedes_ids: list[str],
+    *,
+    reason: str = "",
+) -> list[str]:
+    """Apply supersedes[] from a newly added requirement. Judge-added targets retract;
+    agent-authored targets become superseded (non-blocking). Fails open on bad ids."""
+    open_statuses = frozenset({"pending", "delivered", "failed", "disputed"})
+    by_id = {str(t.get("id")): t for t in (spec.get("tasks") or []) if isinstance(t, dict)}
+    headlines: list[str] = []
+    base_reason = reason or f"Superseded by {new_tid}"
+    for sid in supersedes_ids:
+        sid = str(sid or "").strip()
+        if not sid or sid == new_tid:
+            continue
+        t = by_id.get(sid)
+        if t is None or str(t.get("status") or "") not in open_statuses:
+            continue
+        if t.get("added_by") == "judge":
+            t["status"] = "retracted"
+            t["judge_reason"] = base_reason
+            headline = f"Judge retracted {sid}: {base_reason[:80]}"
+        else:
+            t["status"] = "superseded"
+            t["superseded_by"] = new_tid
+            t["judge_reason"] = base_reason
+            headline = f"{sid} superseded by {new_tid} (no longer blocking)"
+        notify_spec_update(spec, headline, highlight_task=sid, judge_reason=base_reason)
+        headlines.append(headline)
+    return headlines
+
+
 def _current_requirements_payload(spec: dict[str, Any]) -> list[dict[str, str]]:
     """Every requirement on the board (all statuses) for judge duplicate reasoning."""
     out: list[dict[str, str]] = []
@@ -798,6 +860,13 @@ def _apply_check_result(
 ) -> list[str]:
     """Record a check+judge outcome on the task and notify. Mutates spec in place."""
     tid = str(task.get("id") or "")
+    if task.pop("_revised_this_cycle", None):
+        headline = f"{tid} check revised by judge; re-validate on next stop."
+        notify_spec_update(
+            spec, headline,
+            highlight_task=tid, judge_reason=str(task.get("judge_reason") or ""), hint=hint,
+        )
+        return [headline]
     task["exit"] = exit_code
     task["output"] = output
     task["judge_verdict"] = verdict
@@ -812,26 +881,10 @@ def _apply_check_result(
             highlight_task=tid, judge_reason=str(task.get("judge_reason") or reason or ""), hint=hint,
         )
         return [headline]
-    if kind == "frontier":
-        if frontier_outcome == "rejected_approach":
-            task["status"] = "rejected_approach"
-        else:
-            task["status"] = "failed"
-    else:
-        task["status"] = "validated" if verdict == 1 else "failed"
-    advance_primary_if_ready(spec)
-    sync_heavy_phase(spec)
     added: list[str] = []
-    # Bound the judge as a requirement source (defense in depth against runaway):
-    #  - dedup: never re-append a requirement byte-identical (title+check) to an
-    #    existing task, NOR one whose normalized title matches an existing task's
-    #    (the trivially-reworded re-derivation: case/spacing/trailing parenthetical).
-    #    Semantic same-purpose re-derivation is prevented upstream: the judge sees
-    #    every prior task (title+check+status) and is instructed to reason about
-    #    purpose overlap before proposing new_requirements.
-    #  - backlog cap: never let the UNRESOLVED judge-added backlog exceed
-    #    JUDGE_MAX_UNRESOLVED_ADDED, so even near-duplicates (different wording,
-    #    same intent) cannot make the list diverge faster than it validates.
+    extra_headlines: list[str] = []
+    # Apply new requirements + supersedes BEFORE mutating the current task status so
+    # a batch Stop can supersede sibling tasks without a later item re-failing them.
     existing_pairs = {
         (str(t.get("title") or "").strip(), str(t.get("check") or "").strip())
         for t in (spec.get("tasks") or []) if isinstance(t, dict)
@@ -847,21 +900,40 @@ def _apply_check_result(
     )
     for req in new_reqs:
         if judge_unresolved >= JUDGE_MAX_UNRESOLVED_ADDED:
-            break  # bounded enforcement loop: backlog is full until some validate
+            break
         pair = (str(req.get("title") or "").strip(), str(req.get("check") or "").strip())
         if pair in existing_pairs:
-            continue  # dedup: verbatim repeat of an existing requirement
+            continue
         norm_title = _normalize_title(req.get("title"))
         if norm_title and norm_title in existing_norm_titles:
-            continue  # dedup: same requirement, only reworded (case/space/parenthetical)
+            continue
         spec.setdefault("tasks", [])
         nt = _new_task(spec, req["title"], req["check"])
         nt["added_by"] = "judge"
         spec["tasks"].append(nt)
         existing_pairs.add(pair)
         existing_norm_titles.add(norm_title)
-        judge_unresolved += 1  # the new task is pending -> unresolved
-        added.append(nt["id"])
+        judge_unresolved += 1
+        new_tid = nt["id"]
+        added.append(new_tid)
+        supersedes = req.get("supersedes") or []
+        if isinstance(supersedes, list) and supersedes:
+            extra_headlines.extend(
+                _apply_supersedes_bundle(
+                    spec, new_tid, [str(x) for x in supersedes], reason=reason,
+                )
+            )
+    if str(task.get("status") or "") in ("superseded", "retracted"):
+        return extra_headlines
+    if kind == "frontier":
+        if frontier_outcome == "rejected_approach":
+            task["status"] = "rejected_approach"
+        else:
+            task["status"] = "failed"
+    else:
+        task["status"] = "validated" if verdict == 1 else "failed"
+    advance_primary_if_ready(spec)
+    sync_heavy_phase(spec)
     if kind == "frontier" and task["status"] == "rejected_approach":
         headline = f"{tid} frontier ruled out by judge: {reason[:80]}."
         if all_frontiers_rejected(spec):
@@ -880,7 +952,7 @@ def _apply_check_result(
         spec, headline,
         highlight_task=tid, judge_reason=str(reason or ""), hint=hint,
     )
-    return [headline]
+    return [headline] + extra_headlines
 
 
 def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Path) -> list[str]:
@@ -975,7 +1047,11 @@ _NEW_REQ_SCHEMA = {
     "type": "array",
     "items": {
         "type": "object",
-        "properties": {"title": {"type": "string"}, "check": {"type": "string"}},
+        "properties": {
+            "title": {"type": "string"},
+            "check": {"type": "string"},
+            "supersedes": {"type": "array", "items": {"type": "string"}},
+        },
         "required": ["title", "check"],
         "additionalProperties": False,
     },
@@ -1059,8 +1135,12 @@ _JUDGE_NEW_REQ_GUIDANCE = (
     "wording or check syntax. If any existing task (especially validated) already "
     "obligates the same outcome, do NOT add it: a different title or check that "
     "proves the same thing is a duplicate and traps completion. Only add genuinely "
-    "new coverage. Do this reasoning internally; new_requirements contains only "
-    "{title, check}. If nothing is genuinely missing, return an empty list."
+    "new coverage. When a failed task has a broken or wrong-path check and you must "
+    "add a replacement, include supersedes: [ids] listing every open task the new "
+    "requirement replaces (agent tasks become non-blocking superseded; judge tasks "
+    "retract). Prefer adjust_requirements revise on an agent task with a broken "
+    "check over adding a parallel requirement. new_requirements entries are "
+    "{title, check, supersedes?}. If nothing is genuinely missing, return an empty list."
 )
 
 # Placeholder tokens that disqualify a hint -- a hint must be concrete, not a
@@ -1082,17 +1162,24 @@ def _normalize_hint(raw: Any) -> str:
     return text
 
 
-def _normalize_new_requirements(raw: Any) -> list[dict[str, str]]:
-    """Coerce the judge's new_requirements into a clean [{title, check}] list,
-    dropping anything without both fields."""
-    out: list[dict[str, str]] = []
+def _normalize_new_requirements(raw: Any) -> list[dict[str, Any]]:
+    """Coerce new_requirements into [{title, check, supersedes?}]."""
+    out: list[dict[str, Any]] = []
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, dict):
                 title = str(item.get("title") or "").strip()
                 check = str(item.get("check") or "").strip()
-                if title and check:
-                    out.append({"title": title, "check": check})
+                if not title or not check:
+                    continue
+                supersedes: list[str] = []
+                raw_sup = item.get("supersedes")
+                if isinstance(raw_sup, list):
+                    supersedes = [str(x).strip() for x in raw_sup if str(x).strip()]
+                entry: dict[str, Any] = {"title": title, "check": check}
+                if supersedes:
+                    entry["supersedes"] = supersedes
+                out.append(entry)
     return out
 
 
@@ -1104,20 +1191,19 @@ _JUDGE_SYSTEM = (
     "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
     "output, errors, skipped or zero tests, and output that does not match the task. "
     "If, while judging, you find the goal needs further requirements not yet "
-    "covered by a task, list them in new_requirements as {title, check} with a "
-    "runnable check; otherwise return an empty list. "
+    "covered by a task, list them in new_requirements as {title, check, supersedes?} "
+    "with a runnable check; otherwise return an empty list. "
     + _JUDGE_NEW_REQ_GUIDANCE
     + " "
-    "You may also ADJUST requirements "
-    "YOU previously added (shown in existing_judge_requirements) when one is "
-    "duplicative, unsatisfiable as written, or superseded: return adjust_requirements "
-    "entries naming the task id with action 'retract' (drop it) or 'revise' (supply "
-    "a corrected title and/or check). Only adjust requirements you added yourself, "
-    "never the agent's; every adjustment is reported to the main model. You may "
-    "retract the current task if you added it and its purpose is already satisfied "
-    "by a validated requirement in current_requirements; do that instead of failing "
-    "the same redundant judge-added task again. "
-    "never remove or weaken the agent's own requirements. "
+    "You may also ADJUST requirements via adjust_requirements: action 'retract' "
+    "only for requirements YOU added (judge-added); action 'revise' may fix ANY "
+    "requirement whose check is unsatisfiable as written (wrong path, non-executable "
+    "prose) by supplying a corrected title and/or check -- prefer revise over adding "
+    "a parallel new_requirement. Never retract agent-authored requirements (use "
+    "supersedes on a replacement new_requirement instead). You may retract the "
+    "current task if you added it and its purpose is already satisfied by a validated "
+    "requirement in current_requirements. Every adjustment is reported to the main "
+    "model. "
     + _HINT_GUIDANCE
 )
 
@@ -1254,11 +1340,8 @@ def _normalize_adjustments(raw: Any) -> list[dict[str, str]]:
 
 
 def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> list[str]:
-    """Apply judge self-adjustments (retract/revise) to judge-added tasks. Only
-    tasks with added_by=='judge' are touched (never the agent's), never one whose
-    id is in skip_ids (e.g. a task being judged this same cycle), and never one
-    already retracted. Each applied adjustment notifies the main model. Mutates
-    spec; returns the headlines emitted. Fails open on bad input."""
+    """Apply judge adjust_requirements: retract judge-added tasks; revise any task
+    with a broken check. skip_ids blocks retract only (revise still applies)."""
     if not isinstance(res, dict):
         return []
     adjustments = _normalize_adjustments(res.get("adjust_requirements"))
@@ -1269,17 +1352,19 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
     headlines: list[str] = []
     for adj in adjustments:
         tid = adj["id"]
-        if tid in skip:
-            continue
         t = by_id.get(tid)
-        if t is None or t.get("added_by") != "judge" or t.get("status") == "retracted":
-            continue  # only the judge's own, still-live requirements
+        if t is None or str(t.get("status") or "") in ("retracted", "superseded"):
+            continue
         reason = adj.get("reason", "")
         if adj["action"] == "retract":
+            if tid in skip:
+                continue
+            if t.get("added_by") != "judge":
+                continue
             t["status"] = "retracted"
             t["judge_reason"] = reason
             headline = f"Judge retracted {tid}: {reason[:80]}"
-        else:  # revise: correct the requirement and re-open it for validation
+        else:  # revise: fix broken checks on agent or judge tasks
             if "title" in adj:
                 t["title"] = adj["title"]
             if "check" in adj:
@@ -1289,7 +1374,9 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["output"] = ""
             t["judge_verdict"] = None
             t["judge_reason"] = reason
-            headline = f"Judge revised {tid}: {reason[:80]}"
+            t["_revised_this_cycle"] = True
+            who = "Judge" if t.get("added_by") == "judge" else "Agent req"
+            headline = f"{who} requirement {tid} revised: {reason[:80]}"
         notify_spec_update(spec, headline, highlight_task=tid, judge_reason=reason)
         headlines.append(headline)
     return headlines
@@ -1343,10 +1430,8 @@ def judge_task(
         )
     except JudgeError as exc:
         return 0, f"judge error: {exc}", [], "", ""
-    # Apply self-adjustments. The current task may be retracted only when it is a
-    # judge-added redundant requirement; agent-authored current tasks remain skipped.
-    skip = set() if task.get("added_by") == "judge" else {str(task.get("id"))}
-    _apply_adjustments(spec, res, skip_ids=skip)
+    # skip_ids blocks retract on listed ids only; revise always allowed.
+    _apply_adjustments(spec, res, skip_ids=set())
     return _judge_result(res, task)
 
 

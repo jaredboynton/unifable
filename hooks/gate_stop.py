@@ -165,7 +165,7 @@ def _handle_completion_loop_release(
         _attach_validate_context(payload, validate_ctx)
         return spec, False, incomplete, val_msgs, validate_ctx, payload
 
-    if should_invoke_loop_judge(ledger, incomplete, pending_block=True):
+    if should_invoke_loop_judge(ledger, incomplete, pending_block=True, spec=spec):
         recent = " | ".join(
             (ledger.get("ran_commands") or [])[-6:]
             + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]

@@ -123,7 +123,7 @@ def task_is_resolved(task: dict[str, Any]) -> bool:
         return status in FRONTIER_RESOLVED
     if kind == "primary":
         return status == "validated"
-    return status in ("validated", "retracted")
+    return status in ("validated", "retracted", "superseded")
 
 
 def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:

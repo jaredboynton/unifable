@@ -32,7 +32,7 @@ _STOP_VALIDATE_CONTEXT_MAX = 16000
 # its judge reason on the stop it changed (its id appears in the headlines), and
 # otherwise collapses into the done-count line.
 _JUDGE_INLINE_STATUSES = frozenset({"failed", "rejected_approach"})
-_RESOLVED_STATUSES = frozenset({"validated", "retracted"})
+_RESOLVED_STATUSES = frozenset({"validated", "retracted", "superseded"})
 
 _STATUS_MARKS = {
     "validated": "OK",
@@ -41,6 +41,7 @@ _STATUS_MARKS = {
     "pending": "--",
     "disputed": "??",
     "retracted": "~~",
+    "superseded": "SS",
     "blocked": "BL",
     "rejected_approach": "RJ",
 }

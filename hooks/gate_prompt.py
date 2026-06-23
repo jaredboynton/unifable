@@ -164,7 +164,8 @@ def main() -> int:
                 f"  - if a requirement is genuinely impossible: unifable dispute "
                 f"--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
                 f"Citations sync from your reads/fetches automatically; on stop, pending "
-                f"requirements get fresh checks, failed/disputed ones are re-adjudicated."
+                f"requirements get fresh checks, failed/disputed ones are re-adjudicated; "
+                f"superseded tasks ([SS]) no longer block completion."
             )
 
     try:

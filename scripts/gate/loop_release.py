@@ -82,7 +82,10 @@ _LOOP_JUDGE_SYSTEM = (
     "lift=provisional: allow Stop through temporarily (1-3 times) so the agent can "
     "change approach; lift_scope MUST state allowed next actions. "
     "lift=permanent: retract specific judge-added spurious requirements listed in "
-    "retract_task_ids (never agent-authored tasks). "
+    "retract_task_ids (never agent-authored tasks). When fragmentation is present "
+    "(many failed tasks plus pending judge-added replacements with overlapping "
+    "purpose), retract failed judge-added duplicates and rely on the pending "
+    "replacement requirements. "
     "If a judge-added requirement's intent is already covered by a VALIDATED "
     "requirement, treat it as a redundancy loop: set suicide_loop=true, "
     "lift=permanent, and put those judge-added ids in retract_task_ids. "
@@ -127,9 +130,24 @@ def update_loop_signature(ledger: dict[str, Any], incomplete_ids: list[str]) -> 
 
 
 def stall_signature(
-    ledger: dict[str, Any], incomplete_ids: list[str], *, pending_block: bool = False
+    ledger: dict[str, Any],
+    incomplete_ids: list[str],
+    *,
+    pending_block: bool = False,
+    spec: dict[str, Any] | None = None,
 ) -> bool:
     """True when observable signals indicate a completion suicide loop."""
+    if spec is not None:
+        try:
+            from spec import detect_requirement_fragmentation
+
+            frag = detect_requirement_fragmentation(spec)
+        except Exception:
+            frag = None
+        if frag is not None and (
+            frag.get("title_collisions") or int(frag.get("failed_count") or 0) >= 5
+        ):
+            return True
     if int(ledger.get("completion_stall_blocks") or 0) >= LOOP_STALL_SIGNATURE_BLOCKS:
         return True
     stop_blocks = int(ledger.get("completion_stop_blocks") or 0)
@@ -164,11 +182,15 @@ def consume_provisional_stop_lift(ledger: dict[str, Any]) -> bool:
 
 
 def should_invoke_loop_judge(
-    ledger: dict[str, Any], incomplete_ids: list[str], *, pending_block: bool = False
+    ledger: dict[str, Any],
+    incomplete_ids: list[str],
+    *,
+    pending_block: bool = False,
+    spec: dict[str, Any] | None = None,
 ) -> bool:
     if loop_lift_active(ledger):
         return False
-    if not stall_signature(ledger, incomplete_ids, pending_block=pending_block):
+    if not stall_signature(ledger, incomplete_ids, pending_block=pending_block, spec=spec):
         return False
     episode = str(ledger.get("loop_episode_id") or "")
     last_at = float(ledger.get("loop_judge_last_at") or 0.0)
@@ -231,6 +253,14 @@ def judge_completion_loop_release(
     stop_blocks = int(ledger.get("completion_stop_blocks") or 0)
     from verify_state import COMPLETION_MAX_STOP_BLOCKS
 
+    fragmentation = None
+    try:
+        from spec import detect_requirement_fragmentation
+
+        fragmentation = detect_requirement_fragmentation(spec)
+    except Exception:
+        pass
+
     user = json.dumps(
         {
             "goal": spec.get("restated_goal", ""),
@@ -240,6 +270,7 @@ def judge_completion_loop_release(
             "completion_stall_blocks": ledger.get("completion_stall_blocks"),
             "loop_same_set_streak": ledger.get("loop_same_set_streak"),
             "incomplete_episode": ledger.get("loop_episode_id"),
+            "fragmentation": fragmentation,
             "tasks": [
                 {
                     "id": t.get("id"),
