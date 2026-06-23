@@ -550,3 +550,41 @@ def test_build_stop_validate_context_truncation_flag():
     ctx, truncated = mn.build_stop_validate_context(spec, headlines, max_len=100)
     assert truncated is True
     assert "do the thing" in ctx
+
+
+def test_stop_unresolved_synthetic_primary_missing():
+    from spec import append_frontier_task
+
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "ship feature"
+    append_frontier_task(spec, "Try WASM path", "cargo test -p wasm")
+    append_frontier_task(spec, "Try native path", "cargo test -p native")
+    ctx, _ = mn.build_stop_validate_context(spec, ["frontier explore"])
+    assert "unifable set-primary" in ctx
+    assert "primary approach (missing)" in ctx
+    assert "<need primary approach task>" not in ctx
+
+
+def test_stop_unresolved_synthetic_no_requirements():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["tasks"] = []
+    ctx, _ = mn.build_stop_validate_context(spec, ["seed"])
+    assert "unifable add-task" in ctx
+    assert "requirements (none yet)" in ctx
+    assert "<no requirements added yet>" not in ctx
+
+
+def test_format_blocking_task_hints_synthetic_incomplete():
+    from spec import append_frontier_task
+
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    append_frontier_task(spec, "Frontier A", "true")
+    append_frontier_task(spec, "Frontier B", "true")
+    hints = mn.format_blocking_task_hints(spec, ["<need primary approach task>"])
+    assert "unifable set-primary" in hints
+    hints2 = mn.format_blocking_task_hints(spec, ["<need >=2 frontier approach tasks>"])
+    assert "unifable add-frontier" in hints2

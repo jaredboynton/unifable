@@ -44,6 +44,35 @@ _STATUS_MARKS = {
     "rejected_approach": "RJ",
 }
 
+# Structural gaps from all_tasks_validated / all_tasks_validated_heavy (not task rows).
+_SYNTHETIC_INCOMPLETE: dict[str, tuple[str, str]] = {
+    "<no requirements added yet>": (
+        "requirements (none yet)",
+        "Add at least one: `unifable add-task --title '<requirement>' --check '<runnable check>'`.",
+    ),
+    "<need >=2 frontier approach tasks>": (
+        "frontier approaches (need >=2)",
+        "HEAVY declare: add >=2 with `unifable add-frontier --title '...' --check '...'` "
+        "(judge may auto-add during research).",
+    ),
+    "<need primary approach task>": (
+        "primary approach (missing)",
+        "HEAVY declare: set the evidence-backed fallback with "
+        "`unifable set-primary --title '...' --check '<runnable proof>'` "
+        "(stays blocked until all frontiers are rejected).",
+    ),
+}
+
+
+def _synthetic_incomplete_label(tid: str) -> str | None:
+    entry = _SYNTHETIC_INCOMPLETE.get(tid)
+    return entry[0] if entry else None
+
+
+def _synthetic_incomplete_action(tid: str) -> str | None:
+    entry = _SYNTHETIC_INCOMPLETE.get(tid)
+    return entry[1] if entry else None
+
 
 def _all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     from spec import all_tasks_validated
@@ -293,7 +322,11 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
     for tid in ordered:
         task = by_id.get(tid)
         if not task:
-            lines.append(f"  {tid}")
+            action = _synthetic_incomplete_action(tid)
+            if action:
+                lines.append(f"  {action}")
+            else:
+                lines.append(f"  {tid}")
             continue
         status = str(task.get("status") or "")
         mark = _STATUS_MARKS.get(status, "??")
@@ -305,7 +338,10 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
             lines.append(f"    judge: {reason}")
         elif hint:
             lines.append(f"    hint: {hint}")
-    lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(ordered)})")
+    display = [
+        _synthetic_incomplete_label(tid) or tid for tid in ordered
+    ]
+    lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(display)})")
     return "\n".join(lines)
 
 
@@ -343,6 +379,9 @@ def format_blocking_task_hints(
     for tid in ordered:
         task = by_id.get(tid)
         if not task:
+            action = _synthetic_incomplete_action(tid)
+            if action:
+                hint_lines.append(f"  {action}")
             continue
         hint = str(task.get("judge_hint") or "").strip()
         reason = str(task.get("judge_reason") or "").strip()
