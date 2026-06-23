@@ -143,7 +143,7 @@ def test_frontier_judge_rejected_approach(tmp_path, monkeypatch):
     frontier = hw.frontier_tasks(spec)[0]
 
     def fake_judge(sp, task, ec, out):
-        return 0, "broken boundary: latency regression", [], "", "rejected_approach"
+        return 0, "broken boundary: latency regression", [], "rejected_approach"
 
     monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
     from spec import _validate_one_task

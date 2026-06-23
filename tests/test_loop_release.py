@@ -86,14 +86,31 @@ def test_apply_permanent_retracts_judge_added_only():
     ]
     led = {"loop_episode_id": "T1,T2"}
     verdict = lr.LoopReleaseVerdict(
-        True, "permanent", "T2 is spurious runaway", "", ["T1", "T2"], 0
+        True,
+        "permanent",
+        "Retract the failed judge-added plugin-version assertion (T2) because T15 replaces it.",
+        "",
+        ["T1", "T2"],
+        0,
     )
     with patch("spec.notify_spec_update"):
         headlines, msg = lr.apply_loop_release_verdict(spec, led, verdict)
     assert spec["tasks"][0]["status"] == "pending"
     assert spec["tasks"][1]["status"] == "retracted"
+    assert spec["tasks"][1]["judge_reason"] == lr._LOOP_RETRACT_REASON
     assert "T2" in led["loop_lift_retracted"]
-    assert headlines or msg
+    assert msg == ""
+    assert any("Judge retracted T2" in h for h in headlines)
+    assert not any("Retract" in h for h in headlines)
+
+
+def test_format_loop_lift_context_permanent_is_empty():
+    led = {
+        "loop_lift_kind": "permanent",
+        "loop_lift_reason": "Retract T16 because T15 covers it.",
+        "loop_lift_retracted": ["T16"],
+    }
+    assert lr.format_loop_lift_context(led) == ""
 
 
 def test_permanent_redundancy_retract_still_judge_added_only():
@@ -302,9 +319,19 @@ def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):
     )
 
     verdict = lr.LoopReleaseVerdict(
-        True, "permanent", "spurious judge req", "", ["T1"], 0
+        True,
+        "permanent",
+        "Retract the failed judge-added requirement (T1); leave other failed items in place.",
+        "",
+        ["T1"],
+        0,
     )
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
         out = _run_stop(gate_stop, {"session_id": "loopsess3", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
     assert load_spec(str(tmp_path), "loopsess3")["tasks"][0]["status"] == "retracted"
+    blob = (out.get("reason") or "") + " " + (
+        (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    )
+    assert "completion loop lift (permanent)" not in blob.lower()
+    assert "retract the failed" not in blob.lower()

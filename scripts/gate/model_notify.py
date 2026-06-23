@@ -309,6 +309,19 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
     return "\n".join(lines)
 
 
+def _stop_non_task_notes(headlines: list[str]) -> list[str]:
+    """Keep Stop guidance that is not tied to a specific task row."""
+    notes: list[str] = []
+    seen: set[str] = set()
+    for headline in collapse_stop_headlines(headlines):
+        if _task_ids_from_headlines([headline]):
+            continue
+        if headline not in seen:
+            seen.add(headline)
+            notes.append(headline)
+    return notes
+
+
 def format_blocking_task_hints(
     spec: dict[str, Any],
     incomplete: list[str],
@@ -365,9 +378,9 @@ def build_stop_validate_context(
 ) -> tuple[str, bool]:
     """Format Stop-time auto_validate results for model feedback.
 
-    Returns ``(context, truncated)``. Action-required judge detail for tasks
-    changed this stop leads; stale incomplete tasks stay one-line rows on the
-    board without replaying prior judge essays.
+    Returns ``(context, truncated)``. The Stop context lists unresolved tasks
+    only, includes fresh judge detail for tasks changed this stop, and preserves
+    non-task loop guidance as notes.
     """
     raw_msgs = [str(h).strip() for h in (headlines or []) if str(h).strip()]
     if not raw_msgs:
@@ -375,8 +388,11 @@ def build_stop_validate_context(
     limit = max_len if max_len is not None else _STOP_VALIDATE_CONTEXT_MAX
     changed_ids = _task_ids_from_headlines(raw_msgs)
     action = format_stop_unresolved_actions(spec, changed_ids)
+    notes = _stop_non_task_notes(raw_msgs)
 
     parts: list[str] = ["unifable spec update (stop validation):", action]
+    if notes:
+        parts.extend(["Notes:", "\n".join(f"  {note}" for note in notes)])
     body = "\n".join(parts)
     if len(body) <= limit:
         return body, False

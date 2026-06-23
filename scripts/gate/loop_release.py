@@ -65,6 +65,8 @@ _LOOP_RELEASE_SCHEMA = {
     "additionalProperties": False,
 }
 
+_LOOP_RETRACT_REASON = "loop release (spurious judge-added requirement)"
+
 _LOOP_JUDGE_SYSTEM = (
     "You adjudicate whether an autonomous coding agent is trapped in a COMPLETION "
     "suicide loop: the Stop hook keeps blocking because requirements fail validation, "
@@ -81,14 +83,16 @@ _LOOP_JUDGE_SYSTEM = (
     "low value there does NOT contradict a high completion_stop_blocks. "
     "lift=provisional: allow Stop through temporarily (1-3 times) so the agent can "
     "change approach; lift_scope MUST state allowed next actions. "
-    "lift=permanent: retract specific judge-added spurious requirements listed in "
-    "retract_task_ids (never agent-authored tasks). When fragmentation is present "
-    "(many failed tasks plus pending judge-added replacements with overlapping "
-    "purpose), retract failed judge-added duplicates and rely on the pending "
-    "replacement requirements. "
+    "lift=permanent: list judge-added spurious requirement ids in retract_task_ids "
+    "(never agent-authored tasks). The harness RETRACTS those tasks automatically "
+    "— do NOT write imperative instructions to the agent (no 'retract T16', "
+    "'leave other items', etc.). The reason field is an internal audit note only "
+    "(past tense, one sentence); it is NOT shown to the agent. When fragmentation "
+    "is present (many failed tasks plus pending judge-added replacements with "
+    "overlapping purpose), put failed judge-added duplicate ids in retract_task_ids. "
     "If a judge-added requirement's intent is already covered by a VALIDATED "
     "requirement, treat it as a redundancy loop: set suicide_loop=true, "
-    "lift=permanent, and put those judge-added ids in retract_task_ids. "
+    "lift=permanent, and list those judge-added ids in retract_task_ids. "
     "lift=none: when work is legitimately remaining, the incomplete set is shrinking, "
     "or evidence is insufficient. On uncertainty, lift=none."
 )
@@ -361,7 +365,7 @@ def apply_loop_release_verdict(
         from spec import _apply_adjustments
 
         adjustments = [
-            {"id": tid, "action": "retract", "reason": verdict.reason or "loop release retract"}
+            {"id": tid, "action": "retract", "reason": _LOOP_RETRACT_REASON}
             for tid in allowed
         ]
         headlines = _apply_adjustments(spec, {"adjust_requirements": adjustments})
@@ -384,18 +388,17 @@ def apply_loop_release_verdict(
             reset_completion_stall(ledger)
         except Exception:
             pass
-        msg = format_loop_lift_context(ledger)
-        if headlines:
-            return headlines, msg
-        headline = f"Completion loop lift (permanent): retracted {', '.join(allowed)}"
-        return [headline], msg
+        return headlines, ""
 
     return [], ""
 
 
 def format_loop_lift_context(ledger: dict[str, Any]) -> str:
+    """Model-facing loop-lift notice. Permanent retractions use normal spec headlines only."""
     kind = str(ledger.get("loop_lift_kind") or "")
     if not kind:
+        return ""
+    if kind == "permanent":
         return ""
     reason = str(ledger.get("loop_lift_reason") or "").strip()
     if kind == "provisional":
@@ -406,13 +409,7 @@ def format_loop_lift_context(ledger: dict[str, Any]) -> str:
             f"{reason}\n"
             f"Stop lifts remaining: {remaining}. Stay within scope: {scope}"
         )
-    retracted = ledger.get("loop_lift_retracted") or []
-    ids = ", ".join(str(x) for x in retracted) if retracted else "(none)"
-    return (
-        "unifable completion loop lift (permanent):\n"
-        f"{reason}\n"
-        f"Retracted judge-added requirements: {ids}"
-    )
+    return ""
 
 
 def provisional_allow_message(ledger: dict[str, Any]) -> str:

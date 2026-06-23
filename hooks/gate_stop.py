@@ -596,9 +596,12 @@ def main() -> int:
                                 spec, val_msgs, max_len=1_000_000,
                             )
                             stop_digest_path = _persist_stop_digest(cwd, task_key, full_ctx)
-                        from loop_release import format_loop_lift_context
+                        from loop_release import format_loop_lift_context, loop_lift_active
 
-                        loop_lift_ctx = format_loop_lift_context(_led)
+                        if loop_lift_active(_led):
+                            loop_lift_ctx = format_loop_lift_context(_led)
+                        else:
+                            loop_lift_ctx = ""
                     except Exception:
                         pass  # fail open
                     if not ok_tasks:

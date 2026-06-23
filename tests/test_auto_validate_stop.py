@@ -180,7 +180,7 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     assert "Action:" in block_reason
     assert "T1:" in block_reason
     assert "unifable spec update" not in block_reason
-    assert "T1: dispute rejected" in ctx or "dispute rejected" in ctx
+    assert "T1 [XX] T1" in ctx
 
 
 def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
