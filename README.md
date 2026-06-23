@@ -46,9 +46,9 @@ over `scripts/gate/codex_judge.py`.
 ```mermaid
 flowchart TB
   P([user prompt]) --> UPS
-  UPS["UserPromptSubmit<br/>grade the task: LIGHT / STANDARD / HEAVY"] --> PTU
+  UPS["UserPromptSubmit<br/>grade the task: quick / normal / deep"] --> PTU
   PTU["PreToolUse — every tool<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
-  POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; HEAVY frontier discovery"] --> STOP
+  POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; suggest approaches on a deep task"] --> STOP
   STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>judge active goals (goal_stop_decision)"]
   UPS -.-> CJ
   PTU -.-> CJ
@@ -59,17 +59,18 @@ flowchart TB
 
 What happens at each stage:
 
-1. **Each prompt — UserPromptSubmit.** The judge grades the operative prompt into LIGHT / STANDARD /
-   HEAVY (`judge_grade_classify`, `scripts/gate/grade_override.py`), which sets how strict the
-   evidence gate is for the turn. Fail-open to normal on any judge or transport error.
+1. **Each prompt — UserPromptSubmit.** The judge sizes up the operative prompt by depth — a quick
+   fix, a normal task, or a deep task (`judge_grade_classify`, `scripts/gate/grade_override.py`) —
+   which sets how strict the evidence gate is for the turn. Fail-open to a normal task on any judge or
+   transport error.
 2. **Before each mutating tool — PreToolUse.** The judge arms the groundedness breaker on an
    unproven, load-bearing, confident claim and blocks the edit or delegation until it is grounded;
    reads, web, and whitelisted research Bash stay free (`scripts/gate/groundedness.py`, debounced to
    one judge call per 15s).
 3. **After every tool — PostToolUse.** Real activity (files read, URLs fetched, commands run,
    failures) is parsed into the per-session ledger and the spec's citations sync automatically; a
-   repeated failure spends one judge call for an advisory `judge_hint`, and a HEAVY task
-   under-supplied with approaches triggers `judge_discover_frontiers`.
+   repeated failure spends one judge call for an advisory `judge_hint`, and a deep task that has not
+   yet laid out enough candidate approaches triggers `judge_discover_frontiers`.
 4. **On Stop — completion gate.** `auto_validate_spec` (`scripts/gate/spec.py`) runs each open
    requirement's check and the judge renders a verdict (`judge_task` / `judge_tasks`), adjudicates
    impossibility disputes (`judge_dispute`), then `goal_stop_decision` (`hooks/gate_stop.py`) judges
@@ -80,9 +81,9 @@ Where the judge decides, and what it falls back to:
 
 | Stage | Judge call | Decides | On judge error |
 |---|---|---|---|
-| UserPromptSubmit | `judge_grade_classify` | task grade -> evidence-gate strictness | fail-open: normal / STANDARD |
+| UserPromptSubmit | `judge_grade_classify` | how deep the task is -> how strict the gate is | fail-open: treat as a normal task |
 | PreToolUse | `arm_judge` / `disarm_judge` | arm or release the groundedness breaker | fail-open: tool allowed |
-| PostToolUse | `judge_hint`, `judge_discover_frontiers` | advisory nudge; propose HEAVY frontiers | fail-open: no hint |
+| PostToolUse | `judge_hint`, `judge_discover_frontiers` | advisory nudge; suggest approaches for a deep task | fail-open: no hint |
 | Stop | `judge_task` / `judge_tasks`, `judge_dispute` | validate or reject each requirement; accept or deny disputes | fail-open allow; dispute defaults to reject |
 | Stop | `goal_stop_decision` | active goal complete or impossible, from transcript | fail-open allow after cap |
 
@@ -94,7 +95,7 @@ What the judge catches:
 | A confident, load-bearing claim is asserted before an edit with no evidence | Arms the breaker; the edit is blocked until the claim is grounded by a read or tool output (`groundedness.py`) |
 | Worker argues a requirement is impossible to dodge it | `judge_dispute` accepts only with proof and defaults to reject (verdict 0), so impossibility is never granted by default |
 | The same failure class repeats and the worker is looping | One `judge_hint` offers a concrete next step — advisory only, it never unblocks anything |
-| A HEAVY task starts without two or more candidate approaches | `judge_discover_frontiers` proposes frontier approach tasks before primary-path edits are allowed |
+| A deep task starts without two or more candidate approaches | `judge_discover_frontiers` proposes candidate approach tasks before work on the chosen one is allowed |
 
 ## How enforcement is wired
 
