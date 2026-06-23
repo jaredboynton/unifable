@@ -735,6 +735,18 @@ def _task_is_pending(task: dict[str, Any]) -> bool:
     return True
 
 
+_TITLE_PARENS_RE = re.compile(r"\s*\([^)]*\)\s*$")
+
+
+def _normalize_title(title: Any) -> str:
+    """Normalize a requirement title for duplicate detection: drop a trailing
+    parenthetical clause, lowercase, and collapse whitespace. Catches trivially
+    reworded re-derivations of the same requirement (case/spacing/parenthetical)
+    that the byte-identical (title, check) pair check misses."""
+    base = _TITLE_PARENS_RE.sub("", str(title or "").strip())
+    return " ".join(base.lower().split())
+
+
 def _apply_check_result(
     spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str,
     verdict: int, reason: str, new_reqs: list[dict[str, str]], hint: str,
@@ -761,13 +773,19 @@ def _apply_check_result(
     added: list[str] = []
     # Bound the judge as a requirement source (defense in depth against runaway):
     #  - dedup: never re-append a requirement byte-identical (title+check) to an
-    #    existing task -- the verbatim re-add the judge does when it re-derives the
-    #    same requirement each cycle.
+    #    existing task, NOR one whose normalized title matches an existing task's
+    #    (the trivially-reworded re-derivation: case/spacing/trailing parenthetical).
+    #    The semantic re-derivation is prevented upstream by showing the judge
+    #    current_requirements; this is the deterministic floor for the obvious case.
     #  - backlog cap: never let the UNRESOLVED judge-added backlog exceed
     #    JUDGE_MAX_UNRESOLVED_ADDED, so even near-duplicates (different wording,
     #    same intent) cannot make the list diverge faster than it validates.
     existing_pairs = {
         (str(t.get("title") or "").strip(), str(t.get("check") or "").strip())
+        for t in (spec.get("tasks") or []) if isinstance(t, dict)
+    }
+    existing_norm_titles = {
+        _normalize_title(t.get("title"))
         for t in (spec.get("tasks") or []) if isinstance(t, dict)
     }
     judge_unresolved = sum(
@@ -781,11 +799,15 @@ def _apply_check_result(
         pair = (str(req.get("title") or "").strip(), str(req.get("check") or "").strip())
         if pair in existing_pairs:
             continue  # dedup: verbatim repeat of an existing requirement
+        norm_title = _normalize_title(req.get("title"))
+        if norm_title and norm_title in existing_norm_titles:
+            continue  # dedup: same requirement, only reworded (case/space/parenthetical)
         spec.setdefault("tasks", [])
         nt = _new_task(spec, req["title"], req["check"])
         nt["added_by"] = "judge"
         spec["tasks"].append(nt)
         existing_pairs.add(pair)
+        existing_norm_titles.add(norm_title)
         judge_unresolved += 1  # the new task is pending -> unresolved
         added.append(nt["id"])
     if kind == "frontier" and task["status"] == "rejected_approach":
@@ -1025,8 +1047,12 @@ _JUDGE_SYSTEM = (
     "output, errors, skipped or zero tests, and output that does not match the task. "
     "If, while judging, you find the goal needs further requirements not yet "
     "covered by a task, list them in new_requirements as {title, check} with a "
-    "runnable check; otherwise return an empty list. Do NOT re-add a requirement "
-    "that already exists (it will be ignored). You may also ADJUST requirements "
+    "runnable check; otherwise return an empty list. current_requirements lists "
+    "EVERY requirement already in the spec with its status. Before proposing a "
+    "new_requirement, check current_requirements: if its intent is already covered "
+    "by any existing requirement -- especially a validated one -- do NOT add it "
+    "(it is redundant and will trap completion). Only add genuinely new coverage. "
+    "You may also ADJUST requirements "
     "YOU previously added (shown in existing_judge_requirements) when one is "
     "duplicative, unsatisfiable as written, or superseded: return adjust_requirements "
     "entries naming the task id with action 'retract' (drop it) or 'revise' (supply "
@@ -1113,6 +1139,16 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
         "exit_code": exit_code,
         "output": output,
     }
+    # EVERY requirement already in the spec (agent + judge, all statuses), so the
+    # judge can see a goal aspect is already covered -- especially by validated
+    # agent tasks it does not own -- and not re-derive it as a new requirement.
+    # Omitting this was the cause of the redundancy loop (the judge could only see
+    # its own added tasks, so it re-proposed the agent's requirements each cycle).
+    payload["current_requirements"] = [
+        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
+         "status": str(t.get("status") or ""), "added_by": str(t.get("added_by") or "agent")}
+        for t in (spec.get("tasks") or []) if isinstance(t, dict)
+    ][-40:]
     # Requirements the judge itself added and may now adjust (retract/revise). The
     # current task is excluded -- it is being judged this cycle, not adjusted.
     adjustable = [

@@ -19,6 +19,7 @@ These tests bound all four layers of the fix:
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -29,6 +30,8 @@ import spec as spec_mod  # noqa: E402
 from spec import (  # noqa: E402
     JUDGE_MAX_UNRESOLVED_ADDED,
     _apply_adjustments,
+    _judge_user,
+    all_tasks_validated,
     auto_validate_spec,
     load_spec,
     save_spec,
@@ -221,3 +224,70 @@ def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
     # And a third no-progress block keeps accumulating (it would reset to 1 if dropped).
     assert note_completion_block(reloaded, 6) is (3 >= COMPLETION_MAX_STALLED_BLOCKS)
     assert reloaded["completion_stall_blocks"] == 3
+
+
+# --- layer 0: judge sees ALL requirements (root-cause fix) ------------------
+
+def test_judge_user_lists_all_requirements():
+    """The per-task judge payload must expose EVERY current requirement (agent +
+    validated), not only judge-added ones, so the judge can tell a goal aspect is
+    already covered and not re-derive it. Root cause of the redundancy loop: the
+    agent's own requirements were invisible to the judge."""
+    spec = {"restated_goal": "g", "tasks": [
+        _task("T1", "validated", check="pytest -k a", title="already covered thing", added_by="agent"),
+        _task("T2", "pending", check="pytest -k b", title="being judged", added_by="agent"),
+    ]}
+    payload = json.loads(_judge_user(spec, spec["tasks"][1], 0, "ok"))
+    current = payload.get("current_requirements") or []
+    titles = {r.get("title") for r in current}
+    ids = {r.get("id") for r in current}
+    assert "already covered thing" in titles  # the validated AGENT task is visible
+    assert "T1" in ids
+
+
+def test_dedup_drops_reworded_title_duplicate(tmp_path, monkeypatch):
+    """A new requirement whose NORMALIZED title matches an existing task's
+    (case / whitespace / trailing parenthetical only) is dropped, even when its
+    check differs so the byte-identical pair check would miss it. A genuinely
+    distinct title is still added."""
+    reworded = {"title": "  Handle Errors  ", "check": "pytest -k diff"}  # vs existing "handle errors"
+    distinct = {"title": "validate timeouts", "check": "pytest -k to"}
+    spec = _single_pending(
+        tmp_path, monkeypatch, [reworded, distinct],
+        base_check="pytest -k base",
+        extra=[_task("E1", "validated", check="pytest -k e", title="handle errors", added_by="agent")],
+    )
+    spec, _ = auto_validate_spec(spec, str(tmp_path))
+    norm = [str(t["title"]).strip().lower() for t in spec["tasks"]]
+    assert norm.count("handle errors") == 1  # reworded duplicate refused
+    assert any(t["title"] == "validate timeouts" for t in spec["tasks"])  # distinct kept
+
+
+def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
+    """End-to-end: once the judge can see a covering requirement in
+    current_requirements it stops re-deriving it, so auto_validate converges and the
+    breaker opens. Fails today because _judge_user hides agent/validated tasks, so
+    the (distinct-check) re-derivation is appended and the breaker stays closed."""
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "no judge/hint duplication"
+    s["tasks"] = [
+        _task("T1", "validated", check="pytest -k cover", title="no duplicate judge or hint", added_by="agent"),
+        _task("T2", "pending", check="pytest -k other", title="other requirement", added_by="agent"),
+    ]
+    save_spec(str(tmp_path), "K", s)
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
+
+    def judge_via_payload(sp, t, ec, out):
+        payload = json.loads(_judge_user(sp, t, ec, out))
+        titles = {str(r.get("title") or "").strip().lower()
+                  for r in payload.get("current_requirements") or []}
+        # Re-derive the covering requirement (distinct check) unless already visible.
+        want = {"title": "no duplicate judge or hint", "check": "pytest -k rederived"}
+        new = [] if want["title"].lower() in titles else [want]
+        return (1, "ok", new, "", "")
+    monkeypatch.setattr(spec_mod, "judge_task", judge_via_payload)
+
+    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert all_tasks_validated(spec)[0] is True  # breaker opens
+    assert [t for t in spec["tasks"] if t.get("added_by") == "judge"] == []  # nothing re-added
