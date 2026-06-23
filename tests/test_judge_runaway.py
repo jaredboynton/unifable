@@ -31,10 +31,12 @@ from spec import (  # noqa: E402
     JUDGE_MAX_UNRESOLVED_ADDED,
     _apply_adjustments,
     _current_requirements_payload,
+    _filter_judge_new_requirements,
     _judge_user,
     _normalize_new_requirements,
     all_tasks_validated,
     auto_validate_spec,
+    is_brittle_version_pinned_requirement,
     judge_task,
     load_spec,
     save_spec,
@@ -326,7 +328,50 @@ def test_judge_system_requires_purpose_reasoning():
     assert "PURPOSE" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
     assert "current_requirements" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
     assert "supersedes" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+    assert "version-pinning" in spec_mod._JUDGE_NEW_REQ_GUIDANCE.lower()
     assert "why_distinct" not in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+
+
+def test_brittle_version_pin_detector():
+    assert is_brittle_version_pinned_requirement(
+        "Active plugin version is explicitly verified as 1.9.32",
+        "grep 1.9.32 .claude-plugin/plugin.json",
+    )
+    assert not is_brittle_version_pinned_requirement(
+        "Runtime version matches plugin manifest",
+        "python3 scripts/check_versions_consistent.py",
+    )
+    assert not is_brittle_version_pinned_requirement(
+        "Handle errors in parser",
+        "pytest -k errors",
+    )
+
+
+def test_filter_drops_brittle_version_pinned_requirement():
+    pinned = {
+        "title": "Active plugin version is explicitly verified as 1.9.32",
+        "check": "grep -q 1.9.32 .claude-plugin/plugin.json",
+    }
+    ok = {
+        "title": "Installed plugin version matches repo manifests",
+        "check": "python3 scripts/check_versions_consistent.py",
+    }
+    out = _filter_judge_new_requirements([pinned, ok], set(), set())
+    assert out == [ok]
+
+
+def test_dedup_drops_brittle_version_pin_from_judge(tmp_path, monkeypatch):
+    pinned = {
+        "title": "Active plugin version is explicitly verified as 1.9.32",
+        "check": "grep -q 1.9.32 .claude-plugin/plugin.json",
+    }
+    spec = _single_pending(tmp_path, monkeypatch, [pinned])
+    spec, _ = auto_validate_spec(spec, str(tmp_path))
+    assert not any(
+        "1.9.32" in str(t.get("title") or "") or "1.9.32" in str(t.get("check") or "")
+        for t in spec["tasks"]
+        if t.get("added_by") == "judge"
+    )
 
 
 def test_dedup_drops_reworded_title_duplicate(tmp_path, monkeypatch):
@@ -351,21 +396,21 @@ def test_dedup_drops_extension_title_duplicate_in_same_batch(tmp_path, monkeypat
     """Two new_requirements where one title extends the other (same purpose,
     extra qualifier) must collapse to one task. Prefer the longer title."""
     short = {
-        "title": "Active plugin version is explicitly verified as 1.9.32",
-        "check": "pytest -k version_short",
+        "title": "Handle authentication token refresh failures",
+        "check": "pytest -k auth_refresh_short",
     }
     long = {
-        "title": "Active plugin version is explicitly verified as 1.9.32 in a runtime probe or test",
-        "check": "pytest -k version_probe",
+        "title": "Handle authentication token refresh failures in production paths",
+        "check": "pytest -k auth_refresh_probe",
     }
     spec = _single_pending(tmp_path, monkeypatch, [short, long])
     spec, _ = auto_validate_spec(spec, str(tmp_path))
-    version_titles = [
+    auth_titles = [
         t["title"] for t in spec["tasks"]
-        if "1.9.32" in str(t.get("title") or "") and t.get("added_by") == "judge"
+        if "token refresh failures" in str(t.get("title") or "").lower() and t.get("added_by") == "judge"
     ]
-    assert len(version_titles) == 1
-    assert "runtime probe" in version_titles[0]
+    assert len(auth_titles) == 1
+    assert "production paths" in auth_titles[0]
 
 
 def test_dedup_drops_shorter_when_longer_already_on_board(tmp_path, monkeypatch):
@@ -373,19 +418,19 @@ def test_dedup_drops_shorter_when_longer_already_on_board(tmp_path, monkeypatch)
     is refused even when the check differs."""
     existing = _task(
         "E1", "validated",
-        title="Active plugin version is explicitly verified as 1.9.32 in a runtime probe or test",
+        title="Handle authentication token refresh failures in production paths",
         check="pytest -k probe",
         added_by="agent",
     )
     rederive = {
-        "title": "Active plugin version is explicitly verified as 1.9.32",
-        "check": "grep 1.9.32 plugin.json",
+        "title": "Handle authentication token refresh failures",
+        "check": "pytest -k auth_unit",
     }
     spec = _single_pending(tmp_path, monkeypatch, [rederive], extra=[existing])
     spec, _ = auto_validate_spec(spec, str(tmp_path))
     judge_added = [
         t for t in spec["tasks"]
-        if t.get("added_by") == "judge" and "1.9.32" in str(t.get("title") or "")
+        if t.get("added_by") == "judge" and "token refresh failures" in str(t.get("title") or "").lower()
     ]
     assert judge_added == []
 

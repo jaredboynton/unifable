@@ -768,6 +768,26 @@ def _titles_purpose_duplicate(norm_a: str, norm_b: str) -> bool:
     return (len(short) / len(long)) >= _PURPOSE_DEDUP_MIN_CONTAINMENT
 
 
+_SEMVER_LITERAL_RE = re.compile(r"\b\d+\.\d+\.\d+(?:[-+][\w.-]+)?\b")
+_VERSION_PIN_CONTEXT_RE = re.compile(
+    r"\b("
+    r"version|semver|plugin(?:\.json)?|marketplace(?:\.json)?|installed|active\s+plugin|"
+    r"release\s+number|pinned|pinning"
+    r")\b",
+    re.I,
+)
+
+
+def is_brittle_version_pinned_requirement(title: str, check: str) -> bool:
+    """True when a requirement hardcodes a semver that will break on every bump."""
+    combined = f"{title}\n{check}"
+    if not _SEMVER_LITERAL_RE.search(combined):
+        return False
+    if not _VERSION_PIN_CONTEXT_RE.search(combined):
+        return False
+    return True
+
+
 def _norm_title_conflicts(norm: str, existing: set[str]) -> bool:
     return any(_titles_purpose_duplicate(norm, ex) for ex in existing if ex)
 
@@ -800,6 +820,8 @@ def _filter_judge_new_requirements(
             continue
         norm = _normalize_title(title)
         if not norm or norm in norms or _norm_title_conflicts(norm, norms):
+            continue
+        if is_brittle_version_pinned_requirement(title, check):
             continue
         out.append(req)
         pairs.add(pair)
@@ -1177,6 +1199,20 @@ _JUDGE_FEEDBACK_GUIDANCE = (
     "verification). When verdict=1, reason may be a brief confirmation only."
 )
 
+_JUDGE_BRITTLE_CHECK_GUIDANCE = (
+    "NEVER add brittle literal-string or version-pinning requirements. Do NOT embed "
+    "a specific semver (e.g. 1.9.32) in a title or check unless the restated goal "
+    "explicitly requires that exact version as the deliverable. For obligations like "
+    "'active plugin version verified' or 'installed tree matches repo', write checks "
+    "that read version fields from THIS repo's manifests (plugin.json, marketplace.json, "
+    "setup/setup.sh) and compare runtime or CLI output to those files — never hardcode "
+    "the current release number. A task that fails on every version bump traps "
+    "completion. If an open task already pins a stale semver, prefer "
+    "adjust_requirements revise to a manifest-relative check; do not add another "
+    "pinned duplicate. Reject evidence that only grep-matches a frozen version string "
+    "when a structural manifest comparison is what the goal needs."
+)
+
 _JUDGE_NEW_REQ_GUIDANCE = (
     "Before adding ANY new_requirement you MUST reason against current_requirements "
     "(every prior task: id, title, check, status, added_by). Compare PURPOSE -- "
@@ -1189,7 +1225,8 @@ _JUDGE_NEW_REQ_GUIDANCE = (
     "requirement replaces (agent tasks become non-blocking superseded; judge tasks "
     "retract). Prefer adjust_requirements revise on an agent task with a broken "
     "check over adding a parallel requirement. new_requirements entries are "
-    "{title, check, supersedes?}. If nothing is genuinely missing, return an empty list."
+    "{title, check, supersedes?}. If nothing is genuinely missing, return an empty list. "
+    + _JUDGE_BRITTLE_CHECK_GUIDANCE
 )
 
 # Placeholder tokens that disqualify a hint -- a hint must be concrete, not a
@@ -1247,7 +1284,8 @@ _JUDGE_SYSTEM = (
     "You may also ADJUST requirements via adjust_requirements: action 'retract' "
     "only for requirements YOU added (judge-added); action 'revise' may fix ANY "
     "requirement whose check is unsatisfiable as written (wrong path, non-executable "
-    "prose) by supplying a corrected title and/or check -- prefer revise over adding "
+    "prose, brittle literal version pin) by supplying a corrected title and/or check -- "
+    "prefer revise over adding "
     "a parallel new_requirement. Never retract agent-authored requirements (use "
     "supersedes on a replacement new_requirement instead). You may retract the "
     "current task if you added it and its purpose is already satisfied by a validated "

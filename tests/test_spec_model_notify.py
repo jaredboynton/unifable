@@ -140,8 +140,8 @@ def test_build_stop_validate_context_dispute_rejected():
     headlines = ["T5: dispute rejected"]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert ctx.startswith("unifable spec update (stop validation):")
-    assert "T5: dispute rejected" in ctx
-    # judge reason rides the board inline, exactly once (no flat preamble dup)
+    assert "T5 [XX] impossible req" in ctx
+    # judge reason rides the unresolved action inline, exactly once.
     assert DISPUTE_REJECT_REASON in ctx
     assert ctx.count(DISPUTE_REJECT_REASON) == 1
     assert "breaker: CLOSED" in ctx
@@ -160,10 +160,9 @@ def test_build_stop_validate_context_dispute_accepted():
     ]
     headlines = ["T6 retracted — judge accepted impossibility. Completion breaker open."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
-    assert "T6 retracted" in ctx
-    # freshly retracted this stop (named in headlines) -> judge shown inline, once
-    assert DISPUTE_ACCEPT_REASON in ctx
-    assert ctx.count(DISPUTE_ACCEPT_REASON) == 1
+    assert "Action required:" not in ctx
+    assert "T6" not in ctx
+    assert DISPUTE_ACCEPT_REASON not in ctx
     assert "breaker: OPEN" in ctx
 
 
@@ -171,7 +170,7 @@ def test_build_stop_validate_context_check_rejected():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
-    assert "T1 check ran (exit 1)" in ctx
+    assert "T1 [XX] Density reinforcement" in ctx
     assert LONG_JUDGE in ctx
     assert ctx.count(LONG_JUDGE) == 1
     assert "breaker: CLOSED" in ctx
@@ -181,7 +180,7 @@ def test_build_stop_validate_context_no_judge_duplication():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
-    # The judge reason must appear once in the action digest -- not duplicated on the board.
+    # The judge reason must appear once in the unresolved action list.
     assert ctx.count(LONG_JUDGE) == 1
     assert "Action required:" in ctx
     assert "T1 judge:" not in ctx
@@ -215,7 +214,7 @@ def test_format_spec_status_collapses_resolved():
     assert "done (" not in full
 
 
-def test_just_resolved_task_still_explained():
+def test_stop_context_omits_resolved_tasks():
     spec = spec_template()
     spec["requires_tasks"] = True
     spec["restated_goal"] = "g"
@@ -226,10 +225,11 @@ def test_just_resolved_task_still_explained():
     ]
     headlines = ["T2 retracted — judge accepted impossibility."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
-    # T1 (resolved, not changed) collapses; T2 (changed this stop) keeps its judge in action digest
-    assert "done (2): T1, T2" in ctx
+    assert "done (" not in ctx
     assert "old done" not in ctx
-    assert DISPUTE_ACCEPT_REASON in ctx
+    assert "freshly retracted" not in ctx
+    assert DISPUTE_ACCEPT_REASON not in ctx
+    assert "breaker: OPEN" in ctx
 
 
 def test_spec_board_not_duplicated_across_channels():
@@ -399,7 +399,7 @@ def test_collapse_stop_headlines_loop_release_batch():
     assert reason in collapsed[0]
 
 
-def test_stop_action_digest_before_stale_board():
+def test_stop_action_digest_before_stale_items():
     spec = spec_template()
     spec["requires_tasks"] = True
     spec["restated_goal"] = "g"
@@ -441,7 +441,8 @@ def test_stop_action_digest_before_stale_board():
     assert t17_hint_pos >= 0
     assert t17_hint_pos < action_pos + 2500
     assert stale_pos == -1
-    assert ctx.find("Action required:") < ctx.find("Board:")
+    assert "Board:" not in ctx
+    assert ctx.find("Action required:") < ctx.find("breaker: CLOSED")
 
 
 def test_stop_context_prioritizes_hints_in_first_2kb():
@@ -490,6 +491,46 @@ def test_format_blocking_task_hints_prioritizes_changed():
     assert "Action:" in text
     assert T17_HINT in text
     assert "T1:" not in text
+
+
+def test_stop_context_omits_heavy_board_rows():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "g"
+    spec["heavy_workflow"] = True
+    spec["heavy_phase"] = "frontier"
+    spec["tasks"] = [
+        {
+            "id": "T1",
+            "title": "frontier A",
+            "check": "true",
+            "status": "failed",
+            "approach_kind": "frontier",
+            "judge_reason": "frontier still viable; run the targeted proof",
+        },
+        {
+            "id": "T2",
+            "title": "frontier B",
+            "check": "true",
+            "status": "pending",
+            "approach_kind": "frontier",
+        },
+        {
+            "id": "T3",
+            "title": "primary fallback",
+            "check": "true",
+            "status": "blocked",
+            "approach_kind": "primary",
+        },
+    ]
+    headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
+    ctx, _ = mn.build_stop_validate_context(spec, headlines)
+    assert "heavy_phase:" not in ctx
+    assert "[frontier]" not in ctx
+    assert "[primary]" not in ctx
+    assert "done (" not in ctx
+    assert "T1 [XX] frontier A" in ctx
+    assert "frontier still viable" in ctx
 
 
 def test_build_stop_validate_context_truncation_flag():

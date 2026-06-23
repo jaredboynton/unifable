@@ -275,6 +275,40 @@ def format_stop_action_digest(spec: dict[str, Any], changed_ids: set[str]) -> st
     return "\n".join(lines)
 
 
+def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) -> str:
+    """Stop-facing action list: unresolved tasks only, with fresh guidance inline."""
+    ok, incomplete = _all_tasks_validated(spec)
+    if ok:
+        return "breaker: OPEN (all tasks validated)"
+    by_id = _tasks_by_id(spec)
+    seen: set[str] = set()
+    ordered = []
+    for tid in incomplete:
+        stid = str(tid)
+        if stid and stid not in seen:
+            seen.add(stid)
+            ordered.append(stid)
+
+    lines = ["Action required:"]
+    for tid in ordered:
+        task = by_id.get(tid)
+        if not task:
+            lines.append(f"  {tid}")
+            continue
+        status = str(task.get("status") or "")
+        mark = _STATUS_MARKS.get(status, "??")
+        title = str(task.get("title") or "")
+        lines.append(f"  {tid} [{mark}] {title}")
+        reason = str(task.get("judge_reason") or "").strip()
+        hint = str(task.get("judge_hint") or "").strip()
+        if tid in changed_ids and reason:
+            lines.append(f"    judge: {reason}")
+        elif hint:
+            lines.append(f"    hint: {hint}")
+    lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(ordered)})")
+    return "\n".join(lines)
+
+
 def format_blocking_task_hints(
     spec: dict[str, Any],
     incomplete: list[str],
@@ -340,38 +374,14 @@ def build_stop_validate_context(
         return "", False
     limit = max_len if max_len is not None else _STOP_VALIDATE_CONTEXT_MAX
     changed_ids = _task_ids_from_headlines(raw_msgs)
-    collapsed = collapse_stop_headlines(raw_msgs)
-    action = format_stop_action_digest(spec, changed_ids)
-    board = format_spec_status(
-        spec,
-        show_judge_for=frozenset(),
-        collapse_resolved=True,
-        incomplete_only=True,
-    )
+    action = format_stop_unresolved_actions(spec, changed_ids)
 
-    parts: list[str] = ["unifable spec update (stop validation):"]
-    if action:
-        parts.extend(["Action required:", action])
-    if collapsed:
-        parts.extend(["This stop:", "\n".join(collapsed)])
-    parts.extend(["Board:", board])
+    parts: list[str] = ["unifable spec update (stop validation):", action]
     body = "\n".join(parts)
     if len(body) <= limit:
         return body, False
 
-    # Preserve action digest; truncate board first.
-    prefix_parts: list[str] = ["unifable spec update (stop validation):"]
-    if action:
-        prefix_parts.extend(["Action required:", action])
-    if collapsed:
-        prefix_parts.extend(["This stop:", "\n".join(collapsed)])
-    prefix_parts.append("Board:")
-    prefix = "\n".join(prefix_parts) + "\n"
-    board_budget = max(200, limit - len(prefix))
-    truncated_board = _truncate_board_section(board, board_budget)
-    body = prefix + truncated_board
-    if len(body) > limit:
-        body = body[: limit - 3] + "..."
+    body = body[: limit - 3] + "..."
     return body, True
 
 
