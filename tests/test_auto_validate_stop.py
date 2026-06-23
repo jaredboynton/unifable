@@ -22,8 +22,47 @@ from spec import (  # noqa: E402
 )
 
 
-def _task(tid, status):
-    return {"id": tid, "title": tid, "check": "true", "status": status}
+def _task(tid, status, **extra):
+    t = {"id": tid, "title": tid, "check": "true", "status": status}
+    t.update(extra)
+    return t
+
+
+def test_failed_rejudged_without_check_rerun(tmp_path, monkeypatch):
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "failed", exit=1, output="prior failure")]
+    save_spec(str(tmp_path), "K", s)
+
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("run_check must not run for failed tasks with stored output")
+
+    monkeypatch.setattr(spec_mod, "run_check", fail_if_called)
+    monkeypatch.setattr(
+        spec_mod, "judge_tasks",
+        lambda sp, items: [(1, "ok", [], "", "") for _ in items],
+    )
+    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert spec["tasks"][0]["status"] == "validated"
+
+
+def test_pending_still_runs_check(tmp_path, monkeypatch):
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "pending")]
+    save_spec(str(tmp_path), "K", s)
+    seen = {"check": False}
+
+    def fake_run_check(check, cwd=".", timeout=None):
+        seen["check"] = True
+        return 0, "ok"
+
+    monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items: [(1, "ok", [], "", "") for _ in items])
+    auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert seen["check"] is True
 
 
 def test_auto_validate_passes_pending_task(tmp_path, monkeypatch):

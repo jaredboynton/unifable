@@ -86,8 +86,10 @@ Checking is continuous, not a one-shot at the end:
   bar.
 - Citations **sync continuously** from real activity, so the evidence the spec is judged against is
   what the worker actually did, kept current in the background on every tool call.
-- Task checks **run on every Stop** (`auto_validate_spec` in `scripts/gate/spec.py`): the judge
-  re-evaluates each requirement against live check output.
+- On **Stop**, `auto_validate_spec` in `scripts/gate/spec.py` validates open requirements:
+  pending/delivered tasks get fresh checks; failed tasks are re-judged on stored output;
+  disputed impossibility claims are adjudicated. The judge always sees the full board
+  (including validated tasks) and re-evaluates only what is still open.
 - **Completion is blocked** until every requirement is validated or retracted — the worker cannot
   declare done with open requirements, and only the judge can retract one (by accepting a dispute).
 

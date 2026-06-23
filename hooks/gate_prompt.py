@@ -159,7 +159,8 @@ def main() -> int:
             context += (
                 f"  - if a requirement is genuinely impossible: unifable dispute "
                 f"--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
-                f"Citations sync from your reads/fetches automatically; checks run on stop."
+                f"Citations sync from your reads/fetches automatically; on stop, pending "
+                f"requirements get fresh checks, failed/disputed ones are re-adjudicated."
             )
 
     try:

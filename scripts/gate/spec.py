@@ -724,7 +724,7 @@ def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
 
 
 def _task_is_pending(task: dict[str, Any]) -> bool:
-    """True when auto_validate should run check+judge on this task."""
+    """True when the task is still open and eligible for Stop validation."""
     status = str(task.get("status") or "")
     if status in RESOLVED_STATUSES:
         return False
@@ -745,6 +745,37 @@ def _normalize_title(title: Any) -> str:
     that the byte-identical (title, check) pair check misses."""
     base = _TITLE_PARENS_RE.sub("", str(title or "").strip())
     return " ".join(base.lower().split())
+
+
+def _current_requirements_payload(spec: dict[str, Any]) -> list[dict[str, str]]:
+    """Every requirement on the board (all statuses) for judge context."""
+    return [
+        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
+         "status": str(t.get("status") or ""), "added_by": str(t.get("added_by") or "agent")}
+        for t in (spec.get("tasks") or []) if isinstance(t, dict)
+    ][-40:]
+
+
+def _check_inputs_for_task(
+    task: dict[str, Any],
+    cwd: str | Path,
+    deadline: float | None,
+) -> tuple[int, str]:
+    """Return (exit_code, output) for judge validation.
+
+    Failed tasks with stored output are re-judged on prior evidence; pending and
+    delivered tasks get a fresh check run (bounded by the Stop wall-clock budget).
+    """
+    if str(task.get("status") or "") == "failed" and task.get("output") is not None:
+        exit_code = task.get("exit")
+        return (
+            int(exit_code if exit_code is not None else 1),
+            str(task.get("output") or ""),
+        )
+    if deadline is not None:
+        ct = max(1, int(min(_CHECK_TIMEOUT, deadline - time.monotonic())))
+        return run_check(task.get("check", ""), cwd=cwd, timeout=ct)
+    return run_check(task.get("check", ""), cwd=cwd)
 
 
 def _apply_check_result(
@@ -835,7 +866,7 @@ def _validate_one_task(spec: dict[str, Any], task: dict[str, Any], cwd: str | Pa
     """Validate ONE task (dispute adjudication or check+judge). Mutates spec in place."""
     if task.get("status") == "disputed":
         return _apply_dispute(spec, task)
-    exit_code, output = run_check(task.get("check", ""), cwd=cwd)
+    exit_code, output = _check_inputs_for_task(task, cwd, deadline=None)
     verdict, reason, new_reqs, hint, frontier_outcome = judge_task(spec, task, exit_code, output)
     return _apply_check_result(
         spec, task, exit_code, output, verdict, reason, new_reqs, hint,
@@ -852,12 +883,14 @@ def auto_validate_spec(
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate up to max_tasks unresolved tasks. Mutates spec in place.
 
-    Disputes are adjudicated individually; check-based tasks have their checks run
-    (each bounded by the remaining wall-clock budget) and are then judged together
-    in ONE batched WebSocket round-trip, so a Stop validating several tasks costs a
-    single handshake and stays within the host timeout. When time_budget is set,
-    work stops once the deadline passes -- remaining tasks stay unresolved and are
-    picked up on the next stop (convergent), instead of the hook being killed."""
+    Disputed tasks are impossibility-adjudicated individually. Failed tasks are
+    re-judged on stored check output (no check re-run). Pending/delivered tasks
+    get fresh checks (each bounded by the remaining wall-clock budget) and are
+    judged together in ONE batched WebSocket round-trip, so a Stop validating
+    several tasks costs a single handshake and stays within the host timeout.
+    When time_budget is set, work stops once the deadline passes -- remaining
+    tasks stay unresolved and are picked up on the next stop (convergent), instead
+    of the hook being killed."""
     messages: list[str] = []
     deadline = (time.monotonic() + time_budget) if time_budget is not None else None
 
@@ -877,25 +910,14 @@ def auto_validate_spec(
             1 if str(t.get("approach_kind") or "") == "primary" else 2
         ))
 
-    # Snapshot the partition BEFORE adjudicating: _apply_dispute mutates status to
-    # "retracted", which must not then sweep the task into the check+judge path.
-    disputes = [t for t in pending if t.get("status") == "disputed"]
-    checks = [t for t in pending if t.get("status") != "disputed"]
-
-    for task in disputes:
-        if deadline is not None and time.monotonic() >= deadline:
-            return spec, messages
-        messages.extend(_apply_dispute(spec, task))
-
     items: list[dict[str, Any]] = []
-    for task in checks:
+    for task in pending:
         if deadline is not None and time.monotonic() >= deadline:
             break
-        if deadline is not None:
-            ct = max(1, int(min(_CHECK_TIMEOUT, deadline - time.monotonic())))
-            exit_code, output = run_check(task.get("check", ""), cwd=cwd, timeout=ct)
-        else:
-            exit_code, output = run_check(task.get("check", ""), cwd=cwd)
+        if task.get("status") == "disputed":
+            messages.extend(_apply_dispute(spec, task))
+            continue
+        exit_code, output = _check_inputs_for_task(task, cwd, deadline)
         items.append({"task": task, "exit_code": exit_code, "output": output})
 
     if items:
@@ -1144,11 +1166,7 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
     # agent tasks it does not own -- and not re-derive it as a new requirement.
     # Omitting this was the cause of the redundancy loop (the judge could only see
     # its own added tasks, so it re-proposed the agent's requirements each cycle).
-    payload["current_requirements"] = [
-        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
-         "status": str(t.get("status") or ""), "added_by": str(t.get("added_by") or "agent")}
-        for t in (spec.get("tasks") or []) if isinstance(t, dict)
-    ][-40:]
+    payload["current_requirements"] = _current_requirements_payload(spec)
     # Requirements the judge itself added and may now adjust (retract/revise). The
     # current task is excluded -- it is being judged this cycle, not adjusted.
     adjustable = [
@@ -1455,6 +1473,7 @@ def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> 
         "task_title": task.get("title", ""),
         "check": task.get("check", ""),
         "impossibility_evidence": evidence,
+        "current_requirements": _current_requirements_payload(spec),
     }, ensure_ascii=False)
     try:
         res = ask_structured(system, user, _DISPUTE_SCHEMA, schema_name="dispute_verdict")
