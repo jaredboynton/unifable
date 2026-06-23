@@ -827,8 +827,8 @@ def _apply_check_result(
     #    existing task, NOR one whose normalized title matches an existing task's
     #    (the trivially-reworded re-derivation: case/spacing/trailing parenthetical).
     #    Semantic same-purpose re-derivation is prevented upstream: the judge sees
-    #    every prior task (title+check+status) and must supply why_distinct per
-    #    proposed requirement; entries without substantive reasoning are dropped.
+    #    every prior task (title+check+status) and is instructed to reason about
+    #    purpose overlap before proposing new_requirements.
     #  - backlog cap: never let the UNRESOLVED judge-added backlog exceed
     #    JUDGE_MAX_UNRESOLVED_ADDED, so even near-duplicates (different wording,
     #    same intent) cannot make the list diverge faster than it validates.
@@ -975,18 +975,8 @@ _NEW_REQ_SCHEMA = {
     "type": "array",
     "items": {
         "type": "object",
-        "properties": {
-            "title": {"type": "string"},
-            "check": {"type": "string"},
-            "why_distinct": {
-                "type": "string",
-                "description": (
-                    "One sentence naming which prior task ids you compared and why "
-                    "this adds coverage none of them already obligate."
-                ),
-            },
-        },
-        "required": ["title", "check", "why_distinct"],
+        "properties": {"title": {"type": "string"}, "check": {"type": "string"}},
+        "required": ["title", "check"],
         "additionalProperties": False,
     },
 }
@@ -1069,9 +1059,8 @@ _JUDGE_NEW_REQ_GUIDANCE = (
     "wording or check syntax. If any existing task (especially validated) already "
     "obligates the same outcome, do NOT add it: a different title or check that "
     "proves the same thing is a duplicate and traps completion. Only add genuinely "
-    "new coverage. For each item in new_requirements, why_distinct MUST name which "
-    "prior ids you compared and state in one sentence why none already cover that "
-    "purpose. If nothing is genuinely missing, return an empty new_requirements list."
+    "new coverage. Do this reasoning internally; new_requirements contains only "
+    "{title, check}. If nothing is genuinely missing, return an empty list."
 )
 
 # Placeholder tokens that disqualify a hint -- a hint must be concrete, not a
@@ -1094,22 +1083,16 @@ def _normalize_hint(raw: Any) -> str:
 
 
 def _normalize_new_requirements(raw: Any) -> list[dict[str, str]]:
-    """Coerce the judge's new_requirements into a clean [{title, check}] list.
-
-    Drops entries missing both fields or without a substantive why_distinct
-    sentence -- the judge must reason against current_requirements before adding."""
+    """Coerce the judge's new_requirements into a clean [{title, check}] list,
+    dropping anything without both fields."""
     out: list[dict[str, str]] = []
     if isinstance(raw, list):
         for item in raw:
             if isinstance(item, dict):
                 title = str(item.get("title") or "").strip()
                 check = str(item.get("check") or "").strip()
-                why = " ".join(str(item.get("why_distinct") or "").split())
-                if not title or not check:
-                    continue
-                if not why or why.lower() in _HINT_PLACEHOLDERS or len(why) < 15:
-                    continue
-                out.append({"title": title, "check": check})
+                if title and check:
+                    out.append({"title": title, "check": check})
     return out
 
 
@@ -1121,8 +1104,8 @@ _JUDGE_SYSTEM = (
     "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
     "output, errors, skipped or zero tests, and output that does not match the task. "
     "If, while judging, you find the goal needs further requirements not yet "
-    "covered by a task, list them in new_requirements as {title, check, why_distinct} "
-    "with a runnable check; otherwise return an empty list. "
+    "covered by a task, list them in new_requirements as {title, check} with a "
+    "runnable check; otherwise return an empty list. "
     + _JUDGE_NEW_REQ_GUIDANCE
     + " "
     "You may also ADJUST requirements "

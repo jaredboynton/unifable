@@ -290,31 +290,16 @@ def test_current_requirements_payload_includes_all_tasks_not_truncated():
     assert all("check" in row and "title" in row for row in payload)
 
 
-def test_normalize_drops_new_requirement_without_why_distinct():
-    raw = [{"title": "handle errors", "check": "pytest -k err"}]
-    assert _normalize_new_requirements(raw) == []
-
-
-def test_normalize_drops_placeholder_why_distinct():
-    raw = [{"title": "handle errors", "check": "pytest -k err", "why_distinct": "n/a"}]
-    assert _normalize_new_requirements(raw) == []
-
-
-def test_normalize_keeps_substantive_why_distinct():
-    raw = [{
-        "title": "validate timeouts",
-        "check": "pytest -k to",
-        "why_distinct": "Compared T1-T3; none obligate timeout handling on the API path.",
-    }]
-    assert _normalize_new_requirements(raw) == [
-        {"title": "validate timeouts", "check": "pytest -k to"},
-    ]
+def test_normalize_accepts_title_and_check_only():
+    raw = [{"title": "validate timeouts", "check": "pytest -k to"}]
+    assert _normalize_new_requirements(raw) == raw
 
 
 def test_judge_system_requires_purpose_reasoning():
-    assert "why_distinct" in spec_mod._JUDGE_SYSTEM
     assert "PURPOSE" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
     assert "current_requirements" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+    assert "internally" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+    assert "why_distinct" not in spec_mod._JUDGE_NEW_REQ_GUIDANCE
 
 
 def test_dedup_drops_reworded_title_duplicate(tmp_path, monkeypatch):
