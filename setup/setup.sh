@@ -52,9 +52,15 @@ cp "$MEMFILE" "$MEMFILE.unifable-bak.$ts" && echo "  backup: $MEMFILE.unifable-b
 python3 - "$MEMFILE" "$BLOCK_TPL" "$ROOT" <<'PY'
 import sys, re, pathlib
 md, tpl, root = sys.argv[1], sys.argv[2], sys.argv[3]
+gate = pathlib.Path(root) / "scripts" / "gate"
+sys.path.insert(0, str(gate))
+from research_bash_guidance import explore_trace_inline_md, explore_trace_list_item_md
 p = pathlib.Path(md)
 cur = p.read_text(encoding="utf-8") if p.exists() else ""
-block = pathlib.Path(tpl).read_text(encoding="utf-8").strip().replace("__PLUGIN_ROOT__", root)
+block = pathlib.Path(tpl).read_text(encoding="utf-8").strip()
+block = block.replace("__PLUGIN_ROOT__", root)
+block = block.replace("__EXPLORE_TRACE_LIST__", explore_trace_list_item_md())
+block = block.replace("__EXPLORE_TRACE_INLINE__", explore_trace_inline_md())
 cur = re.sub(r"<!-- UNIFABLE:BEGIN.*?UNIFABLE:END -->\n?", "", cur, flags=re.S)
 cur = re.sub(r"<!-- FABLIZE:BEGIN.*?FABLIZE:END -->\n?", "", cur, flags=re.S).rstrip()
 p.write_text((cur + "\n\n" + block + "\n") if cur else (block + "\n"), encoding="utf-8")
@@ -66,7 +72,7 @@ mkdir -p "$HOME/.unifable"
 python3 - "$scope" "$ts" "$host" <<'PY'
 import json, sys, os
 p = os.path.expanduser("~/.unifable/progress.json")
-json.dump({"setup_done": True, "scope": sys.argv[1], "host": sys.argv[3], "version": "1.9.75", "ts": int(sys.argv[2])}, open(p, "w"))
+json.dump({"setup_done": True, "scope": sys.argv[1], "host": sys.argv[3], "version": "1.9.76", "ts": int(sys.argv[2])}, open(p, "w"))
 PY
 
 echo "unifable setup complete ($host/$scope) — applies from the next session."

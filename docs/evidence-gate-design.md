@@ -87,6 +87,10 @@ Classify the `Bash` command string in the research phase:
 - ALLOW only if every command segment is `cd`, `ls`, `glob`, `rg`, invokes a file whose basename is
   `trace.sh` (directly or through `sh`/`bash`/`zsh`), or invokes a user-facing unifusion skill
   script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
+- User-facing allowlist copy (PreToolUse blocks, breaker steering, setup block) is install-detected via
+  `scripts/gate/research_bash_guidance.py`: when `SKILL.md` + `scripts/trace.sh` exist under the explore
+  skill, messages name that path; otherwise trace.sh is omitted from guidance. Enforcement remains basename
+  `trace.sh` regardless.
 - BLOCK otherwise, with a message that names the allowed commands and says broader Bash unlocks only
   after a valid task spec exists with repo_context citations, acceptance evidence, and prior_art.
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than

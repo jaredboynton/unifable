@@ -137,7 +137,7 @@ stderr:
 ```text
 unifable pre-edit gate: Bash blocked (research phase): npm is not in the Bash research whitelist.
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
-Allowed now: cd, ls, glob, rg, read-only git, git add/commit/push (no --force), trace.sh, unifusion scripts, unifable spec CLI.
+Allowed now: cd, ls, glob, rg, read-only git, git add/commit/push (no --force), the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), unifusion scripts, unifable spec CLI.
 session-id: sample-session  (run: unifable where)
 ```
 
@@ -154,7 +154,7 @@ stderr:
 ```text
 unifable pre-edit gate: Task blocked before evidence spec validation (delegation bypass guard).
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
-Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, read-only git, git add/commit/push (no --force), trace.sh, unifusion scripts, unifable spec CLI.
+Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, read-only git, git add/commit/push (no --force), the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), unifusion scripts, unifable spec CLI.
 session-id: sample-session  (run: unifable where)
 ```
 

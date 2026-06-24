@@ -20,7 +20,8 @@ four cases:
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet), Bash may run only `cd`, `ls`, `glob`,
      `rg`, read-only `git` subcommands and workflow git (`status`, `add`, `commit`,
-     `push` without `--force`), a file whose basename is `trace.sh` (explore skill), or a user-facing
+     `push` without `--force`), a file whose basename is `trace.sh` when the explore
+     skill is installed (guidance shows the resolved path), or a user-facing
      unifusion skill script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`,
      `resolve_session.sh`). A valid spec unlocks the action phase (all shell
      commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
@@ -54,7 +55,6 @@ from citations import format_citation_verify_message
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json, update_ledger
 from pretool_block import (
-    BASH_ALLOWED_SUMMARY,
     block_epoch,
     consume_gate_cleared_notify,
     emit_pretool_block,
@@ -63,6 +63,7 @@ from pretool_block import (
     format_spec_missing_block,
     normalize_bash_detail,
 )
+from research_bash_guidance import bash_allowed_summary
 from heavy_workflow import (
     compute_heavy_phase,
     edit_targets_primary_scope,
@@ -478,7 +479,7 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
                 "Groundedness breaker: you asserted something confidently without "
                 "backing it up. Your tools are restricted to read-only ones (Read, "
                 "WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
-                f"({BASH_ALLOWED_SUMMARY}) until you ground the claim."
+                f"({bash_allowed_summary()}) until you ground the claim."
             )
             detail = " ".join(str(message).split())[:80]
             return _block(

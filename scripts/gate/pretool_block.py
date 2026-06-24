@@ -26,8 +26,10 @@ from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from ledger import ledger_path, load_ledger, save_ledger
+    from research_bash_guidance import bash_allowed_summary
 except ImportError:  # pragma: no cover
     from scripts.gate.ledger import ledger_path, load_ledger, save_ledger
+    from scripts.gate.research_bash_guidance import bash_allowed_summary
 
 try:
     import fcntl
@@ -35,11 +37,6 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 GATE_PREFIX = "unifable pre-edit gate: "
-
-BASH_ALLOWED_SUMMARY = (
-    "cd, ls, glob, rg, read-only git, git add/commit/push (no --force), "
-    "trace.sh, unifusion scripts, unifable spec CLI"
-)
 
 _WHITELIST_DETAIL_RE = re.compile(
     r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE
@@ -129,7 +126,7 @@ def format_bash_research_block(why: str, session_id: str) -> str:
     return (
         f"Bash blocked (research phase): {why}.\n"
         f"{_UNLOCK_LINE}\n"
-        f"Allowed now: {BASH_ALLOWED_SUMMARY}.\n"
+        f"Allowed now: {bash_allowed_summary()}.\n"
         f"{_session_line(session_id)}"
     )
 
@@ -139,7 +136,7 @@ def format_delegation_block(tool_name: str, session_id: str) -> str:
     return (
         f"{tool_name} blocked before evidence spec validation (delegation bypass guard).\n"
         f"{_UNLOCK_LINE}\n"
-        f"Allowed now: Read/Grep/Glob/web and Bash limited to {BASH_ALLOWED_SUMMARY}.\n"
+        f"Allowed now: Read/Grep/Glob/web and Bash limited to {bash_allowed_summary()}.\n"
         f"{_session_line(session_id)}"
     )
 

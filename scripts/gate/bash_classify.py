@@ -4,7 +4,8 @@
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
 spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only `git` subcommands,
 git workflow commands (`status`, `add`, `commit`, `push` without `--force`), a
-file whose basename is `trace.sh` (explore skill), or a file whose basename is
+file whose basename is `trace.sh` when the explore skill is installed (guidance
+shows the resolved path), or a file whose basename is
 one of the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
 """
@@ -14,16 +15,12 @@ from __future__ import annotations
 import re
 import shlex
 
-ALLOWED_RESEARCH_BASH = (
-    "cd, ls, glob, rg, read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
-    "tag -l, stash list, blame, shortlog, reflog, merge-base, name-rev, config get), "
-    "git workflow (add, commit, push without --force), "
-    "read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
-    "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), "
-    "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
-    "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
-    "(unifable restate|add-task|set-primary|add-frontier|dispute|retry-task; legacy unifable-spec alias still accepted)"
-)
+try:
+    from research_bash_guidance import allowed_research_bash_detail
+except ImportError:  # pragma: no cover
+    from scripts.gate.research_bash_guidance import allowed_research_bash_detail
+
+ALLOWED_RESEARCH_BASH = allowed_research_bash_detail()
 
 _ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg"})
 _PIPELINE_SINKS = frozenset({"head", "tail", "wc", "sort", "uniq"})

@@ -20,6 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 import groundedness as gb  # noqa: E402
+import research_bash_guidance as rbg  # noqa: E402
 from breaker_state import adjudicated_claims, append_event, default_breaker, render_events  # noqa: E402
 
 
@@ -278,8 +279,14 @@ def test_judge_prompts_forbid_steering_toward_blocked_commands():
     steering_desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
     needed_desc = gb._DISARM_SCHEMA["properties"]["needed"]["description"].lower()
     assert "never" in steering_desc and ("blocked" in steering_desc or "blocks" in steering_desc)
-    assert "trace.sh" in steering_desc or "whitelisted" in steering_desc
-    assert "explore skill" in steering_desc
+    assert "whitelisted" in steering_desc
+    explore_path = rbg.resolve_explore_trace_sh()
+    if explore_path is not None:
+        assert "explore skill" in steering_desc
+        assert "trace.sh" in steering_desc
+    else:
+        assert "explore skill" not in steering_desc
+        assert "trace.sh" not in steering_desc
     assert "never" in arm_sysp or "never steer" in arm_sysp
     assert "blocked" in disarm_sysp or "blocked scorer" in disarm_sysp
     assert "retract" in disarm_sysp or "superseded" in disarm_sysp

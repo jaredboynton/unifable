@@ -118,14 +118,14 @@ host-agnostic; host wiring lives in `hooks/` and `install/`.
 
 On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delegate with
 `Task`/`Agent`, run Bash outside the research whitelist (`cd`, `ls`, `glob`, `rg`, the explore skill's
-`trace.sh`, or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
+`trace.sh` when that skill is installed — hook messages show the resolved path — or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
 `resolve_session.sh`), or finish until the session's evidence spec
 (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec
 must carry (for **code-profile** tasks): `repo_context` (`{cite: path:line, why}` the worker actually
 read), `acceptance_criteria` (a runnable `check` plus its live `evidence` output -- placeholders are
 rejected), and `prior_art` (a source URL fetched via WebFetch/curl, required at STANDARD+). **Operational-profile**
 tasks (account research, draft replies, internal-tool synthesis) waive repo_context and prior_art;
-restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, `trace.sh` exploration, and unifusion panel
+restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, explore-skill `trace.sh` (when installed), and unifusion panel
 research stay available so the worker can gather that evidence; a valid spec unlocks the action phase. Quick/LIGHT tasks are waived.
 
 The spec is **append-only and CLI-only** — never hand-edited. The worker drives it with

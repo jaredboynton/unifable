@@ -59,6 +59,11 @@ from transcript_tail import (
     tail_tokens,
 )
 
+try:
+    from research_bash_guidance import groundedness_bash_whitelist_fragment
+except ImportError:  # pragma: no cover
+    from scripts.gate.research_bash_guidance import groundedness_bash_whitelist_fragment
+
 # Mutation tools the breaker can block: writes, edits, bash (both hosts: Claude
 # Code Edit/Write/MultiEdit/NotebookEdit + Bash, Codex apply_patch). WebSearch,
 # Read, WebFetch, Grep and Glob are NEVER in this set, so they are never blocked.
@@ -237,6 +242,37 @@ def _claim_supported_by_spec_board(claim: str, segment: str) -> bool:
     return False
 
 
+def _steering_description() -> str:
+    explore = groundedness_bash_whitelist_fragment()
+    return (
+        "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
+        "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
+        "WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, "
+        f"{explore}unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of "
+        "evidence that would "
+        "disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER "
+        "steer the model to run a command that the breaker blocks (node, npm test, edits); "
+        "prefer reading source files, result fields, and fixture thresholds already in the "
+        "repo. For a claim about THIS repo's code/config, say what files to read. For "
+        "in-repo conventions already documented (version bump via just version, AGENTS.md "
+        "release rules), steer to those repo files -- not SemVer.org or external docs. For "
+        "EXTERNAL or platform/API behavior, steer in order: (1) authoritative "
+        "documentation (web search / WebFetch) when it exists; (2) community prior art "
+        "where others have reverse-engineered the same behavior (GitHub repos, gists, "
+        "issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy "
+        "is found, tell the model to dig in and start empirical reverse-engineering "
+        "(capture/read an actual response: HTTP body fields, status, sample payload). "
+        "Prior art is a starting point, not a substitute for verifying behavior that "
+        "matters to the user goal. NEVER steer toward verifying unifable/fablize harness "
+        "gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those "
+        "claims are self-referential and must not arm. Do NOT insist on official docs alone "
+        "when community RE or fresh probing is the correct path. NEVER steer toward blocked "
+        "shell "
+        "commands. Name a specific path only if it already appears in the transcript. "
+        "Empty when verdict=0."
+    )
+
+
 _JUDGE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -266,33 +302,7 @@ _JUDGE_SCHEMA: dict[str, Any] = {
         },
         "steering": {
             "type": "string",
-            "description": (
-                "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
-                "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
-                "WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, the explore "
-                "skill's trace.sh, unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of "
-                "evidence that would "
-                "disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER "
-                "steer the model to run a command that the breaker blocks (node, npm test, edits); "
-                "prefer reading source files, result fields, and fixture thresholds already in the "
-                "repo. For a claim about THIS repo's code/config, say what files to read. For "
-                "in-repo conventions already documented (version bump via just version, AGENTS.md "
-                "release rules), steer to those repo files -- not SemVer.org or external docs. For "
-                "EXTERNAL or platform/API behavior, steer in order: (1) authoritative "
-                "documentation (web search / WebFetch) when it exists; (2) community prior art "
-                "where others have reverse-engineered the same behavior (GitHub repos, gists, "
-                "issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy "
-                "is found, tell the model to dig in and start empirical reverse-engineering "
-                "(capture/read an actual response: HTTP body fields, status, sample payload). "
-                "Prior art is a starting point, not a substitute for verifying behavior that "
-                "matters to the user goal. NEVER steer toward verifying unifable/fablize harness "
-                "gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those "
-                "claims are self-referential and must not arm. Do NOT insist on official docs alone "
-                "when community RE or fresh probing is the correct path. NEVER steer toward blocked "
-                "shell "
-                "commands. Name a specific path only if it already appears in the transcript. "
-                "Empty when verdict=0."
-            ),
+            "description": _steering_description(),
         },
         "claim": {
             "type": "string",
