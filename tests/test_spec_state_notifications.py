@@ -197,7 +197,7 @@ def test_scaffold_reports_cleared_heavy_and_profile_change(tmp_path):
     s["evidence_profile"] = "code"
     s["tasks"] = []
     save_spec(str(tmp_path), "K", s)
-    path, changes = gate_prompt._ensure_spec_scaffold(
+    path, changes, _created = gate_prompt._ensure_spec_scaffold(
         str(tmp_path), "K", "prompt", heavy=False, evidence_profile="operational"
     )
     assert path
@@ -206,11 +206,12 @@ def test_scaffold_reports_cleared_heavy_and_profile_change(tmp_path):
 
 
 def test_scaffold_fresh_create_reports_no_changes(tmp_path):
-    path, changes = gate_prompt._ensure_spec_scaffold(
+    path, changes, created = gate_prompt._ensure_spec_scaffold(
         str(tmp_path), "NEW", "prompt", heavy=False, evidence_profile="code"
     )
     assert path
     assert changes == []
+    assert created is True
 
 
 # --------------------------------------------------------------------------- #

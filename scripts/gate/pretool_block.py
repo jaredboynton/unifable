@@ -75,40 +75,54 @@ def normalize_bash_detail(why: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:12]
 
 
+_UNLOCK_LINE = (
+    "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... "
+    "(HEAVY: set-primary, add-frontier)."
+)
+
+
+def _session_line(session_id: str) -> str:
+    sid = (session_id or "default").strip() or "default"
+    return f"session-id: {sid}  (run: unifable where)"
+
+
+def pretool_headline_only(message: str) -> str:
+    """First line of a block message (drop shared unlock footer)."""
+    text = str(message or "").strip()
+    if not text:
+        return ""
+    return text.split("\n", 1)[0].strip()
+
+
 def format_bash_research_block(why: str, session_id: str) -> str:
     """Compact full block for bash research-phase whitelist failures."""
-    sid = (session_id or "default").strip() or "default"
     why = " ".join(str(why or "").split())
     return (
         f"Bash blocked (research phase): {why}.\n"
-        "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... "
-        "(HEAVY: set-primary, add-frontier).\n"
+        f"{_UNLOCK_LINE}\n"
         f"Allowed now: {BASH_ALLOWED_SUMMARY}.\n"
-        f"session-id: {sid}  (run: unifable where)"
+        f"{_session_line(session_id)}"
     )
 
 
 def format_delegation_block(tool_name: str, session_id: str) -> str:
     """Compact full block for Task/Agent delegation lockdown."""
-    sid = (session_id or "default").strip() or "default"
     return (
         f"{tool_name} blocked before evidence spec validation (delegation bypass guard).\n"
-        "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... "
-        "(HEAVY: set-primary, add-frontier).\n"
+        f"{_UNLOCK_LINE}\n"
         f"Allowed now: Read/Grep/Glob/web and Bash limited to {BASH_ALLOWED_SUMMARY}.\n"
-        f"session-id: {sid}  (run: unifable where)"
+        f"{_session_line(session_id)}"
     )
 
 
 def format_spec_missing_block(grade: str, session_id: str, contract: str) -> str:
     """Compact full block when no evidence spec exists yet."""
-    sid = (session_id or "default").strip() or "default"
     contract = " ".join(str(contract or "").split())
     return (
-        f"no evidence spec for session '{sid}' (grade={grade}). "
+        f"no evidence spec for session '{session_id}' (grade={grade}). "
         "Build via: unifable restate / unifable add-task "
         f"(HEAVY: set-primary, add-frontier). {contract}\n"
-        f"session-id: {sid}  (run: unifable where)"
+        f"{_session_line(session_id)}"
     )
 
 
@@ -133,14 +147,17 @@ def _pretool_lock(input_data: dict[str, Any]):
         os.close(fd)
 
 
-def _record_block_count(input_data: dict[str, Any], signature: str) -> int:
-    """Increment block count for *signature* under the current epoch; return new count."""
+def _record_block_count(input_data: dict[str, Any], signature: str) -> tuple[int, bool]:
+    """Increment block count; return (count, unlock_footer_already_sent_this_epoch)."""
     with _pretool_lock(input_data):
         ledger = load_ledger(input_data)
         epoch = block_epoch(input_data, ledger)
+        footer_sent = ledger.get("pretool_unlock_footer_epoch") == epoch
         if ledger.get("pretool_block_epoch") != epoch:
             ledger["pretool_block_epoch"] = epoch
             ledger["pretool_block_counts"] = {}
+            ledger["pretool_unlock_footer_epoch"] = ""
+            footer_sent = False
         counts = ledger.get("pretool_block_counts")
         if not isinstance(counts, dict):
             counts = {}
@@ -148,7 +165,15 @@ def _record_block_count(input_data: dict[str, Any], signature: str) -> int:
         counts[signature] = count
         ledger["pretool_block_counts"] = counts
         save_ledger(input_data, ledger)
-        return count
+        return count, footer_sent
+
+
+def _mark_unlock_footer_sent(input_data: dict[str, Any]) -> None:
+    with _pretool_lock(input_data):
+        ledger = load_ledger(input_data)
+        epoch = block_epoch(input_data, ledger)
+        ledger["pretool_unlock_footer_epoch"] = epoch
+        save_ledger(input_data, ledger)
 
 
 def emit_pretool_block(
@@ -162,9 +187,12 @@ def emit_pretool_block(
     message = str(full_message or "").strip()
     try:
         sig = block_signature(kind, detail)
-        count = _record_block_count(input_data, sig)
+        count, footer_sent = _record_block_count(input_data, sig)
         if count == 1 and message:
-            print(f"{GATE_PREFIX}{message}", file=sys.stderr)
+            out = pretool_headline_only(message) if footer_sent else message
+            print(f"{GATE_PREFIX}{out}", file=sys.stderr)
+            if not footer_sent:
+                _mark_unlock_footer_sent(input_data)
         return 2
     except Exception:
         if message:

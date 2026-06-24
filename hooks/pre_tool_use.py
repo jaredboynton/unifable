@@ -52,9 +52,10 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 from bash_classify import is_allowed_research_bash
 from citations import format_citation_verify_message
 from evidence_policy import resolve_evidence_profile, resolve_grade
-from ledger import data_root, emit_json, load_ledger, read_stdin_json
+from ledger import data_root, emit_json, load_ledger, read_stdin_json, update_ledger
 from pretool_block import (
     BASH_ALLOWED_SUMMARY,
+    block_epoch,
     emit_pretool_block,
     format_bash_research_block,
     format_delegation_block,
@@ -180,9 +181,11 @@ def _block(
     message: str,
 ) -> int:
     try:
-        from plan_mode import append_plan_mode_note
+        from plan_mode import append_plan_mode_note, pretool_should_append_plan_note
 
-        message = append_plan_mode_note(message, _plan_mode_state(input_data))
+        plan = _plan_mode_state(input_data)
+        if pretool_should_append_plan_note(input_data, plan):
+            message = append_plan_mode_note(message, plan)
     except Exception:
         pass
     return emit_pretool_block(input_data, kind=kind, detail=detail, full_message=message)
@@ -301,11 +304,28 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
     )
     if not ok:
         detail = "; ".join(reasons)
+        try:
+            _led = load_ledger(input_data)
+            _epoch = block_epoch(input_data, _led)
+            _include_contract = _led.get("spec_contract_notified_epoch") != _epoch
+        except Exception:
+            _include_contract = True
+        message = format_spec_validation_block(
+            grade, reasons, profile, spec, include_contract=_include_contract,
+        )
+        if _include_contract:
+            try:
+                def _mark_contract(ld):
+                    ld["spec_contract_notified_epoch"] = block_epoch(input_data, ld)
+
+                update_ledger(input_data, _mark_contract)
+            except Exception:
+                pass
         return _block(
             input_data,
             kind="spec",
             detail=detail,
-            message=format_spec_validation_block(grade, reasons, profile, spec),
+            message=message,
         )
 
     cited = _citation_reasons(spec, input_data, cwd, require_commands=False)

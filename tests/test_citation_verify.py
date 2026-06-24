@@ -72,6 +72,15 @@ def test_redirections_do_not_register_as_reads():
     assert fetched_url_targets(_bash("curl https://x.io/a 2>/dev/null")) == ["https://x.io/a"]
 
 
+def test_directory_search_roots_do_not_register_as_reads():
+    # A read program's directory argument is a search root, not a file read --
+    # it must not become an (unbackable) path:line cite.
+    assert read_targets(_bash("rg -ln pat scripts/gate/ hooks/")) == []
+    assert read_targets(_bash("grep -r foo src/")) == []
+    # A real file alongside a directory root still registers.
+    assert read_targets(_bash("rg pat src/ lib/mod.py")) == ["lib/mod.py"]
+
+
 def test_exa_web_search_registers_response_urls():
     payload = {
         "tool_name": "exa.web_search_exa",

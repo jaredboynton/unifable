@@ -102,10 +102,12 @@ def test_epoch_reset_allows_full_message_again():
 
         from ledger import ledger_path  # noqa: E402
 
+        os.environ["UNIFABLE_DATA"] = tmp
         path = ledger_path(payload)
         ledger = json.loads(path.read_text(encoding="utf-8"))
         ledger["pretool_block_epoch"] = ""
         ledger["pretool_block_counts"] = {}
+        ledger["pretool_unlock_footer_epoch"] = ""
         path.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
 
         rc2, err2 = _run_pre_tool(payload, data_root=tmp)
@@ -129,7 +131,31 @@ def test_emit_fail_open_still_blocks_with_message(monkeypatch):
     assert rc == 2
 
 
-def test_mixed_parallel_signatures_emit_one_each():
+def test_mixed_block_kinds_second_is_headline_only(tmp_path, capsys):
+    import pretool_block as pb
+
+    os.environ["UNIFABLE_DATA"] = str(tmp_path)
+    payload = {"session_id": "mix-kind", "cwd": str(tmp_path), "turn_id": "turn-1"}
+    rc1 = pb.emit_pretool_block(
+        payload,
+        kind="bash",
+        detail="nl",
+        full_message=pb.format_bash_research_block("nl blocked", "mix-kind"),
+    )
+    assert rc1 == 2
+    err1 = capsys.readouterr().err
+    assert "Unlock:" in err1
+    rc2 = pb.emit_pretool_block(
+        payload,
+        kind="delegate",
+        detail="Task",
+        full_message=pb.format_delegation_block("Task", "mix-kind"),
+    )
+    assert rc2 == 2
+    err2 = capsys.readouterr().err
+    assert "Task blocked" in err2
+    assert "Unlock:" not in err2
+
     with tempfile.TemporaryDirectory() as tmp:
         base = _bash_payload(cwd=tmp)
         payloads = [

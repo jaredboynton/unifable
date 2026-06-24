@@ -98,7 +98,7 @@ def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):
 def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
     import gate_prompt
-    path, _changes = gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "Refactor the auth module please")
+    path, _changes, _created = gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "Refactor the auth module please")
     assert path and Path(path).exists()
     s = load_spec(str(tmp_path), "K")
     assert s["requires_tasks"] is True

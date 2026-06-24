@@ -2310,6 +2310,8 @@ def format_spec_validation_block(
     reasons: list[str],
     evidence_profile: str | None = None,
     spec: dict[str, Any] | None = None,
+    *,
+    include_contract: bool = True,
 ) -> str:
     """Model-facing block text when validate_spec fails.
 
@@ -2317,8 +2319,8 @@ def format_spec_validation_block(
     not by editing spec.json). Appends concrete fix steps derived from *reasons*.
     """
     grade = (grade or "STANDARD").upper()
-    detail = "; ".join(reasons)
-    joined = detail.lower()
+    items = [str(r).strip() for r in (reasons or []) if str(r).strip()]
+    joined = " ".join(items).lower()
     fixes: list[str] = []
 
     if "prior_art" in joined:
@@ -2340,13 +2342,19 @@ def format_spec_validation_block(
     if grade == "HEAVY" and ("frontier" in joined or "primary approach" in joined):
         fixes.append("HEAVY: use `unifable add-frontier` (>=2) and `unifable set-primary`")
 
-    parts = [f"Evidence spec does not satisfy grade {grade}: {detail}."]
+    lines = [f"Evidence spec does not satisfy grade {grade}:"]
+    lines.extend(f"  {item}" for item in items)
     if fixes:
-        parts.append("To unblock edits: " + "; ".join(fixes) + ".")
+        lines.append("")
+        lines.append("To unblock edits:")
+        lines.extend(f"  {fix}" for fix in fixes)
     else:
-        parts.append("Fix the spec via the unifable CLI (never edit spec.json directly).")
-    parts.append(contract_string(grade, True, evidence_profile, spec))
-    return " ".join(parts)
+        lines.append("")
+        lines.append("Fix the spec via the unifable CLI (never edit spec.json directly).")
+    if include_contract:
+        lines.append("")
+        lines.append(contract_string(grade, True, evidence_profile, spec))
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------

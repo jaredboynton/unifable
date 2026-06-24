@@ -291,7 +291,10 @@ def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
     blob = ((out.get("reason") or "") + " " + (
         (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     )).lower()
-    assert "no suicide loop" in blob or "legitimate work" in blob
+    assert "no suicide loop" not in blob
+    assert "completion loop check" not in blob
+    events = load_ledger({"session_id": "loopdecl", "cwd": str(tmp_path)}).get("loop_events") or []
+    assert any("LOOP_JUDGE_DECLINED" in str(e.get("kind") or "") for e in events)
 
 
 def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):

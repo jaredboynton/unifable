@@ -98,11 +98,21 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # Host Plan Mode (plan_mode.py), set at UserPromptSubmit, read at PreToolUse.
     "plan_mode_enabled": False,
     "plan_mode_host": "",
+    "plan_mode_notified_epoch": "",
+    # UserPromptSubmit scaffold onboarding (gate_prompt.py): full CLI tutorial once.
+    "prompt_scaffold_notified": False,
+    # PreToolUse unlock footer dedup (pretool_block.py).
+    "pretool_unlock_footer_epoch": "",
+    # PreToolUse spec validation contract string once per turn (spec.py).
+    "spec_contract_notified_epoch": "",
     # PostToolUse additionalContext dedup (posttool_notify.py / model_notify.py).
     "posttool_context_epoch": "",
     "posttool_last_body_hash": "",
     "posttool_task_guidance": {},
     "posttool_last_cite_headline": "",
+    "posttool_last_breaker_status": "",
+    "posttool_last_failure_hint_hash": "",
+    "posttool_last_discovery_headline": "",
     "last_updated": "",
 }
 

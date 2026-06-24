@@ -19,7 +19,13 @@ from classify_task import operative_prompt, context_for_mode, grade_of
 from evidence_policy import mode_for_grade, resolve_evidence_profile, resolve_grade
 from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
 from heavy_workflow import clear_stale_heavy_workflow, heavy_workflow_brief
-from plan_mode import plan_mode_context_line, plan_mode_spec_task_guidance, resolve_plan_mode
+from plan_mode import (
+    mark_plan_mode_prompt_notified,
+    plan_mode_context_line,
+    plan_mode_prompt_line_needed,
+    plan_mode_spec_task_guidance,
+    resolve_plan_mode,
+)
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
 
 
@@ -43,18 +49,14 @@ def _ensure_spec_scaffold(
     *,
     heavy: bool = False,
     evidence_profile: str = "code",
-) -> tuple[str, list[str]]:
-    """Auto-create the evidence spec (the agent never runs `create`). Writes a
-    scaffold with `requires_tasks` so an empty spec is not completable, seeds the
-    goal from the prompt, and returns (spec_path, changes). ``changes`` lists
-    mutations applied to an EXISTING spec (gap 5: set/cleared heavy_workflow,
-    evidence_profile shift) so the prompt hook can tell the model what moved; a
-    fresh create reports none (it has its own 'auto-created' line). Fail-open:
-    returns ("", []) on any error and never raises into the hook."""
+) -> tuple[str, list[str], bool]:
+    """Auto-create the evidence spec. Returns (spec_path, changes, created)."""
     changes: list[str] = []
+    created = False
     try:
         path = spec_path(cwd, key)
         if not path.exists():
+            created = True
             s = spec_template()
             s["restated_goal"] = _seed_goal(prompt)
             s["goal_seeded"] = True  # gate blocked until `unifable restate '<goal>'`
@@ -96,9 +98,50 @@ def _ensure_spec_scaffold(
                     changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
                 if changed:
                     save_spec(cwd, key, s)
-        return str(path), changes
+        return str(path), changes, created
     except Exception:
-        return "", []
+        return "", [], False
+
+
+def _format_scaffold_onboarding(
+    path: str,
+    *,
+    evidence_profile: str,
+    heavy_scaffold: bool,
+    plan_mode: dict,
+) -> str:
+    """Full spec CLI tutorial — emit only on first scaffold create."""
+    profile_note = (
+        " Operational profile: no repo path:line or external URL required before edits."
+        if evidence_profile == "operational"
+        else ""
+    )
+    task_guidance = ""
+    try:
+        task_guidance = plan_mode_spec_task_guidance(plan_mode)
+    except Exception:
+        pass
+    block = (
+        f"\n\nunifable: evidence spec auto-created at {path}.{profile_note} "
+        f"Drive it via the append-only CLI (never edit the JSON):\n"
+        f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
+        f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
+        f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
+        f"{task_guidance}\n"
+    )
+    if heavy_scaffold:
+        block += (
+            "  - HEAVY: unifable set-primary --title '...' --check '...'\n"
+            "  - HEAVY: unifable add-frontier --title '...' --check '...' (>=2; judge may auto-add)\n"
+        )
+    block += (
+        "  - if a requirement is genuinely impossible: unifable dispute "
+        "--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
+        "Citations sync from your reads/fetches automatically; on stop, pending "
+        "requirements get fresh checks, failed/disputed ones are re-adjudicated; "
+        "superseded tasks ([SS]) no longer block completion."
+    )
+    return block
 
 
 def main() -> int:
@@ -194,9 +237,11 @@ def main() -> int:
 
     try:
         plan_mode = resolve_plan_mode(input_data, transcript_path=input_data.get("transcript_path"))
-        plan_line = plan_mode_context_line(plan_mode)
-        if plan_line:
-            context += plan_line
+        if plan_mode_prompt_line_needed(input_data, plan_mode):
+            plan_line = plan_mode_context_line(plan_mode)
+            if plan_line:
+                context += plan_line
+                mark_plan_mode_prompt_notified(input_data)
     except Exception:
         plan_mode = {"enabled": False}
 
@@ -216,46 +261,27 @@ def main() -> int:
 
     if effective_grade != "LIGHT":
         key = session_key
-        path, scaffold_changes = _ensure_spec_scaffold(
+        path, scaffold_changes, scaffold_created = _ensure_spec_scaffold(
             cwd, key, prompt, heavy=heavy_scaffold, evidence_profile=evidence_profile
         )
-        if path:
-            profile_note = (
-                " Operational profile: no repo path:line or external URL required before edits."
-                if evidence_profile == "operational"
-                else ""
+        if path and scaffold_created and not ledger.get("prompt_scaffold_notified"):
+            context += _format_scaffold_onboarding(
+                path,
+                evidence_profile=evidence_profile,
+                heavy_scaffold=heavy_scaffold,
+                plan_mode=plan_mode if isinstance(plan_mode, dict) else {},
             )
-            task_guidance = ""
-            try:
-                task_guidance = plan_mode_spec_task_guidance(plan_mode)
-            except Exception:
-                pass
+
+            def _mark_scaffold(_led):
+                _led["prompt_scaffold_notified"] = True
+
+            update_ledger(input_data, _mark_scaffold)
+        elif path and scaffold_changes:
             context += (
-                f"\n\nunifable: evidence spec auto-created at {path}.{profile_note} "
-                f"Drive it via the append-only CLI (never edit the JSON):\n"
-                f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
-                f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
-                f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
-                f"{task_guidance}\n"
+                "\n\nunifable spec scaffold updated: "
+                + "; ".join(scaffold_changes)
+                + "."
             )
-            if heavy_scaffold:
-                context += (
-                    f"  - HEAVY: unifable set-primary --title '...' --check '...'\n"
-                    f"  - HEAVY: unifable add-frontier --title '...' --check '...' (>=2; judge may auto-add)\n"
-                )
-            context += (
-                f"  - if a requirement is genuinely impossible: unifable dispute "
-                f"--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
-                f"Citations sync from your reads/fetches automatically; on stop, pending "
-                f"requirements get fresh checks, failed/disputed ones are re-adjudicated; "
-                f"superseded tasks ([SS]) no longer block completion."
-            )
-            if scaffold_changes:
-                context += (
-                    "\n\nunifable spec scaffold updated: "
-                    + "; ".join(scaffold_changes)
-                    + "."
-                )
 
     try:
         if ledger.get("inject_heavy_brief"):

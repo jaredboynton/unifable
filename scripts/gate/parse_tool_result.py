@@ -210,6 +210,8 @@ def _bash_read_files(cmd: str) -> list[str]:
                 continue
             if "://" in arg:
                 continue
+            if arg.endswith("/"):
+                continue  # directory search root (e.g. `rg pat scripts/gate/`), not a file read
             if "/" in arg or "." in arg:
                 out.append(arg)
     return out

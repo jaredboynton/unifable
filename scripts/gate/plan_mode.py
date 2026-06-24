@@ -250,3 +250,62 @@ def append_plan_mode_note(message: str, plan: dict[str, Any] | None) -> str:
     if note.strip() in msg:
         return msg
     return msg + note
+
+
+def _plan_mode_epoch(input_data: dict[str, Any], ledger: dict[str, Any] | None = None) -> str:
+    try:
+        from pretool_block import block_epoch
+    except ImportError:
+        from scripts.gate.pretool_block import block_epoch  # pragma: no cover
+    return block_epoch(input_data, ledger)
+
+
+def plan_mode_prompt_line_needed(
+    input_data: dict[str, Any],
+    plan: dict[str, Any] | None,
+) -> bool:
+    """Emit full plan-mode context once per turn epoch."""
+    if not isinstance(plan, dict) or not plan.get("enabled"):
+        return False
+    try:
+        from ledger import load_ledger
+    except ImportError:
+        from scripts.gate.ledger import load_ledger  # pragma: no cover
+    try:
+        ledger = load_ledger(input_data)
+        epoch = _plan_mode_epoch(input_data, ledger)
+        return ledger.get("plan_mode_notified_epoch") != epoch
+    except Exception:
+        return True
+
+
+def mark_plan_mode_prompt_notified(input_data: dict[str, Any]) -> None:
+    try:
+        from ledger import load_ledger, save_ledger
+    except ImportError:
+        from scripts.gate.ledger import load_ledger, save_ledger  # pragma: no cover
+    try:
+        ledger = load_ledger(input_data)
+        ledger["plan_mode_notified_epoch"] = _plan_mode_epoch(input_data, ledger)
+        save_ledger(input_data, ledger)
+    except Exception:
+        pass
+
+
+def pretool_should_append_plan_note(
+    input_data: dict[str, Any],
+    plan: dict[str, Any] | None,
+) -> bool:
+    """Skip PreToolUse plan footnote when UserPromptSubmit already sent it this epoch."""
+    if not isinstance(plan, dict) or not plan.get("enabled"):
+        return False
+    try:
+        from ledger import load_ledger
+    except ImportError:
+        from scripts.gate.ledger import load_ledger  # pragma: no cover
+    try:
+        ledger = load_ledger(input_data)
+        epoch = _plan_mode_epoch(input_data, ledger)
+        return ledger.get("plan_mode_notified_epoch") != epoch
+    except Exception:
+        return True

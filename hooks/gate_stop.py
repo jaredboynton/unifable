@@ -292,13 +292,6 @@ def _handle_completion_loop_release(
         if headlines:
             val_msgs = list(val_msgs) + headlines
             validate_ctx, _ = _build_stop_validate_context(spec, val_msgs)
-        elif verdict is not None and getattr(verdict, "lift", "none") == "none":
-            note = "Completion loop check: no suicide loop detected."
-            reason = str(getattr(verdict, "reason", "") or "").strip()
-            if reason:
-                note += f" {reason[:200]}"
-            val_msgs = list(val_msgs) + [note]
-            validate_ctx, _ = _build_stop_validate_context(spec, val_msgs)
         save_spec(cwd, task_key, spec)
         save_ledger(input_data, ledger)
         ok_tasks, incomplete = all_tasks_validated(spec)
@@ -735,16 +728,17 @@ def main() -> int:
                         ev_reason = (
                             f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)})."
                         )
-                        try:
-                            from model_notify import format_blocking_task_hints, task_ids_from_headlines
+                        if not str(validate_ctx or "").strip():
+                            try:
+                                from model_notify import format_blocking_task_hints, task_ids_from_headlines
 
-                            ev_reason += format_blocking_task_hints(
-                                spec,
-                                incomplete,
-                                changed_ids=task_ids_from_headlines(val_msgs),
-                            )
-                        except Exception:
-                            pass
+                                ev_reason += format_blocking_task_hints(
+                                    spec,
+                                    incomplete,
+                                    changed_ids=task_ids_from_headlines(val_msgs),
+                                )
+                            except Exception:
+                                pass
                         if validate_ctx_truncated and stop_digest_path:
                             ev_reason += f"\nFull digest: {stop_digest_path}"
                         hint = _completion_stop_hint(input_data, spec, incomplete)

@@ -546,19 +546,29 @@ def test_whitelisted_bash_passes_without_spec():
 
 
 def test_non_whitelisted_bash_blocks_without_spec():
-    rc, out, stderr = run_pre_tool(_bash_payload("echo hi"), grade="STANDARD")
-    assert rc == 2
-    assert "Allowed before unlock" in stderr
-    assert "cd, ls, glob, rg" in stderr
-    assert "append-only" in stderr
+    with tempfile.TemporaryDirectory() as data_root:
+        rc, out, stderr = run_pre_tool(
+            _bash_payload("echo hi", session_id="bash-block-test"),
+            grade="STANDARD",
+            tmp_root=data_root,
+        )
+        assert rc == 2
+        assert "Allowed now:" in stderr or "Allowed before unlock" in stderr
+        assert "cd, ls, glob, rg" in stderr
+        assert "unifable restate" in stderr or "append-only" in stderr
 
 
 def test_task_agent_block_without_spec():
-    for tool_name in ("Task", "Agent"):
-        rc, out, stderr = run_pre_tool(_delegate_payload(tool_name), grade="STANDARD")
-        assert rc == 2
-        assert "delegated work cannot bypass" in stderr
-        assert "Still available before unlock" in stderr
+    with tempfile.TemporaryDirectory() as data_root:
+        for tool_name in ("Task", "Agent"):
+            rc, out, stderr = run_pre_tool(
+                _delegate_payload(tool_name, session_id=f"delegate-{tool_name}"),
+                grade="STANDARD",
+                tmp_root=data_root,
+            )
+            assert rc == 2
+            assert "delegation bypass guard" in stderr or "delegated work cannot bypass" in stderr
+            assert "Allowed now:" in stderr or "Still available before unlock" in stderr
 
 
 def test_task_agent_light_waived():

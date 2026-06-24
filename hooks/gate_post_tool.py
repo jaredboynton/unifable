@@ -30,7 +30,7 @@ from model_notify import (
     is_spec_cli_command,
     parse_spec_cli_invocation,
 )
-from posttool_notify import emit_posttool_context, should_suppress_cite_only
+from posttool_notify import emit_posttool_context, prepare_posttool_parts, should_suppress_cite_only
 from parse_tool_result import (
     changed_kinds,
     command_from_input,
@@ -176,9 +176,25 @@ def _breaker_status_context(input_data: dict) -> str:
     return ""
 
 
-def _emit_context(input_data: dict, parts: list[str], *, guidance_map=None) -> None:
-    body = "\n".join(p for p in parts if p and p.strip())
-    emit_posttool_context(input_data, body, guidance_map=guidance_map)
+def _emit_context(
+    input_data: dict,
+    parts: list[str],
+    *,
+    guidance_map=None,
+    failure_sig: str = "",
+) -> None:
+    filtered = parts
+    cache_updates: dict[str, str] = {}
+    try:
+        filtered, cache_updates = prepare_posttool_parts(
+            input_data, parts, failure_sig=failure_sig,
+        )
+    except Exception:
+        pass
+    body = "\n".join(p for p in filtered if p and p.strip())
+    emit_posttool_context(
+        input_data, body, guidance_map=guidance_map, cache_updates=cache_updates,
+    )
 
 
 def _spec_action_context_from_spec(
@@ -331,8 +347,7 @@ def main() -> int:
             parts.append(spec_context)
         if breaker_status_context:
             parts.append(breaker_status_context)
-        _emit_context(input_data, parts, guidance_map=guidance_map)
-    elif failure and not spec_context:
+        _emit_context(input_data, parts, guidance_map=guidance_map, failure_sig=_sig)
         parts = [
             "unifable gate observed a tool failure. Do not report completion until "
             "it is fixed, isolated as a known baseline, or explicitly documented.",

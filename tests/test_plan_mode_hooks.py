@@ -72,6 +72,7 @@ def test_pretool_block_appends_plan_mode_note(tmp_path, monkeypatch, capsys):
         ledger["plan_mode_host"] = "cursor"
 
     update_ledger(payload, apply)
+    # No mark_plan_mode_prompt_notified — plan note should appear on block.
 
     rc = pre_tool_use._block(
         payload,
