@@ -2,7 +2,7 @@
 """Spec CLI notifications to the main model via PostToolUse additionalContext.
 
 spec.py emits prefixed stderr lines; gate_post_tool.py parses them (or reloads the
-spec from disk) and forwards headline plus the task board (judge detail inline).
+spec from disk) and forwards the headline plus one compact next action.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ from typing import Any
 
 NOTIFY_PREFIX = "UNIFABLE_MODEL_MESSAGE\t"
 STATUS_PREFIX = "UNIFABLE_SPEC_STATUS\t"
+ACTION_PREFIX = "UNIFABLE_MODEL_ACTION\t"
 JUDGE_PREFIX = "UNIFABLE_MODEL_JUDGE\t"
 HINT_PREFIX = "UNIFABLE_MODEL_HINT\t"
 _HEADLINE_MAX = 320
@@ -26,6 +27,7 @@ _SUBCMD_RE = re.compile(
 MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
 
 _TASK_ID_RE = re.compile(r"\bT(\d+)\b")
+_STATUS_ROW_RE = re.compile(r"^\s+\[[^\]]+\]\s+(T\d+)\s+\([^)]+\)\s+(.+)$")
 _RETRACT_HEADLINE_RE = re.compile(r"^Judge retracted (T\d+):\s*(.+)$", re.IGNORECASE)
 _STOP_VALIDATE_CONTEXT_MAX = 16000
 _RESOLVED_STATUSES = frozenset({"validated", "retracted", "superseded"})
@@ -173,6 +175,14 @@ def _emit_status(status: str) -> None:
     print(f"{STATUS_PREFIX}{escaped}", file=sys.stderr)
 
 
+def _emit_action(action: str) -> None:
+    body = (action or "").strip()
+    if not body:
+        return
+    escaped = body.replace("\n", "\\n")
+    print(f"{ACTION_PREFIX}{escaped}", file=sys.stderr)
+
+
 def _emit_judge(reason: str) -> None:
     text = (reason or "").strip()
     if not text:
@@ -193,9 +203,10 @@ def notify_spec_update(
     *,
     highlight_task: str | None = None,
 ) -> None:
-    """Emit headline and the current task board (judge detail inline on highlighted rows)."""
+    """Emit headline, full internal status, and compact model-facing action."""
     notify_model(headline)
     _emit_status(format_spec_status(spec, highlight_task=highlight_task, collapse_resolved=True))
+    _emit_action(format_spec_action_digest(spec, highlight_task=highlight_task))
 
 
 def extract_model_notifications(text: str) -> list[str]:
@@ -206,6 +217,18 @@ def extract_model_notifications(text: str) -> list[str]:
             msg = line[len(NOTIFY_PREFIX) :].strip()
             if msg and msg not in out:
                 out.append(msg)
+    return out
+
+
+def extract_action_digests(text: str) -> list[str]:
+    out: list[str] = []
+    for line in (text or "").splitlines():
+        if line.startswith(ACTION_PREFIX):
+            body = line[len(ACTION_PREFIX) :].strip()
+            if body:
+                action = body.replace("\\n", "\n")
+                if action not in out:
+                    out.append(action)
     return out
 
 
@@ -346,6 +369,56 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
     return "\n".join(lines)
 
 
+def format_spec_action_digest(
+    spec: dict[str, Any],
+    *,
+    highlight_task: str | None = None,
+    max_items: int = 1,
+) -> str:
+    """Compact model-facing next action for PostToolUse spec CLI updates.
+
+    PostToolUse fires immediately after commands the model just ran, so repeating
+    the whole task board adds noise. Keep only a breaker-open signal, or the
+    next unresolved action the model needs in order to move the breaker.
+    """
+    ok, incomplete = _all_tasks_validated(spec)
+    if ok:
+        return "breaker: OPEN (all tasks validated)"
+
+    by_id = _tasks_by_id(spec)
+    ordered: list[str] = []
+    highlight = str(highlight_task or "").strip()
+    if highlight and highlight in incomplete:
+        ordered.append(highlight)
+    for raw in incomplete:
+        tid = str(raw)
+        if tid and tid not in ordered:
+            ordered.append(tid)
+
+    lines: list[str] = []
+    for tid in ordered:
+        task = by_id.get(tid)
+        if not task:
+            action = _synthetic_incomplete_action(tid)
+            if action:
+                lines.append(action)
+            else:
+                label = _synthetic_incomplete_label(tid) or tid
+                lines.append(f"Next: {label}.")
+            continue
+        hint = str(task.get("judge_hint") or "").strip()
+        reason = str(task.get("judge_reason") or "").strip()
+        title = str(task.get("title") or "").strip()
+        detail = hint or reason or title
+        if detail:
+            lines.append(f"{tid}: {detail}")
+        else:
+            lines.append(f"{tid}: needs evidence.")
+        if len(lines) >= max_items:
+            break
+    return "\n".join(lines)
+
+
 def _stop_non_task_notes(headlines: list[str]) -> list[str]:
     """Keep Stop guidance that is not tied to a specific task row."""
     notes: list[str] = []
@@ -451,6 +524,47 @@ def extract_spec_status(text: str) -> str | None:
     return None
 
 
+def _fallback_action_from_status(status: str) -> str:
+    text = (status or "").strip()
+    if not text:
+        return ""
+    breaker_line = ""
+    for line in text.splitlines():
+        if line.startswith("breaker:"):
+            breaker_line = line.strip()
+            break
+    if "breaker: OPEN" in breaker_line:
+        return breaker_line
+    if "breaker: CLOSED" in breaker_line:
+        actions: list[str] = []
+        for key in _SYNTHETIC_INCOMPLETE:
+            if key in breaker_line:
+                action = _synthetic_incomplete_action(key)
+                if action:
+                    actions.append(action)
+        if actions:
+            return "\n".join(actions)
+        incomplete_ids = {f"T{m.group(1)}" for m in _TASK_ID_RE.finditer(breaker_line)}
+        if incomplete_ids:
+            rows: dict[str, str] = {}
+            judges: dict[str, str] = {}
+            current = ""
+            for line in text.splitlines():
+                row = _STATUS_ROW_RE.match(line)
+                if row:
+                    current = row.group(1)
+                    rows[current] = row.group(2).strip()
+                    continue
+                stripped = line.strip()
+                if current and stripped.startswith("judge:"):
+                    judges[current] = stripped.removeprefix("judge:").strip()
+            for tid in _sort_task_ids(incomplete_ids):
+                detail = judges.get(tid) or rows.get(tid)
+                if detail:
+                    return f"{tid}: {detail}"
+    return ""
+
+
 def bash_output_text(value: Any, limit: int = 16000) -> str:
     """Stdout+stderr from a Bash tool result, preserving line breaks for parsers."""
     from ledger import SECRET_PATTERNS
@@ -473,17 +587,41 @@ def bash_output_text(value: Any, limit: int = 16000) -> str:
 
 
 def build_spec_context_from_output(text: str) -> str:
-    """Merge parsed headlines and status board for additionalContext."""
+    """Merge parsed headlines and compact actions for additionalContext."""
     parts: list[str] = []
     headlines = extract_model_notifications(text)
     if headlines:
         parts.extend(headlines)
-    status = extract_spec_status(text)
-    if status:
-        parts.append(status)
+    actions = extract_action_digests(text)
+    if actions:
+        parts.extend(actions)
+    else:
+        status = extract_spec_status(text)
+        fallback = _fallback_action_from_status(status or "")
+        if fallback:
+            parts.append(fallback)
     if not parts:
         return ""
-    return "unifable spec update:\n" + "\n".join(parts)
+    if len(parts) == 2 and "\n" not in parts[0] and "\n" not in parts[1]:
+        return f"{parts[0]} {parts[1]}"
+    return "\n".join(parts)
+
+
+def build_spec_context_from_spec(
+    spec: dict[str, Any],
+    *,
+    headlines: list[str] | None = None,
+    highlight_task: str | None = None,
+) -> str:
+    parts = [str(h).strip() for h in (headlines or []) if str(h).strip()]
+    action = format_spec_action_digest(spec, highlight_task=highlight_task)
+    if action:
+        parts.append(action)
+    if not parts:
+        return ""
+    if len(parts) == 2 and "\n" not in parts[0] and "\n" not in parts[1]:
+        return f"{parts[0]} {parts[1]}"
+    return "\n".join(parts)
 
 
 def is_spec_cli_command(command: str) -> bool:

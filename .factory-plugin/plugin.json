@@ -1,6 +1,6 @@
 {
   "name": "unifable",
-  "version": "1.9.59",
+  "version": "1.9.60",
   "description": "A harness that makes the model behave like Fable: enforces completion, evidence, and verification as procedure; auto-routes render-output verification, a multi-story evidence gate, an investigation protocol, and an early-stop guard.",
   "author": { "name": "Jared Boynton", "email": "jared.boynton@gmail.com" }
 }

@@ -62,6 +62,12 @@ ALLOWED = [
     "./summarize_session.sh /tmp/ctx.md",
     "zsh /path/to/unifusion/scripts/resolve_session.sh --path",
     "bash ./tools/unifusion.sh /tmp/q.txt",
+    "git status --short",
+    "git diff --stat",
+    "git log -1 --oneline",
+    "git rev-parse --show-toplevel",
+    "git -C /repo status",
+    "cd subdir && git diff",
 ]
 
 BLOCKED = [
@@ -87,7 +93,10 @@ BLOCKED = [
     "unifable add-task --title t --check true && cat /etc/passwd",
     "pytest tests/ -q",
     "npm test",
-    "git diff --stat",
+    "git commit -m x",
+    "git add .",
+    "git push",
+    "git checkout main",
     "curl https://example.com",
     "rm -rf build",
     "echo hi > /dev/null",

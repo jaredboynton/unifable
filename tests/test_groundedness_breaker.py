@@ -535,6 +535,13 @@ def test_arm_prompt_external_claims_allow_docs_prior_art_or_empirical_re():
     assert "dig in" in desc or "start empirical" in desc
 
 
+def test_arm_prompt_steers_in_repo_version_conventions_to_agents_md():
+    desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
+    assert "agents.md" in desc or "just version" in desc or "bump_version" in desc
+    needed = gb._DISARM_SCHEMA["properties"]["needed"]["description"].lower()
+    assert "agents.md" in needed or "just version" in needed or "bump_version" in needed
+
+
 def test_disarm_prompt_releases_on_prior_art_or_empirical_re():
     sysp = gb._DISARM_SYSTEM.lower()
     assert "reverse" in sysp or "empirical" in sysp

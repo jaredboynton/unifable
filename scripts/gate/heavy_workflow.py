@@ -246,3 +246,40 @@ def format_approach_board(spec: dict[str, Any]) -> str:
         by = str(t.get("added_by") or "agent")
         lines.append(f"  [{kind}] {tid} ({status}, {by}): {title}")
     return "\n".join(lines)
+
+
+def heavy_snapshot(spec: dict[str, Any]) -> tuple[str, str]:
+    """(_heavy_phase, primary_status) snapshot for transition detection.
+
+    Capture before and after a mutation block; pass both to
+    heavy_transition_headline to detect a phase flip or primary unblock."""
+    primary = primary_task(spec)
+    return (
+        compute_heavy_phase(spec),
+        str(primary.get("status") or "") if primary else "",
+    )
+
+
+def heavy_transition_headline(
+    before: tuple[str, str],
+    after: tuple[str, str],
+    spec: dict[str, Any],
+) -> str | None:
+    """Headline for a HEAVY phase flip or primary unblock between two snapshots.
+
+    before/after = (heavy_phase, primary_status) from heavy_snapshot(). Returns
+    None when nothing workflow-relevant changed."""
+    before_phase, before_primary = before
+    after_phase, after_primary = after
+    if before_phase == after_phase and before_primary == after_primary:
+        return None
+    primary = primary_task(spec)
+    tid = str(primary.get("id") or "primary") if primary else "primary"
+    if before_primary == "blocked" and after_primary == "pending":
+        return (
+            f"HEAVY phase: {after_phase} -- primary task {tid} unblocked "
+            "(all frontiers rejected); primary-path edits now allowed."
+        )
+    if before_phase != after_phase:
+        return f"HEAVY phase: {before_phase} -> {after_phase}."
+    return None

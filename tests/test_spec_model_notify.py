@@ -53,7 +53,7 @@ def test_format_spec_status_shows_board_and_highlight_judge():
     assert "breaker: CLOSED" in text
 
 
-def test_notify_spec_update_emits_headline_and_board_only():
+def test_notify_spec_update_emits_headline_status_and_action():
     spec = _sample_spec(judge_reason=LONG_JUDGE)
     buf = io.StringIO()
     with redirect_stderr(buf):
@@ -65,6 +65,7 @@ def test_notify_spec_update_emits_headline_and_board_only():
     err = buf.getvalue()
     assert mn.NOTIFY_PREFIX in err
     assert mn.STATUS_PREFIX in err
+    assert mn.ACTION_PREFIX in err
     assert mn.JUDGE_PREFIX not in err
     assert mn.HINT_PREFIX not in err
     assert LONG_JUDGE in err.replace("\\n", "\n")
@@ -82,13 +83,45 @@ def test_build_spec_context_from_output_roundtrip():
         )
     combined = "stdout noise\n" + buf.getvalue()
     ctx = mn.build_spec_context_from_output(combined)
-    assert ctx.startswith("unifable spec update:")
+    assert not ctx.startswith("unifable spec update:")
     assert "judge rejected the evidence" in ctx
     assert "Judge:" not in ctx
     assert "Hint:" not in ctx
     assert LONG_JUDGE in ctx
-    assert "[--] T4" in ctx
-    assert "breaker: CLOSED" in ctx
+    assert "[--] T4" not in ctx
+    assert "breaker: CLOSED" not in ctx
+
+
+def test_post_tool_restate_compacts_to_headline_and_next_action():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "Plan a focused tune-up of agent-memory files"
+    spec["tasks"] = []
+    buf = io.StringIO()
+    with redirect_stderr(buf):
+        mn.notify_spec_update(spec, "Goal restated.")
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["UNIFABLE_DATA"] = tmp
+        payload = {
+            "session_id": "spec-restate-test",
+            "cwd": tmp,
+            "tool_name": "Bash",
+            "tool_input": {
+                "command": "unifable restate 'Plan a focused tune-up of agent-memory files'",
+            },
+            "tool_response": {
+                "exit_code": 0,
+                "stdout": "restated_goal set (49 chars); goal_seeded cleared.",
+                "stderr": buf.getvalue(),
+            },
+        }
+        out = _run_post_tool(payload)
+    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert ctx.startswith("Goal restated. Add at least one:")
+    assert "unifable add-task" in ctx
+    assert "unifable spec update:" not in ctx
+    assert "goal:" not in ctx
+    assert "breaker: CLOSED" not in ctx
 
 
 def test_format_spec_status_ignores_legacy_judge_hint_field():
@@ -293,7 +326,8 @@ def test_build_spec_context_from_output_ignores_legacy_judge_prefix_lines():
     assert "headline one" in ctx
     assert "legacy duplicate judge line" not in ctx
     assert "Judge:" not in ctx
-    assert "breaker: CLOSED" in ctx
+    assert "T1: x" in ctx
+    assert "breaker: CLOSED" not in ctx
 
 
 def _run_post_tool(payload: dict) -> dict:
@@ -334,11 +368,11 @@ def test_post_tool_forwards_failed_validate_task_stderr():
         }
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "unifable spec update:" in ctx
+    assert "unifable spec update:" not in ctx
     assert "judge rejected the evidence" in ctx
     assert LONG_JUDGE in ctx
-    assert "T4" in ctx
-    assert "breaker: CLOSED" in ctx
+    assert "[--] T4" not in ctx
+    assert "breaker: CLOSED" not in ctx
     assert "observed a tool failure" not in ctx
 
 
@@ -358,9 +392,10 @@ def test_post_tool_add_task_reload_fallback_when_stderr_missing():
         }
         out = _run_post_tool(payload)
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "unifable spec update:" in ctx
-        assert "[XX] T1" in ctx
-        assert "[--] T4" in ctx
+        assert "unifable spec update:" not in ctx
+        assert "T1:" in ctx
+        assert LONG_JUDGE in ctx
+        assert "[--] T4" not in ctx
 
 
 def test_post_tool_add_task_success_no_failure_nag():

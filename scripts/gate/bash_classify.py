@@ -2,10 +2,10 @@
 """Classify whether a Bash command is allowed during the pre-spec research phase.
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
-spec, Bash may run only `cd`, `ls`, `glob`, `rg`, a file whose basename is `trace.sh`
-(explore skill), or a file whose basename is one of the user-facing unifusion
-skill scripts (panel research). Once a valid spec exists, pre_tool_use.py skips
-this classifier and unlocks the normal action phase.
+spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only `git` subcommands,
+a file whose basename is `trace.sh` (explore skill), or a file whose basename is
+one of the user-facing unifusion skill scripts (panel research). Once a valid spec
+exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
 """
 
 from __future__ import annotations
@@ -14,7 +14,9 @@ import re
 import shlex
 
 ALLOWED_RESEARCH_BASH = (
-    "cd, ls, glob, rg, read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
+    "cd, ls, glob, rg, read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
+    "tag -l, stash list, blame, shortlog, reflog, merge-base, name-rev, config get), "
+    "read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
     "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), "
     "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
     "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
@@ -50,6 +52,27 @@ _DANGEROUS_ASSIGN_NAMES = frozenset({
     "PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
     "DYLD_LIBRARY_PATH", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4",
     "GLOBIGNORE", "CDPATH",
+})
+# Read-only git subcommands allowed before the evidence spec validates.
+_ALLOWED_GIT_SUBCMDS = frozenset({
+    "status", "log", "diff", "show", "rev-parse", "describe", "branch", "remote",
+    "tag", "stash", "blame", "shortlog", "reflog", "merge-base", "name-rev", "config",
+})
+_BLOCKED_GIT_SUBCMDS = frozenset({
+    "commit", "add", "push", "pull", "fetch", "checkout", "switch", "restore", "reset",
+    "revert", "merge", "rebase", "cherry-pick", "clean", "rm", "mv", "init", "clone",
+    "apply", "am", "bisect", "bundle", "filter-branch", "gc", "maintenance", "notes",
+    "push", "receive-pack", "send-pack", "submodule", "update-index", "update-ref",
+    "worktree",
+})
+# Global git options that take a value and must be skipped before the subcommand.
+_GIT_GLOBAL_OPTS_WITH_VALUE = frozenset({
+    "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix",
+})
+_GIT_GLOBAL_OPTS = frozenset({
+    "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix",
+    "--no-pager", "--no-optional-locks", "-c", "--literal-pathspecs", "--glob-pathspecs",
+    "--noglob-pathspecs", "--icase-pathspecs", "--no-replace-objects", "--no-optional-locks",
 })
 
 
@@ -208,6 +231,54 @@ def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
     )
 
 
+def _git_subcommand(rest: list[str]) -> str:
+    """Return the first git subcommand token after global options."""
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok in _GIT_GLOBAL_OPTS_WITH_VALUE:
+            i += 2
+            continue
+        if tok.startswith("-") or tok in _GIT_GLOBAL_OPTS:
+            i += 1
+            continue
+        return tok
+    return ""
+
+
+def _validate_git_readonly(rest: list[str]) -> tuple[bool, str]:
+    """Allow read-only git subcommands; block mutating ones."""
+    sub = _git_subcommand(rest)
+    if not sub:
+        return False, "git with no subcommand is not allowed before the evidence spec is validated"
+    if sub in _BLOCKED_GIT_SUBCMDS:
+        return False, f"git {sub} is not allowed before the evidence spec is validated (read-only git only)"
+    if sub not in _ALLOWED_GIT_SUBCMDS:
+        return False, f"git {sub} is not in the read-only git research whitelist"
+    if sub == "branch":
+        for tok in rest:
+            if tok in ("-d", "-D", "-m", "-M", "--delete", "--move", "--rename"):
+                return False, "git branch write/delete is not allowed before the evidence spec is validated"
+    if sub == "tag":
+        for tok in rest:
+            if tok.startswith("-") and tok not in ("-l", "-n", "--list", "--contains", "--merged", "--no-merged"):
+                if tok not in ("-v", "--verbose", "--sort", "--points-at", "--format"):
+                    return False, "git tag create/delete is not allowed before the evidence spec is validated"
+    if sub == "stash":
+        for tok in rest:
+            if tok in ("pop", "apply", "drop", "clear", "push", "save", "branch", "store"):
+                return False, "git stash write is not allowed before the evidence spec is validated"
+    if sub == "config":
+        for tok in rest:
+            if tok in ("set", "unset", "add", "remove-section", "rename-section", "--replace-all"):
+                return False, "git config write is not allowed before the evidence spec is validated"
+    if sub == "remote":
+        for tok in rest:
+            if tok in ("add", "remove", "rm", "rename", "set-url", "set-head", "set-branches", "update", "prune"):
+                return False, "git remote write is not allowed before the evidence spec is validated"
+    return True, ""
+
+
 def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
     """Classify a `python[3] ...` segment that may invoke the gate's spec CLI."""
     script = ""
@@ -330,6 +401,8 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
+    if base == "git":
+        return _validate_git_readonly(rest)
     return False, f"{base} is not in the Bash research whitelist"
 
 

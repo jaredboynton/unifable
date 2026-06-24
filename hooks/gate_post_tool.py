@@ -21,6 +21,7 @@ from spec import canonical_project_root
 from model_notify import (
     bash_output_text,
     build_spec_context_from_output,
+    build_spec_context_from_spec,
     format_spec_status,
     is_mutating_spec_cli,
     is_spec_cli_command,
@@ -79,7 +80,7 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
             return ""
         spec = load_spec(cwd, task_id)
         if spec:
-            return "unifable spec update:\n" + format_spec_status(spec, collapse_resolved=True)
+            return build_spec_context_from_spec(spec)
     except Exception:
         return ""
     return ""

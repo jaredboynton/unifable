@@ -320,8 +320,15 @@ def sync_citations_from_activity(
     spec: dict[str, Any],
     activity: dict[str, list[str]],
     cwd: str,
+    *,
+    added_sink: dict[str, list[str]] | None = None,
 ) -> bool:
-    """Append repo_context / prior_art from ledger activity. Returns True if mutated."""
+    """Append repo_context / prior_art from ledger activity. Returns True if mutated.
+
+    When ``added_sink`` is provided it is filled with the cites this call
+    appended: ``{"repo_context": [path:line, ...], "prior_art": [url, ...]}`` so a
+    hook can name what it auto-synced. Existing callers pass nothing and are
+    unaffected."""
     if not isinstance(spec, dict):
         return False
     changed = False
@@ -347,6 +354,8 @@ def sync_citations_from_activity(
             continue
         spec["repo_context"].append({"cite": cite, "why": _READ_WHY})
         seen_paths.add(cite)
+        if added_sink is not None:
+            added_sink.setdefault("repo_context", []).append(cite)
         changed = True
 
     seen_urls = _existing_prior_urls(spec)
@@ -362,6 +371,8 @@ def sync_citations_from_activity(
             continue
         spec["prior_art"].append({"cite": u, "why": _FETCH_WHY})
         seen_urls.add(key)
+        if added_sink is not None:
+            added_sink.setdefault("prior_art", []).append(u)
         changed = True
 
     return changed

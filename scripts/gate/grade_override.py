@@ -104,6 +104,10 @@ _GRADE_SYSTEM = (
     "Classify as normal (not deep). Operational work is NEVER deep/HEAVY.\n"
     "- code: file edits in the repo, bug fixes, features, refactors, tests, harness "
     "self-work. Default when ambiguous between code and operational.\n"
+    "- Repo-internal maintenance (version bump via just version, plugin.json/marketplace "
+    "manifest sync, setup.sh release tail) stays code profile but needs only in-repo "
+    "repo_context (AGENTS.md, justfile, scripts/bump_version.py) -- never require "
+    "SemVer.org or other external prior_art for those bounded tasks.\n"
     "risk_flags: free-form short tags for risks the gates should know about. Empty "
     "array if none. reason: one sentence."
 )

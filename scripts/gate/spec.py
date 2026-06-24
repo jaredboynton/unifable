@@ -235,6 +235,42 @@ def prior_art_parts(item: Any) -> tuple[str, str]:
 # Validation
 # ---------------------------------------------------------------------------
 
+_REPO_MAINTENANCE_RE = re.compile(
+    r"\b("
+    r"version\s+bump|bump\s+version|just\s+version|bump_version|plugin\.json|marketplace\.json|"
+    r"setup/setup\.sh|setup\.sh|manifest\s+sync|pre-commit|release(?:\s+tail|\s+workflow|\s+number)?|"
+    r"tag\s+and\s+push|plugin\s+manifest"
+    r")\b",
+    re.I,
+)
+_EXTERNAL_RESEARCH_RE = re.compile(
+    r"\b("
+    r"api\s+doc|external\s+api|third.?party|platform\s+behavior|undocumented\s+endpoint|"
+    r"greenfield|new\s+architecture|migration\s+from\s+scratch"
+    r")\b",
+    re.I,
+)
+
+
+def repo_maintenance_waives_prior_art(spec: dict[str, Any]) -> bool:
+    """True when the work is bounded in-repo maintenance (version bump, manifest sync).
+
+    Repo conventions documented in AGENTS.md/justfile do not need external prior_art.
+    """
+    if not isinstance(spec, dict):
+        return False
+    chunks: list[str] = [str(spec.get("restated_goal") or "")]
+    for task in spec.get("tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        chunks.append(str(task.get("title") or ""))
+        chunks.append(str(task.get("check") or ""))
+    combined = "\n".join(chunks)
+    if _EXTERNAL_RESEARCH_RE.search(combined):
+        return False
+    return bool(_REPO_MAINTENANCE_RE.search(combined))
+
+
 def validate_spec(
     spec: dict[str, Any],
     grade: str,
@@ -373,31 +409,33 @@ def validate_spec(
                         "The gate rejects assumptions -- prove why the passage is relevant."
                     )
 
-        # prior_art — required from STANDARD up. Each entry must carry a source URL
-        # AND a 'why relevant' rationale (mirrors repo_context): a bare URL is rejected.
-        prior_art = spec.get("prior_art")
-        if not isinstance(prior_art, list) or not prior_art:
-            reasons.append(
-                "evidence gate: 'prior_art' is required (list, >=1 "
-                "{cite: 'http(s)://...', why: 'why this source backs the approach'})."
-            )
-        else:
-            for idx, item in enumerate(prior_art):
-                cite, why = prior_art_parts(item)
-                if not is_source_url(cite):
-                    reasons.append(
-                        f"prior_art[{idx}].cite must be a source URL (http(s)://...), got {item!r}."
-                    )
-                if not why.strip():
-                    reasons.append(
-                        f"prior_art[{idx}] needs a non-empty 'why' (why this source backs the "
-                        f"approach); use {{'cite': '{cite or 'http(s)://...'}', 'why': '...'}}."
-                    )
-                elif check_fake_evidence(why):
-                    reasons.append(
-                        f"prior_art[{idx}].why is an unproven assumption/placeholder ({why!r}). "
-                        "The gate rejects assumptions -- prove why this source is relevant."
-                    )
+        # prior_art — required from STANDARD up unless repo-internal maintenance
+        # (version bump, manifest sync) where repo_context from AGENTS.md suffices.
+        waive_prior_art = repo_maintenance_waives_prior_art(spec)
+        if not waive_prior_art:
+            prior_art = spec.get("prior_art")
+            if not isinstance(prior_art, list) or not prior_art:
+                reasons.append(
+                    "evidence gate: 'prior_art' is required (list, >=1 "
+                    "{cite: 'http(s)://...', why: 'why this source backs the approach'})."
+                )
+            else:
+                for idx, item in enumerate(prior_art):
+                    cite, why = prior_art_parts(item)
+                    if not is_source_url(cite):
+                        reasons.append(
+                            f"prior_art[{idx}].cite must be a source URL (http(s)://...), got {item!r}."
+                        )
+                    if not why.strip():
+                        reasons.append(
+                            f"prior_art[{idx}] needs a non-empty 'why' (why this source backs the "
+                            f"approach); use {{'cite': '{cite or 'http(s)://...'}', 'why': '...'}}."
+                        )
+                    elif check_fake_evidence(why):
+                        reasons.append(
+                            f"prior_art[{idx}].why is an unproven assumption/placeholder ({why!r}). "
+                            "The gate rejects assumptions -- prove why this source is relevant."
+                        )
 
     return not reasons, reasons
 
@@ -1142,7 +1180,11 @@ def auto_validate_spec(
         })
 
     if items:
-        verdicts = judge_tasks(spec, items, transcript=transcript)
+        adjust_headlines: list[str] = []
+        verdicts = judge_tasks(spec, items, transcript=transcript, adjust_sink=adjust_headlines)
+        for h in adjust_headlines:
+            if h not in messages:
+                messages.append(h)
         for it, (verdict, reason, new_reqs, frontier_outcome) in zip(items, verdicts):
             task = it["task"]
             if it.get("kind") == "dispute":
@@ -1827,8 +1869,13 @@ def judge_all_tasks(
     items: list[dict[str, Any]],
     *,
     transcript: str = "",
+    adjust_sink: list[str] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
-    """Judge every open task in ONE structured call from shared session context."""
+    """Judge every open task in ONE structured call from shared session context.
+
+    When ``adjust_sink`` is provided, judge retract/revise headlines from
+    adjust_requirements are appended to it so the Stop digest can surface them
+    (otherwise they are applied to the spec but lost to the model)."""
     if not items:
         return []
     try:
@@ -1861,7 +1908,9 @@ def judge_all_tasks(
         skip = set(judged_ids)
         if it["task"].get("added_by") == "judge":
             skip.discard(tid)
-        _apply_adjustments(spec, v, skip_ids=skip)
+        hl = _apply_adjustments(spec, v, skip_ids=skip)
+        if adjust_sink is not None:
+            adjust_sink.extend(hl)
         out.append(_judge_result(v, it["task"]))
     return out
 
@@ -1900,9 +1949,10 @@ def judge_tasks(
     items: list[dict[str, Any]],
     *,
     transcript: str = "",
+    adjust_sink: list[str] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge all items in one unified structured call (validate + dispute)."""
-    return judge_all_tasks(spec, items, transcript=transcript)
+    return judge_all_tasks(spec, items, transcript=transcript, adjust_sink=adjust_sink)
 
 
 def _normalize_scope_paths(raw: Any) -> list[str]:
@@ -2129,6 +2179,7 @@ def contract_string(
     grade: str,
     require_evidence: bool = False,
     evidence_profile: str | None = None,
+    spec: dict[str, Any] | None = None,
 ) -> str:
     """Return the pass-conditions for *grade* as a short additionalContext string.
 
@@ -2153,10 +2204,17 @@ def contract_string(
                 "checks are judged at Stop."
             )
         else:
-            base = base + (
-                " Evidence gate: also include 'repo_context' (>=1 {cite:'path:line', why:'why it's "
-                "relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'})."
-            )
+            if isinstance(spec, dict) and repo_maintenance_waives_prior_art(spec):
+                base = base + (
+                    " Evidence gate (repo maintenance): include 'repo_context' (>=1 "
+                    "{cite:'path:line', why:'why it's relevant'}) from in-repo docs; "
+                    "external prior_art is not required for version bumps or manifest sync."
+                )
+            else:
+                base = base + (
+                    " Evidence gate: also include 'repo_context' (>=1 {cite:'path:line', why:'why it's "
+                    "relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'})."
+                )
     return base
 
 
@@ -2164,6 +2222,7 @@ def format_spec_validation_block(
     grade: str,
     reasons: list[str],
     evidence_profile: str | None = None,
+    spec: dict[str, Any] | None = None,
 ) -> str:
     """Model-facing block text when validate_spec fails.
 
@@ -2199,7 +2258,7 @@ def format_spec_validation_block(
         parts.append("To unblock edits: " + "; ".join(fixes) + ".")
     else:
         parts.append("Fix the spec via the unifable CLI (never edit spec.json directly).")
-    parts.append(contract_string(grade, True, evidence_profile))
+    parts.append(contract_string(grade, True, evidence_profile, spec))
     return " ".join(parts)
 
 

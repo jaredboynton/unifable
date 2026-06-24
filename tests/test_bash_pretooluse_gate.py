@@ -171,6 +171,12 @@ def test_whitelisted_bash_passes_under_bypass_permissions():
     assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
 
 
+def test_readonly_git_passes_under_bypass_permissions():
+    """Read-only git (status/diff/log) is available before a valid spec exists."""
+    rc, stderr = run_pre_tool_bash("git status --short", permission_mode="bypassPermissions")
+    assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
+
+
 def test_light_grade_waives_bash_gate():
     """A LIGHT/quick task waives the bash gate -- routine shell is not
     over-gated on trivial work."""

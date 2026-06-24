@@ -19,7 +19,8 @@ four cases:
 
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet), Bash may run only `cd`, `ls`, `glob`,
-     `rg`, a file whose basename is `trace.sh` (explore skill), or a user-facing
+     `rg`, read-only `git` subcommands (status, log, diff, show, rev-parse, etc.),
+     a file whose basename is `trace.sh` (explore skill), or a user-facing
      unifusion skill script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`,
      `resolve_session.sh`). A valid spec unlocks the action phase (all shell
      commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
@@ -266,7 +267,7 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
         spec, grade, require_evidence=True, evidence_profile=profile
     )
     if not ok:
-        return _block(format_spec_validation_block(grade, reasons, profile))
+        return _block(format_spec_validation_block(grade, reasons, profile, spec))
 
     cited = _citation_reasons(spec, input_data, cwd, require_commands=False)
     if cited:

@@ -67,7 +67,11 @@ WRITE_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 # parser), so failure must never be inferred from it -- same reasoning as
 # WRITE_TOOLS. Scanning them was double trouble: a spurious "tool failure" message
 # AND silently dropping the read/fetch from the citation ledger.
-CONTENT_TOOLS = {"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead"}
+CONTENT_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead", "FetchMcpResource"})
+_FETCH_TOOL_RE = re.compile(
+    r"(?i)(?:webfetch|fetchmcpresource|mcp.*fetch|exa|browser|web.?fetch|mcp_resource)",
+)
+_URL_INPUT_KEYS = ("url", "urls", "uri", "href", "link", "page_url", "website", "source")
 COMMAND_RESULT_TOOLS = {"Bash", "apply_patch"}
 
 # A host-reported exit status embedded in command output (Claude Code prefixes Bash
@@ -193,6 +197,59 @@ def _bash_fetch_urls(cmd: str) -> list[str]:
     return out
 
 
+def _urls_from_mapping(obj: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    for key in _URL_INPUT_KEYS:
+        value = obj.get(key)
+        if isinstance(value, str) and value.startswith(("http://", "https://")):
+            out.append(value)
+        elif isinstance(value, list):
+            for item in value:
+                if isinstance(item, str) and item.startswith(("http://", "https://")):
+                    out.append(item)
+                elif isinstance(item, dict):
+                    out.extend(_urls_from_mapping(item))
+    return out
+
+
+def _urls_from_any(value: Any, *, limit: int = 20) -> list[str]:
+    """Recursively extract http(s) URLs from tool payloads (MCP/Exa/browser results)."""
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def add(raw: str) -> None:
+        for match in _URL_IN_TEXT_RE.findall(raw):
+            if match not in seen and len(out) < limit:
+                seen.add(match)
+                out.append(match)
+
+    def walk(item: Any) -> None:
+        if len(out) >= limit:
+            return
+        if isinstance(item, str):
+            add(item)
+        elif isinstance(item, dict):
+            out.extend(_urls_from_mapping(item))
+            for child in item.values():
+                walk(child)
+        elif isinstance(item, list):
+            for child in item[:50]:
+                walk(child)
+
+    walk(value)
+    return out[:limit]
+
+
+def _is_fetch_tool(tool: str) -> bool:
+    if tool in ("WebFetch", "FetchMcpResource"):
+        return True
+    return bool(_FETCH_TOOL_RE.search(tool))
+
+
+def _is_content_tool(tool: str) -> bool:
+    return tool in CONTENT_TOOLS or _is_fetch_tool(tool)
+
+
 def read_targets(input_data: dict[str, Any]) -> list[str]:
     """Files this tool call actually read: Read.file_path, Grep/Glob.path,
     NotebookRead.notebook_path, and command-position read-style Bash."""
@@ -213,19 +270,34 @@ def read_targets(input_data: dict[str, Any]) -> list[str]:
 
 
 def fetched_url_targets(input_data: dict[str, Any]) -> list[str]:
-    """URLs this tool call actually fetched: WebFetch.url + command-position fetch
-    Bash. WebSearch is excluded: a query is not proof a source was read."""
+    """URLs this tool call actually fetched: WebFetch.url, MCP/Exa/browser payloads,
+    and command-position fetch Bash. WebSearch alone is excluded: a query is not
+    proof a source was read unless the response carries source URLs."""
     tool = str(input_data.get("tool_name") or "")
     ti = input_data.get("tool_input")
     out: list[str] = []
     if isinstance(ti, dict):
         if tool == "WebFetch" and ti.get("url"):
             out.append(str(ti.get("url")))
+        out.extend(_urls_from_mapping(ti))
         if tool == "Bash":
             out.extend(_bash_fetch_urls(str(ti.get("command") or "")))
     elif isinstance(ti, str) and tool == "Bash":
         out.extend(_bash_fetch_urls(ti))
-    return [u for u in out if u]
+    if _is_fetch_tool(tool):
+        out.extend(_urls_from_any(input_data.get("tool_response")))
+        out.extend(_urls_from_any(ti))
+    elif tool == "WebSearch":
+        # Search snippets may cite sources; record URLs present in the response.
+        out.extend(_urls_from_any(input_data.get("tool_response")))
+    # dedupe, preserve order
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for u in out:
+        if u and u not in seen:
+            seen.add(u)
+            deduped.append(u)
+    return deduped
 
 
 def ran_command(input_data: dict[str, Any]) -> str | None:
@@ -315,7 +387,7 @@ def detect_failure(input_data: dict[str, Any]) -> dict[str, Any] | None:
     text = response_text(input_data.get("tool_response", input_data))
     # Never text-scan file-write or content tools: their response is data, not a
     # command result. Only a structured error signal can mark them failed.
-    no_scan = tool_name in WRITE_TOOLS or tool_name in CONTENT_TOOLS or tool_name not in COMMAND_RESULT_TOOLS
+    no_scan = tool_name in WRITE_TOOLS or _is_content_tool(tool_name) or tool_name not in COMMAND_RESULT_TOOLS
     success = exit_success(input_data, text, scan_text=not no_scan)
     if success is False:
         return {"kind": "tool-result", "summary": redact(text or command_from_input(input_data), 240)}

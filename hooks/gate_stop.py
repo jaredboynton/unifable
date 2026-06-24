@@ -662,6 +662,7 @@ def main() -> int:
                             grade,
                             reasons,
                             resolve_evidence_profile(ledger, spec),
+                            spec,
                         )
                     else:
                         # Citation truth-check: code-profile tasks only.

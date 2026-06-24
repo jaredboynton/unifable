@@ -311,6 +311,26 @@ def test_evidence_standard_requires_prior_art():
     assert any("prior_art" in r for r in reasons)
 
 
+def test_repo_maintenance_waives_prior_art():
+    """Version bump / manifest sync needs repo_context only, not external prior_art."""
+    spec = _standard_spec_with_evidence()
+    spec["restated_goal"] = "Patch bump plugin version with just version and sync manifests"
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert ok, reasons
+    assert not any("prior_art" in r for r in reasons)
+
+
+def test_normal_code_still_requires_prior_art():
+    """Non-maintenance code tasks still require prior_art."""
+    spec = _standard_spec_with_evidence()
+    spec["restated_goal"] = "Add OAuth token refresh to the API client"
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r for r in reasons)
+
+
 def test_format_spec_validation_block_prior_art_actionable():
     """Missing prior_art should tell the model to fetch, not expose spec paths."""
     _, reasons = validate_spec(

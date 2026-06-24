@@ -59,6 +59,28 @@ def test_real_reads_and_fetches_do_register():
     assert fetched_url_targets(_bash("curl -s https://d.io/p")) == ["https://d.io/p"]
 
 
+def test_exa_web_search_registers_response_urls():
+    payload = {
+        "tool_name": "exa.web_search_exa",
+        "tool_input": {"query": "semver patch version", "numResults": 3},
+        "tool_response": (
+            "Title: Semantic Versioning\n"
+            "URL: https://semver.org/spec/v2.0.0.html\n"
+            "Highlights: PATCH version for backward compatible bug fixes"
+        ),
+    }
+    assert fetched_url_targets(payload) == ["https://semver.org/spec/v2.0.0.html"]
+
+
+def test_fetch_mcp_resource_registers_uri():
+    payload = {
+        "tool_name": "FetchMcpResource",
+        "tool_input": {"uri": "https://docs.example.com/guide"},
+        "tool_response": {"content": "guide text"},
+    }
+    assert fetched_url_targets(payload) == ["https://docs.example.com/guide"]
+
+
 def test_multiline_script_records_read_and_fetch():
     # A read/fetch on its OWN line of a multi-line script (program not first token
     # of the whole command) must still be detected -- segments split on newlines.
