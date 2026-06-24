@@ -10,7 +10,8 @@ two hosts:** Claude Code and Codex, each as a **native plugin** (own manifest + 
 > On the saved-summary regression task, in an isolated per-cell environment (only the
 > unifable plugin varies — builtin subagents disabled, no leaked user hooks/skills,
 > token auth; Codex on a clean fast-tier config), unifable adds real overhead and every
-> cell produced the one-file deliverable directly:
+> cell produced the one-file deliverable directly (worktree-measured `files_changed` == 1
+> for all cells):
 >
 > | Condition | ok/total | Mean elapsed | Est. cost (USD) | Output tok |
 > |---|---:|---:|---:|---:|
