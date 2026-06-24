@@ -11,7 +11,6 @@
 #
 # Source override: UNIFABLE_SOURCE (default "jaredboynton/unifable"). Set to a local path
 # for dev (e.g. UNIFABLE_SOURCE="$PWD"); the marketplace then tracks that path.
-# Block: UNIFABLE_BLOCK=1 also injects the always-on routing text into ~/.codex/AGENTS.md.
 #
 # Usage: bash install/codex.sh
 set -euo pipefail
@@ -128,39 +127,31 @@ if [ -d "$CODEX_HOME/skills/fablize" ]; then
   echo "  ✓ removed legacy ~/.codex/skills/fablize"
 fi
 
-# 5) Fable orchestrator posture into ~/.codex/AGENTS.md (default-on). This replaces the old
-#    per-prompt fable-inject hook: the posture is loaded ONCE per session via AGENTS.md instead
-#    of re-injected on every prompt. On Claude the Fable output style carries this; Codex has no
-#    output style, so it lives here. Idempotent: strip prior UNIFABLE-ORCH block, re-inject.
-ORCH_TPL="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 3 -name orchestrator-block.md -path '*/setup/*' 2>/dev/null | sort | tail -1)"
+# 5) Migrate off the old static AGENTS.md blocks. The operating-mode context and
+#    orchestrator posture are now delivered by the SessionStart hook (no AGENTS.md
+#    injection). Strip any prior UNIFABLE / UNIFABLE-ORCH / FABLIZE blocks so
+#    upgrading users do not carry stale static context. Idempotent + backed up.
 AGENTS="$CODEX_HOME/AGENTS.md"
-if [ -n "$ORCH_TPL" ]; then
-  [ -f "$AGENTS" ] && cp "$AGENTS" "$AGENTS.unifable-bak.$ts"
-  python3 - "$AGENTS" "$ORCH_TPL" <<'PY'
+if [ -f "$AGENTS" ]; then
+  cp "$AGENTS" "$AGENTS.unifable-bak.$ts"
+  python3 - "$AGENTS" <<'PY'
 import sys, re, pathlib
-md, tpl = sys.argv[1], sys.argv[2]
-p = pathlib.Path(md)
-cur = p.read_text(encoding="utf-8") if p.exists() else ""
-block = pathlib.Path(tpl).read_text(encoding="utf-8").strip()
-cur = re.sub(r"<!-- UNIFABLE-ORCH:BEGIN.*?UNIFABLE-ORCH:END -->\n?", "", cur, flags=re.S).rstrip()
-p.write_text((cur + "\n\n" + block + "\n") if cur else (block + "\n"), encoding="utf-8")
-print("  ✓ AGENTS.md: Fable orchestrator posture injected (default; no per-prompt hook)")
+p = pathlib.Path(sys.argv[1])
+cur = p.read_text(encoding="utf-8")
+new = cur
+for tag in ("UNIFABLE", "UNIFABLE-ORCH", "FABLIZE"):
+    new = re.sub(r"<!-- " + tag + r":BEGIN.*?" + tag + r":END -->\n?", "", new, flags=re.S)
+new = new.rstrip()
+if new != cur:
+    p.write_text(new + ("\n" if new else ""), encoding="utf-8")
+    print("  ✓ AGENTS.md: stripped prior static block(s) (context now via SessionStart hook)")
+else:
+    print("  · AGENTS.md: no prior static block (already clean)")
 PY
-else
-  echo "  ! orchestrator-block.md not found in cache; posture not injected"
 fi
 
-# 6) Operating block in ~/.codex/AGENTS.md — opt-in. The plugin hooks deliver the gate;
-#    this adds the always-on verify/complete routing text. Enable with UNIFABLE_BLOCK=1.
+# 6) Install the spec CLI bin from the cached plugin.
 CACHE_SETUP="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 3 -name setup.sh -path '*/setup/*' 2>/dev/null | sort | tail -1)"
-if [ "${UNIFABLE_BLOCK:-0}" = "1" ] && [ -n "$CACHE_SETUP" ]; then
-  CLAUDE_PLUGIN_ROOT="$(dirname "$(dirname "$CACHE_SETUP")")" bash "$CACHE_SETUP" global codex >/dev/null 2>&1 \
-    && echo "  ✓ operating block injected into ~/.codex/AGENTS.md" \
-    || echo "  ! setup.sh block injection skipped"
-else
-  echo "  · operating block not injected (set UNIFABLE_BLOCK=1 to add the always-on routing text)"
-fi
-
 if [ -n "$CACHE_SETUP" ]; then
   CACHE_ROOT="$(dirname "$(dirname "$CACHE_SETUP")")"
   bash "$CACHE_ROOT/setup/install-bin.sh" "$CACHE_ROOT" >/dev/null 2>&1 \

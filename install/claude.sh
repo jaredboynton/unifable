@@ -94,14 +94,32 @@ fi
 #      rm -rf "$PLUGINS/marketplaces/fablize" "$PLUGINS/cache/fablize"
 echo "  · legacy fablize disabled in state; on-disk dirs left intact (safe to delete after restart)"
 
-# 4) Swap the CLAUDE.md operating block (removes FABLIZE block, injects UNIFABLE).
-CLAUDE_PLUGIN_ROOT="$CACHE_DIR" bash "$CACHE_DIR/setup/setup.sh" global claude >/dev/null 2>&1 \
-  && echo "  ✓ CLAUDE.md operating block swapped to unifable" \
-  || echo "  ! CLAUDE.md block swap skipped (run: CLAUDE_PLUGIN_ROOT=$CACHE_DIR bash $CACHE_DIR/setup/setup.sh global claude)"
+# 4) Migrate off the old CLAUDE.md operating block. The operating-mode context is now
+#    delivered by the SessionStart hook (no CLAUDE.md injection). Strip any prior
+#    UNIFABLE / FABLIZE blocks so upgrading users do not carry stale static context.
+CLAUDE_MD="$CLAUDE_DIR/CLAUDE.md"
+if [ -f "$CLAUDE_MD" ]; then
+  cp "$CLAUDE_MD" "$CLAUDE_MD.unifable-bak.$ts"
+  python3 - "$CLAUDE_MD" <<'PY'
+import sys, re, pathlib
+p = pathlib.Path(sys.argv[1])
+cur = p.read_text(encoding="utf-8")
+new = cur
+for tag in ("UNIFABLE", "UNIFABLE-ORCH", "FABLIZE"):
+    new = re.sub(r"<!-- " + tag + r":BEGIN.*?" + tag + r":END -->\n?", "", new, flags=re.S)
+new = new.rstrip()
+if new != cur:
+    p.write_text(new + ("\n" if new else ""), encoding="utf-8")
+    print("  ✓ CLAUDE.md: stripped prior static block(s) (context now via SessionStart hook)")
+else:
+    print("  · CLAUDE.md: no prior static block (already clean)")
+PY
+fi
 
 bash "$CACHE_DIR/setup/install-bin.sh" "$CACHE_DIR" >/dev/null 2>&1 \
   && echo "  ✓ unifable-spec linked into ~/.local/bin" \
   || echo "  ! unifable-spec install skipped (run: bash $CACHE_DIR/setup/install-bin.sh $CACHE_DIR)"
 
 echo "unifable: Claude install complete. RESTART Claude Code for the plugin swap to take effect."
+echo "  Operating-mode context is delivered by the SessionStart hook (no CLAUDE.md block)."
 echo "  Fallback if it does not appear: /plugin marketplace add jaredboynton/unifable && /plugin install unifable@unifable"

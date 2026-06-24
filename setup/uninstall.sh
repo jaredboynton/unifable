@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
-# unifable uninstall — remove the UNIFABLE operating block from the host's memory file (idempotent).
-# Host-aware: Claude -> CLAUDE.md, Codex -> AGENTS.md. Hook entries are removed separately
-# (Claude: uninstall the plugin; Codex: codex plugin remove unifable@unifable).
+# unifable uninstall — remove prior static blocks from the host's memory file
+# and uninstall the spec CLI bin.
+#
+# The operating-mode context is now delivered by the SessionStart hook, so
+# uninstall removes any legacy UNIFABLE / UNIFABLE-ORCH / FABLIZE blocks left
+# from a prior release (migration cleanup). Hook entries are removed separately:
+#   Claude: uninstall the plugin (/plugin)
+#   Codex:  codex plugin remove unifable@unifable
+#
 # Usage: uninstall.sh [global|local] [claude|codex]
 set -euo pipefail
 
@@ -17,7 +23,7 @@ case "$host" in claude) MEMNAME="CLAUDE.md";; codex) MEMNAME="AGENTS.md";; *) ec
 
 scope="${1:-}"
 if [ -z "$scope" ]; then
-  printf "unifable — remove the operating block from: [l]ocal / [g]lobal: "
+  printf "unifable — uninstall scope: [l]ocal / [g]lobal: "
   read -r ans
   case "$ans" in g*|G*) scope=global;; *) scope=local;; esac
 fi
@@ -32,9 +38,12 @@ python3 - "$MEMFILE" <<'PY'
 import sys, re, pathlib
 p = pathlib.Path(sys.argv[1])
 cur = p.read_text(encoding="utf-8")
-new = re.sub(r"\n*<!-- UNIFABLE:BEGIN.*?UNIFABLE:END -->\n?", "\n", cur, flags=re.S)
-p.write_text(new, encoding="utf-8")
-print("  ✓ UNIFABLE block removed" if new != cur else "  = no UNIFABLE block (already removed)")
+new = cur
+for tag in ("UNIFABLE", "UNIFABLE-ORCH", "FABLIZE"):
+    new = re.sub(r"\n*<!-- " + tag + r":BEGIN.*?" + tag + r":END -->\n?", "\n", new, flags=re.S)
+new = new.rstrip()
+p.write_text(new + ("\n" if new else ""), encoding="utf-8")
+print("  removed static block(s)" if new != cur else "  no static block found (already clean)")
 PY
 
 echo "unifable uninstall complete ($host/$scope)."
