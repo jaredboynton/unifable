@@ -83,7 +83,7 @@ class JudgeDaemon:
         self._holders: dict[int, _Holder] = {}
         self._rid_to_cid: dict[Any, int] = {}
         self._cid_counter = 0
-        self._outbox: "queue.Queue[tuple[int, dict, _Holder]]" = queue.Queue()
+        self._outbox: queue.Queue[tuple[int, dict, _Holder]] = queue.Queue()
         self._last_activity = time.monotonic()
         self._srv: socket.socket | None = None
         self._lock_fh: Any = None
@@ -330,11 +330,7 @@ class JudgeDaemon:
     def _maybe_idle_shutdown(self) -> None:
         with self._state_lock:
             inflight = len(self._holders)
-        if (
-            inflight == 0
-            and self._outbox.empty()
-            and (time.monotonic() - self._last_activity) > IDLE_TTL
-        ):
+        if inflight == 0 and self._outbox.empty() and (time.monotonic() - self._last_activity) > IDLE_TTL:
             self._stop.set()
 
     # --- lifecycle ----------------------------------------------------------
@@ -351,7 +347,7 @@ class JudgeDaemon:
             while not self._stop.is_set():
                 try:
                     conn, _ = self._srv.accept()
-                except socket.timeout:
+                except TimeoutError:
                     continue
                 except OSError:
                     break

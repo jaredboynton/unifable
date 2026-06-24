@@ -22,6 +22,7 @@ Exit 0 always; prints report.
 """
 
 from __future__ import annotations
+
 import argparse
 import re
 import sys
@@ -31,6 +32,7 @@ from typing import Any
 
 UNIFABLE_RE = re.compile(r"UNIFABLE_SESSION_RESOLVED=([^\s]*) SOURCE=([^\s]+)")
 ENV_RE = re.compile(r"^(CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID)=(.+)$")
+
 
 def parse_runs(text: str) -> list[dict[str, Any]]:
     runs: list[dict[str, Any]] = []
@@ -62,6 +64,7 @@ def parse_runs(text: str) -> list[dict[str, Any]]:
         runs.append(current)
     return runs
 
+
 def infer_host(source: str, envs: dict[str, str]) -> str:
     if "CLAUDE" in source or any("CLAUDE" in k for k in envs):
         return "claude"
@@ -70,6 +73,7 @@ def infer_host(source: str, envs: dict[str, str]) -> str:
     if "CURSOR" in source or any("CURSOR" in k for k in envs):
         return "cursor"
     return "unknown"
+
 
 def analyze(runs: list[dict[str, Any]]) -> dict[str, Any]:
     total = len(runs)
@@ -115,6 +119,7 @@ def analyze(runs: list[dict[str, Any]]) -> dict[str, Any]:
     }
     return summary
 
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("logfile", nargs="?", default="-", help="path to collected runs log, or - for stdin")
@@ -135,12 +140,16 @@ def main(argv: list[str] | None = None) -> int:
     print("==========================")
     print(f"total probe runs: {s['total_runs']}")
     print(f"env present: {s['env_present']} ({s['env_present_pct']:.1f}%)")
-    print(f"  of which resolved matched an env value: {s['resolved_and_env_match']} ({s['match_pct_of_present']:.1f}% of present)")
+    print(
+        f"  of which resolved matched an env value: {s['resolved_and_env_match']} ({s['match_pct_of_present']:.1f}% of present)"
+    )
     print(f"absent/none (no session env in shell): {s['absent_or_none']} ({s['absent_pct']:.1f}%)")
     print()
     print("Per-host:")
     for h, d in sorted(s["by_host"].items()):
-        print(f"  {h}: total={d['total']} present={d['present']} ({d.get('present_pct',0):.1f}%) match={d.get('match',0)} absent={d.get('absent',0)}")
+        print(
+            f"  {h}: total={d['total']} present={d['present']} ({d.get('present_pct', 0):.1f}%) match={d.get('match', 0)} absent={d.get('absent', 0)}"
+        )
     print()
     if s["notes"]:
         print("Notable observations (first 20):")
@@ -153,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     print("  - Compare UNIFABLE_SESSION_RESOLVED to the conversation id from hook payload/logs.")
     print("  - Do not average hosts; report Claude Code / Codex / Cursor separately.")
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())

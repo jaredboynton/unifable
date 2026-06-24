@@ -6,6 +6,7 @@ gate decision code never references effort/delegation/workflow — the
 false-escalate risk identified in measurement (risk->deep is a verification
 signal only; wiring it to effort would over-escalate simple high-risk tasks).
 """
+
 from __future__ import annotations
 
 import re
@@ -79,8 +80,7 @@ def main() -> int:
         for f in failures:
             print("  -", f)
         return 1
-    print("RESULT: M4 pass (stratified on/off, paradox delta=-1.0, sunset expiry, "
-          "deep->effort wiring absent in gate code)")
+    print("RESULT: M4 pass (stratified on/off, paradox delta=-1.0, sunset expiry, deep->effort wiring absent in gate code)")
     return 0
 
 

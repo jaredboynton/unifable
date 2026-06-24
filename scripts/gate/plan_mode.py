@@ -233,9 +233,7 @@ def plan_mode_context_line(plan: dict[str, Any]) -> str:
 def plan_mode_spec_task_guidance(plan: dict[str, Any]) -> str:
     if not plan.get("enabled"):
         return ""
-    return (
-        " Plan Mode: prefer checks that inspect the plan deliverable, not repo paths."
-    )
+    return " Plan Mode: prefer checks that inspect the plan deliverable, not repo paths."
 
 
 def append_plan_mode_note(message: str, plan: dict[str, Any] | None) -> str:

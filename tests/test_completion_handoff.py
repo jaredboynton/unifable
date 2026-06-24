@@ -20,8 +20,7 @@ import gate_stop  # noqa: E402
 
 def _write_transcript(path: Path, content: list[dict]) -> None:
     path.write_text(
-        json.dumps({"type": "assistant", "message": {"role": "assistant", "content": content}})
-        + "\n",
+        json.dumps({"type": "assistant", "message": {"role": "assistant", "content": content}}) + "\n",
         encoding="utf-8",
     )
 
@@ -72,10 +71,7 @@ def test_blocks_want_me_to_investigate():
 def test_blocks_say_the_word_deferral():
     with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as dd:
         transcript = Path(td) / "session.jsonl"
-        text = (
-            "If you want a defensible number, say the word and I'll run 5x each "
-            "and report medians."
-        )
+        text = "If you want a defensible number, say the word and I'll run 5x each and report medians."
         _write_transcript(transcript, [{"type": "text", "text": text}])
         payload = _payload(transcript)
 

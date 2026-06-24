@@ -5,8 +5,6 @@ Covers: add, list, open_findings, blocking_findings, resolve, reject lifecycle.
 All state is isolated to a tempdir per test.
 """
 
-import json
-import os
 import sys
 import tempfile
 import unittest
@@ -27,6 +25,7 @@ class FindingsBase(unittest.TestCase):
 
     def tearDown(self):
         import shutil
+
         shutil.rmtree(self._tmp, ignore_errors=True)
 
 

@@ -9,6 +9,7 @@ shared 'default' file. Callers that must fail open pass default=None.
 
 Runs under pytest or standalone (python3 tests/test_session_resolve.py).
 """
+
 import os
 import sys
 from pathlib import Path
@@ -76,6 +77,7 @@ def test_default_and_fail_open():
 
 def test_resolve_with_source_reports_origin():
     from spec import resolve_session_id_with_source
+
     saved = _clear()
     try:
         val, src = resolve_session_id_with_source({})

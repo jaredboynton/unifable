@@ -17,8 +17,8 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-from spec import load_spec, repo_context_of, validate_spec  # noqa: E402
 from citations import empty_activity, verify_citations  # noqa: E402
+from spec import repo_context_of, validate_spec  # noqa: E402
 
 
 def _evidence_spec(field: str) -> dict:
@@ -64,8 +64,5 @@ def test_repo_context_of_empty_when_neither():
 def test_citation_check_reads_must_read_field():
     """The cite-vs-activity cross-check must inspect a legacy `must_read` cite, so a
     fabricated legacy citation is still caught (an unread file is flagged)."""
-    reasons = verify_citations(
-        _evidence_spec("must_read"), empty_activity(), cwd=".", require_commands=False
-    )
+    reasons = verify_citations(_evidence_spec("must_read"), empty_activity(), cwd=".", require_commands=False)
     assert any("a.py:1" in r for r in reasons), reasons
-

@@ -14,11 +14,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
-from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
-from classify_task import operative_prompt, context_for_mode, grade_of
-from evidence_policy import mode_for_grade, resolve_evidence_profile, resolve_grade
-from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
+from classify_task import context_for_mode, grade_of, operative_prompt
+from evidence_policy import mode_for_grade, resolve_grade
+from grade_override import _task_summary, judge_grade_classify, parse_grade_verdict
 from heavy_workflow import heavy_workflow_brief
+from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from plan_mode import (
     mark_plan_mode_prompt_notified,
     plan_mode_context_line,
@@ -125,11 +125,7 @@ def main() -> int:
     def apply(ledger):
         ledger["active_task"] = new_key
         ledger["evidence_profile"] = evidence_profile
-        pinned_target = (
-            ledger.get("grade_override_target")
-            if ledger.get("grade_override_applied")
-            else None
-        )
+        pinned_target = ledger.get("grade_override_target") if ledger.get("grade_override_applied") else None
         if pinned_target:
             ledger["task_mode"] = mode_for_grade(str(pinned_target))
         else:
@@ -215,11 +211,7 @@ def main() -> int:
 
             update_ledger(input_data, _mark_scaffold)
         elif path and scaffold_changes:
-            context += (
-                "\n\nunifable spec scaffold updated: "
-                + "; ".join(scaffold_changes)
-                + "."
-            )
+            context += "\n\nunifable spec scaffold updated: " + "; ".join(scaffold_changes) + "."
 
     try:
         if ledger.get("inject_heavy_brief"):

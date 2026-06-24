@@ -7,6 +7,7 @@ use a failing check that stays unvalidated; validated tasks use a passing check.
 
 Runs under pytest or standalone (python3 tests/test_breaker_keying.py).
 """
+
 import hashlib
 import json
 import os
@@ -34,7 +35,10 @@ def _run(hook: str, payload: dict, data_dir: str, grade: str | None = None) -> t
         env["UNIFABLE_GRADE"] = grade
     p = subprocess.run(
         [sys.executable, str(REPO / "hooks" / hook)],
-        input=json.dumps(payload), capture_output=True, text=True, env=env,
+        input=json.dumps(payload),
+        capture_output=True,
+        text=True,
+        env=env,
     )
     try:
         out = json.loads(p.stdout) if p.stdout.strip() else {}
@@ -62,11 +66,18 @@ def _write_spec(cwd: str, key: str, task_status: str, data_dir: str) -> None:
         "restated_goal": "do the thing",
         "goal_seeded": False,
         "acceptance_criteria": [],
-        "tasks": [{"id": "T1", "title": "t1", "check": check, "status": task_status,
-                   "exit": 1 if task_status == "pending" else 0,
-                   "output": "fail" if task_status == "pending" else "ok",
-                   "judge_verdict": 0 if task_status == "pending" else 1,
-                   "judge_reason": "pending" if task_status == "pending" else "ok"}],
+        "tasks": [
+            {
+                "id": "T1",
+                "title": "t1",
+                "check": check,
+                "status": task_status,
+                "exit": 1 if task_status == "pending" else 0,
+                "output": "fail" if task_status == "pending" else "ok",
+                "judge_verdict": 0 if task_status == "pending" else 1,
+                "judge_reason": "pending" if task_status == "pending" else "ok",
+            }
+        ],
         "repo_context": [{"cite": "a.py:1", "why": "why it matters"}],
         "prior_art": [{"cite": "http://example.com/doc", "why": "fixture source"}],
     }
@@ -74,6 +85,7 @@ def _write_spec(cwd: str, key: str, task_status: str, data_dir: str) -> None:
     os.environ["UNIFABLE_DATA"] = data_dir
     try:
         from spec import save_spec
+
         save_spec(cwd, key, spec)
     finally:
         if old is None:
@@ -87,6 +99,7 @@ def _spec_exists(cwd: str, key: str, data_dir: str) -> bool:
     os.environ["UNIFABLE_DATA"] = data_dir
     try:
         from spec import load_spec
+
         return load_spec(cwd, key) is not None
     finally:
         if old is None:
@@ -117,9 +130,11 @@ def test_session_keying_one_spec_per_session():
 
 def test_spec_files_are_cli_only():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
-        payload = {"tool_name": "Edit", "cwd": cwd,
-                   "tool_input": {"file_path": os.path.join(cwd, ".unifable", "spec", "x.json"),
-                                  "old_string": "a", "new_string": "b"}}
+        payload = {
+            "tool_name": "Edit",
+            "cwd": cwd,
+            "tool_input": {"file_path": os.path.join(cwd, ".unifable", "spec", "x.json"), "old_string": "a", "new_string": "b"},
+        }
         rc, _, stderr = _run("pre_tool_use.py", payload, dd, grade="STANDARD")
         assert rc == 2
         assert "spec.py" in stderr.lower() or "protected" in stderr.lower()
@@ -156,7 +171,10 @@ def test_impl_edit_allowed_after_appendonly_spec():
             env["CLAUDE_CODE_SESSION_ID"] = key
             return subprocess.run(
                 [sys.executable, str(REPO / "scripts" / "gate" / "spec.py"), *a],
-                capture_output=True, text=True, env=env, cwd=cwd,
+                capture_output=True,
+                text=True,
+                env=env,
+                cwd=cwd,
             )
 
         r0 = _spec("restate", "make the parser tolerate empty and malformed input")
@@ -169,6 +187,7 @@ def test_impl_edit_allowed_after_appendonly_spec():
             fh.write("# parser fixture\n")
         # Citations sync from activity; seed spec evidence for unlock in this test.
         from spec import load_spec, save_spec
+
         old = os.environ.get("UNIFABLE_DATA")
         os.environ["UNIFABLE_DATA"] = dd
         try:
@@ -182,12 +201,19 @@ def test_impl_edit_allowed_after_appendonly_spec():
                 os.environ.pop("UNIFABLE_DATA", None)
             else:
                 os.environ["UNIFABLE_DATA"] = old
-        _record_read = {"tool_name": "Read", "session_id": sess, "cwd": cwd,
-                        "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py")}}
+        _record_read = {
+            "tool_name": "Read",
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py")},
+        }
         _run("gate_post_tool.py", _record_read, dd)
-        payload = {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
-                   "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py"),
-                                  "old_string": "a", "new_string": "b"}}
+        payload = {
+            "tool_name": "Edit",
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_input": {"file_path": os.path.join(cwd, "src", "parser.py"), "old_string": "a", "new_string": "b"},
+        }
         rc, out, stderr = _run("pre_tool_use.py", payload, dd, grade="STANDARD")
         assert rc == 0, f"impl edit should be allowed after append-only spec authoring; stderr={stderr}"
 

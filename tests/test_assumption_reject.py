@@ -8,6 +8,7 @@ satisfy the gate.
 
 Runs under pytest or standalone (python3 tests/test_assumption_reject.py).
 """
+
 import sys
 from pathlib import Path
 
@@ -26,6 +27,7 @@ def _spec(evidence: str = "5 passed in 0.4s", why: str = "where routes register"
 
 def _heavy_spec(evidence: str = "5 passed in 0.4s", why: str = "where routes register"):
     from spec import append_frontier_task, set_primary_task
+
     spec = _spec(evidence, why)
     spec["heavy_workflow"] = True
     spec["tasks"] = []
@@ -43,15 +45,13 @@ def test_check_fake_evidence_flags_assumptions():
 
 
 def test_assumption_in_evidence_rejected():
-    ok, reasons = validate_spec(_spec(evidence="(assumption) the endpoint returns 200"),
-                                "STANDARD", require_evidence=True)
+    ok, reasons = validate_spec(_spec(evidence="(assumption) the endpoint returns 200"), "STANDARD", require_evidence=True)
     assert not ok
     assert any("prove it" in r.lower() for r in reasons), reasons
 
 
 def test_assumption_in_repo_context_why_rejected():
-    ok, reasons = validate_spec(_spec(why="presumably this is where it happens"),
-                                "STANDARD", require_evidence=True)
+    ok, reasons = validate_spec(_spec(why="presumably this is where it happens"), "STANDARD", require_evidence=True)
     assert not ok
     assert any("prove" in r.lower() or "assumption" in r.lower() for r in reasons), reasons
 

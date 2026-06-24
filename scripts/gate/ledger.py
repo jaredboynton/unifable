@@ -15,9 +15,10 @@ import hashlib
 import json
 import os
 import re
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from atomicio import write_text_atomic
@@ -145,9 +146,27 @@ SECRET_PATTERNS = [
 ]
 
 CODE_EXTS = {
-    ".c", ".cc", ".cpp", ".cs", ".css", ".go", ".java", ".js", ".jsx", ".kt",
-    ".mjs", ".php", ".py", ".rb", ".rs", ".scss", ".sh", ".sql", ".swift",
-    ".ts", ".tsx",
+    ".c",
+    ".cc",
+    ".cpp",
+    ".cs",
+    ".css",
+    ".go",
+    ".java",
+    ".js",
+    ".jsx",
+    ".kt",
+    ".mjs",
+    ".php",
+    ".py",
+    ".rb",
+    ".rs",
+    ".scss",
+    ".sh",
+    ".sql",
+    ".swift",
+    ".ts",
+    ".tsx",
 }
 DOC_EXTS = {".md", ".mdx", ".rst", ".txt", ".adoc"}
 CONFIG_EXTS = {".json", ".jsonc", ".toml", ".yaml", ".yml", ".ini", ".cfg", ".conf", ".lock"}
@@ -155,7 +174,7 @@ ASSET_EXTS = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".pdf", 
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def redact(text: Any, limit: int = 500) -> str:
@@ -199,18 +218,29 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         data = default_ledger()
-        data["failures"].append(
-            {"kind": "ledger", "summary": "Ledger could not be read; continuing fresh."}
-        )
+        data["failures"].append({"kind": "ledger", "summary": "Ledger could not be read; continuing fresh."})
         return data
 
     ledger = default_ledger()
     if isinstance(data, dict):
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
-    for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
-                "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
-                "observed_tool_results", "tool_evidence", "loop_lift_retracted", "loop_events",
-                "router_matched_tags", "router_fired_tags"):
+    for key in (
+        "risk_flags",
+        "change_kinds",
+        "verification_commands",
+        "verification_results",
+        "failures",
+        "warnings",
+        "read_paths",
+        "fetched_urls",
+        "ran_commands",
+        "observed_tool_results",
+        "tool_evidence",
+        "loop_lift_retracted",
+        "loop_events",
+        "router_matched_tags",
+        "router_fired_tags",
+    ):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     if not isinstance(ledger.get("pretool_block_counts"), dict):

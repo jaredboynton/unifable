@@ -7,6 +7,7 @@ string with no exit_code, so the gate fell back to grepping for those words and
 fired "observed a tool failure" on `cat`, `grep`, and passing test summaries.
 Run: python3 tests/test_gate_false_positive.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -25,80 +26,139 @@ def bash_struct(stdout="", stderr="", interrupted=False):
     # The REAL Claude Code Bash tool_response: a dict {stdout, stderr, interrupted}
     # with NO exit code. PostToolUse runs only on success, so this is a command that
     # exited 0 -- markers in stdout/stderr are DATA, not the command's own failure.
-    return {"tool_name": "Bash", "tool_input": {"command": "x"},
-            "tool_response": {"stdout": stdout, "stderr": stderr, "interrupted": interrupted,
-                              "isImage": False, "noOutputExpected": False}}
+    return {
+        "tool_name": "Bash",
+        "tool_input": {"command": "x"},
+        "tool_response": {
+            "stdout": stdout,
+            "stderr": stderr,
+            "interrupted": interrupted,
+            "isImage": False,
+            "noOutputExpected": False,
+        },
+    }
 
 
 # (label, payload, expect_failure)
 CASES = [
     # --- must stay CLEAN (Codex-style plain-string tool_response, success) ---
-    ("cat prints the word 'failure'", bash("cat hooks.json",
-        "...unifable gate observed a tool failure. Do not report completion..."), False),
+    (
+        "cat prints the word 'failure'",
+        bash("cat hooks.json", "...unifable gate observed a tool failure. Do not report completion..."),
+        False,
+    ),
     ("passing pytest '0 failed'", bash("pytest", "=== 12 passed, 0 failed in 1.2s ==="), False),
-    ("grep finds 'error:' line", bash("grep -n error: app.log",
-        "app.log:42: error: legacy message printed by app"), False),
-    ("docs mention 'build failed'", bash("cat README.md",
-        "If the build failed, run `make clean`. Common failure modes: ..."), False),
+    ("grep finds 'error:' line", bash("grep -n error: app.log", "app.log:42: error: legacy message printed by app"), False),
+    (
+        "docs mention 'build failed'",
+        bash("cat README.md", "If the build failed, run `make clean`. Common failure modes: ..."),
+        False,
+    ),
     ("plain success output", bash("echo hi", "hi"), False),
-    ("structured exit 0 but text says failed",
-        bash("echo x", {"stdout": "the build failed earlier but recovered", "exit_code": 0}), False),
+    (
+        "structured exit 0 but text says failed",
+        bash("echo x", {"stdout": "the build failed earlier but recovered", "exit_code": 0}),
+        False,
+    ),
     ("0 tests failed summary", bash("npm test", "Tests: 0 failed, 5 passed"), False),
-
     # --- file-write tools: content is NOT command output; never infer failure from it ---
-    ("Write a doc that mentions 'exit code 2'",
-        {"tool_name": "Write", "tool_input": {"file_path": "/p/plan.md", "content": "block = exit code 2"},
-         "tool_response": {"type": "create", "filePath": "/p/plan.md", "content": "block = exit code 2"}}, False),
-    ("Edit whose patch text says '3 failed'",
-        {"tool_name": "Edit", "tool_input": {"file_path": "/p/t.py"},
-         "tool_response": {"filePath": "/p/t.py", "content": "assert run() == '3 failed, 1 passed'"}}, False),
-    ("Write content with a Traceback example",
-        {"tool_name": "Write", "tool_input": {"file_path": "/p/d.md"},
-         "tool_response": "Traceback (most recent call last): documenting an error case"}, False),
-
+    (
+        "Write a doc that mentions 'exit code 2'",
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/p/plan.md", "content": "block = exit code 2"},
+            "tool_response": {"type": "create", "filePath": "/p/plan.md", "content": "block = exit code 2"},
+        },
+        False,
+    ),
+    (
+        "Edit whose patch text says '3 failed'",
+        {
+            "tool_name": "Edit",
+            "tool_input": {"file_path": "/p/t.py"},
+            "tool_response": {"filePath": "/p/t.py", "content": "assert run() == '3 failed, 1 passed'"},
+        },
+        False,
+    ),
+    (
+        "Write content with a Traceback example",
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/p/d.md"},
+            "tool_response": "Traceback (most recent call last): documenting an error case",
+        },
+        False,
+    ),
     # --- content tools: response is DATA (file/page), never infer failure from it.
     #     Scanning these both emitted a spurious message AND dropped the read/fetch
     #     from the citation ledger (executed_ok=False), breaking 1.9.0 verification. ---
-    ("Read of a file documenting 'exit code 1' / '2 failed' / Traceback",
-        {"tool_name": "Read", "tool_input": {"file_path": "/p/doc.md"},
-         "tool_response": "the gate emits exit code 1 when 2 failed; Traceback (most recent call last)"}, False),
-    ("WebFetch page mentioning 'tool already failed; exit code 1'",
-        {"tool_name": "WebFetch", "tool_input": {"url": "https://x/y"},
-         "tool_response": "PostToolUse: tool already failed; example exit code 1"}, False),
-    ("Grep result lines containing 'N failed'",
-        {"tool_name": "Grep", "tool_input": {"pattern": "failed", "path": "."},
-         "tool_response": "app.log:3: 2 failed retries logged"}, False),
-    ("MCP tool output mentioning Traceback and exit code 1 as data",
-        {"tool_name": "mcp__octocode__githubGetFileContent",
-         "tool_input": {"queries": [{"path": "README.md"}]},
-         "tool_response": "docs show Traceback (most recent call last) and exit code 1 examples"}, False),
-
+    (
+        "Read of a file documenting 'exit code 1' / '2 failed' / Traceback",
+        {
+            "tool_name": "Read",
+            "tool_input": {"file_path": "/p/doc.md"},
+            "tool_response": "the gate emits exit code 1 when 2 failed; Traceback (most recent call last)",
+        },
+        False,
+    ),
+    (
+        "WebFetch page mentioning 'tool already failed; exit code 1'",
+        {
+            "tool_name": "WebFetch",
+            "tool_input": {"url": "https://x/y"},
+            "tool_response": "PostToolUse: tool already failed; example exit code 1",
+        },
+        False,
+    ),
+    (
+        "Grep result lines containing 'N failed'",
+        {
+            "tool_name": "Grep",
+            "tool_input": {"pattern": "failed", "path": "."},
+            "tool_response": "app.log:3: 2 failed retries logged",
+        },
+        False,
+    ),
+    (
+        "MCP tool output mentioning Traceback and exit code 1 as data",
+        {
+            "tool_name": "mcp__octocode__githubGetFileContent",
+            "tool_input": {"queries": [{"path": "README.md"}]},
+            "tool_response": "docs show Traceback (most recent call last) and exit code 1 examples",
+        },
+        False,
+    ),
     # --- REAL Claude Code Bash shape: structured {stdout,stderr,interrupted}, no
     #     exit code. PostToolUse fires only on success, so markers here are DATA. ---
-    ("CC Bash dict: '1 failed'/Traceback in STDOUT of an exit-0 command",
-        bash_struct(stdout="1 failed, 3 passed\nTraceback (most recent call last)"), False),
-    ("CC Bash dict: marker in STDERR of a command that still succeeded (warning)",
-        bash_struct(stdout="ok", stderr="note: 2 failed retries, recovered"), False),
-    ("CC Bash dict: interrupted command IS a failure",
-        bash_struct(stdout="partial", interrupted=True), True),
-
+    (
+        "CC Bash dict: '1 failed'/Traceback in STDOUT of an exit-0 command",
+        bash_struct(stdout="1 failed, 3 passed\nTraceback (most recent call last)"),
+        False,
+    ),
+    (
+        "CC Bash dict: marker in STDERR of a command that still succeeded (warning)",
+        bash_struct(stdout="ok", stderr="note: 2 failed retries, recovered"),
+        False,
+    ),
+    ("CC Bash dict: interrupted command IS a failure", bash_struct(stdout="partial", interrupted=True), True),
     # --- bare-string (Codex / exit-prefix hosts): exit-code text is authoritative ---
-    ("Bash exit-0 prefix string, output prints '1 failed'/Traceback as DATA",
-        bash("python3 diag.py",
-             "Bash exited with code 0\n1 failed, 3 passed\nTraceback (most recent call last)"), False),
-
+    (
+        "Bash exit-0 prefix string, output prints '1 failed'/Traceback as DATA",
+        bash("python3 diag.py", "Bash exited with code 0\n1 failed, 3 passed\nTraceback (most recent call last)"),
+        False,
+    ),
     # --- must still be FLAGGED (real failures) ---
-    ("Bash 'exited with code 2' prefix is a real failure",
-        bash("make", "Bash exited with code 2\nbuild output"), True),
-    ("Bash output 'exit code 2' is STILL a real failure",
-        bash("make", "make: *** [build] Error 2\nexit code 2"), True),
+    ("Bash 'exited with code 2' prefix is a real failure", bash("make", "Bash exited with code 2\nbuild output"), True),
+    ("Bash output 'exit code 2' is STILL a real failure", bash("make", "make: *** [build] Error 2\nexit code 2"), True),
     ("structured exit_code 1", bash("pytest", {"stdout": "boom", "exit_code": 1}), True),
-    ("python Traceback (plain string)", bash("python x.py",
-        "Traceback (most recent call last):\n  File ...\nValueError: bad"), True),
+    (
+        "python Traceback (plain string)",
+        bash("python x.py", "Traceback (most recent call last):\n  File ...\nValueError: bad"),
+        True,
+    ),
     ("shell command not found", bash("frobnicate", "bash: frobnicate: command not found"), True),
     ("N failed in summary (plain string)", bash("pytest", "2 failed, 3 passed in 0.4s"), True),
-    ("rust N previous errors", bash("cargo build",
-        "error: could not compile `x` due to 2 previous errors"), True),
+    ("rust N previous errors", bash("cargo build", "error: could not compile `x` due to 2 previous errors"), True),
     ("rust panic", bash("cargo run", "thread 'main' panicked at src/main.rs:3:5"), True),
     ("structured success:false", bash("deploy", {"success": False, "output": "rolled back"}), True),
 ]
@@ -112,8 +172,7 @@ def main() -> int:
         if not ok:
             bad += 1
         print(f"[{'PASS' if ok else 'FAIL'}] expect_failure={expect!s:<5} got={got!s:<5} {label}")
-    print(f"\nRESULT: {len(CASES) - bad}/{len(CASES)} passed"
-          + ("" if not bad else f" — {bad} REGRESSION(S)"))
+    print(f"\nRESULT: {len(CASES) - bad}/{len(CASES)} passed" + ("" if not bad else f" — {bad} REGRESSION(S)"))
     return 1 if bad else 0
 
 

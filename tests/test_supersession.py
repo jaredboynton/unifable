@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
@@ -25,8 +24,12 @@ from spec import (  # noqa: E402
 
 def _task(tid, status, *, added_by="agent", check="true", title=None):
     t = {
-        "id": tid, "title": title or tid, "check": check, "status": status,
-        "added_by": added_by, "attempts": 0,
+        "id": tid,
+        "title": title or tid,
+        "check": check,
+        "status": status,
+        "added_by": added_by,
+        "attempts": 0,
     }
     if status == "failed":
         t["exit"] = 1
@@ -35,10 +38,13 @@ def _task(tid, status, *, added_by="agent", check="true", title=None):
 
 
 def test_supersedes_marks_agent_tasks_non_blocking():
-    spec = {"requires_tasks": True, "tasks": [
-        _task("T1", "failed"),
-        _task("T2", "failed"),
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "tasks": [
+            _task("T1", "failed"),
+            _task("T2", "failed"),
+        ],
+    }
     _apply_supersedes_bundle(spec, "T10", ["T1", "T2"])
     assert spec["tasks"][0]["status"] == "superseded"
     assert spec["tasks"][0]["superseded_by"] == "T10"
@@ -49,9 +55,12 @@ def test_supersedes_marks_agent_tasks_non_blocking():
 
 
 def test_supersedes_retracts_judge_tasks():
-    spec = {"requires_tasks": True, "tasks": [
-        _task("T5", "failed", added_by="judge"),
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "tasks": [
+            _task("T5", "failed", added_by="judge"),
+        ],
+    }
     _apply_supersedes_bundle(spec, "T10", ["T5"])
     assert spec["tasks"][0]["status"] == "retracted"
 
@@ -64,12 +73,17 @@ def test_new_requirement_with_supersedes_drops_breaker_count(tmp_path, monkeypat
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(
-            0, "still failing",
-            [{"title": "replacement", "check": "test -f x", "supersedes": ["T1", "T2", "T3"]}],
-            "",
-        ) for _ in items],
+        spec_mod,
+        "judge_tasks",
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [
+            (
+                0,
+                "still failing",
+                [{"title": "replacement", "check": "test -f x", "supersedes": ["T1", "T2", "T3"]}],
+                "",
+            )
+            for _ in items
+        ],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     by = {t["id"]: t for t in spec["tasks"]}
@@ -89,13 +103,19 @@ def test_agent_revise_skips_verdict_this_stop(tmp_path, monkeypatch):
 
     def fake_judge(sp, items, *, transcript="", plan_mode=None, **_kw):
         for it in items:
-            hl = _apply_adjustments(sp, {
-                "adjust_requirements": [{
-                    "id": "T1", "action": "revise",
-                    "reason": "check was non-executable",
-                    "check": "test -f scratchpad/SPEC.md",
-                }],
-            })
+            hl = _apply_adjustments(
+                sp,
+                {
+                    "adjust_requirements": [
+                        {
+                            "id": "T1",
+                            "action": "revise",
+                            "reason": "check was non-executable",
+                            "check": "test -f scratchpad/SPEC.md",
+                        }
+                    ],
+                },
+            )
             if hl:
                 sp.setdefault("_stop_adjust_headlines", []).extend(hl)
         return [(0, "still failing old output", [], "") for _ in items]

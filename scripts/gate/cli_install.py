@@ -136,11 +136,7 @@ def _probe_command(bdir: Path, name: str) -> tuple[Path | None, Path | None, Pat
         return None, None, None, False, True
     target_path = _resolve_symlink_target(command_path)
     broken = target_path is None or not target_path.exists()
-    executable = bool(
-        target_path is not None
-        and target_path.is_file()
-        and os.access(target_path, os.X_OK)
-    )
+    executable = bool(target_path is not None and target_path.is_file() and os.access(target_path, os.X_OK))
     return command_path, symlink_path if symlink_path.is_symlink() else None, target_path, executable, broken
 
 

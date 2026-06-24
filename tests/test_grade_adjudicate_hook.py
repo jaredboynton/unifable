@@ -11,7 +11,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import tempfile
 import unittest
@@ -22,7 +21,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
-from ledger import load_ledger, save_ledger  # noqa: E402
+from ledger import save_ledger  # noqa: E402
 from spec import save_spec  # noqa: E402
 
 CLAUDE_MANIFEST = REPO / "hooks" / "hooks.json"
@@ -85,14 +84,17 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
                 "session_id": "sess",
                 "cwd": cwd,
             }
-            save_ledger(payload, {
-                "active_task": "k",
-                "task_mode": "normal",
-                "grade": "STANDARD",
-                "frontier_research_tools": 5,
-                "frontier_discovery_count": 0,
-                "read_paths": ["hooks/gate_post_tool.py"],
-            })
+            save_ledger(
+                payload,
+                {
+                    "active_task": "k",
+                    "task_mode": "normal",
+                    "grade": "STANDARD",
+                    "frontier_research_tools": 5,
+                    "frontier_discovery_count": 0,
+                    "read_paths": ["hooks/gate_post_tool.py"],
+                },
+            )
 
             with patch("gate_post_tool.read_stdin_json", return_value=payload):
                 with patch("spec.judge_discover_frontiers") as discover:

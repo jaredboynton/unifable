@@ -148,7 +148,10 @@ def should_block_stop(ledger: dict[str, Any], grade: str | None = None) -> tuple
     # observable proof" nag was a false-positive on ~1/3 of deep read-only firings
     # (measured). LIGHT (quick) and STANDARD (normal) do not hard-block here.
     if grade == "HEAVY" and changed and not verified:
-        return True, "unifable gate: run the narrowest verification command for the changed behavior before final response, or record why none applies."
+        return (
+            True,
+            "unifable gate: run the narrowest verification command for the changed behavior before final response, or record why none applies.",
+        )
     return False, ""
 
 

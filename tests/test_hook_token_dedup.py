@@ -6,7 +6,6 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
-from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
@@ -14,7 +13,7 @@ sys.path.insert(0, str(REPO / "hooks"))
 
 import gate_prompt  # noqa: E402
 import pre_tool_use  # noqa: E402
-from ledger import load_ledger, update_ledger  # noqa: E402
+from ledger import update_ledger  # noqa: E402
 from model_notify import build_stop_validate_context  # noqa: E402
 from plan_mode import mark_plan_mode_prompt_notified  # noqa: E402
 from posttool_notify import filter_breaker_status, prepare_posttool_parts  # noqa: E402

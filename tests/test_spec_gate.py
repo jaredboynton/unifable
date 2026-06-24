@@ -33,7 +33,6 @@ from spec import (  # noqa: E402
     format_spec_validation_block,
     is_path_line,
     is_source_url,
-    load_spec,
     save_spec,
     set_primary_task,
     spec_path,
@@ -59,14 +58,15 @@ def _heavy_spec_with_approaches(**overrides) -> dict:
     spec.update(overrides)
     return spec
 
+
 sys.path.insert(0, str(HOOKS))
 import gate_stop  # noqa: E402
 import pre_tool_use  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Helper: run pre_tool_use.py via subprocess
 # ---------------------------------------------------------------------------
+
 
 def run_pre_tool(
     payload: dict,
@@ -120,13 +120,12 @@ def run_pre_tool(
 # Unit tests: validate_spec
 # ---------------------------------------------------------------------------
 
+
 def test_validate_light_minimal():
     """LIGHT accepts a spec with only restated_goal + 1 acceptance criterion."""
     spec = {
         "restated_goal": "Add a --verbose flag to the CLI.",
-        "acceptance_criteria": [
-            {"check": "python cli.py --verbose 2>&1 | grep verbose", "evidence": "verbose mode enabled"}
-        ],
+        "acceptance_criteria": [{"check": "python cli.py --verbose 2>&1 | grep verbose", "evidence": "verbose mode enabled"}],
     }
     ok, reasons = validate_spec(spec, "LIGHT")
     assert ok, reasons
@@ -155,9 +154,7 @@ def test_validate_light_empty_criteria():
 def test_validate_standard_passes():
     spec = {
         "restated_goal": "Implement rate-limiting middleware for the /api endpoints.",
-        "acceptance_criteria": [
-            {"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}
-        ],
+        "acceptance_criteria": [{"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}],
     }
     ok, reasons = validate_spec(spec, "STANDARD")
     assert ok, reasons
@@ -174,9 +171,7 @@ def test_validate_standard_missing_required():
 def test_validate_standard_fake_evidence():
     spec = {
         "restated_goal": "Add auth middleware.",
-        "acceptance_criteria": [
-            {"check": "pytest tests/test_auth.py", "evidence": "tbd"}
-        ],
+        "acceptance_criteria": [{"check": "pytest tests/test_auth.py", "evidence": "tbd"}],
     }
     ok, reasons = validate_spec(spec, "STANDARD")
     assert not ok
@@ -214,9 +209,9 @@ def test_validate_unknown_grade():
 def test_frontier_judge_schema_accepts_three_outcomes():
     """The frontier judge schema must accept accepted_approach in addition to
     rejected_approach and still_viable."""
-    import json
     # Verify the enum includes all three outcomes
     from spec import _FRONTIER_JUDGE_SCHEMA
+
     outcome_prop = _FRONTIER_JUDGE_SCHEMA["properties"]["outcome"]
     assert "accepted_approach" in outcome_prop["enum"]
     assert "rejected_approach" in outcome_prop["enum"]
@@ -227,11 +222,12 @@ def test_frontier_judge_schema_accepts_three_outcomes():
 # Citation-format helpers
 # ---------------------------------------------------------------------------
 
+
 def test_is_path_line():
     assert is_path_line("src/app.py:42")
     assert is_path_line("a/b/c.py:10-20")
     assert is_path_line("hooks/gate_stop.py:5")
-    assert not is_path_line("src/app.py")            # no line number
+    assert not is_path_line("src/app.py")  # no line number
     assert not is_path_line("https://example.com:8080")  # URL, not a code citation
     assert not is_path_line("")
     assert not is_path_line(None)
@@ -249,17 +245,18 @@ def test_is_source_url():
 # Evidence gate: validate_spec(require_evidence=True)
 # ---------------------------------------------------------------------------
 
+
 def _standard_spec_with_evidence() -> dict:
     return {
         "restated_goal": "Add rate-limiting middleware to /api endpoints.",
-        "acceptance_criteria": [
-            {"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}
-        ],
+        "acceptance_criteria": [{"check": "pytest tests/test_rate_limit.py -v", "evidence": "5 passed in 0.4s"}],
         "repo_context": [
             {"cite": "src/middleware.py:88", "why": "rate-limit hook attaches here"},
             {"cite": "src/router.py:12-20", "why": "endpoint registration the middleware wraps"},
         ],
-        "prior_art": [{"cite": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429", "why": "429 retry semantics for the limiter"}],
+        "prior_art": [
+            {"cite": "https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429", "why": "429 retry semantics for the limiter"}
+        ],
     }
 
 
@@ -483,6 +480,7 @@ def test_operational_stop_skips_citation_requirements():
 # Unit tests: check_fake_evidence
 # ---------------------------------------------------------------------------
 
+
 def test_fake_markers_detected():
     for marker in ("tbd", "pending", "n/a", "not run", "assumed", "placeholder", "todo"):
         found = check_fake_evidence(f"Test output: {marker}")
@@ -509,6 +507,7 @@ def test_multiple_markers():
 # ---------------------------------------------------------------------------
 # Integration tests: pre_tool_use.py subprocess
 # ---------------------------------------------------------------------------
+
 
 def _edit_payload(file_path: str, session_id: str = "sess-abc123", cwd: str = "/work") -> dict:
     return {
@@ -541,12 +540,12 @@ def _delegate_payload(tool_name: str = "Task", session_id: str = "sess-abc123", 
 
 # --- Removed escape hatch: env no longer disables the gate ---
 
+
 def test_disable_env_has_no_effect():
     """The escape hatch is removed: setting UNIFABLE_EVIDENCE_GATE=0 / SPEC_GATE=0
     does NOT disable the gate. A STANDARD edit with no spec is still blocked."""
     with tempfile.TemporaryDirectory() as cwd:
-        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
-                                session_id="disable-noop", cwd=cwd)
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"), session_id="disable-noop", cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate="0", evidence_gate="0", grade="STANDARD")
         assert rc == 2
         assert "spec" in stderr.lower()
@@ -591,6 +590,7 @@ def test_task_agent_light_waived():
 
 
 # --- PROTECTED_PATHS guard (active even when spec gate is OFF) ---
+
 
 def test_protected_ledger_blocked():
     """Writes to .unifable/ledger*.json are blocked regardless of spec gate."""
@@ -696,12 +696,7 @@ def test_apply_patch_global_spec_blocked():
         with _data_env(dd):
             abs_spec = str(spec_path(cwd, session_id))
         patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {abs_spec}\n"
-            "@@\n"
-            "-  \"status\": \"pending\"\n"
-            "+  \"status\": \"validated\"\n"
-            "*** End Patch\n"
+            f'*** Begin Patch\n*** Update File: {abs_spec}\n@@\n-  "status": "pending"\n+  "status": "validated"\n*** End Patch\n'
         )
         payload = _apply_patch_payload(patch, session_id=session_id, cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate="0", tmp_root=dd)
@@ -714,14 +709,7 @@ def test_apply_patch_repo_local_spec_blocked():
     """apply_patch targeting a repo-local .unifable/spec/<session>.json is blocked."""
     with tempfile.TemporaryDirectory() as cwd:
         abs_spec = os.path.join(cwd, ".unifable", "spec", "sess-abc123.json")
-        patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {abs_spec}\n"
-            "@@\n"
-            "-old\n"
-            "+new\n"
-            "*** End Patch\n"
-        )
+        patch = f"*** Begin Patch\n*** Update File: {abs_spec}\n@@\n-old\n+new\n*** End Patch\n"
         payload = _apply_patch_payload(patch, cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate="0")
         assert rc == 2
@@ -735,14 +723,7 @@ def test_apply_patch_normal_source_file_allowed():
     LIGHT waives the spec requirement, so a non-protected target reaches allow."""
     with tempfile.TemporaryDirectory() as cwd:
         abs_src = os.path.join(cwd, "lib", "foo.py")
-        patch = (
-            "*** Begin Patch\n"
-            f"*** Update File: {abs_src}\n"
-            "@@\n"
-            "-x = 1\n"
-            "+x = 2\n"
-            "*** End Patch\n"
-        )
+        patch = f"*** Begin Patch\n*** Update File: {abs_src}\n@@\n-x = 1\n+x = 2\n*** End Patch\n"
         payload = _apply_patch_payload(patch, cwd=cwd)
         rc, _, _ = run_pre_tool(payload, grade="LIGHT")
         assert rc == 0
@@ -829,9 +810,7 @@ def test_bash_read_of_spec_not_blocked_by_protected_guard():
             # A mutating command targeting the spec IS caught.
             assert pre_tool_use._bash_protected_write(f"rm {abs_spec}", cwd) == abs_spec
             # A non-protected mutation is not caught.
-            assert pre_tool_use._bash_protected_write(
-                f"rm {os.path.join(cwd, 'lib', 'foo.py')}", cwd
-            ) is None
+            assert pre_tool_use._bash_protected_write(f"rm {os.path.join(cwd, 'lib', 'foo.py')}", cwd) is None
 
 
 def test_bash_protected_write_tilde_path():
@@ -850,6 +829,7 @@ def test_bash_protected_write_tilde_path():
 
 # --- Spec gate: LIGHT waives spec requirement ---
 
+
 def test_light_grade_waives_spec():
     """LIGHT grade: no spec needed, writes always pass."""
     with tempfile.TemporaryDirectory() as cwd:
@@ -860,6 +840,7 @@ def test_light_grade_waives_spec():
 
 
 # --- Spec gate: STANDARD blocks when no spec exists ---
+
 
 def test_standard_no_spec_blocks():
     with tempfile.TemporaryDirectory() as cwd:
@@ -874,6 +855,7 @@ def test_standard_no_spec_blocks():
 
 
 # --- Spec gate: STANDARD allows when valid spec exists ---
+
 
 def test_standard_valid_spec_allows():
     with tempfile.TemporaryDirectory() as cwd:
@@ -902,15 +884,14 @@ def test_standard_valid_spec_allows():
 
 # --- Spec gate: invalid spec blocks ---
 
+
 def test_standard_invalid_spec_blocks():
     """A spec with fake evidence is rejected even when the file exists."""
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "test-session-002"
         bad_spec = {
             "restated_goal": "Add auth endpoint.",
-            "acceptance_criteria": [
-                {"check": "pytest tests/test_auth.py", "evidence": "tbd"}
-            ],
+            "acceptance_criteria": [{"check": "pytest tests/test_auth.py", "evidence": "tbd"}],
         }
         save_spec(cwd, session_id, bad_spec)
         payload = _edit_payload(
@@ -924,6 +905,7 @@ def test_standard_invalid_spec_blocks():
 
 
 # --- Spec gate: HEAVY frontier-first workflow ---
+
 
 def test_heavy_missing_frontiers_blocks():
     with tempfile.TemporaryDirectory() as cwd:
@@ -973,6 +955,7 @@ def test_heavy_valid_spec_allows():
 
 # --- Non-write tool is never blocked ---
 
+
 def test_bash_not_blocked_after_valid_spec():
     with tempfile.TemporaryDirectory() as cwd:
         session_id = "bash-unlocked"
@@ -996,6 +979,7 @@ def test_task_agent_not_blocked_after_valid_spec():
 
 # --- Evidence gate (UNIFABLE_EVIDENCE_GATE=1) integration ---
 
+
 def test_evidence_gate_spec_authoring_is_cli_only():
     """No-brick is now the CLI: direct Edit/Write of the spec file is blocked (specs
     are mutated only via spec.py), so an agent cannot hand-author or hand-edit the
@@ -1003,10 +987,13 @@ def test_evidence_gate_spec_authoring_is_cli_only():
     with tempfile.TemporaryDirectory() as cwd:
         payload = _edit_payload(
             os.path.join(cwd, ".unifable", "spec", "brick-sess.json"),
-            session_id="brick-sess", cwd=cwd,
+            session_id="brick-sess",
+            cwd=cwd,
         )
         rc, _, stderr = run_pre_tool(
-            payload, spec_gate="0", grade="STANDARD",
+            payload,
+            spec_gate="0",
+            grade="STANDARD",
             env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
         )
         assert rc == 2, "direct spec authoring must be blocked (CLI-only)"
@@ -1017,8 +1004,7 @@ def test_evidence_gate_default_on_blocks_uncited_edit():
     """Production default (no gate env set): an uncited edit on a STANDARD task is
     blocked. Proves the gate is ON by default."""
     with tempfile.TemporaryDirectory() as cwd:
-        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
-                                session_id="default-on-sess", cwd=cwd)
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"), session_id="default-on-sess", cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate=None, evidence_gate=None, grade="STANDARD")
         assert rc == 2, "evidence gate must block uncited edits by default"
         assert "repo_context" in stderr or "spec" in stderr.lower()
@@ -1028,8 +1014,7 @@ def test_evidence_gate_escape_hatch_removed():
     """The escape hatch is removed: UNIFABLE_EVIDENCE_GATE=0 no longer disables the
     gate. An uncited STANDARD edit is still blocked."""
     with tempfile.TemporaryDirectory() as cwd:
-        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
-                                session_id="escape-sess", cwd=cwd)
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"), session_id="escape-sess", cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate=None, evidence_gate="0", grade="STANDARD")
         assert rc == 2
         assert "spec" in stderr.lower()
@@ -1038,8 +1023,7 @@ def test_evidence_gate_escape_hatch_removed():
 def test_evidence_gate_default_on_light_waived():
     """Default-on still waives LIGHT (quick) tasks — trivial edits are not over-gated."""
     with tempfile.TemporaryDirectory() as cwd:
-        payload = _edit_payload(os.path.join(cwd, "src", "main.py"),
-                                session_id="light-sess", cwd=cwd)
+        payload = _edit_payload(os.path.join(cwd, "src", "main.py"), session_id="light-sess", cwd=cwd)
         rc, out, _ = run_pre_tool(payload, spec_gate=None, evidence_gate=None, grade="LIGHT")
         assert rc == 0
 
@@ -1051,16 +1035,14 @@ def test_evidence_gate_blocks_valid_spec_without_repo_context():
         session_id = "ev-session-001"
         spec = {
             "restated_goal": "Add health-check endpoint.",
-            "acceptance_criteria": [
-                {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
-            ],
+            "acceptance_criteria": [{"check": "curl -s localhost:8000/health", "evidence": '"ok"'}],
         }
         save_spec(cwd, session_id, spec)
-        payload = _edit_payload(
-            os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
-        )
+        payload = _edit_payload(os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd)
         rc, _, stderr = run_pre_tool(
-            payload, spec_gate="0", grade="STANDARD",
+            payload,
+            spec_gate="0",
+            grade="STANDARD",
             env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
         )
         assert rc == 2
@@ -1072,9 +1054,7 @@ def test_evidence_gate_allows_spec_with_citations():
         session_id = "ev-session-002"
         spec = {
             "restated_goal": "Add health-check endpoint.",
-            "acceptance_criteria": [
-                {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
-            ],
+            "acceptance_criteria": [{"check": "curl -s localhost:8000/health", "evidence": '"ok"'}],
             "repo_context": [
                 {"cite": "src/server.py:10", "why": "app factory where routes mount"},
                 {"cite": "src/routes.py:5-8", "why": "route table the endpoint joins"},
@@ -1082,11 +1062,11 @@ def test_evidence_gate_allows_spec_with_citations():
             "prior_art": [{"cite": "https://datatracker.ietf.org/doc/html/rfc9110", "why": "HTTP semantics for the endpoint"}],
         }
         save_spec(cwd, session_id, spec)
-        payload = _edit_payload(
-            os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
-        )
+        payload = _edit_payload(os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd)
         rc, out, _ = run_pre_tool(
-            payload, spec_gate="0", grade="STANDARD",
+            payload,
+            spec_gate="0",
+            grade="STANDARD",
             env_extra={"UNIFABLE_EVIDENCE_GATE": "1"},
         )
         assert rc == 0
@@ -1100,14 +1080,10 @@ def test_spec_only_env_does_not_downgrade():
         session_id = "ev-session-003"
         spec = {
             "restated_goal": "Add health-check endpoint.",
-            "acceptance_criteria": [
-                {"check": "curl -s localhost:8000/health", "evidence": '"ok"'}
-            ],
+            "acceptance_criteria": [{"check": "curl -s localhost:8000/health", "evidence": '"ok"'}],
         }
         save_spec(cwd, session_id, spec)
-        payload = _edit_payload(
-            os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd
-        )
+        payload = _edit_payload(os.path.join(cwd, "src", "server.py"), session_id=session_id, cwd=cwd)
         rc, _, stderr = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
         assert rc == 2
         assert "repo_context" in stderr
@@ -1133,6 +1109,7 @@ def test_empty_stdin_fails_open():
 # ---------------------------------------------------------------------------
 # Stop gate: evidence spec required at completion (gate_stop.py)
 # ---------------------------------------------------------------------------
+
 
 def run_stop(
     payload: dict,
@@ -1180,9 +1157,7 @@ def _blocks(out: dict) -> bool:
 
 
 def _write_transcript(path: Path, content: list[dict]) -> None:
-    path.write_text(
-        json.dumps({"type": "assistant", "message": {"role": "assistant", "content": content}}) + "\n"
-    )
+    path.write_text(json.dumps({"type": "assistant", "message": {"role": "assistant", "content": content}}) + "\n")
 
 
 def test_stop_blocks_when_no_spec_standard():
@@ -1359,7 +1334,8 @@ def test_stop_escape_hatch_removed():
     with tempfile.TemporaryDirectory() as cwd:
         out = run_stop(
             {"session_id": "st7", "cwd": cwd, "stop_hook_active": False},
-            evidence_gate="0", grade="STANDARD",
+            evidence_gate="0",
+            grade="STANDARD",
         )
         assert _blocks(out)
 
@@ -1488,6 +1464,7 @@ def test_goal_stop_marks_current_goal_complete_when_judge_passes():
 # ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
+
 
 def _run_all() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

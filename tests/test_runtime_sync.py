@@ -9,6 +9,7 @@ cache dir must NOT break `~/.local/bin/unifable-hook` (it execs from the stable
 
 Run: python3 -m pytest tests/test_runtime_sync.py -q
 """
+
 from __future__ import annotations
 
 import json
@@ -17,8 +18,6 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-import pytest
 
 REPO = Path(__file__).resolve().parents[1]
 GATE = REPO / "scripts" / "gate"

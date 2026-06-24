@@ -41,19 +41,29 @@ class ScriptedReleaseJudge:
         lb = 1
         if self.grounded:
             return {
-                "grounded": 1, "needed": "", "load_bearing": lb,
-                "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                "grounded": 1,
+                "needed": "",
+                "load_bearing": lb,
+                "provisional_release": 0,
+                "lift_reason": "",
+                "lift_scope": "",
             }
         if self.provisional_release:
             return {
-                "grounded": 0, "needed": "", "load_bearing": lb,
+                "grounded": 0,
+                "needed": "",
+                "load_bearing": lb,
                 "provisional_release": 1,
                 "lift_reason": self.lift_reason,
                 "lift_scope": self.lift_scope,
             }
         return {
-            "grounded": 0, "needed": self.needed, "load_bearing": lb,
-            "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+            "grounded": 0,
+            "needed": self.needed,
+            "load_bearing": lb,
+            "provisional_release": 0,
+            "lift_reason": "",
+            "lift_scope": "",
         }
 
 
@@ -121,9 +131,7 @@ def test_post_tool_stays_armed_when_release_judge_says_no():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "PT2"
         _armed_breaker(dd, sess, cwd)
-        judge = ScriptedReleaseJudge(
-            grounded=0, needed="read groundedness.py:1 and cite the release path"
-        )
+        judge = ScriptedReleaseJudge(grounded=0, needed="read groundedness.py:1 and cite the release path")
         payload = {
             "session_id": sess,
             "cwd": cwd,

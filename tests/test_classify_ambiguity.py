@@ -6,6 +6,7 @@ preserves the uncertainty flag, and first_prompt controls the cite footer.
 
 Run: python3 tests/test_classify_ambiguity.py
 """
+
 from __future__ import annotations
 
 import sys
@@ -13,26 +14,31 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
-from classify_task import context_for_mode  # noqa: E402
 import grade_override as go  # noqa: E402
+from classify_task import context_for_mode  # noqa: E402
 
 
 def main() -> int:
     bad = 0
 
     checks = [
-        ("research task" in context_for_mode("normal", ["uncertainty"]).lower()
-         and "gather evidence" in context_for_mode("normal", ["uncertainty"]).lower(),
-         "uncertainty nudge present in context_for_mode"),
-        (go.parse_grade_verdict(
-            {
-                "mode": "normal",
-                "risk_flags": ["uncertainty"],
-                "reason": "hedged",
-                "evidence_profile": "code",
-            }
-        ) == ("normal", ["uncertainty"], "hedged", "code"),
-         "parse_grade_verdict preserves uncertainty flag"),
+        (
+            "research task" in context_for_mode("normal", ["uncertainty"]).lower()
+            and "gather evidence" in context_for_mode("normal", ["uncertainty"]).lower(),
+            "uncertainty nudge present in context_for_mode",
+        ),
+        (
+            go.parse_grade_verdict(
+                {
+                    "mode": "normal",
+                    "risk_flags": ["uncertainty"],
+                    "reason": "hedged",
+                    "evidence_profile": "code",
+                }
+            )
+            == ("normal", ["uncertainty"], "hedged", "code"),
+            "parse_grade_verdict preserves uncertainty flag",
+        ),
     ]
 
     for ok, label in checks:

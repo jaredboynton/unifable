@@ -20,7 +20,7 @@ import json
 import os
 import re
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -63,6 +63,8 @@ def _findings_lock(root: str | Path):
         except OSError:
             pass
         os.close(fd)
+
+
 STATUSES = ("open", "blocked", "resolved", "rejected")
 BLOCKING_SEVERITIES = {"high", "critical"}
 BLOCKING_STATUSES = {"open", "blocked"}
@@ -71,7 +73,7 @@ _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def _findings_path(root: str | Path) -> Path:
@@ -175,16 +177,14 @@ def blocking_findings(root: str | Path) -> list[dict[str, Any]]:
     """Return findings that block Stop: severity high|critical AND status open|blocked."""
     data = load_findings(root)
     return [
-        f
-        for f in data["findings"].values()
-        if f.get("severity") in BLOCKING_SEVERITIES
-        and f.get("status") in BLOCKING_STATUSES
+        f for f in data["findings"].values() if f.get("severity") in BLOCKING_SEVERITIES and f.get("status") in BLOCKING_STATUSES
     ]
 
 
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _cmd_add(args: argparse.Namespace) -> int:
     fid = add_finding(

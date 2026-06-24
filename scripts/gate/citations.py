@@ -41,7 +41,7 @@ from parse_tool_result import (
     ran_command,
     read_targets,
 )
-from spec import repo_context_parts, prior_art_parts, repo_context_of
+from spec import prior_art_parts, repo_context_of, repo_context_parts
 
 try:
     from urllib.parse import urlsplit
@@ -55,7 +55,10 @@ _LINE_SUFFIX_RE = re.compile(r"^(?P<path>.*):\d+(?:-\d+)?$")
 
 def enabled() -> bool:
     return os.environ.get("UNIFABLE_VERIFY_CITATIONS", "1").strip().lower() not in (
-        "0", "false", "no", "off",
+        "0",
+        "false",
+        "no",
+        "off",
     )
 
 
@@ -89,6 +92,7 @@ def merge_activity(*activities: dict[str, list[str]]) -> dict[str, list[str]]:
 # ---------------------------------------------------------------------------
 # Matching
 # ---------------------------------------------------------------------------
+
 
 def _abs(path: str, cwd: str) -> str:
     try:
@@ -168,6 +172,7 @@ def command_was_run(check: str, ran_commands: list[str]) -> bool:
 # Verdict
 # ---------------------------------------------------------------------------
 
+
 def _cite_path_exists(cite: str, cwd: str) -> bool:
     """True when the cited path resolves to an existing file under cwd."""
     raw = _cite_path(cite)
@@ -204,11 +209,7 @@ def sanitize_harness_citations(spec: dict[str, Any], cwd: str) -> list[str]:
             kept.append(item)
             continue
         cite, why = repo_context_parts(item)
-        if (
-            str(why or "").strip() == _READ_WHY
-            and cite
-            and not _cite_path_exists(cite, cwd)
-        ):
+        if str(why or "").strip() == _READ_WHY and cite and not _cite_path_exists(cite, cwd):
             removed.append(str(cite))
             continue
         kept.append(item)
@@ -238,11 +239,7 @@ def filter_gate_defect_citation_reasons(
             continue
         item = items[idx]
         cite, why = repo_context_parts(item)
-        if (
-            str(why or "").strip() == _READ_WHY
-            and cite
-            and not _cite_path_exists(cite, cwd)
-        ):
+        if str(why or "").strip() == _READ_WHY and cite and not _cite_path_exists(cite, cwd):
             continue
         kept.append(reason)
     return kept
@@ -267,24 +264,18 @@ def verify_citations(
     for i, item in enumerate(repo_context_of(spec)):
         cite, _why = repo_context_parts(item)
         if cite and not path_was_read(cite, read_paths, cwd):
-            reasons.append(
-                f"repo_context[{i}]: {cite!r} (never read this session)"
-            )
+            reasons.append(f"repo_context[{i}]: {cite!r} (never read this session)")
 
     for i, item in enumerate(spec.get("prior_art") or []):
         cite, _why = prior_art_parts(item)
         if cite and not url_was_fetched(cite, fetched):
-            reasons.append(
-                f"prior_art[{i}]: {cite!r} (never fetched this session)"
-            )
+            reasons.append(f"prior_art[{i}]: {cite!r} (never fetched this session)")
 
     if require_commands:
         for i, ac in enumerate(spec.get("acceptance_criteria") or []):
             check = ac.get("check") if isinstance(ac, dict) else ""
             if check and not command_was_run(str(check), ran):
-                reasons.append(
-                    f"acceptance_criteria[{i}].check {str(check)!r} (never run this session)"
-                )
+                reasons.append(f"acceptance_criteria[{i}].check {str(check)!r} (never run this session)")
 
     return reasons
 
@@ -299,17 +290,12 @@ def format_citation_verify_message(reasons: list[str]) -> str:
     footnotes: list[str] = []
     if any(r.startswith("repo_context[") for r in items):
         footnotes.append(
-            "Read each cited file (Read/grep) before citing it "
-            "(the gate verifies repo_context against actual tool activity)."
+            "Read each cited file (Read/grep) before citing it (the gate verifies repo_context against actual tool activity)."
         )
     if any(r.startswith("prior_art[") for r in items):
-        footnotes.append(
-            "Fetch each URL (WebFetch or curl) before citing it as prior art."
-        )
+        footnotes.append("Fetch each URL (WebFetch or curl) before citing it as prior art.")
     if any(r.startswith("acceptance_criteria[") for r in items):
-        footnotes.append(
-            "Run each acceptance check command before citing its output."
-        )
+        footnotes.append("Run each acceptance check command before citing its output.")
     if footnotes:
         lines.append("")
         lines.extend(footnotes)
@@ -319,6 +305,7 @@ def format_citation_verify_message(reasons: list[str]) -> str:
 # ---------------------------------------------------------------------------
 # Transcript scan (Stop-only corroboration; recurses sub-agent transcripts)
 # ---------------------------------------------------------------------------
+
 
 def _tool_result_text(result: Any) -> str:
     if isinstance(result, str):
@@ -495,13 +482,9 @@ def sync_citations_from_activity(
     spec.setdefault("prior_art", [])
     # Drop scaffold placeholders so auto-cites are substantive.
     spec["repo_context"] = [
-        item for item in spec["repo_context"]
-        if isinstance(item, dict) and str(item.get("cite") or "").strip()
+        item for item in spec["repo_context"] if isinstance(item, dict) and str(item.get("cite") or "").strip()
     ]
-    spec["prior_art"] = [
-        item for item in spec["prior_art"]
-        if isinstance(item, dict) and str(item.get("cite") or "").strip()
-    ]
+    spec["prior_art"] = [item for item in spec["prior_art"] if isinstance(item, dict) and str(item.get("cite") or "").strip()]
     seen_paths = _existing_repo_cites(spec)
     read_paths = activity.get("read_paths", []) or []
 

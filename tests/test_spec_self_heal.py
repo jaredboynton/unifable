@@ -30,15 +30,22 @@ def _task(tid, status, added_by="agent"):
 def test_permanent_lift_retracts_redundant_judge_tasks():
     """A permanent loop-release verdict retracts the named judge-added tasks;
     validated/agent tasks are left untouched."""
-    spec = {"requires_tasks": True, "restated_goal": "g", "tasks": [
-        _task("T1", "validated", "agent"),
-        _task("T5", "failed", "judge"),
-        _task("T6", "disputed", "judge"),
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "restated_goal": "g",
+        "tasks": [
+            _task("T1", "validated", "agent"),
+            _task("T5", "failed", "judge"),
+            _task("T6", "disputed", "judge"),
+        ],
+    }
     verdict = LoopReleaseVerdict(
-        suicide_loop=True, lift="permanent",
+        suicide_loop=True,
+        lift="permanent",
         reason="spurious judge-added paraphrases of the validated requirement",
-        lift_scope="", retract_task_ids=["T5", "T6"], provisional_stops=0,
+        lift_scope="",
+        retract_task_ids=["T5", "T6"],
+        provisional_stops=0,
     )
     headlines, _ = apply_loop_release_verdict(spec, {}, verdict)
     by = {t["id"]: t for t in spec["tasks"]}
@@ -60,10 +67,14 @@ def test_permanent_lift_never_retracts_agent_tasks():
 def test_garden_heal_converges_a_stalled_spec():
     """End-to-end self-heal: a spec stuck only on a spurious judge task converges
     to fully-resolved after the loop-release retraction (the gate would open)."""
-    spec = {"requires_tasks": True, "restated_goal": "g", "tasks": [
-        _task("T1", "validated", "agent"),
-        _task("T5", "failed", "judge"),
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "restated_goal": "g",
+        "tasks": [
+            _task("T1", "validated", "agent"),
+            _task("T5", "failed", "judge"),
+        ],
+    }
     assert all_tasks_validated(spec)[0] is False  # stuck before heal
     verdict = LoopReleaseVerdict(True, "permanent", "redundant with validated T1", "", ["T5"], 0)
     apply_loop_release_verdict(spec, {}, verdict)
@@ -72,10 +83,13 @@ def test_garden_heal_converges_a_stalled_spec():
 
 def test_garden_declines_when_no_suicide_loop():
     """lift=none / suicide_loop=false changes nothing (no false retractions)."""
-    spec = {"requires_tasks": True, "tasks": [
-        _task("T1", "validated", "agent"),
-        _task("T5", "failed", "judge"),
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "tasks": [
+            _task("T1", "validated", "agent"),
+            _task("T5", "failed", "judge"),
+        ],
+    }
     verdict = LoopReleaseVerdict(False, "none", "work legitimately remains", "", [], 0)
     headlines, _ = apply_loop_release_verdict(spec, {}, verdict)
     assert headlines == []
@@ -85,16 +99,20 @@ def test_garden_declines_when_no_suicide_loop():
 def test_deterministic_heal_retracts_brittle_version_pin():
     from spec import deterministic_heal_judge_requirements
 
-    spec = {"requires_tasks": True, "restated_goal": "g", "tasks": [
-        _task("T1", "validated", "agent"),
-        {
-            "id": "T9",
-            "title": "Active plugin version is explicitly verified as 1.9.32",
-            "check": "grep -q 1.9.32 .claude-plugin/plugin.json",
-            "status": "failed",
-            "added_by": "judge",
-        },
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "restated_goal": "g",
+        "tasks": [
+            _task("T1", "validated", "agent"),
+            {
+                "id": "T9",
+                "title": "Active plugin version is explicitly verified as 1.9.32",
+                "check": "grep -q 1.9.32 .claude-plugin/plugin.json",
+                "status": "failed",
+                "added_by": "judge",
+            },
+        ],
+    }
     headlines = deterministic_heal_judge_requirements(spec)
     assert spec["tasks"][1]["status"] == "retracted"
     assert headlines
@@ -104,29 +122,36 @@ def test_deterministic_heal_retracts_brittle_version_pin():
 def test_judge_heal_revises_broken_judge_check(monkeypatch):
     from spec import judge_heal_own_requirements
 
-    spec = {"requires_tasks": True, "restated_goal": "g", "tasks": [
-        {
-            "id": "T9",
-            "title": "grep for pattern",
-            "check": "rg -P 'foo' bar.py",
-            "status": "failed",
-            "added_by": "judge",
-            "judge_reason": "needs portable grep",
-        },
-    ]}
+    spec = {
+        "requires_tasks": True,
+        "restated_goal": "g",
+        "tasks": [
+            {
+                "id": "T9",
+                "title": "grep for pattern",
+                "check": "rg -P 'foo' bar.py",
+                "status": "failed",
+                "added_by": "judge",
+                "judge_reason": "needs portable grep",
+            },
+        ],
+    }
 
     def fake_ask(_system, _user, _schema, schema_name=""):
         assert schema_name == "judge_heal"
         return {
-            "adjust_requirements": [{
-                "id": "T9",
-                "action": "revise",
-                "reason": "portable extended-regex grep",
-                "check": "grep -E 'foo' bar.py",
-            }],
+            "adjust_requirements": [
+                {
+                    "id": "T9",
+                    "action": "revise",
+                    "reason": "portable extended-regex grep",
+                    "check": "grep -E 'foo' bar.py",
+                }
+            ],
         }
 
     import codex_judge
+
     monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
     with patch("spec.notify_spec_update"):
         headlines = judge_heal_own_requirements(spec)

@@ -34,7 +34,7 @@ agent thrashes through edits first and only "cites" at the end.
 - RESEARCH phase (locked) — the default once a work-shaped task at grade >= STANDARD starts.
   - ALLOWED: `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, read-only MCP
     (exa/tavily/ref/octocode search+fetch). `Bash` is allowed ONLY for `cd`, `ls`, `glob`, `rg`, or running
-    any file named `trace.sh` (see Bash gating).
+    any file named `trace.sh` or `websearch.sh` (see Bash gating).
   - BLOCKED: `Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`apply_patch`, `Task`/`Agent`, and non-whitelisted `Bash`, each with a
     message naming the unlock step.
 - ACTION phase (unlocked) — once the evidence artifact validates, all tools allowed (the existing spec
@@ -90,18 +90,18 @@ Validation extends `validate_spec` (`spec.py:116`) with these; the contract stri
 
 Classify the `Bash` command string in the research phase:
 - ALLOW only if every command segment is `cd`, `ls`, `glob`, `rg`, invokes a file whose basename is
-  `trace.sh` (directly or through `sh`/`bash`/`zsh`), or invokes a user-facing unifusion skill
+  `trace.sh` or `websearch.sh` (directly or through `sh`/`bash`/`zsh`), or invokes a user-facing unifusion skill
   script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
 - User-facing allowlist copy (PreToolUse blocks, breaker steering, setup block) is install-detected via
   `scripts/gate/research_bash_guidance.py`: when `SKILL.md` + `scripts/trace.sh` exist under the explore
-  skill, messages name that path; otherwise trace.sh is omitted from guidance. Enforcement remains basename
-  `trace.sh` regardless.
+  skill, messages name installed script paths (`trace.sh`, and `websearch.sh` when present); otherwise
+  explore scripts are omitted from guidance. Enforcement remains basename `trace.sh` / `websearch.sh` regardless.
 - BLOCK otherwise, with a message that names the allowed commands and says broader Bash unlocks only
   after a valid task spec exists with repo_context citations, acceptance evidence, and prior_art.
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than
   wfb's edit-only gate. Mitigations: (a) unconditional + fail-open on malformed input (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
-  bricked — it can still inspect with `cd`/`ls`/`glob`/`rg`, use `trace.sh`, or run unifusion panel scripts; (c) ship behind the holdout harness
+  bricked — it can still inspect with `cd`/`ls`/`glob`/`rg`, use `trace.sh` or `websearch.sh`, or run unifusion panel scripts; (c) ship behind the holdout harness
   (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate.
 
 ## Groundedness breaker — provisional lift
@@ -236,5 +236,5 @@ no-brick), mirroring wfb's 35/35 adversarial set.
 
 1. Bash gating scope: full lockdown now (writes + Bash allowlist, the stated intent, highest leverage,
    highest false-positive risk) vs. writes-first then add Bash gating after measuring.
-2. Allowlist contents: currently `cd`, `ls`, `glob`, `rg`, any file named `trace.sh`, and the four
+2. Allowlist contents: currently `cd`, `ls`, `glob`, `rg`, any file named `trace.sh` or `websearch.sh`, and the four
    user-facing unifusion skill scripts by basename.

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -137,7 +138,7 @@ def test_router_sh_integration(tmp_path: Path) -> None:
 
     router = REPO / "hooks" / "router.sh"
     payload = json.dumps({"prompt": "debug and implement subagent", "session_id": "router-sh", "cwd": str(REPO)})
-    env = {"CLAUDE_PLUGIN_ROOT": str(REPO), "UNIFABLE_DATA": str(tmp_path)}
+    env = {"CLAUDE_PLUGIN_ROOT": str(REPO), "UNIFABLE_DATA": str(tmp_path), "PATH": os.environ.get("PATH", "/usr/bin:/bin")}
     proc = subprocess.run(
         ["bash", str(router)],
         input=payload,

@@ -3,6 +3,7 @@
 byte-identical, cacheable prefix across calls. The volatile adjudicated-claims
 list rides the END of the user message, after the append-only transcript.
 """
+
 from __future__ import annotations
 
 import sys

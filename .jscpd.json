@@ -1,0 +1,17 @@
+{
+  "threshold": 5,
+  "reporters": ["console", "html"],
+  "output": "./.jscpd-report",
+  "format": ["python"],
+  "min-lines": 6,
+  "min-tokens": 65,
+  "ignore": [
+    ".venv/**",
+    ".unifable/**",
+    ".omc/**",
+    "benchmark/results/**",
+    "**/__pycache__/**",
+    ".jscpd-report/**"
+  ],
+  "ignore-patterns": []
+}

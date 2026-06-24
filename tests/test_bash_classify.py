@@ -9,7 +9,6 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "gate"))
 from bash_classify import is_allowed_research_bash  # noqa: E402
 
-
 ALLOWED = [
     "cd subdir",
     "cd /abs/path",
@@ -30,6 +29,15 @@ ALLOWED = [
     "zsh /tmp/trace.sh",
     "FOO=bar ./trace.sh",
     "env FOO=bar ./trace.sh",
+    "./websearch.sh",
+    "tools/websearch.sh 'task goal'",
+    "/tmp/websearch.sh",
+    "bash websearch.sh",
+    "bash ./tools/websearch.sh 'task goal'",
+    "sh websearch.sh",
+    "zsh /tmp/websearch.sh",
+    "FOO=bar ./websearch.sh",
+    "env FOO=bar ./websearch.sh",
     "ls && rg foo",
     "ls | rg foo",
     "unifable restate 'do the thing well'",
@@ -53,10 +61,10 @@ ALLOWED = [
     "T=/Users/me/some/long/path; rg -n '.' \"$T/run_data.sh\"",
     "A=1 B=2; rg foo",
     "export T=value; rg --files",
-    "DIR=/tmp/x; ls -la \"$DIR\"",
+    'DIR=/tmp/x; ls -la "$DIR"',
     "T=value rg --files",
     # Plain variable expansion ($VAR) is not command substitution.
-    "rg \"$HOME\" .",
+    'rg "$HOME" .',
     "bash ~/.claude/skills/unifusion/scripts/unifusion.sh /tmp/q.txt",
     "bash skills/unifusion/scripts/save_run.sh slug /tmp/q.md /tmp/a.md /tmp/f.md /tmp/run",
     "./summarize_session.sh /tmp/ctx.md",
@@ -108,13 +116,14 @@ BLOCKED = [
     "bash other.sh",
     "bash skills/unifusion/scripts/run_codex.sh /tmp/p /tmp/o",
     "python trace.sh",
+    "python websearch.sh",
     # Command/process substitution executes arbitrary commands -> must stay blocked,
     # now with an explicit, clear reason (previously blocked only by parser fallout).
     "T=$(printf x); rg --files",
-    "T=\"$(printf x)\"; rg --files",
+    'T="$(printf x)"; rg --files',
     "T=`printf x`; rg --files",
     "rg $(cat /etc/passwd) .",
-    "ls \"$(whoami)\"",
+    'ls "$(whoami)"',
     "T=<(cat x); rg foo",
     # Dangerous declarations can alter command resolution.
     "PATH=/tmp; rg --files",

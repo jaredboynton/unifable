@@ -23,9 +23,7 @@ from transcript_tail import (
 )
 
 try:
-    COMPLETION_HANDOFF_BLOCK_CAP = int(
-        os.environ.get("UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP", "6")
-    )
+    COMPLETION_HANDOFF_BLOCK_CAP = int(os.environ.get("UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP", "6"))
 except ValueError:
     COMPLETION_HANDOFF_BLOCK_CAP = 6
 
@@ -45,10 +43,7 @@ COMPLETION_HANDOFF_SCHEMA: dict[str, Any] = {
         },
         "steering": {
             "type": "string",
-            "description": (
-                "When ok_to_stop is false: one concrete next action with tool calls. "
-                "Empty when ok_to_stop is true."
-            ),
+            "description": ("When ok_to_stop is false: one concrete next action with tool calls. Empty when ok_to_stop is true."),
         },
         "blocked_on_user_only": {
             "type": "boolean",
@@ -116,25 +111,15 @@ def last_assistant_text_and_tool(transcript_path: str | None) -> tuple[str, bool
             content = msg.get("content", [])
             if not isinstance(content, list):
                 continue
-            texts = [
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            ]
-            tools = [
-                block
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "tool_use"
-            ]
+            texts = [block.get("text", "") for block in content if isinstance(block, dict) and block.get("type") == "text"]
+            tools = [block for block in content if isinstance(block, dict) and block.get("type") == "tool_use"]
             if texts or tools:
                 last_text = "\n".join(texts).strip()
                 last_had_tool = bool(tools)
     return last_text, last_had_tool
 
 
-def _transcript_for_handoff_judge(
-    transcript_path: str | None, input_data: dict[str, Any]
-) -> str:
+def _transcript_for_handoff_judge(transcript_path: str | None, input_data: dict[str, Any]) -> str:
     text = stripped_transcript_tail(transcript_path, TRANSCRIPT_TOKEN_BUDGET)
     if text.strip():
         return text
@@ -197,17 +182,11 @@ def judge_completion_handoff(
     )
 
 
-def completion_handoff_decision(
-    input_data: dict[str, Any], cwd: str | Path
-) -> dict[str, Any] | None:
+def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> dict[str, Any] | None:
     """Return a Stop payload when handoff is unresolved, else None to allow."""
     if not input_data or input_data.get("_parse_error"):
         return None
-    if not (
-        input_data.get("session_id")
-        or input_data.get("transcript_path")
-        or input_data.get("last_assistant_message")
-    ):
+    if not (input_data.get("session_id") or input_data.get("transcript_path") or input_data.get("last_assistant_message")):
         return None
 
     transcript_path = input_data.get("transcript_path")
@@ -222,10 +201,7 @@ def completion_handoff_decision(
     ledger = load_ledger(input_data)
     if int(ledger.get("completion_handoff_blocks") or 0) >= COMPLETION_HANDOFF_BLOCK_CAP:
         return {
-            "systemMessage": (
-                "unifable completion handoff block cap reached; allowing stop with "
-                "a possibly unresolved handoff."
-            )
+            "systemMessage": ("unifable completion handoff block cap reached; allowing stop with a possibly unresolved handoff.")
         }
 
     user_goal = ""
@@ -252,7 +228,7 @@ def completion_handoff_decision(
             grade=grade,
             recent_activity=recent,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception:  # noqa: BLE001
         return None
 
     ok = verdict.get("ok_to_stop") is True

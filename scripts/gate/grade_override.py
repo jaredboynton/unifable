@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 try:
-    from evidence_policy import DEFAULT_EVIDENCE_PROFILE, EVIDENCE_PROFILES, grade_for_mode, MODES
+    from evidence_policy import DEFAULT_EVIDENCE_PROFILE, EVIDENCE_PROFILES, MODES, grade_for_mode
     from spec import load_spec, resolve_session_id, save_spec
 except ImportError:  # pragma: no cover
     from scripts.gate.evidence_policy import (
@@ -26,7 +27,7 @@ except ImportError:  # pragma: no cover
         MODES,
         grade_for_mode,
     )
-    from scripts.gate.spec import load_spec, resolve_session_id, save_spec
+    from scripts.gate.spec import load_spec, save_spec
 
 _GRADE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -125,12 +126,14 @@ def _task_summary(spec: dict[str, Any] | None) -> list[dict[str, str]]:
     for task in spec.get("tasks") or []:
         if not isinstance(task, dict):
             continue
-        out.append({
-            "id": str(task.get("id") or ""),
-            "title": str(task.get("title") or "")[:120],
-            "kind": str(task.get("approach_kind") or "requirement"),
-            "status": str(task.get("status") or ""),
-        })
+        out.append(
+            {
+                "id": str(task.get("id") or ""),
+                "title": str(task.get("title") or "")[:120],
+                "kind": str(task.get("approach_kind") or "requirement"),
+                "status": str(task.get("status") or ""),
+            }
+        )
     return out[:20]
 
 
@@ -199,11 +202,7 @@ def parse_grade_verdict(
     if mode not in MODES:
         mode = "normal"
     raw_flags = verdict.get("risk_flags")
-    flags = (
-        [str(f).strip() for f in raw_flags if str(f).strip()]
-        if isinstance(raw_flags, list)
-        else []
-    )
+    flags = [str(f).strip() for f in raw_flags if str(f).strip()] if isinstance(raw_flags, list) else []
     reason = str(verdict.get("reason") or "").strip()
     profile = str(verdict.get("evidence_profile") or "").lower().strip()
     if profile not in EVIDENCE_PROFILES:
@@ -220,6 +219,7 @@ def parse_grade_verdict(
 # ---------------------------------------------------------------------------
 # Ledger / spec application (used by gate_prompt.py and operator overrides)
 # ---------------------------------------------------------------------------
+
 
 def clear_heavy_spec_fields(spec: dict[str, Any]) -> None:
     spec["heavy_workflow"] = False

@@ -23,13 +23,11 @@ import sys
 import tempfile
 import unittest
 
-HOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                    "hooks", "gate_prompt_effort.py")
+HOOK = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks", "gate_prompt_effort.py")
 PY = sys.executable
 
 
-def run_hook(payload: dict, *, env_extra: dict | None = None,
-             marker_dir: str | None = None) -> dict:
+def run_hook(payload: dict, *, env_extra: dict | None = None, marker_dir: str | None = None) -> dict:
     """Run gate_prompt_effort.py with a JSON payload on stdin.
 
     Returns the parsed stdout dict; returns {} on parse failure.
@@ -61,13 +59,10 @@ def run_hook(payload: dict, *, env_extra: dict | None = None,
 
 
 def _is_injection(result: dict) -> bool:
-    return bool(
-        result.get("hookSpecificOutput", {}).get("additionalContext")
-    )
+    return bool(result.get("hookSpecificOutput", {}).get("additionalContext"))
 
 
 class TestEffortInject(unittest.TestCase):
-
     def setUp(self):
         # Each test gets its own marker dir so sessions never bleed across tests.
         self._tmpdir = tempfile.mkdtemp(prefix="unifable_effort_test_")
@@ -82,15 +77,13 @@ class TestEffortInject(unittest.TestCase):
             {"session_id": "sess-heavy-001", "prompt": "do something", "effort": "xhigh"},
             marker_dir=self._marker_dir,
         )
-        self.assertTrue(_is_injection(result),
-                        f"Expected injection, got: {result}")
+        self.assertTrue(_is_injection(result), f"Expected injection, got: {result}")
 
     def test_heavy_effort_dedup_second_call_returns_empty(self):
         payload = {"session_id": "sess-heavy-002", "prompt": "do something", "effort": "max"}
         run_hook(payload, marker_dir=self._marker_dir)  # first call
         result = run_hook(payload, marker_dir=self._marker_dir)  # second call same session
-        self.assertEqual(result, {},
-                         f"Expected empty dict on second call, got: {result}")
+        self.assertEqual(result, {}, f"Expected empty dict on second call, got: {result}")
 
     def test_different_sessions_inject_independently(self):
         r1 = run_hook(
@@ -125,8 +118,7 @@ class TestEffortInject(unittest.TestCase):
                 marker_dir=self._marker_dir,
             )
             with self.subTest(effort=effort):
-                self.assertEqual(result, {},
-                                 f"effort={effort!r} should produce empty dict")
+                self.assertEqual(result, {}, f"effort={effort!r} should produce empty dict")
 
     def test_no_effort_field_returns_empty(self):
         result = run_hook(
@@ -141,16 +133,14 @@ class TestEffortInject(unittest.TestCase):
 
     def test_effort_nested_dict_level_injects(self):
         result = run_hook(
-            {"session_id": "sess-nested-001", "prompt": "x",
-             "effort": {"level": "xhigh", "tokens": 8000}},
+            {"session_id": "sess-nested-001", "prompt": "x", "effort": {"level": "xhigh", "tokens": 8000}},
             marker_dir=self._marker_dir,
         )
         self.assertTrue(_is_injection(result), "nested effort.level=xhigh should inject")
 
     def test_effort_nested_dict_low_returns_empty(self):
         result = run_hook(
-            {"session_id": "sess-nested-002", "prompt": "x",
-             "effort": {"level": "low"}},
+            {"session_id": "sess-nested-002", "prompt": "x", "effort": {"level": "low"}},
             marker_dir=self._marker_dir,
         )
         self.assertEqual(result, {})
@@ -229,57 +219,56 @@ class TestEffortInject(unittest.TestCase):
             marker_dir=self._marker_dir,
         )
         context = result.get("hookSpecificOutput", {}).get("additionalContext", "")
-        self.assertIn("unifable", context.lower(),
-                      "injected context should mention unifable")
+        self.assertIn("unifable", context.lower(), "injected context should mention unifable")
 
 
 class TestPlaybookDedup(unittest.TestCase):
     """Tests for playbook paragraph suppression when router packs already fired."""
 
     def test_no_tags_includes_all_paragraphs(self):
-        import importlib.util
         hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
         gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
         for p in (gate_dir, hook_dir):
             if p not in sys.path:
                 sys.path.insert(0, p)
         import gate_prompt_effort
+
         ctx = gate_prompt_effort._playbook_context()
         self.assertIn("Investigation:", ctx)
         self.assertIn("Verification grounding:", ctx)
 
     def test_investigation_tag_suppresses_investigation_paragraph(self):
-        import importlib.util
         hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
         gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
         for p in (gate_dir, hook_dir):
             if p not in sys.path:
                 sys.path.insert(0, p)
         import gate_prompt_effort
+
         ctx = gate_prompt_effort._playbook_context({"investigation"})
         self.assertNotIn("Investigation: reproduce first", ctx)
         self.assertIn("Verification grounding:", ctx)
 
     def test_grounding_tag_suppresses_grounding_paragraph(self):
-        import importlib.util
         hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
         gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
         for p in (gate_dir, hook_dir):
             if p not in sys.path:
                 sys.path.insert(0, p)
         import gate_prompt_effort
+
         ctx = gate_prompt_effort._playbook_context({"grounding"})
         self.assertIn("Investigation: reproduce first", ctx)
         self.assertNotIn("Verification grounding:", ctx)
 
     def test_both_tags_suppress_both_paragraphs(self):
-        import importlib.util
         hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
         gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
         for p in (gate_dir, hook_dir):
             if p not in sys.path:
                 sys.path.insert(0, p)
         import gate_prompt_effort
+
         ctx = gate_prompt_effort._playbook_context({"investigation", "grounding"})
         self.assertNotIn("Investigation: reproduce first", ctx)
         self.assertNotIn("Verification grounding:", ctx)

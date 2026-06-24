@@ -46,9 +46,7 @@ def apply_spec_hygiene(
         shown = ", ".join(removed[:3])
         if len(removed) > 3:
             shown += "..."
-        headlines.append(
-            f"Removed invalid auto-sync citation(s) (path does not exist): {shown}."
-        )
+        headlines.append(f"Removed invalid auto-sync citation(s) (path does not exist): {shown}.")
 
     if sync_citations_from_activity(spec, activity, cwd, added_sink=added_sink):
         changed = True
@@ -70,5 +68,8 @@ def apply_spec_hygiene_from_ledger(
 ) -> tuple[bool, list[str]]:
     """Convenience wrapper using ledger activity lists."""
     return apply_spec_hygiene(
-        spec, activity_from_ledger(ledger), cwd, added_sink=added_sink,
+        spec,
+        activity_from_ledger(ledger),
+        cwd,
+        added_sink=added_sink,
     )

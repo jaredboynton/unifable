@@ -6,11 +6,10 @@ the correct task_mode / grade / risk_flags for each classification verdict,
 including the fail-open path when the judge is unreachable.
 Run: python3 -m pytest tests/test_grade_classify_integration.py -q
 """
+
 from __future__ import annotations
 
-import os
 import sys
-import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
@@ -119,9 +118,7 @@ def test_continuation_drops_from_heavy_no_stickiness(monkeypatch, tmp_path):
         {"active_task": "old", "task_mode": "deep", "grade": "HEAVY"},
     )
     verdict = {"mode": "normal", "risk_flags": [], "reason": "continuation"}
-    rc, _ = _run_gate_prompt(
-        {"prompt": "proceed", "session_id": "test-classify", "cwd": cwd}, verdict
-    )
+    rc, _ = _run_gate_prompt({"prompt": "proceed", "session_id": "test-classify", "cwd": cwd}, verdict)
     assert rc == 0
     led = load_ledger({"session_id": "test-classify", "cwd": cwd})
     assert led["task_mode"] == "normal"

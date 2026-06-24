@@ -4,6 +4,7 @@
 The cache rearchitecture is only justifiable if we can measure it; these lock the
 parser (incl. cached_tokens) and the per-session accumulator behavior.
 """
+
 from __future__ import annotations
 
 import sys

@@ -16,8 +16,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
-import codex_judge  # noqa: E402
 import breaker_state  # noqa: E402
+import codex_judge  # noqa: E402
 import gate_post_tool  # noqa: E402
 import gate_prompt  # noqa: E402
 import gate_stop  # noqa: E402
@@ -26,10 +26,10 @@ from citations import empty_activity, sync_citations_from_activity  # noqa: E402
 from heavy_workflow import heavy_snapshot, heavy_transition_headline  # noqa: E402
 from spec import auto_validate_spec, judge_all_tasks, load_spec, save_spec, spec_template  # noqa: E402
 
-
 # --------------------------------------------------------------------------- #
 # Gap 1 — citation auto-sync (added_sink + batched headline)
 # --------------------------------------------------------------------------- #
+
 
 def test_sync_added_sink_reports_appended_cites(tmp_path):
     f = tmp_path / "mod.py"
@@ -49,9 +49,7 @@ def test_sync_added_sink_reports_appended_cites(tmp_path):
 
 
 def test_citation_sync_headline_batches_one_line():
-    headline = gate_post_tool._citation_sync_headline(
-        {"prior_art": ["https://x.com/a"], "repo_context": ["a.py:1", "b.py:2"]}
-    )
+    headline = gate_post_tool._citation_sync_headline({"prior_art": ["https://x.com/a"], "repo_context": ["a.py:1", "b.py:2"]})
     assert headline.startswith("synced 3 cite(s):")
     assert "prior_art<-fetch [https://x.com/a]" in headline
     assert "repo_context<-read [a.py:1, b.py:2]" in headline
@@ -62,6 +60,7 @@ def test_citation_sync_headline_batches_one_line():
 # --------------------------------------------------------------------------- #
 # Gap 2 — HEAVY phase flip / primary unblock
 # --------------------------------------------------------------------------- #
+
 
 def _heavy_spec():
     return {
@@ -94,6 +93,7 @@ def test_heavy_snapshot_reads_phase_and_primary_status():
 # Gap 3 — grade / evidence_profile reclassification (gate_prompt context)
 # --------------------------------------------------------------------------- #
 
+
 def _run_prompt(payload):
     captured = {"out": {}}
     gate_prompt.read_stdin_json = lambda: payload
@@ -110,18 +110,18 @@ def test_grade_change_surfaces_reason_and_shift(tmp_path, monkeypatch):
     monkeypatch.delenv("UNIFABLE_GRADE", raising=False)
 
     monkeypatch.setattr(
-        gate_prompt, "judge_grade_classify",
+        gate_prompt,
+        "judge_grade_classify",
         lambda *a, **k: {"mode": "normal", "risk_flags": [], "reason": "routine", "evidence_profile": "code"},
     )
     _run_prompt({"session_id": "sess", "prompt": "do a small thing", "cwd": str(tmp_path)})
 
     monkeypatch.setattr(
-        gate_prompt, "judge_grade_classify",
+        gate_prompt,
+        "judge_grade_classify",
         lambda *a, **k: {"mode": "deep", "risk_flags": [], "reason": "broad rearchitecture", "evidence_profile": "code"},
     )
-    ctx = _run_prompt(
-        {"session_id": "sess", "prompt": "now deeply rearchitect the module across files", "cwd": str(tmp_path)}
-    )
+    ctx = _run_prompt({"session_id": "sess", "prompt": "now deeply rearchitect the module across files", "cwd": str(tmp_path)})
     assert "Grade now HEAVY (was STANDARD)" in ctx
     assert "broad rearchitecture" in ctx
 
@@ -133,7 +133,8 @@ def test_no_reclassify_line_on_first_prompt(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.delenv("UNIFABLE_GRADE", raising=False)
     monkeypatch.setattr(
-        gate_prompt, "judge_grade_classify",
+        gate_prompt,
+        "judge_grade_classify",
         lambda *a, **k: {"mode": "normal", "risk_flags": [], "reason": "routine", "evidence_profile": "code"},
     )
     ctx = _run_prompt({"session_id": "fresh", "prompt": "first task here", "cwd": str(tmp_path)})
@@ -143,6 +144,7 @@ def test_no_reclassify_line_on_first_prompt(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Gap 4 — validate-all adjust_requirements headlines reach val_msgs
 # --------------------------------------------------------------------------- #
+
 
 def test_auto_validate_merges_adjust_headlines_into_msgs(tmp_path, monkeypatch):
     s = spec_template()
@@ -173,7 +175,9 @@ def test_judge_all_tasks_stashes_adjust_headlines(tmp_path, monkeypatch):
         return {
             "task_verdicts": [
                 {
-                    "id": "T1", "verdict": 1, "reason": "ok",
+                    "id": "T1",
+                    "verdict": 1,
+                    "reason": "ok",
                     "adjust_requirements": [{"id": "T2", "action": "retract", "reason": "redundant"}],
                 }
             ]
@@ -189,6 +193,7 @@ def test_judge_all_tasks_stashes_adjust_headlines(tmp_path, monkeypatch):
 # --------------------------------------------------------------------------- #
 # Gap 5 — scaffold mutations reported
 # --------------------------------------------------------------------------- #
+
 
 def test_scaffold_reports_cleared_heavy_and_profile_change(tmp_path):
     s = spec_template()
@@ -206,9 +211,7 @@ def test_scaffold_reports_cleared_heavy_and_profile_change(tmp_path):
 
 
 def test_scaffold_fresh_create_reports_no_changes(tmp_path):
-    path, changes, created = spec_mod.ensure_spec_scaffold(
-        str(tmp_path), "NEW", "prompt", heavy=False, evidence_profile="code"
-    )
+    path, changes, created = spec_mod.ensure_spec_scaffold(str(tmp_path), "NEW", "prompt", heavy=False, evidence_profile="code")
     assert path
     assert changes == []
     assert created is True
@@ -218,15 +221,18 @@ def test_scaffold_fresh_create_reports_no_changes(tmp_path):
 # Gap 6 — breaker status line
 # --------------------------------------------------------------------------- #
 
+
 def test_breaker_status_context_armed_and_open(monkeypatch):
     monkeypatch.setattr(
-        breaker_state, "load_breaker",
+        breaker_state,
+        "load_breaker",
         lambda inp: {"breaker_armed": True, "breaker_claim": "the build passes"},
     )
     assert "breaker: ARMED on 'the build passes'" in gate_post_tool._breaker_status_context({})
 
     monkeypatch.setattr(
-        breaker_state, "load_breaker",
+        breaker_state,
+        "load_breaker",
         lambda inp: {"breaker_armed": False, "breaker_provisional": False},
     )
     assert gate_post_tool._breaker_status_context({}) == ""
@@ -235,6 +241,7 @@ def test_breaker_status_context_armed_and_open(monkeypatch):
 # --------------------------------------------------------------------------- #
 # Gap 7 — sub-agent / transcript citation attribution
 # --------------------------------------------------------------------------- #
+
 
 def test_subagent_attribution_credits_transcript_only_cites(tmp_path):
     f = tmp_path / "sub.py"

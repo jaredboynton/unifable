@@ -66,21 +66,23 @@ def _single_pending(tmp_path, monkeypatch, new_reqs, base_check="pytest -k base"
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [
-            (1, "ok", [dict(r) for r in new_reqs], "") for _ in items
-        ],
+        spec_mod,
+        "judge_tasks",
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [dict(r) for r in new_reqs], "") for _ in items],
     )
     return load_spec(str(tmp_path), "K")
 
 
 def _unresolved_judge(spec):
-    return [t for t in spec["tasks"]
-            if t.get("added_by") == "judge"
-            and t.get("status") not in ("validated", "retracted", "rejected_approach")]
+    return [
+        t
+        for t in spec["tasks"]
+        if t.get("added_by") == "judge" and t.get("status") not in ("validated", "retracted", "rejected_approach")
+    ]
 
 
 # --- layer 1: dedup ---------------------------------------------------------
+
 
 def test_dedup_skips_verbatim_duplicate_requirement(tmp_path, monkeypatch):
     """A judge requirement byte-identical (title+check) to an existing task is
@@ -99,7 +101,8 @@ def test_dedup_preserves_distinct_title_sharing_trivial_check(tmp_path, monkeypa
     must still be added -- dedup keys on the (title, check) PAIR, not check
     alone, so it never over-suppresses (and the existing lifecycle test holds)."""
     spec = _single_pending(
-        tmp_path, monkeypatch,
+        tmp_path,
+        monkeypatch,
         [{"title": "also handle errors", "check": "true"}],
         base_check="true",
     )
@@ -110,11 +113,11 @@ def test_dedup_preserves_distinct_title_sharing_trivial_check(tmp_path, monkeypa
 
 # --- layer 2: unresolved-backlog cap ---------------------------------------
 
+
 def test_unresolved_judge_backlog_is_capped(tmp_path, monkeypatch):
     """When the judge tries to add more distinct requirements in one cycle than
     the cap allows, only JUDGE_MAX_UNRESOLVED_ADDED are appended."""
-    many = [{"title": f"req{i}", "check": f"pytest -k r{i}"}
-            for i in range(JUDGE_MAX_UNRESOLVED_ADDED + 5)]
+    many = [{"title": f"req{i}", "check": f"pytest -k r{i}"} for i in range(JUDGE_MAX_UNRESOLVED_ADDED + 5)]
     spec = _single_pending(tmp_path, monkeypatch, many)
     spec, _ = auto_validate_spec(spec, str(tmp_path))
     assert len(_unresolved_judge(spec)) == JUDGE_MAX_UNRESOLVED_ADDED  # backlog bounded
@@ -128,7 +131,8 @@ def test_resolved_judge_tasks_free_backlog_slots(tmp_path, monkeypatch):
         for i in range(JUDGE_MAX_UNRESOLVED_ADDED)
     ]
     spec = _single_pending(
-        tmp_path, monkeypatch,
+        tmp_path,
+        monkeypatch,
         [{"title": "fresh", "check": "pytest -k fresh"}],
         extra=resolved,
     )
@@ -138,13 +142,15 @@ def test_resolved_judge_tasks_free_backlog_slots(tmp_path, monkeypatch):
 
 # --- layer 3: judge self-adjust (retract / revise) -------------------------
 
+
 def test_adjust_retracts_judge_own_requirement():
-    spec = {"tasks": [
-        _task("T1", "pending", added_by="agent"),
-        _task("T2", "pending", check="brittle", added_by="judge"),
-    ]}
-    res = {"verdict": 1, "reason": "ok",
-           "adjust_requirements": [{"id": "T2", "action": "retract", "reason": "duplicate of T1"}]}
+    spec = {
+        "tasks": [
+            _task("T1", "pending", added_by="agent"),
+            _task("T2", "pending", check="brittle", added_by="judge"),
+        ]
+    }
+    res = {"verdict": 1, "reason": "ok", "adjust_requirements": [{"id": "T2", "action": "retract", "reason": "duplicate of T1"}]}
     headlines = _apply_adjustments(spec, res)
     t2 = next(t for t in spec["tasks"] if t["id"] == "T2")
     assert t2["status"] == "retracted"
@@ -152,13 +158,21 @@ def test_adjust_retracts_judge_own_requirement():
 
 
 def test_adjust_revises_check_and_reopens_for_validation():
-    spec = {"tasks": [
-        _task("T2", "validated", check="grep 'two parallel judge models' README.md", added_by="judge"),
-    ]}
-    res = {"adjust_requirements": [{
-        "id": "T2", "action": "revise", "reason": "literal phrase is factually wrong",
-        "check": "grep 'symbiotic' README.md",
-    }]}
+    spec = {
+        "tasks": [
+            _task("T2", "validated", check="grep 'two parallel judge models' README.md", added_by="judge"),
+        ]
+    }
+    res = {
+        "adjust_requirements": [
+            {
+                "id": "T2",
+                "action": "revise",
+                "reason": "literal phrase is factually wrong",
+                "check": "grep 'symbiotic' README.md",
+            }
+        ]
+    }
     _apply_adjustments(spec, res)
     t2 = spec["tasks"][0]
     assert t2["check"] == "grep 'symbiotic' README.md"
@@ -183,10 +197,13 @@ def test_adjust_skips_task_being_judged_this_cycle():
 
 
 def test_judge_added_current_task_can_self_retract(monkeypatch):
-    spec = {"restated_goal": "g", "tasks": [
-        _task("T1", "validated", added_by="agent"),
-        _task("T2", "failed", check="true", added_by="judge"),
-    ]}
+    spec = {
+        "restated_goal": "g",
+        "tasks": [
+            _task("T1", "validated", added_by="agent"),
+            _task("T2", "failed", check="true", added_by="judge"),
+        ],
+    }
 
     import codex_judge
 
@@ -195,9 +212,7 @@ def test_judge_added_current_task_can_self_retract(monkeypatch):
             "verdict": 0,
             "reason": "T2 duplicates validated T1",
             "new_requirements": [],
-            "adjust_requirements": [
-                {"id": "T2", "action": "retract", "reason": "duplicate of validated T1"}
-            ],
+            "adjust_requirements": [{"id": "T2", "action": "retract", "reason": "duplicate of validated T1"}],
         }
 
     monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
@@ -210,6 +225,7 @@ def test_judge_added_current_task_can_self_retract(monkeypatch):
 
 
 # --- layer 4: breaker release ----------------------------------------------
+
 
 def test_completion_breaker_releases_after_stalled_blocks():
     """Non-decreasing incomplete count (the runaway signature) trips the
@@ -258,10 +274,7 @@ def test_breaker_runaway_fails_before_fix(monkeypatch):
     # after-fix: the real bounded caps release on the same stalled signature
     monkeypatch.undo()
     bounded: dict = {}
-    released_after = any(
-        vs.note_completion_block(bounded, 7)
-        for _ in range(vs.COMPLETION_MAX_STALLED_BLOCKS + 1)
-    )
+    released_after = any(vs.note_completion_block(bounded, 7) for _ in range(vs.COMPLETION_MAX_STALLED_BLOCKS + 1))
     assert released_after is True  # bounded release -> the fix
 
 
@@ -272,6 +285,7 @@ def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
     to its cap (the backstop would be silently dead). Round-trip proves persistence."""
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     from ledger import DEFAULT_LEDGER, load_ledger, save_ledger
+
     assert "completion_stall_blocks" in DEFAULT_LEDGER
     assert "completion_prev_incomplete" in DEFAULT_LEDGER
     inp = {"session_id": "stall-test", "cwd": str(tmp_path)}
@@ -281,7 +295,7 @@ def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
     note_completion_block(led, 6)
     save_ledger(inp, led)
     reloaded = load_ledger(inp)
-    assert reloaded["completion_stall_blocks"] == 2          # survived the round-trip
+    assert reloaded["completion_stall_blocks"] == 2  # survived the round-trip
     assert reloaded["completion_prev_incomplete"] == 6
     # And a third no-progress block keeps accumulating (it would reset to 1 if dropped).
     assert note_completion_block(reloaded, 6) is (3 >= COMPLETION_MAX_STALLED_BLOCKS)
@@ -290,15 +304,19 @@ def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
 
 # --- layer 0: judge sees ALL requirements (root-cause fix) ------------------
 
+
 def test_judge_user_lists_all_requirements():
     """The per-task judge payload must expose EVERY current requirement (agent +
     validated), not only judge-added ones, so the judge can tell a goal aspect is
     already covered and not re-derive it. Root cause of the redundancy loop: the
     agent's own requirements were invisible to the judge."""
-    spec = {"restated_goal": "g", "tasks": [
-        _task("T1", "validated", check="pytest -k a", title="already covered thing", added_by="agent"),
-        _task("T2", "pending", check="pytest -k b", title="being judged", added_by="agent"),
-    ]}
+    spec = {
+        "restated_goal": "g",
+        "tasks": [
+            _task("T1", "validated", check="pytest -k a", title="already covered thing", added_by="agent"),
+            _task("T2", "pending", check="pytest -k b", title="being judged", added_by="agent"),
+        ],
+    }
     payload = json.loads(_judge_user(spec, spec["tasks"][1], 0, "ok"))
     current = payload.get("current_requirements") or []
     titles = {r.get("title") for r in current}
@@ -311,8 +329,7 @@ def test_judge_user_lists_all_requirements():
 
 def test_current_requirements_payload_includes_all_tasks_not_truncated():
     """Every prior task is passed to the judge -- no tail truncation."""
-    tasks = [_task(f"T{i}", "pending" if i % 2 else "validated", check=f"pytest -k t{i}")
-             for i in range(1, 46)]
+    tasks = [_task(f"T{i}", "pending" if i % 2 else "validated", check=f"pytest -k t{i}") for i in range(1, 46)]
     spec = {"restated_goal": "g", "tasks": tasks}
     payload = _current_requirements_payload(spec)
     assert len(payload) == 45
@@ -385,7 +402,9 @@ def test_dedup_drops_reworded_title_duplicate(tmp_path, monkeypatch):
     reworded = {"title": "  Handle Errors  ", "check": "pytest -k diff"}  # vs existing "handle errors"
     distinct = {"title": "validate timeouts", "check": "pytest -k to"}
     spec = _single_pending(
-        tmp_path, monkeypatch, [reworded, distinct],
+        tmp_path,
+        monkeypatch,
+        [reworded, distinct],
         base_check="pytest -k base",
         extra=[_task("E1", "validated", check="pytest -k e", title="handle errors", added_by="agent")],
     )
@@ -409,7 +428,8 @@ def test_dedup_drops_extension_title_duplicate_in_same_batch(tmp_path, monkeypat
     spec = _single_pending(tmp_path, monkeypatch, [short, long])
     spec, _ = auto_validate_spec(spec, str(tmp_path))
     auth_titles = [
-        t["title"] for t in spec["tasks"]
+        t["title"]
+        for t in spec["tasks"]
         if "token refresh failures" in str(t.get("title") or "").lower() and t.get("added_by") == "judge"
     ]
     assert len(auth_titles) == 1
@@ -420,7 +440,8 @@ def test_dedup_drops_shorter_when_longer_already_on_board(tmp_path, monkeypatch)
     """A judge re-derivation whose title is a prefix of an existing requirement
     is refused even when the check differs."""
     existing = _task(
-        "E1", "validated",
+        "E1",
+        "validated",
         title="Handle authentication token refresh failures in production paths",
         check="pytest -k probe",
         added_by="agent",
@@ -432,8 +453,7 @@ def test_dedup_drops_shorter_when_longer_already_on_board(tmp_path, monkeypatch)
     spec = _single_pending(tmp_path, monkeypatch, [rederive], extra=[existing])
     spec, _ = auto_validate_spec(spec, str(tmp_path))
     judge_added = [
-        t for t in spec["tasks"]
-        if t.get("added_by") == "judge" and "token refresh failures" in str(t.get("title") or "").lower()
+        t for t in spec["tasks"] if t.get("added_by") == "judge" and "token refresh failures" in str(t.get("title") or "").lower()
     ]
     assert judge_added == []
 
@@ -455,8 +475,7 @@ def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
 
     def judge_via_payload(sp, items, *, transcript="", plan_mode=None, **_kw):
         payload = json.loads(spec_mod._build_validate_all_user(sp, items))
-        titles = {str(r.get("title") or "").strip().lower()
-                  for r in payload.get("current_requirements") or []}
+        titles = {str(r.get("title") or "").strip().lower() for r in payload.get("current_requirements") or []}
         want = {"title": "no duplicate judge or hint", "check": "pytest -k rederived"}
         new = [] if want["title"].lower() in titles else [want]
         return [(1, "ok", new, "") for _ in items]

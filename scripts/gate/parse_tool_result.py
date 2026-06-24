@@ -23,7 +23,6 @@ from typing import Any
 
 from ledger import classify_path_kind, redact
 
-
 VERIFY_RE = re.compile(
     r"(?i)\b("
     r"pytest|unittest|go\s+test|cargo\s+test|npm\s+test|pnpm\s+test|yarn\s+test|bun\s+test|"
@@ -39,20 +38,18 @@ VERIFY_RE = re.compile(
 # 1-9...), so a passing "12 passed, 0 failed" summary stays clean.
 STRONG_FAILURE_RE = re.compile(
     r"(?im)("
-    r"\btraceback \(most recent call last\)"            # python crash
-    r"|: command not found"                              # shell: missing program
-    r"|\bsegmentation fault\b|\bcore dumped\b"            # native crash
-    r"|\bpanicked at\b"                                  # rust panic
-    r"|^fatal: |^fatal error:"                           # git / clang
-    r"|\bexit (?:code|status) [1-9][0-9]*\b"             # explicit non-zero exit
+    r"\btraceback \(most recent call last\)"  # python crash
+    r"|: command not found"  # shell: missing program
+    r"|\bsegmentation fault\b|\bcore dumped\b"  # native crash
+    r"|\bpanicked at\b"  # rust panic
+    r"|^fatal: |^fatal error:"  # git / clang
+    r"|\bexit (?:code|status) [1-9][0-9]*\b"  # explicit non-zero exit
     r"|\bexited with code [1-9][0-9]*\b"
-    r"|\b[1-9][0-9]*\s+(?:tests?\s+)?failed\b"           # 'N failed' (never '0 failed')
-    r"|\b[1-9][0-9]*\s+(?:previous\s+)?errors?\b"        # 'N errors' / rust 'N previous errors'
+    r"|\b[1-9][0-9]*\s+(?:tests?\s+)?failed\b"  # 'N failed' (never '0 failed')
+    r"|\b[1-9][0-9]*\s+(?:previous\s+)?errors?\b"  # 'N errors' / rust 'N previous errors'
     r")"
 )
-SUCCESS_RE = re.compile(
-    r"(?i)\b(passed|success|succeeded|0 failed|0 errors?|build completed|done|valid|ok)\b"
-)
+SUCCESS_RE = re.compile(r"(?i)\b(passed|success|succeeded|0 failed|0 errors?|build completed|done|valid|ok)\b")
 MUTATING_BASH_RE = re.compile(
     r"(?i)\b(apply_patch|python\s+.*\s+-m\s+compileall|chmod|mkdir|mv|cp|rm|touch|"
     r"npm\s+run\s+build|pnpm\s+build|yarn\s+build)\b"
@@ -117,8 +114,7 @@ def response_text(value: Any, limit: int = 4000) -> str:
 # read-style programs with a clean `prog [flags] FILE...` shape. Script-taking
 # readers (awk/sed/jq/yq) are deliberately excluded: their first arg is code,
 # not a file, so path extraction would be fabricable.
-_READ_PROGS = {"cat", "bat", "head", "tail", "nl", "less", "more",
-               "grep", "egrep", "fgrep", "rg", "ag", "ack", "xmllint"}
+_READ_PROGS = {"cat", "bat", "head", "tail", "nl", "less", "more", "grep", "egrep", "fgrep", "rg", "ag", "ack", "xmllint"}
 # grep-family: the first non-flag arg is the PATTERN, not a file -- skip it.
 _GREP_FAMILY = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
 # fetch-style programs (URL retrievers). Matched in command position only.
@@ -157,7 +153,7 @@ def _drop_redirections(toks: list[str]) -> list[str]:
         m = _REDIRECT_OP_RE.match(t)
         if m:
             op = m.group(1)
-            rest = t[m.end():]
+            rest = t[m.end() :]
             is_fd_dup = bool(re.search(r"[<>]&", op))
             if rest == "" and not is_fd_dup:
                 expect_target = True  # bare `>` / `2>` -> next token is the target
@@ -503,8 +499,8 @@ def _failure_signature(summary: str) -> str:
     differ between occurrences of the same failure, so collapse them so that
     e.g. two 'ECONNREFUSED localhost:5432' land on the same class."""
     s = (summary or "").lower()
-    s = re.sub(r"[/\\][^\s]+", " path ", s)   # paths vary
-    s = re.sub(r"\d+", "#", s)                # numbers vary
+    s = re.sub(r"[/\\][^\s]+", " path ", s)  # paths vary
+    s = re.sub(r"\d+", "#", s)  # numbers vary
     s = re.sub(r"\s+", " ", s).strip()
     return s[:80]
 

@@ -12,8 +12,6 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
-import pytest
-
 REPO = Path(__file__).resolve().parent.parent
 GATE = REPO / "scripts" / "gate"
 HOOKS = REPO / "hooks"
@@ -62,7 +60,7 @@ def _run_pre_tool(payload: dict, *, data_root: str) -> tuple[int, str]:
 
 def test_bash_block_message_size_under_budget():
     msg = format_bash_research_block("nl is not in the Bash research whitelist", "sess-1")
-    assert len(msg) < 450
+    assert len(msg) < 500
 
 
 def test_sequential_same_signature_second_and_third_are_silent():

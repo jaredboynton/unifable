@@ -73,10 +73,7 @@ def match_routes(prompt: str, routes: list[PackRoute]) -> list[PackRoute]:
 
 
 def format_context(matched: list[PackRoute], *, packs_root: str) -> str:
-    blocks = [
-        f"[unifable:{route.tag}] {route.label} — {route.summary}\n{route.body}"
-        for route in matched
-    ]
+    blocks = [f"[unifable:{route.tag}] {route.label} — {route.summary}\n{route.body}" for route in matched]
     return "\n\n".join(blocks)
 
 

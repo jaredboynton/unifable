@@ -7,6 +7,7 @@ pre_tool_use and gate_stop enforce that a spec's citations match it.
 
 Runs under pytest or standalone (python3 tests/test_citation_verify.py).
 """
+
 import json
 import os
 import subprocess
@@ -35,13 +36,14 @@ def _bash(cmd):
 
 # ------------------------------------------------------ bypass regression (extractors)
 
+
 def test_bash_comment_does_not_register_read():
     assert read_targets(_bash("# cat secret.py")) == []
     assert read_targets(_bash(": cat secret.py")) == []  # ':' is the program, not cat
 
 
 def test_non_read_program_does_not_register():
-    assert read_targets(_bash("echo cat src/x.py")) == []      # echo is the program
+    assert read_targets(_bash("echo cat src/x.py")) == []  # echo is the program
     assert read_targets(_bash("echo https://cited.url")) == []  # echo is not a fetcher
     assert fetched_url_targets(_bash("echo https://cited.url")) == []
 
@@ -115,33 +117,42 @@ def test_failed_command_not_recorded():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "CF"
         # A grep that errors (exit 2) must NOT register the file as read.
-        _run("gate_post_tool.py", {"tool_name": "Bash", "session_id": sess, "cwd": cwd,
-             "tool_input": {"command": "grep foo src/missing.py"},
-             "tool_response": {"exit_code": 2, "stdout": "", "stderr": "No such file"}}, dd)
+        _run(
+            "gate_post_tool.py",
+            {
+                "tool_name": "Bash",
+                "session_id": sess,
+                "cwd": cwd,
+                "tool_input": {"command": "grep foo src/missing.py"},
+                "tool_response": {"exit_code": 2, "stdout": "", "stderr": "No such file"},
+            },
+            dd,
+        )
         os.environ["UNIFABLE_DATA"] = dd
         assert load_ledger({"session_id": sess, "cwd": cwd}).get("read_paths", []) == []
 
 
 # --------------------------------------------------------------------------- unit
 
+
 def test_path_match_resolves_and_rejects_bare_basename():
     cwd = "/repo"
     assert path_was_read("scripts/gate/spec.py:192", ["/repo/scripts/gate/spec.py"], cwd)
     assert path_was_read("a/b/c.py:5", ["/elsewhere/a/b/c.py"], cwd)  # multi-seg suffix ok
-    assert not path_was_read("utils.py:1", ["/x/utils.py"], cwd)      # bare basename rejected
+    assert not path_was_read("utils.py:1", ["/x/utils.py"], cwd)  # bare basename rejected
     assert not path_was_read("scripts/gate/spec.py:1", ["/repo/other.py"], cwd)
 
 
 def test_url_match_normalizes_and_is_not_prefix_exploitable():
     assert url_was_fetched("https://x.com/doc", ["http://x.com/doc/?q=1#f"])  # scheme/slash/query ignored
     assert not url_was_fetched("https://x.com/doc", ["https://x.com/other"])
-    assert not url_was_fetched("https://", ["https://anything.com/p"])        # empty host never matches
+    assert not url_was_fetched("https://", ["https://anything.com/p"])  # empty host never matches
 
 
 def test_command_match_segments_and_token_prefix():
-    assert command_was_run("pytest tests/", ["cd sub && pytest tests/ -v"])   # segment + extra args ok
-    assert not command_was_run("pytest tests/", ["echo pytest tests/"])       # neutralized, not a prefix
-    assert not command_was_run("pytest tests/unit", ["pytest tests/"])        # narrower run != broad cite
+    assert command_was_run("pytest tests/", ["cd sub && pytest tests/ -v"])  # segment + extra args ok
+    assert not command_was_run("pytest tests/", ["echo pytest tests/"])  # neutralized, not a prefix
+    assert not command_was_run("pytest tests/unit", ["pytest tests/"])  # narrower run != broad cite
 
 
 def test_verify_citations_all_backed_and_none_backed():
@@ -182,14 +193,16 @@ def test_format_citation_verify_message_no_repeated_boilerplate():
 
 # --------------------------------------------------------------------- integration
 
+
 def _run(hook, payload, data_dir, grade="STANDARD"):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
     env["UNIFABLE_GRADE"] = grade
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.pop("CODEX_THREAD_ID", None)
-    p = subprocess.run([sys.executable, str(REPO / "hooks" / hook)],
-                       input=json.dumps(payload), capture_output=True, text=True, env=env)
+    p = subprocess.run(
+        [sys.executable, str(REPO / "hooks" / hook)], input=json.dumps(payload), capture_output=True, text=True, env=env
+    )
     try:
         out = json.loads(p.stdout) if p.stdout.strip() else {}
     except json.JSONDecodeError:
@@ -198,8 +211,7 @@ def _run(hook, payload, data_dir, grade="STANDARD"):
 
 
 def _record(data_dir, sess, cwd, tool, tool_input):
-    _run("gate_post_tool.py", {"tool_name": tool, "tool_input": tool_input,
-                               "session_id": sess, "cwd": cwd}, data_dir)
+    _run("gate_post_tool.py", {"tool_name": tool, "tool_input": tool_input, "session_id": sess, "cwd": cwd}, data_dir)
 
 
 def test_post_tool_records_generic_tool_result_activity():
@@ -223,6 +235,7 @@ def test_post_tool_records_generic_tool_result_activity():
 
 def _seed_spec(cwd, task_id, repo_context, prior_art, data_dir):
     from spec import save_spec, spec_template
+
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
     env["CLAUDE_CODE_SESSION_ID"] = task_id
@@ -256,9 +269,17 @@ def test_pre_tool_use_allows_when_citations_backed():
         os.environ["UNIFABLE_DATA"] = dd  # so load_ledger below reads the seeded ledger
         recorded = load_ledger({"session_id": sess, "cwd": cwd}).get("read_paths", [])
         assert str(Path(x).resolve()) in recorded, f"Read should be recorded (resolved); got {recorded}"
-        _seed_spec(cwd, sess, f"src/mod.py:1::the module under change", f"{url}::guide backs it", dd)
-        rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
-                             "tool_input": {"file_path": x, "old_string": "a", "new_string": "b"}}, dd)
+        _seed_spec(cwd, sess, "src/mod.py:1::the module under change", f"{url}::guide backs it", dd)
+        rc, _out, err = _run(
+            "pre_tool_use.py",
+            {
+                "tool_name": "Edit",
+                "session_id": sess,
+                "cwd": cwd,
+                "tool_input": {"file_path": x, "old_string": "a", "new_string": "b"},
+            },
+            dd,
+        )
         assert rc == 0, f"backed citations should allow the edit; stderr={err}"
 
 
@@ -268,9 +289,16 @@ def test_pre_tool_use_blocks_unread_repo_context():
         url = "https://docs.example.com/guide"
         _record(dd, sess, cwd, "WebFetch", {"url": url})  # fetched the url, but never read the cited file
         _seed_spec(cwd, sess, "src/never_read.py:10::claimed but unread", f"{url}::guide", dd)
-        rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
-                             "tool_input": {"file_path": str(Path(cwd) / "impl.py"),
-                                            "old_string": "a", "new_string": "b"}}, dd)
+        rc, _out, err = _run(
+            "pre_tool_use.py",
+            {
+                "tool_name": "Edit",
+                "session_id": sess,
+                "cwd": cwd,
+                "tool_input": {"file_path": str(Path(cwd) / "impl.py"), "old_string": "a", "new_string": "b"},
+            },
+            dd,
+        )
         assert rc == 2, "unread repo_context citation must block the edit"
         assert "never read" in err.lower(), err
 
@@ -282,8 +310,16 @@ def test_pre_tool_use_blocks_unfetched_prior_art():
         Path(x).write_text("x\n")
         _record(dd, sess, cwd, "Read", {"file_path": x})  # read the file, but never fetched the url
         _seed_spec(cwd, sess, "a.py:1::read it", "https://unfetched.example.com/x::never fetched", dd)
-        rc, _out, err = _run("pre_tool_use.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
-                             "tool_input": {"file_path": x, "old_string": "a", "new_string": "b"}}, dd)
+        rc, _out, err = _run(
+            "pre_tool_use.py",
+            {
+                "tool_name": "Edit",
+                "session_id": sess,
+                "cwd": cwd,
+                "tool_input": {"file_path": x, "old_string": "a", "new_string": "b"},
+            },
+            dd,
+        )
         assert rc == 2, "unfetched prior_art citation must block the edit"
         assert "never fetched" in err.lower(), err
 
@@ -296,11 +332,20 @@ def test_disable_env_escape_hatch():
         env.update({"UNIFABLE_DATA": dd, "UNIFABLE_GRADE": "STANDARD", "UNIFABLE_VERIFY_CITATIONS": "0"})
         env.pop("CLAUDE_CODE_SESSION_ID", None)
         env.pop("CODEX_THREAD_ID", None)
-        p = subprocess.run([sys.executable, str(REPO / "hooks" / "pre_tool_use.py")],
-                           input=json.dumps({"tool_name": "Edit", "session_id": sess, "cwd": cwd,
-                                             "tool_input": {"file_path": str(Path(cwd) / "impl.py"),
-                                                            "old_string": "a", "new_string": "b"}}),
-                           capture_output=True, text=True, env=env)
+        p = subprocess.run(
+            [sys.executable, str(REPO / "hooks" / "pre_tool_use.py")],
+            input=json.dumps(
+                {
+                    "tool_name": "Edit",
+                    "session_id": sess,
+                    "cwd": cwd,
+                    "tool_input": {"file_path": str(Path(cwd) / "impl.py"), "old_string": "a", "new_string": "b"},
+                }
+            ),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
         assert p.returncode == 0, f"UNIFABLE_VERIFY_CITATIONS=0 must waive the cross-check; stderr={p.stderr}"
 
 

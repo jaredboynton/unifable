@@ -81,18 +81,20 @@ def test_router_fixture_renders_matched_pack_context():
     ctx = out["hookSpecificOutput"]["additionalContext"]
     assert isinstance(ctx, str)
     assert ctx.strip(), "router fixture produced empty additionalContext"
-    for tag in ("[unifable:investigation]", "[unifable:grounding]",
-                "[unifable:decision-trace]", "[unifable:domain-verify]",
-                "[unifable:subagent-brief]"):
+    for tag in (
+        "[unifable:investigation]",
+        "[unifable:grounding]",
+        "[unifable:decision-trace]",
+        "[unifable:domain-verify]",
+        "[unifable:subagent-brief]",
+    ):
         assert tag in ctx, f"router fixture missing pack tag {tag}"
 
 
 def test_generated_hook_docs_contain_router_pack_context():
     for host in ("claude", "codex"):
         doc = generate_docs.render_hook_doc(host)
-        assert "[unifable:investigation]" in doc, (
-            f"{host} hook doc missing router pack context (fixture returned empty)"
-        )
+        assert "[unifable:investigation]" in doc, f"{host} hook doc missing router pack context (fixture returned empty)"
 
 
 def test_generated_docs_write_and_check_round_trip(tmp_path):

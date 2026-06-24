@@ -38,12 +38,8 @@ except ImportError:  # pragma: no cover
 
 GATE_PREFIX = "unifable pre-edit gate: "
 
-_WHITELIST_DETAIL_RE = re.compile(
-    r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE
-)
-_PIPELINE_DETAIL_RE = re.compile(
-    r"^(\S+) is not an allowed read-only pipeline sink$", re.IGNORECASE
-)
+_WHITELIST_DETAIL_RE = re.compile(r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE)
+_PIPELINE_DETAIL_RE = re.compile(r"^(\S+) is not an allowed read-only pipeline sink$", re.IGNORECASE)
 
 
 def block_epoch(input_data: dict[str, Any], ledger: dict[str, Any] | None = None) -> str:
@@ -80,10 +76,7 @@ def normalize_bash_detail(why: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:12]
 
 
-_UNLOCK_LINE = (
-    "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... "
-    "(HEAVY: set-primary, add-frontier)."
-)
+_UNLOCK_LINE = "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier)."
 
 
 def _session_line(session_id: str) -> str:
@@ -180,7 +173,10 @@ def _pretool_lock(input_data: dict[str, Any]):
 
 
 def _record_pretool_block_in_lock(
-    input_data: dict[str, Any], ledger: dict[str, Any], kind: str, detail: str,
+    input_data: dict[str, Any],
+    ledger: dict[str, Any],
+    kind: str,
+    detail: str,
 ) -> None:
     ledger["pretool_last_block_kind"] = str(kind or "")[:40]
     ledger["pretool_last_block_detail"] = " ".join(str(detail or "").split())[:200]

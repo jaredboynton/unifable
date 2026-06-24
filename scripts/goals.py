@@ -15,11 +15,12 @@ Usage:
   goals.py status
 State directory: ./.unifable/ (run from the repo root)
 """
+
 import argparse
 import json
 import os
 import sys
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 # Reuse the gate's hardened atomic writer (unique temp + os.replace) so two
@@ -49,7 +50,7 @@ def _ledger_file() -> Path:
 
 
 def now():
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def log(event, **kw):
@@ -81,8 +82,7 @@ def cmd_create(a):
         if "::" not in g:
             sys.exit(f"unifable: --goal format is 'title::objective' — invalid: {g}")
         title, obj = g.split("::", 1)
-        goals.append({"id": f"G{i:03d}", "title": title.strip(), "objective": obj.strip(),
-                      "status": "pending", "evidence": None})
+        goals.append({"id": f"G{i:03d}", "title": title.strip(), "objective": obj.strip(), "status": "pending", "evidence": None})
     if not goals:
         sys.exit("unifable: at least one --goal is required.")
     save({"brief": a.brief, "created": now(), "goals": goals})
@@ -100,18 +100,22 @@ def cmd_next(a):
     else:
         pending = [g for g in plan["goals"] if g["status"] == "pending"]
         if not pending:
-            print("unifable: all stories complete ✓"); return
+            print("unifable: all stories complete ✓")
+            return
         g = pending[0]
         g["status"] = "in_progress"
-        save(plan); log("story_started", id=g["id"], title=g["title"])
+        save(plan)
+        log("story_started", id=g["id"], title=g["title"])
     is_final = g["id"] == plan["goals"][-1]["id"]
     print(f"=== unifable handoff — {g['id']} {g['title']}")
     print(f"Objective: {g['objective']}")
     print("Rule: work this story only. Produce evidence as you go.")
     if is_final:
         print("★ Final story — the complete checkpoint requires --verify-cmd and --verify-evidence (verification gate).")
-    print(f"On completion: goals.py checkpoint --id {g['id']} --status complete --evidence \"<evidence>\""
-          + (" --verify-cmd \"<command>\" --verify-evidence \"<result>\"" if is_final else ""))
+    print(
+        f'On completion: goals.py checkpoint --id {g["id"]} --status complete --evidence "<evidence>"'
+        + (' --verify-cmd "<command>" --verify-evidence "<result>"' if is_final else "")
+    )
 
 
 def cmd_checkpoint(a):
@@ -126,15 +130,22 @@ def cmd_checkpoint(a):
             sys.exit("unifable: a complete checkpoint requires non-empty --evidence.")
         if g["id"] == plan["goals"][-1]["id"]:
             if not (a.verify_cmd and a.verify_cmd.strip() and a.verify_evidence and a.verify_evidence.strip()):
-                sys.exit("unifable: the final story cannot complete without --verify-cmd and --verify-evidence (verification gate).")
+                sys.exit(
+                    "unifable: the final story cannot complete without --verify-cmd and --verify-evidence (verification gate)."
+                )
     g["status"] = a.status
     g["evidence"] = a.evidence
     save(plan)
-    log("checkpoint", id=g["id"], status=a.status, evidence=a.evidence,
-        verify_cmd=a.verify_cmd, verify_evidence=a.verify_evidence)
+    log(
+        "checkpoint", id=g["id"], status=a.status, evidence=a.evidence, verify_cmd=a.verify_cmd, verify_evidence=a.verify_evidence
+    )
     print(f"unifable: {g['id']} → {a.status}")
     remaining = [x for x in plan["goals"] if x["status"] in ("pending", "in_progress")]
-    print("unifable: all stories complete ✓" if not remaining else f"unifable: {len(remaining)} stories left — continue with `next`.")
+    print(
+        "unifable: all stories complete ✓"
+        if not remaining
+        else f"unifable: {len(remaining)} stories left — continue with `next`."
+    )
 
 
 def cmd_status(a):
@@ -143,18 +154,22 @@ def cmd_status(a):
     print(f"unifable: {done}/{len(plan['goals'])} complete — {plan['brief']}")
     mark = {"complete": "✓", "in_progress": "▶", "pending": "·", "failed": "✗", "blocked": "■"}
     for g in plan["goals"]:
-        print(f"  {mark.get(g['status'],'?')} {g['id']} [{g['status']}] {g['title']}")
+        print(f"  {mark.get(g['status'], '?')} {g['id']} [{g['status']}] {g['title']}")
 
 
 def main():
     p = argparse.ArgumentParser(prog="goals.py")
     sub = p.add_subparsers(dest="cmd", required=True)
-    c = sub.add_parser("create"); c.add_argument("--brief", required=True)
-    c.add_argument("--goal", action="append", default=[]); c.add_argument("--force", action="store_true")
+    c = sub.add_parser("create")
+    c.add_argument("--brief", required=True)
+    c.add_argument("--goal", action="append", default=[])
+    c.add_argument("--force", action="store_true")
     sub.add_parser("next")
-    k = sub.add_parser("checkpoint"); k.add_argument("--id", required=True)
+    k = sub.add_parser("checkpoint")
+    k.add_argument("--id", required=True)
     k.add_argument("--status", required=True, choices=["complete", "failed", "blocked"])
-    k.add_argument("--evidence", default=""); k.add_argument("--verify-cmd", dest="verify_cmd", default="")
+    k.add_argument("--evidence", default="")
+    k.add_argument("--verify-cmd", dest="verify_cmd", default="")
     k.add_argument("--verify-evidence", dest="verify_evidence", default="")
     sub.add_parser("status")
     a = p.parse_args()

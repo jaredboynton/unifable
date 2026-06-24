@@ -5,6 +5,7 @@ Verifies the schema is clean, parse_grade_verdict coerces bad input safely,
 and fail-open returns normal.
 Run: python3 -m pytest tests/test_grade_classify_judge.py -q
 """
+
 from __future__ import annotations
 
 import sys
@@ -15,8 +16,8 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 import grade_override as go  # noqa: E402
 
-
 # Schema ---------------------------------------------------------------------
+
 
 def test_schema_is_mode_risk_flags_reason():
     props = go._GRADE_SCHEMA["properties"]
@@ -27,6 +28,7 @@ def test_schema_is_mode_risk_flags_reason():
 
 
 # parse_grade_verdict --------------------------------------------------------
+
 
 def test_parse_valid_verdict():
     mode, flags, reason, profile = go.parse_grade_verdict(
@@ -58,9 +60,7 @@ def test_parse_operational_deep_coerced_to_normal():
 
 
 def test_parse_bad_mode_falls_to_normal():
-    mode, _, _, profile = go.parse_grade_verdict(
-        {"mode": "invalid", "risk_flags": [], "reason": "", "evidence_profile": "code"}
-    )
+    mode, _, _, profile = go.parse_grade_verdict({"mode": "invalid", "risk_flags": [], "reason": "", "evidence_profile": "code"})
     assert mode == "normal"
     assert profile == "code"
 
@@ -74,13 +74,12 @@ def test_parse_none_verdict_fails_open():
 
 
 def test_parse_non_list_risk_flags():
-    _, flags, _, _ = go.parse_grade_verdict(
-        {"mode": "quick", "risk_flags": "oops", "reason": "", "evidence_profile": "code"}
-    )
+    _, flags, _, _ = go.parse_grade_verdict({"mode": "quick", "risk_flags": "oops", "reason": "", "evidence_profile": "code"})
     assert flags == []
 
 
 # judge_grade_classify fail-open ---------------------------------------------
+
 
 def test_judge_returns_none_on_empty_operative():
     assert go.judge_grade_classify("") is None
@@ -90,6 +89,7 @@ def test_judge_returns_none_on_empty_operative():
 def test_judge_fail_open_on_transport_error():
     def boom(**kw):
         raise RuntimeError("transport down")
+
     assert go.judge_grade_classify("fix the bug", judge_fn=boom) is None
 
 

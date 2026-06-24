@@ -31,10 +31,12 @@ def _task(tid, status, check="true", title=None):
 
 
 def _write_transcript(path: Path, marker: str) -> None:
-    line = json.dumps({
-        "type": "user",
-        "message": {"role": "user", "content": [{"type": "text", "text": marker}]},
-    })
+    line = json.dumps(
+        {
+            "type": "user",
+            "message": {"role": "user", "content": [{"type": "text", "text": marker}]},
+        }
+    )
     path.write_text(line + "\n", encoding="utf-8")
 
 
@@ -141,9 +143,7 @@ def test_auto_validate_transcript_reaches_judge_system(tmp_path, monkeypatch):
 
 
 def _record_line(text: str) -> str:
-    return json.dumps(
-        {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
-    )
+    return json.dumps({"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}})
 
 
 def _prefix_changes(render, tmp_path, *, appends=60) -> int:

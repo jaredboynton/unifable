@@ -20,8 +20,8 @@ four cases:
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet), Bash may run only `cd`, `ls`, `glob`,
      `rg`, read-only `git` subcommands and workflow git (`status`, `add`, `commit`,
-     `push` without `--force`), a file whose basename is `trace.sh` when the explore
-     skill is installed (guidance shows the resolved path), or a user-facing
+     `push` without `--force`), a file whose basename is `trace.sh` or `websearch.sh`
+     when the explore skill is installed (guidance shows resolved paths), or a user-facing
      unifusion skill script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`,
      `resolve_session.sh`). A valid spec unlocks the action phase (all shell
      commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
@@ -55,6 +55,12 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 from bash_classify import blocked_agent_env_reason, is_allowed_research_bash
 from citations import format_citation_verify_message
 from evidence_policy import resolve_evidence_profile, resolve_grade
+from heavy_workflow import (
+    compute_heavy_phase,
+    edit_targets_primary_scope,
+    heavy_declare_complete,
+    heavy_workflow_brief,
+)
 from ledger import data_root, emit_json, load_ledger, read_stdin_json, update_ledger
 from pretool_block import (
     block_epoch,
@@ -67,12 +73,6 @@ from pretool_block import (
     normalize_bash_detail,
 )
 from research_bash_guidance import bash_allowed_summary
-from heavy_workflow import (
-    compute_heavy_phase,
-    edit_targets_primary_scope,
-    heavy_declare_complete,
-    heavy_workflow_brief,
-)
 from spec import (
     canonical_project_root,
     contract_string,
@@ -129,6 +129,7 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
 # ---------------------------------------------------------------------------
 # Extract the target file path from tool input
 # ---------------------------------------------------------------------------
+
 
 def _target_path(tool_name: str, tool_input: dict) -> str | None:
     if not isinstance(tool_input, dict):
@@ -217,9 +218,9 @@ def _write_targets(tool_name: str, tool_input) -> list[str]:
 # editors (`sed -i`, `perl -i`), and `tee`. Used only to decide whether to scan a
 # command's tokens for protected targets — conservative by design.
 _BASH_EXTRA_MUTATE_RE = re.compile(
-    r"(?i)(?:>>?|"            # output redirect
-    r"\btee\b|"               # tee writes its file args
-    r"\bsed\b[^|;&]*\s-[A-Za-z]*i|"   # sed -i / -Ei in-place
+    r"(?i)(?:>>?|"  # output redirect
+    r"\btee\b|"  # tee writes its file args
+    r"\bsed\b[^|;&]*\s-[A-Za-z]*i|"  # sed -i / -Ei in-place
     r"\bperl\b[^|;&]*\s-[A-Za-z]*i)"  # perl -i in-place
 )
 
@@ -249,9 +250,7 @@ def _bash_protected_write(command: str, cwd: str | Path) -> str | None:
         # `perl -i`), or `tee` — the very ways `echo x > spec.json` / `sed -i ...
         # spec.json` mutate gate state. Treat those as mutating too so the guard
         # fires before the action phase opens all shell.
-        is_mutating = bool(MUTATING_BASH_RE.search(command)) or bool(
-            _BASH_EXTRA_MUTATE_RE.search(command)
-        )
+        is_mutating = bool(MUTATING_BASH_RE.search(command)) or bool(_BASH_EXTRA_MUTATE_RE.search(command))
         if not is_mutating:
             return None
         try:
@@ -274,6 +273,7 @@ def _bash_protected_write(command: str, cwd: str | Path) -> str | None:
 # Task ID derivation
 # ---------------------------------------------------------------------------
 
+
 def _task_id(input_data: dict) -> str:
     """Derive the spec key. The evidence spec is one per (directory, session), so
     the key is the resolved session id -- stdin session_id, then host env
@@ -285,6 +285,7 @@ def _task_id(input_data: dict) -> str:
 # ---------------------------------------------------------------------------
 # Block helper
 # ---------------------------------------------------------------------------
+
 
 def _plan_mode_state(input_data: dict) -> dict:
     try:
@@ -349,7 +350,9 @@ def _run_spec_hygiene(input_data: dict, cwd: str) -> list[str]:
         from spec_hygiene import apply_spec_hygiene
 
         changed, headlines = apply_spec_hygiene(
-            spec, activity_from_ledger(load_ledger(input_data)), cwd,
+            spec,
+            activity_from_ledger(load_ledger(input_data)),
+            cwd,
         )
         if changed:
             save_spec(cwd, task_id, spec)
@@ -367,6 +370,7 @@ def _allow_notify(input_data: dict, breaker_notify: str, hygiene_headlines: list
 # ---------------------------------------------------------------------------
 # Main gate logic
 # ---------------------------------------------------------------------------
+
 
 def _effective_grade(input_data: dict | None = None) -> str:
     """Grade from UNIFABLE_GRADE, else this session's ledger, else STANDARD.
@@ -406,8 +410,7 @@ def _enforce_heavy_writes(input_data: dict, spec: dict, cwd: str, target: str | 
             detail="declare",
             message=(
                 "HEAVY declare phase: research only — no edits until restated goal, "
-                "citation evidence, >=2 frontier tasks, and 1 primary task exist.\n"
-                + heavy_workflow_brief(spec, phase)
+                "citation evidence, >=2 frontier tasks, and 1 primary task exist.\n" + heavy_workflow_brief(spec, phase)
             ),
         )
     if phase == "frontier" and target and edit_targets_primary_scope(spec, target, cwd):
@@ -419,8 +422,7 @@ def _enforce_heavy_writes(input_data: dict, spec: dict, cwd: str, target: str | 
                 "HEAVY frontier phase: primary approach is blocked. Explore and implement "
                 "ALL frontier approaches first -- the judge adjudicates each on Stop "
                 "(rejected/still_viable/accepted). When all are explored, the judge "
-                "compares evidence and may adopt the best frontier over primary.\n"
-                + heavy_workflow_brief(spec, phase)
+                "compares evidence and may adopt the best frontier over primary.\n" + heavy_workflow_brief(spec, phase)
             ),
         )
     return 0
@@ -448,9 +450,7 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
         )
 
     profile = _evidence_profile(input_data, spec)
-    ok, reasons = validate_spec(
-        spec, grade, require_evidence=True, evidence_profile=profile
-    )
+    ok, reasons = validate_spec(spec, grade, require_evidence=True, evidence_profile=profile)
     if not ok:
         detail = "; ".join(reasons)
         try:
@@ -460,10 +460,15 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
         except Exception:
             _include_contract = True
         message = format_spec_validation_block(
-            grade, reasons, profile, spec, include_contract=_include_contract,
+            grade,
+            reasons,
+            profile,
+            spec,
+            include_contract=_include_contract,
         )
         if _include_contract:
             try:
+
                 def _mark_contract(ld):
                     ld["spec_contract_notified_epoch"] = block_epoch(input_data, ld)
 
@@ -498,8 +503,8 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
 def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     """Research-phase whitelist for Bash (unconditional, no env disable).
 
-    Research phase (no valid spec): allow only cd, ls, glob, rg, trace.sh, and the
-    user-facing unifusion skill scripts so the agent can explore or run a panel
+    Research phase (no valid spec): allow only cd, ls, glob, rg, trace.sh, websearch.sh,
+    and the user-facing unifusion skill scripts so the agent can explore or run a panel
     before unlock. Action phase (valid spec): all shell commands are allowed.
     LIGHT waives entirely."""
     command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
@@ -520,9 +525,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     spec = load_spec(cwd, task_id)
     profile = _evidence_profile(input_data, spec)
     if spec is not None:
-        ok, _ = validate_spec(
-            spec, grade, require_evidence=True, evidence_profile=profile
-        )
+        ok, _ = validate_spec(spec, grade, require_evidence=True, evidence_profile=profile)
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0  # action phase unlocked
 
@@ -548,9 +551,7 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
     spec = load_spec(cwd, task_id)
     profile = _evidence_profile(input_data, spec)
     if spec is not None:
-        ok, _ = validate_spec(
-            spec, grade, require_evidence=True, evidence_profile=profile
-        )
+        ok, _ = validate_spec(spec, grade, require_evidence=True, evidence_profile=profile)
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0
 
@@ -598,9 +599,7 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
         active = str(ledger.get("active_task") or "")
         # Locked load->judge->save: a parallel tool-call batch coalesces to one
         # judge API call instead of one per concurrent PreToolUse process.
-        block, steering, notify, breaker = evaluate_pre_tool_locked(
-            input_data, time.time(), active
-        )
+        block, steering, notify, breaker = evaluate_pre_tool_locked(input_data, time.time(), active)
         if block:
             events = breaker.get("events") if isinstance(breaker.get("events"), list) else []
             if events and events[-1].get("kind") == "REINSTATE":
@@ -640,7 +639,7 @@ def main() -> int:
     # --- Overconfidence/groundedness breaker (runs on EVERY tool; judge debounced
     #     to <=1 call / 15s per session+prompt). Blocks ONLY mutation tools when
     #     gpt-realtime-2 flags a confident unproven claim; reads/web stay free.
-    #     Whitelisted research Bash (cd/ls/glob/rg/trace.sh/unifusion scripts/spec CLI) still passes. ---
+    #     Whitelisted research Bash (cd/ls/glob/rg/trace.sh/websearch.sh/unifusion scripts/spec CLI) still passes. ---
     breaker_block, breaker_notify = _enforce_breaker(input_data)
     if breaker_block is not None:
         if tool_name == "Bash":

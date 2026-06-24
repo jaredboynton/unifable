@@ -14,6 +14,7 @@ reaches it consistently.
 
 Runs under pytest or standalone (python3 tests/test_evidence_policy.py).
 """
+
 from __future__ import annotations
 
 import json
@@ -27,7 +28,6 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 from evidence_policy import (  # noqa: E402
-    MODE_TO_GRADE,
     Policy,
     grade_for_mode,
     higher_mode,
@@ -38,8 +38,8 @@ from evidence_policy import (  # noqa: E402
 )
 from verify_state import should_block_stop  # noqa: E402
 
-
 # --- mode -> grade map -------------------------------------------------------
+
 
 def test_grade_for_mode_canonical_map():
     assert grade_for_mode("quick") == "LIGHT"
@@ -59,6 +59,7 @@ def test_grade_for_mode_is_case_insensitive():
 
 
 # --- Policy object -----------------------------------------------------------
+
 
 def test_policy_properties():
     light = policy_for_mode("quick")
@@ -82,6 +83,7 @@ def test_policy_for_grade_normalizes_and_defaults():
 
 
 # --- resolve_grade precedence ------------------------------------------------
+
 
 def test_env_override_wins():
     ledger = {"active_task": "k", "task_mode": "quick", "grade": "LIGHT"}
@@ -156,6 +158,7 @@ def test_resolve_policy_carries_task_mode():
 
 # --- higher_mode escalation (no-downgrade pin) -------------------------------
 
+
 def test_higher_mode_escalates_never_downgrades():
     assert higher_mode("deep", "quick") == "deep"
     assert higher_mode("quick", "deep") == "deep"
@@ -171,9 +174,9 @@ def test_higher_mode_handles_unknowns():
 
 # --- observation gate keys off grade (HEAVY-only) ----------------------------
 
+
 def _changed_unverified() -> dict:
-    return {"changed_files_seen": True, "change_kinds": ["code"],
-            "verification_results": [], "stop_blocks": 0}
+    return {"changed_files_seen": True, "change_kinds": ["code"], "verification_results": [], "stop_blocks": 0}
 
 
 def test_observation_gate_blocks_only_heavy():
@@ -194,8 +197,7 @@ def test_observation_gate_grade_none_derives_from_task_mode():
 
 
 def test_observation_gate_docs_only_and_verified_do_not_block():
-    docs = {"changed_files_seen": True, "change_kinds": ["docs"],
-            "verification_results": [], "stop_blocks": 0}
+    docs = {"changed_files_seen": True, "change_kinds": ["docs"], "verification_results": [], "stop_blocks": 0}
     assert should_block_stop(docs, "HEAVY")[0] is False
     verified = {**_changed_unverified(), "verification_results": [{"success": True}]}
     assert should_block_stop(verified, "HEAVY")[0] is False
@@ -208,6 +210,7 @@ def test_observation_gate_respects_stop_block_cap():
 
 # --- integration: env override reaches the observation gate via gate_stop -----
 
+
 def _run_stop(payload: dict, data_dir: str, grade: str | None) -> dict:
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
@@ -218,8 +221,9 @@ def _run_stop(payload: dict, data_dir: str, grade: str | None) -> dict:
         env["UNIFABLE_GRADE"] = grade
     else:
         env.pop("UNIFABLE_GRADE", None)
-    p = subprocess.run([sys.executable, str(REPO / "hooks" / "gate_stop.py")],
-                       input=json.dumps(payload), capture_output=True, text=True, env=env)
+    p = subprocess.run(
+        [sys.executable, str(REPO / "hooks" / "gate_stop.py")], input=json.dumps(payload), capture_output=True, text=True, env=env
+    )
     try:
         return json.loads(p.stdout) if p.stdout.strip() else {}
     except json.JSONDecodeError:
@@ -229,24 +233,32 @@ def _run_stop(payload: dict, data_dir: str, grade: str | None) -> dict:
 def _seed_changed_session(cwd: str, dd: str, sess: str, prompt: str) -> None:
     """Classify the prompt, mark a code edit, and write a HEAVY-valid spec at the
     session key so only the observation gate decides."""
+
     def run(hook: str, payload: dict) -> None:
         env = dict(os.environ)
         env["UNIFABLE_DATA"] = dd
         env["UNIFABLE_VERIFY_CITATIONS"] = "0"
         env.pop("CLAUDE_CODE_SESSION_ID", None)
         env.pop("CODEX_THREAD_ID", None)
-        subprocess.run([sys.executable, str(REPO / "hooks" / hook)],
-                       input=json.dumps(payload), capture_output=True, text=True, env=env)
+        subprocess.run(
+            [sys.executable, str(REPO / "hooks" / hook)], input=json.dumps(payload), capture_output=True, text=True, env=env
+        )
 
     run("gate_prompt.py", {"prompt": prompt, "session_id": sess, "cwd": cwd})
-    run("gate_post_tool.py", {"tool_name": "Edit", "session_id": sess, "cwd": cwd,
-                              "tool_input": {"file_path": os.path.join(cwd, "src", "x.py"),
-                                             "old_string": "a", "new_string": "b"}})
+    run(
+        "gate_post_tool.py",
+        {
+            "tool_name": "Edit",
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_input": {"file_path": os.path.join(cwd, "src", "x.py"), "old_string": "a", "new_string": "b"},
+        },
+    )
     old = os.environ.get("UNIFABLE_DATA")
     os.environ["UNIFABLE_DATA"] = dd
     try:
-        from spec import append_frontier_task, save_spec, set_primary_task
         from heavy_workflow import advance_primary_if_ready
+        from spec import append_frontier_task, save_spec, set_primary_task
 
         spec = {
             "restated_goal": "fixture goal",

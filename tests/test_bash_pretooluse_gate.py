@@ -46,6 +46,7 @@ MANIFESTS = {
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _pre_tool_matcher(manifest_path: Path) -> str:
     """Return the PreToolUse matcher whose hook command runs pre_tool_use.py."""
     data = json.loads(manifest_path.read_text())
@@ -122,6 +123,7 @@ def run_pre_tool_bash(
 # Manifest wiring: the actual regression guard for the matcher widen
 # ---------------------------------------------------------------------------
 
+
 def test_both_manifests_route_bash_to_pre_tool_use():
     """Both host PreToolUse matchers must select Bash, or the lockdown never
     fires on that host."""
@@ -158,14 +160,14 @@ def test_both_manifests_route_all_post_tool_results_to_gate_post_tool():
         assert matcher is not None, f"{host}: gate_post_tool is not wired on PostToolUse"
         for tool in ("Read", "WebFetch", "Bash", "mcp__octocode__githubGetFileContent"):
             assert re.match(matcher, tool), (
-                f"{host}: gate_post_tool matcher {matcher!r} drops {tool!r} -- "
-                "tool results from that tool will not log"
+                f"{host}: gate_post_tool matcher {matcher!r} drops {tool!r} -- tool results from that tool will not log"
             )
 
 
 # ---------------------------------------------------------------------------
 # Behavior: the deny survives YOLO and is permission-mode independent
 # ---------------------------------------------------------------------------
+
 
 def test_non_whitelisted_bash_blocked_under_bypass_permissions():
     """A non-whitelisted Bash command is blocked (exit 2) even when the host
@@ -283,7 +285,7 @@ def _run_pre_tool_bash_breaker_on(
 
 
 def test_whitelisted_bash_passes_while_breaker_armed():
-    """Research Bash (rg/ls/glob/trace.sh/spec CLI) must stay available when the
+    """Research Bash (rg/ls/glob/trace.sh/websearch.sh/spec CLI) must stay available when the
     groundedness breaker is armed -- matches context_block.py guidance."""
     rc, stderr = _run_pre_tool_bash_breaker_on("rg --files")
     assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
@@ -299,6 +301,7 @@ def test_mutating_bash_blocked_while_breaker_armed():
 # ---------------------------------------------------------------------------
 # Runner (mirrors test_spec_gate.py so the file runs standalone too)
 # ---------------------------------------------------------------------------
+
 
 def _run_all() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

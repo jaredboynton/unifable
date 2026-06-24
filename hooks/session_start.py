@@ -14,6 +14,7 @@ Two jobs, both fail-open (a hook bug must never stop a session from starting):
 
 Emits {} on any internal error; never blocks.
 """
+
 from __future__ import annotations
 
 import json

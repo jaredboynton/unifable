@@ -18,9 +18,7 @@ import contextvars
 import os
 from typing import Any
 
-_SESSION: contextvars.ContextVar[dict | None] = contextvars.ContextVar(
-    "unifable_judge_session", default=None
-)
+_SESSION: contextvars.ContextVar[dict | None] = contextvars.ContextVar("unifable_judge_session", default=None)
 
 
 def bind_session(input_data: dict | None) -> None:
@@ -98,6 +96,4 @@ def ask_structured(
     def _sink(usage: dict[str, int]) -> None:
         _record(input_data, usage)
 
-    return codex_judge.ask_structured(
-        system, user, schema, schema_name=schema_name, on_usage=_sink, **kwargs
-    )
+    return codex_judge.ask_structured(system, user, schema, schema_name=schema_name, on_usage=_sink, **kwargs)

@@ -9,6 +9,7 @@ Signals: reverts (revert commits), rework_files (files touched in >1 commit =
 churn), reinstructions (optional — user correction turns in a transcript).
 Never touches the gate; reads git/transcript only and appends out-of-band.
 """
+
 from __future__ import annotations
 
 import re
@@ -52,9 +53,10 @@ def git_commits(repo: Path | str, max_count: int = 200) -> list[dict]:
     """Read recent commits with changed files. Returns [] on any failure."""
     try:
         out = subprocess.run(
-            ["git", "-C", str(repo), "log", f"-{max_count}", "--name-only",
-             "--pretty=format:%x01%H%x02%s"],
-            capture_output=True, text=True, timeout=20,
+            ["git", "-C", str(repo), "log", f"-{max_count}", "--name-only", "--pretty=format:%x01%H%x02%s"],
+            capture_output=True,
+            text=True,
+            timeout=20,
         )
         if out.returncode != 0:
             return []

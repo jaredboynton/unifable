@@ -29,7 +29,7 @@ def operative_prompt(prompt: str, *, max_chars: int = _OPERATIVE_MAX_CHARS) -> s
     for marker in _USER_TURN_MARKERS:
         idx = text.rfind(marker)
         if idx >= 0:
-            chunk = text[idx + len(marker):].strip()
+            chunk = text[idx + len(marker) :].strip()
             break
     if len(chunk) > max_chars:
         chunk = chunk[-max_chars:]

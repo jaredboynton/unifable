@@ -7,6 +7,7 @@ rework/revert signals vs a gate-off baseline? Also computes sunset status (§7).
 Pure functions (stratified_compare, sunset_status) are testable without I/O.
 Read-only: never writes, never touches the gate.
 """
+
 from __future__ import annotations
 
 import json
@@ -40,7 +41,7 @@ def stratified_compare(events: list[dict]) -> dict:
     on-vs-off comparison incl. the harness-paradox revert delta (on - off)."""
     arms = ("on", "off")
     sessions = {a: set() for a in arms}
-    fire = {a: [0, 0] for a in arms}        # [would_fire, total]
+    fire = {a: [0, 0] for a in arms}  # [would_fire, total]
     outcomes = {a: [] for a in arms}
     for e in events:
         a = e.get("holdout_arm")
@@ -66,9 +67,7 @@ def stratified_compare(events: list[dict]) -> dict:
             "n_outcomes": len(outcomes[a]),
         }
     on_r, off_r = res["on"]["mean_reverts"], res["off"]["mean_reverts"]
-    res["harness_paradox_revert_delta"] = (
-        None if on_r is None or off_r is None else on_r - off_r
-    )
+    res["harness_paradox_revert_delta"] = None if on_r is None or off_r is None else on_r - off_r
     return res
 
 
@@ -86,8 +85,11 @@ def sunset_status(events: list[dict], horizon: int = SUNSET_SESSIONS) -> dict:
     else:
         rec = "keep collecting (insufficient data)"
     return {
-        "distinct_sessions": n, "horizon": horizon,
-        "signal_present": signal, "expired": expired, "recommendation": rec,
+        "distinct_sessions": n,
+        "horizon": horizon,
+        "signal_present": signal,
+        "expired": expired,
+        "recommendation": rec,
     }
 
 

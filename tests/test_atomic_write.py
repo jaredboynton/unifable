@@ -7,6 +7,7 @@ in one turn) wrote the same per-session ledger. write_text_atomic gives every
 writer a unique temp, so the rename never races. Run:
     python3 tests/test_atomic_write.py
 """
+
 from __future__ import annotations
 
 import json
@@ -21,9 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts" / "gate"))
 
-from atomicio import write_text_atomic, _sweep_orphan_temps  # noqa: E402
-import ledger as L  # noqa: E402
 import findings as F  # noqa: E402
+import ledger as L  # noqa: E402
+from atomicio import _sweep_orphan_temps, write_text_atomic  # noqa: E402
 
 
 class TestAtomicWrite(unittest.TestCase):
@@ -73,6 +74,7 @@ class TestAtomicWrite(unittest.TestCase):
         """save_ledger (the actual reported call site) is race-free under load."""
         with tempfile.TemporaryDirectory() as d:
             import os
+
             os.environ["UNIFABLE_DATA"] = d
             input_data = {"session_id": "abc123def456"}
             errors: list[str] = []
@@ -102,6 +104,7 @@ class TestAtomicWrite(unittest.TestCase):
 class TestOrphanTempSweep(unittest.TestCase):
     def test_old_orphan_temp_is_reaped(self) -> None:
         import os
+
         with tempfile.TemporaryDirectory() as d:
             target = Path(d) / "ledger.json"
             # simulate a temp orphaned by a hard kill, aged past the threshold

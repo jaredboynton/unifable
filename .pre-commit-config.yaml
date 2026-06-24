@@ -1,9 +1,69 @@
 repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.12.0
+    hooks:
+      - id: ruff
+        name: ruff (lint + autofix)
+        args: [--fix, --exit-non-zero-on-fix]
+        stages: [pre-commit]
+      - id: ruff-format
+        name: ruff-format (format + restage)
+        args: []
+        stages: [pre-commit]
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.18.1
+    hooks:
+      - id: mypy
+        name: mypy (type check, advisory)
+        additional_dependencies:
+          - types-all
+        exclude: 'tests/|benchmark/results/|\.venv/|\.unifable/'
+        args: [--no-error-summary]
+        verbose: true
+        stages: [pre-commit]
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        stages: [pre-commit]
+
   - repo: local
     hooks:
+      - id: vulture
+        name: vulture (dead code)
+        entry: vulture
+        language: system
+        types: [python]
+        pass_filenames: false
+        args: [hooks, scripts, tests, --min-confidence, "80"]
+        stages: [pre-commit]
+      - id: deptry
+        name: deptry (unused dependencies)
+        entry: deptry
+        language: system
+        pass_filenames: false
+        args: [., --requirements-files, requirements-dev.txt, --ignore, "DEP001", --known-first-party, "scripts"]
+        stages: [pre-commit]
+      - id: radon-cc
+        name: radon (cyclomatic complexity, advisory)
+        entry: bash -c 'radon cc -s -n C hooks scripts/gate || true'
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+      - id: jscpd
+        name: jscpd (duplicate code)
+        entry: jscpd
+        language: system
+        pass_filenames: false
+        args: []
+        stages: [pre-commit]
       - id: generate-docs
         name: regenerate generated hook-output and judge-prompt docs
         entry: bash -c 'python3 scripts/generate_docs.py && python3 scripts/generate_docs.py --check && git add docs/generated/claude-hookoutputs.md docs/generated/codex-hookoutputs.md docs/generated/judgeprompts.md'
         language: system
         pass_filenames: false
         always_run: true
+        stages: [pre-commit]

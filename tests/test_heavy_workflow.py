@@ -14,8 +14,8 @@ import heavy_workflow as hw  # noqa: E402
 import spec as spec_mod  # noqa: E402
 from spec import (  # noqa: E402
     _cmd_add_frontier,
-    _cmd_set_primary,
     _cmd_restate,
+    _cmd_set_primary,
     all_tasks_validated,
     append_frontier_task,
     judge_discover_frontiers,
@@ -130,15 +130,30 @@ def test_clear_stale_heavy_flag_preserves_genuine_approach_tasks(tmp_path):
 def test_cli_set_primary_and_add_frontier(tmp_path):
     save_spec(str(tmp_path), "K", spec_template())
     _cmd_restate(SimpleNamespace(root=str(tmp_path), task_id="K", goal="Build auth middleware"))
-    _cmd_add_frontier(SimpleNamespace(
-        root=str(tmp_path), task_id="K", title="JWT with rotation", check="pytest tests/test_jwt.py",
-    ))
-    _cmd_add_frontier(SimpleNamespace(
-        root=str(tmp_path), task_id="K", title="Session cookies hardened", check="pytest tests/test_sess.py",
-    ))
-    rc = _cmd_set_primary(SimpleNamespace(
-        root=str(tmp_path), task_id="K", title="HMAC bearer tokens", check="pytest tests/test_hmac.py",
-    ))
+    _cmd_add_frontier(
+        SimpleNamespace(
+            root=str(tmp_path),
+            task_id="K",
+            title="JWT with rotation",
+            check="pytest tests/test_jwt.py",
+        )
+    )
+    _cmd_add_frontier(
+        SimpleNamespace(
+            root=str(tmp_path),
+            task_id="K",
+            title="Session cookies hardened",
+            check="pytest tests/test_sess.py",
+        )
+    )
+    rc = _cmd_set_primary(
+        SimpleNamespace(
+            root=str(tmp_path),
+            task_id="K",
+            title="HMAC bearer tokens",
+            check="pytest tests/test_hmac.py",
+        )
+    )
     assert rc == 0
     spec = load_spec(str(tmp_path), "K")
     assert len(hw.frontier_tasks(spec)) == 2
@@ -176,6 +191,7 @@ def test_frontier_judge_rejected_approach(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
     from spec import _validate_one_task
+
     _validate_one_task(spec, frontier, str(tmp_path))
     assert frontier["status"] == "rejected_approach"
 
@@ -213,6 +229,7 @@ def test_frontier_accepted_outcome(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
     from spec import _validate_one_task
+
     _validate_one_task(spec, frontier, str(tmp_path))
     assert frontier["status"] == "accepted_approach"
 
@@ -239,6 +256,7 @@ def test_comparison_selects_best_frontier(tmp_path, monkeypatch):
     monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
 
     from spec import judge_frontier_comparison
+
     headlines = judge_frontier_comparison(spec)
     assert f1["comparison_winner"] is True
     assert f1["status"] == "accepted_approach"

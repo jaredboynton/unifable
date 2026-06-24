@@ -54,8 +54,7 @@ _SYNTHETIC_INCOMPLETE: dict[str, tuple[str, str]] = {
     ),
     "<need >=2 frontier approach tasks>": (
         "frontier approaches (need >=2)",
-        "HEAVY declare: add >=2 with `unifable add-frontier --title '...' --check '...'` "
-        "(judge may auto-add during research).",
+        "HEAVY declare: add >=2 with `unifable add-frontier --title '...' --check '...'` (judge may auto-add during research).",
     ),
     "<need primary approach task>": (
         "primary approach (missing)",
@@ -83,11 +82,7 @@ def _all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
 
 
 def _tasks_by_id(spec: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    return {
-        str(t.get("id")): t
-        for t in (spec.get("tasks") or [])
-        if isinstance(t, dict) and t.get("id")
-    }
+    return {str(t.get("id")): t for t in (spec.get("tasks") or []) if isinstance(t, dict) and t.get("id")}
 
 
 def _sort_task_ids(ids: set[str]) -> list[str]:
@@ -297,13 +292,9 @@ def collapse_stop_headlines(headlines: list[str]) -> list[str]:
         if len(sorted_tids) == 1:
             out.append(f"Judge retracted {sorted_tids[0]}: {reason}")
         elif _consecutive_task_ids(sorted_tids):
-            out.append(
-                f"Judge retracted {sorted_tids[0]}-{sorted_tids[-1]} (loop release): {reason}"
-            )
+            out.append(f"Judge retracted {sorted_tids[0]}-{sorted_tids[-1]} (loop release): {reason}")
         else:
-            out.append(
-                f"Judge retracted {', '.join(sorted_tids)} (loop release): {reason}"
-            )
+            out.append(f"Judge retracted {', '.join(sorted_tids)} (loop release): {reason}")
     return out
 
 
@@ -375,9 +366,7 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
             lines.append(f"    judge: {reason}")
         if hint:
             lines.append(f"    hint: {hint}")
-    display = [
-        _synthetic_incomplete_label(tid) or tid for tid in ordered
-    ]
+    display = [_synthetic_incomplete_label(tid) or tid for tid in ordered]
     lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(display)})")
     return "\n".join(lines)
 
@@ -434,9 +423,7 @@ def format_spec_action_digest_delta(
     """
     ok, incomplete = _all_tasks_validated(spec)
     cached_raw = ledger.get("posttool_task_guidance")
-    cached: dict[str, dict[str, str]] = (
-        cached_raw if isinstance(cached_raw, dict) else {}
-    )
+    cached: dict[str, dict[str, str]] = cached_raw if isinstance(cached_raw, dict) else {}
     if ok:
         line = "breaker: OPEN (all tasks validated)"
         return line, dict(cached)
@@ -471,9 +458,7 @@ def guidance_covers_incomplete(spec: dict[str, Any], ledger: dict[str, Any]) -> 
     if not incomplete:
         return True
     cached_raw = ledger.get("posttool_task_guidance")
-    cached: dict[str, dict[str, str]] = (
-        cached_raw if isinstance(cached_raw, dict) else {}
-    )
+    cached: dict[str, dict[str, str]] = cached_raw if isinstance(cached_raw, dict) else {}
     for tid in incomplete:
         stid = str(tid)
         if stid.startswith("<"):
@@ -497,7 +482,9 @@ def build_spec_action_context(
     max_items: int = 1,
 ) -> str:
     return format_spec_action_digest(
-        spec, highlight_task=highlight_task, max_items=max_items,
+        spec,
+        highlight_task=highlight_task,
+        max_items=max_items,
     )
 
 
@@ -581,8 +568,7 @@ def _adopted_primary_structural_hint(spec: dict[str, Any], task: dict[str, Any])
     wid = str(winner.get("id") or "")
     tid = str(task.get("id") or "")
     return (
-        f"{tid}: primary must be superseded now that frontier {wid} was adopted "
-        f"(harness auto-heals; do not re-run this check)."
+        f"{tid}: primary must be superseded now that frontier {wid} was adopted (harness auto-heals; do not re-run this check)."
     )
 
 

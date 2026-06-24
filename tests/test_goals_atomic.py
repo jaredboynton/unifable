@@ -11,6 +11,7 @@ keyed by directory + session, so a new session never inherits a prior plan.
 
 Runs under pytest or standalone (python3 tests/test_goals_atomic.py).
 """
+
 import concurrent.futures as cf
 import json
 import os
@@ -39,6 +40,7 @@ def _goals_path(cwd, data_dir):
     os.environ["UNIFABLE_DATA"] = data_dir
     try:
         from spec import session_dir
+
         return session_dir(cwd, SESSION) / "goals.json"
     finally:
         if old is None:
@@ -48,8 +50,7 @@ def _goals_path(cwd, data_dir):
 
 
 def _run(args, cwd, data_dir):
-    return subprocess.run([sys.executable, GOALS_PY, *args], cwd=cwd,
-                          capture_output=True, text=True, env=_env(data_dir))
+    return subprocess.run([sys.executable, GOALS_PY, *args], cwd=cwd, capture_output=True, text=True, env=_env(data_dir))
 
 
 def test_save_uses_atomic_writer():
@@ -92,8 +93,23 @@ def test_create_next_checkpoint_flow():
     with tempfile.TemporaryDirectory() as d, tempfile.TemporaryDirectory() as data:
         assert _run(["create", "--brief", "b", "--goal", "only::do it"], d, data).returncode == 0
         assert _run(["next"], d, data).returncode == 0
-        r = _run(["checkpoint", "--id", "G001", "--status", "complete",
-                  "--evidence", "done", "--verify-cmd", "true", "--verify-evidence", "ok"], d, data)
+        r = _run(
+            [
+                "checkpoint",
+                "--id",
+                "G001",
+                "--status",
+                "complete",
+                "--evidence",
+                "done",
+                "--verify-cmd",
+                "true",
+                "--verify-evidence",
+                "ok",
+            ],
+            d,
+            data,
+        )
         assert r.returncode == 0, r.stderr
         data_json = json.loads(_goals_path(d, data).read_text(encoding="utf-8"))
         assert data_json["goals"][0]["status"] == "complete"

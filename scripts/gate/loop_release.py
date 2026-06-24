@@ -15,9 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 try:
-    COMPLETION_LOOP_JUDGE_THRESHOLD = int(
-        os.environ.get("UNIFABLE_LOOP_JUDGE_THRESHOLD", "4")
-    )
+    COMPLETION_LOOP_JUDGE_THRESHOLD = int(os.environ.get("UNIFABLE_LOOP_JUDGE_THRESHOLD", "4"))
 except ValueError:
     COMPLETION_LOOP_JUDGE_THRESHOLD = 4
 
@@ -151,9 +149,7 @@ def stall_signature(
             frag = detect_requirement_fragmentation(spec)
         except Exception:
             frag = None
-        if frag is not None and (
-            frag.get("title_collisions") or int(frag.get("failed_count") or 0) >= 5
-        ):
+        if frag is not None and (frag.get("title_collisions") or int(frag.get("failed_count") or 0) >= 5):
             return True
     if int(ledger.get("completion_stall_blocks") or 0) >= LOOP_STALL_SIGNATURE_BLOCKS:
         return True
@@ -168,10 +164,7 @@ def stall_signature(
 
 
 def loop_lift_active(ledger: dict[str, Any]) -> bool:
-    return (
-        str(ledger.get("loop_lift_kind") or "") == "provisional"
-        and int(ledger.get("loop_lift_stops_remaining") or 0) > 0
-    )
+    return str(ledger.get("loop_lift_kind") or "") == "provisional" and int(ledger.get("loop_lift_stops_remaining") or 0) > 0
 
 
 def consume_provisional_stop_lift(ledger: dict[str, Any]) -> bool:
@@ -295,9 +288,7 @@ def judge_completion_loop_release(
         ensure_ascii=False,
     )
     try:
-        res = ask_structured(
-            _LOOP_JUDGE_SYSTEM, user, _LOOP_RELEASE_SCHEMA, schema_name="loop_release"
-        )
+        res = ask_structured(_LOOP_JUDGE_SYSTEM, user, _LOOP_RELEASE_SCHEMA, schema_name="loop_release")
     except JudgeError as exc:
         return LoopReleaseVerdict(False, "none", f"judge error: {exc}", "", [], 0)
     return _parse_verdict(res)
@@ -305,11 +296,7 @@ def judge_completion_loop_release(
 
 def _filter_retract_ids(spec: dict[str, Any], ids: list[str]) -> list[str]:
     """V1: only judge-added, non-retracted tasks."""
-    by_id = {
-        str(t.get("id")): t
-        for t in (spec.get("tasks") or [])
-        if isinstance(t, dict)
-    }
+    by_id = {str(t.get("id")): t for t in (spec.get("tasks") or []) if isinstance(t, dict)}
     out: list[str] = []
     for tid in ids:
         t = by_id.get(tid)
@@ -368,10 +355,7 @@ def apply_loop_release_verdict(
             return [], ""
         from spec import _apply_adjustments
 
-        adjustments = [
-            {"id": tid, "action": "retract", "reason": _LOOP_RETRACT_REASON}
-            for tid in allowed
-        ]
+        adjustments = [{"id": tid, "action": "retract", "reason": _LOOP_RETRACT_REASON} for tid in allowed]
         headlines = _apply_adjustments(spec, {"adjust_requirements": adjustments})
         ledger["loop_lift_kind"] = "permanent"
         ledger["loop_lift_reason"] = verdict.reason

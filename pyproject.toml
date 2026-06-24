@@ -1,0 +1,93 @@
+[tool.ruff]
+line-length = 130
+target-version = "py312"
+extend-exclude = [
+  ".venv",
+  ".unifable",
+  ".omc",
+  "benchmark/results",
+]
+
+[tool.ruff.lint]
+select = [
+  "E",    # pycodestyle errors
+  "W",    # pycodestyle warnings
+  "F",    # pyflakes (unused imports, undefined names)
+  "I",    # isort (import sorting)
+  "UP",   # pyupgrade
+  "B",    # flake8-bugbear
+  "C4",   # flake8-comprehensions
+  "C90",  # mccabe cyclomatic complexity
+  "TID",  # flake8-tidy-imports (naming conventions)
+  "N",    # pep8-naming
+]
+ignore = [
+  "E501",   # line too long (handled by formatter)
+  "E402",   # module-import-not-at-top (hooks have shebang/license headers)
+  "E702",   # multiple-statements-on-one-line-semicolon
+  "E731",   # lambda-assignment (common in hooks)
+  "B008",   # function call in default argument (common in hooks)
+  "B904",   # raise-without-from-inside-except (extensive existing usage)
+  "B905",   # zip-without-explicit-strict
+  "SIM",    # flake8-simplify disabled (too noisy for existing codebase)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501", "N802", "N803", "N806", "N812"]
+"benchmark/*" = ["E501"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["gate"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.mccabe]
+max-complexity = 15
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.12"
+explicit_package_bases = false
+namespace_packages = false
+mypy_path = "scripts/gate:scripts/shadow:hooks"
+exclude = [
+  "benchmark/results/",
+  "\\.venv/",
+  "\\.unifable/",
+]
+ignore_missing_imports = true
+disallow_untyped_defs = false
+warn_return_any = false
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+show_error_codes = true
+disable_error_code = ["no-redef"]
+
+[tool.vulture]
+min_confidence = 80
+exclude = [
+  ".venv/",
+  ".unifable/",
+  "benchmark/results/",
+]
+
+[tool.deptry]
+extend_exclude = [
+  "benchmark/results",
+  ".venv",
+]
+
+[tool.radon]
+cc_min = "C"
+
+[tool.jscpd]
+min-lines = 6
+min-tokens = 65
+format = ["python"]
+ignore = [".venv", ".unifable", ".omc", "benchmark/results", "__pycache__"]
+output = "./.jscpd-report"

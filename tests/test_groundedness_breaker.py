@@ -12,6 +12,7 @@ Each test maps to a requirement of the breaker:
   R10 safety cap: after max_blocks consecutive blocks on one arm, fail open
 Run: python3 -m pytest tests/test_groundedness_breaker.py -q
 """
+
 from __future__ import annotations
 
 import sys
@@ -88,19 +89,29 @@ class RoutingJudge:
             lb = self.release_load_bearing
             if self.grounded:
                 return {
-                    "grounded": 1, "needed": "", "load_bearing": lb,
-                    "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                    "grounded": 1,
+                    "needed": "",
+                    "load_bearing": lb,
+                    "provisional_release": 0,
+                    "lift_reason": "",
+                    "lift_scope": "",
                 }
             if self.provisional_release:
                 return {
-                    "grounded": 0, "needed": "", "load_bearing": lb,
+                    "grounded": 0,
+                    "needed": "",
+                    "load_bearing": lb,
                     "provisional_release": 1,
                     "lift_reason": self.lift_reason,
                     "lift_scope": self.lift_scope,
                 }
             return {
-                "grounded": 0, "needed": self.needed, "load_bearing": lb,
-                "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                "grounded": 0,
+                "needed": self.needed,
+                "load_bearing": lb,
+                "provisional_release": 0,
+                "lift_reason": "",
+                "lift_scope": "",
             }
         self.arm_calls += 1
         v, s, c = self.arm_ret
@@ -185,9 +196,7 @@ def test_armed_stays_blocked_on_mutation_without_post_tool_release(monkeypatch):
 
 def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
-    judge = RoutingJudge(
-        arm=(1, "blocked", "claim X"), grounded=0, needed="still missing: read codex_judge.py:54 and cite MODEL"
-    )
+    judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0, needed="still missing: read codex_judge.py:54 and cite MODEL")
     state = _state()
     gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
     grounded, needed, message = gb.evaluate_post_tool_release(
@@ -281,8 +290,7 @@ def test_non_load_bearing_explanation_does_not_arm(monkeypatch):
         gb,
         "transcript_segment",
         lambda d, **k: (
-            "user: update spec.py session keying\n"
-            "assistant: TaskUpdate failed because the task list reset after plugin reload."
+            "user: update spec.py session keying\nassistant: TaskUpdate failed because the task list reset after plugin reload."
         ),
     )
     judge = RoutingJudge(
@@ -366,9 +374,7 @@ def test_arm_judge_rejects_task_board_status_claim():
         }
 
     board = (
-        f"{gb._SPEC_BOARD_BEGIN}\n"
-        "goal: ship\n  [OK] T7 (req) version probe\nbreaker: CLOSED (1 left: T9)\n"
-        f"{gb._SPEC_BOARD_END}"
+        f"{gb._SPEC_BOARD_BEGIN}\ngoal: ship\n  [OK] T7 (req) version probe\nbreaker: CLOSED (1 left: T9)\n{gb._SPEC_BOARD_END}"
     )
     verdict, steering, claim = gb.arm_judge(f"transcript\n\n{board}", judge=bad_judge)
     assert verdict == 0 and steering == "" and claim == ""
@@ -384,9 +390,7 @@ def test_arm_judge_no_arm_when_board_confirms_validated():
         }
 
     board = (
-        f"{gb._SPEC_BOARD_BEGIN}\n"
-        "goal: ship\n  [OK] T7 (req) version probe\nbreaker: CLOSED (1 left: T9)\n"
-        f"{gb._SPEC_BOARD_END}"
+        f"{gb._SPEC_BOARD_BEGIN}\ngoal: ship\n  [OK] T7 (req) version probe\nbreaker: CLOSED (1 left: T9)\n{gb._SPEC_BOARD_END}"
     )
     verdict, steering, claim = gb.arm_judge(f"assistant said T7 done\n\n{board}", judge=bad_judge)
     assert verdict == 0 and steering == "" and claim == ""
@@ -394,9 +398,7 @@ def test_arm_judge_no_arm_when_board_confirms_validated():
 
 def test_disarm_judge_releases_task_board_status_claim():
     board = (
-        f"{gb._SPEC_BOARD_BEGIN}\n"
-        "goal: ship\n  [XX] T7 (req) version probe\nbreaker: CLOSED (1 left: T7)\n"
-        f"{gb._SPEC_BOARD_END}"
+        f"{gb._SPEC_BOARD_BEGIN}\ngoal: ship\n  [XX] T7 (req) version probe\nbreaker: CLOSED (1 left: T7)\n{gb._SPEC_BOARD_END}"
     )
 
     def bad_judge(system, user, schema):
@@ -423,11 +425,7 @@ def test_judge_transcript_includes_spec_board(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
 
     def fake_board(input_data):
-        return (
-            f"{gb._SPEC_BOARD_BEGIN}\n"
-            "goal: g\n  [OK] T7 (req) done\nbreaker: OPEN\n"
-            f"{gb._SPEC_BOARD_END}"
-        )
+        return f"{gb._SPEC_BOARD_BEGIN}\ngoal: g\n  [OK] T7 (req) done\nbreaker: OPEN\n{gb._SPEC_BOARD_END}"
 
     monkeypatch.setattr(gb, "_spec_board_block", fake_board)
     seg = gb.judge_transcript({"session_id": "S", "cwd": str(tmp_path)}, [])
@@ -439,8 +437,12 @@ def test_judge_transcript_includes_spec_board(tmp_path, monkeypatch):
 def test_disarm_judge_releases_when_not_load_bearing():
     def release_judge(system, user, schema):
         return {
-            "grounded": 0, "needed": "should be ignored", "load_bearing": 0,
-            "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+            "grounded": 0,
+            "needed": "should be ignored",
+            "load_bearing": 0,
+            "provisional_release": 0,
+            "lift_reason": "",
+            "lift_scope": "",
         }
 
     verdict = gb.disarm_judge("speculative host error", "transcript", judge=release_judge)
@@ -499,10 +501,12 @@ def test_transcript_segment_reads_path(tmp_path):
 
     f = tmp_path / "t.jsonl"
     f.write_text(
-        json.dumps({"type": "assistant", "message": {"role": "assistant",
-                    "content": [{"type": "text", "text": "the fix is X"}]}}) + "\n"
-        + json.dumps({"type": "user", "message": {"role": "user",
-                      "content": [{"type": "tool_result", "content": "ran probe -> 0 ok"}]}}) + "\n",
+        json.dumps({"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "the fix is X"}]}})
+        + "\n"
+        + json.dumps(
+            {"type": "user", "message": {"role": "user", "content": [{"type": "tool_result", "content": "ran probe -> 0 ok"}]}}
+        )
+        + "\n",
         encoding="utf-8",
     )
     seg = gb.transcript_segment({"transcript_path": str(f)})
@@ -518,28 +522,32 @@ def test_transcript_segment_preserves_full_tool_call_and_result(tmp_path):
     tool_input_tail = "INPUT_TAIL_" + ("x" * 700)
     tool_result_tail = "RESULT_TAIL_" + ("y" * 900)
     f.write_text(
-        json.dumps({
-            "type": "assistant",
-            "message": {
-                "role": "assistant",
-                "content": [
-                    {
-                        "type": "tool_use",
-                        "name": "Bash",
-                        "input": {"command": "echo " + tool_input_tail},
-                    }
-                ],
-            },
-        }) + "\n"
-        + json.dumps({
-            "type": "user",
-            "message": {
-                "role": "user",
-                "content": [
-                    {"type": "tool_result", "content": "output " + tool_result_tail}
-                ],
-            },
-        }) + "\n",
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Bash",
+                            "input": {"command": "echo " + tool_input_tail},
+                        }
+                    ],
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "content": "output " + tool_result_tail}],
+                },
+            }
+        )
+        + "\n",
         encoding="utf-8",
     )
     seg = gb.transcript_segment({"transcript_path": str(f)})
@@ -567,9 +575,7 @@ def test_disarm_adds_event_preventing_re_arm(monkeypatch):
     state = _state()
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
     assert blocked is True and state["breaker_armed"] is True
-    gb.evaluate_post_tool_release(
-        _pre("Read"), state, fresh_tool="[tool_result name=Read]\nok", judge=judge
-    )
+    gb.evaluate_post_tool_release(_pre("Read"), state, fresh_tool="[tool_result name=Read]\nok", judge=judge)
     assert state["breaker_armed"] is False
     assert "claim to disarm" in adjudicated_claims(state["events"])
 
@@ -721,9 +727,7 @@ def test_full_disarm_clears_provisional(monkeypatch):
     lift_provisional(state, "claim X", "reason", "scope", "notify")
     state["breaker_key"] = gb.breaker_key("S", "P")
     judge = RoutingJudge(grounded=1)
-    disarmed, _, msg = gb.evaluate_post_tool_release(
-        _pre("Read"), state, fresh_tool="[tool_result]\nok", judge=judge
-    )
+    disarmed, _, msg = gb.evaluate_post_tool_release(_pre("Read"), state, fresh_tool="[tool_result]\nok", judge=judge)
     assert disarmed is True
     assert state["breaker_provisional"] is False
     assert state["breaker_armed"] is False
@@ -764,8 +768,7 @@ def test_arm_judge_does_not_arm_on_just_loaded_skill_behavior():
             "verdict": 1,
             "steering": "ground the claim that the release skill handles the release tail",
             "claim": (
-                "the release skill handles the full release tail end-to-end "
-                "(commit, version bump, push, npm publish, verify)"
+                "the release skill handles the full release tail end-to-end (commit, version bump, push, npm publish, verify)"
             ),
             "load_bearing": 1,
         }
@@ -790,10 +793,7 @@ def test_arm_judge_still_arms_on_repo_claim_despite_loaded_skill():
 
 
 def test_disarm_judge_releases_claim_about_loaded_skill():
-    segment = (
-        '[tool_use name=Skill]\n{"command": "release"}\n'
-        "[tool_result]\nSuccessfully loaded skill"
-    )
+    segment = '[tool_use name=Skill]\n{"command": "release"}\n[tool_result]\nSuccessfully loaded skill'
 
     def judge(system, user, schema):
         return {

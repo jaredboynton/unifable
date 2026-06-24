@@ -19,9 +19,14 @@ HEAVY_PHASES = ("declare", "frontier", "adopted", "primary")
 # rejected_approach: explored and ruled out; retracted/superseded: judge withdrew
 # the frontier requirement; accepted_approach: check passed, viable implementation path.
 # All except accepted_approach fall through to the primary fallback.
-FRONTIER_RESOLVED = frozenset({
-    "rejected_approach", "retracted", "superseded", "accepted_approach",
-})
+FRONTIER_RESOLVED = frozenset(
+    {
+        "rejected_approach",
+        "retracted",
+        "superseded",
+        "accepted_approach",
+    }
+)
 
 
 def approach_kind(task: dict[str, Any]) -> str:
@@ -30,17 +35,11 @@ def approach_kind(task: dict[str, Any]) -> str:
 
 
 def frontier_tasks(spec: dict[str, Any]) -> list[dict[str, Any]]:
-    return [
-        t for t in (spec.get("tasks") or [])
-        if isinstance(t, dict) and approach_kind(t) == "frontier"
-    ]
+    return [t for t in (spec.get("tasks") or []) if isinstance(t, dict) and approach_kind(t) == "frontier"]
 
 
 def primary_task(spec: dict[str, Any]) -> dict[str, Any] | None:
-    primaries = [
-        t for t in (spec.get("tasks") or [])
-        if isinstance(t, dict) and approach_kind(t) == "primary"
-    ]
+    primaries = [t for t in (spec.get("tasks") or []) if isinstance(t, dict) and approach_kind(t) == "primary"]
     return primaries[0] if primaries else None
 
 
@@ -50,9 +49,7 @@ def all_frontiers_rejected(spec: dict[str, Any]) -> bool:
     if len(frontiers) < 2:
         return False
     return all(
-        str(t.get("status") or "") in FRONTIER_RESOLVED
-        and str(t.get("status") or "") != "accepted_approach"
-        for t in frontiers
+        str(t.get("status") or "") in FRONTIER_RESOLVED and str(t.get("status") or "") != "accepted_approach" for t in frontiers
     )
 
 
@@ -73,9 +70,11 @@ def accepted_frontier(spec: dict[str, Any]) -> dict[str, Any] | None:
             return adopted
         return None
     return next(
-        (t for t in frontier_tasks(spec)
-         if str(t.get("status") or "") == "accepted_approach"
-         and t.get("comparison_winner") is True),
+        (
+            t
+            for t in frontier_tasks(spec)
+            if str(t.get("status") or "") == "accepted_approach" and t.get("comparison_winner") is True
+        ),
         None,
     )
 
@@ -94,10 +93,7 @@ def any_frontier_accepted(spec: dict[str, Any]) -> bool:
     """True when at least one frontier is accepted or adoption has completed."""
     if adopted_frontier(spec) is not None:
         return True
-    return any(
-        str(t.get("status") or "") == "accepted_approach"
-        for t in frontier_tasks(spec)
-    )
+    return any(str(t.get("status") or "") == "accepted_approach" for t in frontier_tasks(spec))
 
 
 def all_frontiers_terminal(spec: dict[str, Any]) -> bool:
@@ -225,10 +221,7 @@ def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
     if not all_frontiers_terminal(spec) or not any_frontier_accepted(spec):
         return []
 
-    accepted = [
-        t for t in frontier_tasks(spec)
-        if str(t.get("status") or "") == "accepted_approach"
-    ]
+    accepted = [t for t in frontier_tasks(spec) if str(t.get("status") or "") == "accepted_approach"]
     if not accepted:
         return []
 
@@ -249,9 +242,7 @@ def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
             if not t.get("comparison_winner"):
                 t["comparison_winner"] = True
                 exit_code = t.get("exit")
-                headlines.append(
-                    f"{tid} selected as adopted frontier (exit {exit_code})."
-                )
+                headlines.append(f"{tid} selected as adopted frontier (exit {exit_code}).")
         elif str(t.get("status") or "") == "accepted_approach":
             t["status"] = "rejected_approach"
             t["comparison_winner"] = False
@@ -334,10 +325,7 @@ def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:
                 if not task_is_resolved(t):
                     incomplete.append(tid)
         return (not incomplete), incomplete
-    incomplete = [
-        str(t.get("id")) for t in tasks
-        if isinstance(t, dict) and not task_is_resolved(t)
-    ]
+    incomplete = [str(t.get("id")) for t in tasks if isinstance(t, dict) and not task_is_resolved(t)]
     return (not incomplete), incomplete
 
 
@@ -369,6 +357,7 @@ def edit_targets_primary_scope(spec: dict[str, Any], target: str, cwd: str) -> b
         return False
     try:
         from pathlib import Path
+
         resolved = str(Path(target).resolve())
         cwd_res = str(Path(cwd).resolve())
     except (ValueError, OSError):
@@ -380,10 +369,7 @@ def edit_targets_primary_scope(spec: dict[str, Any], target: str, cwd: str) -> b
         except (ValueError, OSError):
             p = pp
         if resolved == p or resolved.startswith(p.rstrip("/") + "/"):
-            in_frontier = any(
-                resolved == fs or resolved.startswith(fs.rstrip("/") + "/")
-                for fs in frontier_scopes
-            )
+            in_frontier = any(resolved == fs or resolved.startswith(fs.rstrip("/") + "/") for fs in frontier_scopes)
             if not in_frontier:
                 return True
     return False
@@ -494,10 +480,7 @@ def heavy_transition_headline(
     if before_phase == "frontier" and after_phase == "adopted":
         winner = accepted_frontier(spec)
         wid = str(winner.get("id") or "") if winner else ""
-        return (
-            f"HEAVY phase: frontier -> adopted. Frontier {wid} selected as best "
-            "approach. Primary superseded."
-        )
+        return f"HEAVY phase: frontier -> adopted. Frontier {wid} selected as best approach. Primary superseded."
     if before_phase != after_phase:
         return f"HEAVY phase: {before_phase} -> {after_phase}."
     return None

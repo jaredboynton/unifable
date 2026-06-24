@@ -4,6 +4,7 @@
 Exercises the single-IO-thread router that multiplexes out-of-band responses by
 response_id -> cid, assembles structured args + usage, and fails open on errors.
 """
+
 from __future__ import annotations
 
 import sys
@@ -33,14 +34,20 @@ def test_route_assembles_args_and_usage():
     d._route({"type": "response.created", "response": {"id": "rid1", "metadata": {"cid": "1"}}})
     d._route({"type": "response.function_call_arguments.delta", "response_id": "rid1", "delta": '{"v":'})
     d._route({"type": "response.function_call_arguments.done", "response_id": "rid1", "arguments": '{"v":1}'})
-    d._route({
-        "type": "response.done",
-        "response": {
-            "id": "rid1",
-            "usage": {"input_tokens": 20, "output_tokens": 3, "total_tokens": 23,
-                      "input_token_details": {"cached_tokens": 12}},
-        },
-    })
+    d._route(
+        {
+            "type": "response.done",
+            "response": {
+                "id": "rid1",
+                "usage": {
+                    "input_tokens": 20,
+                    "output_tokens": 3,
+                    "total_tokens": 23,
+                    "input_token_details": {"cached_tokens": 12},
+                },
+            },
+        }
+    )
     assert h.event.is_set()
     assert h.done_args == '{"v":1}'
     assert h.usage["cached_tokens"] == 12
@@ -50,10 +57,12 @@ def test_route_done_uses_function_args_fallback():
     d = _daemon()
     h = jd._Holder()
     _register(d, 3, h, rid="rid3")
-    d._route({
-        "type": "response.done",
-        "response": {"id": "rid3", "output": [{"type": "function_call", "arguments": '{"a":1}'}]},
-    })
+    d._route(
+        {
+            "type": "response.done",
+            "response": {"id": "rid3", "output": [{"type": "function_call", "arguments": '{"a":1}'}]},
+        }
+    )
     assert h.event.is_set()
     assert h.done_args == '{"a":1}'
 

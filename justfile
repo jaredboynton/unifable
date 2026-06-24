@@ -34,3 +34,35 @@ test-all:
 # Verify every wait/timeout grep match is accounted for in docs/testing-optimization.md.
 wait-audit:
     python3 scripts/audit_waits.py
+
+# Lint and auto-fix all Python source (ruff check --fix).
+lint:
+    uv run --no-project --with-requirements requirements-dev.txt ruff check --fix hooks scripts tests
+
+# Format all Python source in place (ruff format).
+format:
+    uv run --no-project --with-requirements requirements-dev.txt ruff format hooks scripts tests
+
+# Run mypy strict type checking on hooks and scripts/gate.
+typecheck:
+    uv run --no-project --with-requirements requirements-dev.txt mypy hooks scripts/gate
+
+# Detect dead code with vulture (min-confidence 80).
+dead-code:
+    uv run --no-project --with-requirements requirements-dev.txt vulture hooks scripts tests --min-confidence 80
+
+# Detect unused dependencies with deptry.
+unused-deps:
+    uv run --no-project --with-requirements requirements-dev.txt deptry . --requirements-files requirements-dev.txt --ignore DEP001 --known-first-party scripts
+
+# Check cyclomatic complexity (radon cc, only grade A-C pass, D+ flagged).
+complexity:
+    uv run --no-project --with-requirements requirements-dev.txt radon cc -s -n C hooks scripts/gate
+
+# Detect duplicate code (jscpd, min 6 lines / 65 tokens).
+duplicate-code:
+    npx jscpd
+
+# Run pre-commit on all files (lint, format, typecheck, dead code, unused deps, complexity, duplicates, docs).
+precommit:
+    uv run --no-project --with-requirements requirements-dev.txt pre-commit run --all-files

@@ -14,12 +14,12 @@ sys.path.insert(0, str(REPO / "hooks"))
 import spec as spec_mod  # noqa: E402
 from spec import (  # noqa: E402
     _apply_check_result,
+    _cmd_dispute,
     all_tasks_validated,
     auto_validate_spec,
     load_spec,
     save_spec,
     spec_template,
-    _cmd_dispute,
 )
 
 
@@ -74,7 +74,8 @@ def test_failed_always_reruns_check(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
+        spec_mod,
+        "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items],
     )
     spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
@@ -95,7 +96,8 @@ def test_failed_replay_failed_flag_skips_rerun(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "run_check", fail_if_called)
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
+        spec_mod,
+        "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
@@ -116,7 +118,8 @@ def test_failed_empty_output_reruns_and_validates(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
+        spec_mod,
+        "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
@@ -135,12 +138,14 @@ def test_revise_applies_verdict_same_stop(tmp_path, monkeypatch):
         spec_mod._apply_adjustments(
             sp,
             {
-                "adjust_requirements": [{
-                    "id": "T1",
-                    "action": "revise",
-                    "check": "true",
-                    "reason": "check was wrong",
-                }],
+                "adjust_requirements": [
+                    {
+                        "id": "T1",
+                        "action": "revise",
+                        "check": "true",
+                        "reason": "check was wrong",
+                    }
+                ],
             },
         )
         return [(1, "ok", [], "") for _ in items]
@@ -225,7 +230,8 @@ def test_auto_validate_adjudicates_dispute(tmp_path, monkeypatch):
     _cmd_dispute(args)
     monkeypatch.setattr(spec_mod, "judge_dispute", lambda sp, t, e: (1, "accepted"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
+        spec_mod,
+        "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(1, "accepted", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
@@ -312,7 +318,8 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     _cmd_dispute(args)
     reason = "Rejected. The evidence does not prove impossibility."
     monkeypatch.setattr(
-        spec_mod, "judge_tasks",
+        spec_mod,
+        "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(0, reason, [], "") for _ in items],
     )
 
@@ -399,23 +406,28 @@ def test_stop_persists_digest_and_reason_hints(tmp_path, monkeypatch):
     s["restated_goal"] = "ship"
     s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
     s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
-    s["tasks"] = [{
-        "id": "T1",
-        "title": "proof",
-        "check": "true",
-        "status": "pending",
-    }]
+    s["tasks"] = [
+        {
+            "id": "T1",
+            "title": "proof",
+            "check": "true",
+            "status": "pending",
+        }
+    ]
     save_spec(str(tmp_path), "sess", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(
         spec_mod,
         "judge_tasks",
-        lambda sp, items, *, transcript="", **kw: [(
-            0,
-            "non-probative; run the behavioral test",
-            [],
-            "",
-        ) for _ in items],
+        lambda sp, items, *, transcript="", **kw: [
+            (
+                0,
+                "non-probative; run the behavioral test",
+                [],
+                "",
+            )
+            for _ in items
+        ],
     )
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
@@ -538,7 +550,7 @@ def test_loop_release_returns_recomputed_incomplete(tmp_path, monkeypatch):
     primary = next(t for t in s["tasks"] if t.get("approach_kind") == "primary")
     primary["status"] = "validated"
     save_spec(str(tmp_path), "heal", s)
-    from ledger import load_ledger, save_ledger
+    from ledger import load_ledger
 
     led = load_ledger({"session_id": "heal", "cwd": str(tmp_path)})
     stale_incomplete = ["T4"]
@@ -555,7 +567,5 @@ def test_loop_release_returns_recomputed_incomplete(tmp_path, monkeypatch):
     assert early is None
     assert ok_tasks is True
     assert incomplete == []
-    healed_primary = next(
-        t for t in spec["tasks"] if t.get("approach_kind") == "primary"
-    )
+    healed_primary = next(t for t in spec["tasks"] if t.get("approach_kind") == "primary")
     assert healed_primary["status"] == "superseded"

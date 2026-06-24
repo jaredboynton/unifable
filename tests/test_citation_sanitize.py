@@ -7,7 +7,6 @@ import json
 import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -16,12 +15,12 @@ sys.path.insert(0, str(GATE))
 
 from citations import (  # noqa: E402
     HARNESS_READ_WHY,
+    empty_activity,
     filter_gate_defect_citation_reasons,
     sanitize_harness_citations,
     scan_transcript,
     sync_citations_from_activity,
     verify_citations,
-    empty_activity,
 )
 from spec import spec_template  # noqa: E402
 
@@ -135,7 +134,8 @@ def test_pretool_sanitizes_phantom_and_allows_edit(tmp_path):
         "fetched_urls": ["https://example.com/x"],
     }
     (ledger_dir / f"{ledger_key(payload_base)}.json").write_text(
-        json.dumps(ledger), encoding="utf-8",
+        json.dumps(ledger),
+        encoding="utf-8",
     )
 
     payload = {

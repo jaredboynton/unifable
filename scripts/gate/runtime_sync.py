@@ -19,6 +19,7 @@ into ~/.unifable and atomically flips `current` at the next session start.
 Fail open: any error leaves the existing runtime untouched and returns False. A sync that
 hard-locks a session on its own bug is worse than no sync (see AGENTS.md fail-open rule).
 """
+
 from __future__ import annotations
 
 import json

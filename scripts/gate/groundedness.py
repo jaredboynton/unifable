@@ -37,9 +37,9 @@ import json
 import os
 import re
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from breaker_state import (
     adjudicated_claims,
@@ -84,9 +84,7 @@ JUDGE_WINDOW_SECONDS = 15
 # reuse the persisted breaker state. Short, so it catches the simultaneous burst
 # without changing steady-state release cadence. Override: UNIFABLE_JUDGE_COALESCE_WINDOW.
 try:
-    JUDGE_COALESCE_WINDOW_SECONDS = float(
-        os.environ.get("UNIFABLE_JUDGE_COALESCE_WINDOW", "2.0") or "2.0"
-    )
+    JUDGE_COALESCE_WINDOW_SECONDS = float(os.environ.get("UNIFABLE_JUDGE_COALESCE_WINDOW", "2.0") or "2.0")
 except (TypeError, ValueError):
     JUDGE_COALESCE_WINDOW_SECONDS = 2.0
 
@@ -220,7 +218,7 @@ def _extract_spec_board(segment: str) -> str:
         return ""
     start = begin + len(_SPEC_BOARD_BEGIN)
     end = segment.find(_SPEC_BOARD_END, start)
-    body = segment[start:end if end >= 0 else None].strip()
+    body = segment[start : end if end >= 0 else None].strip()
     return body
 
 
@@ -246,13 +244,9 @@ def _claim_supported_by_spec_board(claim: str, segment: str) -> bool:
         if re.search(rf"\[--\]\s*{tid_pat}\b", board, re.I):
             if re.search(r"\b(pending|open|not\s+yet)", claim_l):
                 return True
-    if re.search(r"breaker\s*:\s*OPEN", board, re.I) and re.search(
-        r"breaker\s*(?:open|all\s+tasks\s+validated)", claim_l
-    ):
+    if re.search(r"breaker\s*:\s*OPEN", board, re.I) and re.search(r"breaker\s*(?:open|all\s+tasks\s+validated)", claim_l):
         return True
-    if re.search(r"breaker\s*:\s*CLOSED", board, re.I) and re.search(
-        r"breaker\s*closed", claim_l
-    ):
+    if re.search(r"breaker\s*:\s*CLOSED", board, re.I) and re.search(r"breaker\s*closed", claim_l):
         return True
     return False
 
@@ -310,10 +304,7 @@ _JUDGE_SCHEMA: dict[str, Any] = {
         "verdict": {
             "type": "integer",
             "enum": [0, 1],
-            "description": (
-                "1 ONLY if load_bearing=1 AND the model stated something confidently without backing "
-                "it up; else 0."
-            ),
+            "description": ("1 ONLY if load_bearing=1 AND the model stated something confidently without backing it up; else 0."),
         },
         "steering": {
             "type": "string",
@@ -412,7 +403,12 @@ _DISARM_SCHEMA: dict[str, Any] = {
         },
     },
     "required": [
-        "load_bearing", "grounded", "needed", "provisional_release", "lift_reason", "lift_scope",
+        "load_bearing",
+        "grounded",
+        "needed",
+        "provisional_release",
+        "lift_reason",
+        "lift_scope",
     ],
     "additionalProperties": False,
 }
@@ -588,11 +584,7 @@ def judge_transcript(
     if board:
         tail_parts.append(board.rstrip())
     if fresh_tool and fresh_tool.strip():
-        tail_parts.append(
-            '<record line="000000" type="fresh_tool" role="tool">\n'
-            + fresh_tool.strip()
-            + "\n</record>"
-        )
+        tail_parts.append('<record line="000000" type="fresh_tool" role="tool">\n' + fresh_tool.strip() + "\n</record>")
 
     reserve_chars = sum(len(p) + 2 for p in tail_parts)
     host_budget_chars = max(
@@ -670,9 +662,7 @@ def arm_judge(
     if verdict == 1 and _claim_supported_by_spec_board(claim, segment):
         return 0, "", ""
     if verdict == 1 and (
-        is_harness_self_referential(claim)
-        or is_harness_self_referential(steering)
-        or is_task_board_status_claim(claim)
+        is_harness_self_referential(claim) or is_harness_self_referential(steering) or is_task_board_status_claim(claim)
     ):
         return 0, "", ""
     if verdict == 1 and claim_describes_loaded_skill(claim, segment):
@@ -743,10 +733,7 @@ def disarm_judge(
         return ReleaseVerdict(True, "", False, False, "", "")
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
-    prefix = (
-        f"{goal_block}FLAGGED CLAIM:\n{claim}\n\n"
-        f"TRANSCRIPT (what the model has since read/run/cited):\n"
-    )
+    prefix = f"{goal_block}FLAGGED CLAIM:\n{claim}\n\nTRANSCRIPT (what the model has since read/run/cited):\n"
     user = fit_judge_user_message(prefix, segment)
     obj = fn(_DISARM_SYSTEM, user, _DISARM_SCHEMA)
     load_bearing = int(obj.get("load_bearing", 1) or 0) == 1
@@ -776,10 +763,7 @@ def monitor_provisional_judge(
         return 0, ""
     fn = judge or _default_judge
     goal_block = f"USER GOAL:\n{user_goal}\n\n" if user_goal else ""
-    prefix = (
-        f"{goal_block}FLAGGED CLAIM:\n{claim}\n\nLIFT SCOPE:\n{scope}\n\n"
-        f"IMMINENT TOOL:\n{tool_name}\n\nTRANSCRIPT:\n"
-    )
+    prefix = f"{goal_block}FLAGGED CLAIM:\n{claim}\n\nLIFT SCOPE:\n{scope}\n\nIMMINENT TOOL:\n{tool_name}\n\nTRANSCRIPT:\n"
     user = fit_judge_user_message(prefix, segment)
     obj = fn(_MONITOR_SYSTEM, user, _MONITOR_SCHEMA)
     drift = int(obj.get("drift_level", 0) or 0)
@@ -798,10 +782,7 @@ def _provisional_lift_message(reason: str, scope: str) -> str:
 
 
 def _disarm_message() -> str:
-    return (
-        "unifable breaker open: the flagged claim is grounded. "
-        "Write/Edit/Bash are unrestricted again."
-    )
+    return "unifable breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
 
 
 def _needed_message(needed: str) -> str:
@@ -862,9 +843,7 @@ def should_judge(state: dict, key: str, now: float, window: float = JUDGE_WINDOW
         return True
 
 
-def should_coalesce(
-    state: dict, key: str, now: float, window: float = JUDGE_COALESCE_WINDOW_SECONDS
-) -> bool:
+def should_coalesce(state: dict, key: str, now: float, window: float = JUDGE_COALESCE_WINDOW_SECONDS) -> bool:
     """True when a judge already fired for this key within the coalesce window.
 
     Used by the locked wrapper to mark later calls of the same parallel batch so
@@ -915,9 +894,7 @@ def record_verdict(state: dict, key: str, now: float, verdict: int, steering: st
 
 def _release_log(count: int) -> None:
     try:
-        sys.stderr.write(
-            f"[unifable breaker] auto-released after {count} consecutive blocks (fail-open)\n"
-        )
+        sys.stderr.write(f"[unifable breaker] auto-released after {count} consecutive blocks (fail-open)\n")
     except Exception:
         pass
 
@@ -970,7 +947,12 @@ def evaluate_pre_tool(
                 if claim and scope and not coalesce:
                     state["breaker_judge_call_at"] = now
                     drift, feedback = monitor_provisional_judge(
-                        claim, scope, segment, tool, user_goal=user_goal, judge=judge,
+                        claim,
+                        scope,
+                        segment,
+                        tool,
+                        user_goal=user_goal,
+                        judge=judge,
                     )
                     if drift == 2:
                         append_event(state, "REINSTATE", claim=claim, corrective=feedback)
@@ -980,9 +962,7 @@ def evaluate_pre_tool(
                         append_event(state, "SCOPE_HINT", claim=claim, hint=feedback)
                         hint_msg = f"{_SCOPE_HINT_PREFIX}{feedback}"
                         existing = str(state.get("breaker_pending_notify") or "")
-                        state["breaker_pending_notify"] = (
-                            f"{existing}\n{hint_msg}".strip() if existing else hint_msg
-                        )
+                        state["breaker_pending_notify"] = f"{existing}\n{hint_msg}".strip() if existing else hint_msg
             pending = str(state.get("breaker_pending_notify") or "")
             if pending:
                 state["breaker_pending_notify"] = ""
@@ -1053,9 +1033,7 @@ def evaluate_pre_tool_locked(
         state = load_breaker(input_data)
         key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
         coalesce = should_coalesce(state, key, now)
-        block, steering, notify = evaluate_pre_tool(
-            input_data, state, now, active_task, judge=judge, coalesce=coalesce
-        )
+        block, steering, notify = evaluate_pre_tool(input_data, state, now, active_task, judge=judge, coalesce=coalesce)
         save_breaker(input_data, state)
     return block, steering, notify, state
 

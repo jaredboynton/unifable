@@ -38,8 +38,8 @@ from typing import Any
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from atomicio import write_text_atomic
     from heavy_workflow import (
-        advance_primary_if_ready,
         adopted_frontier,
+        advance_primary_if_ready,
         all_frontiers_rejected,
         all_frontiers_terminal,
         all_tasks_validated_heavy,
@@ -58,17 +58,14 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
 except ImportError:  # pragma: no cover
     from scripts.gate.atomicio import write_text_atomic
     from scripts.gate.heavy_workflow import (
-        advance_primary_if_ready,
         adopted_frontier,
+        advance_primary_if_ready,
         all_frontiers_rejected,
         all_frontiers_terminal,
         all_tasks_validated_heavy,
         any_frontier_accepted,
         clear_stale_heavy_workflow,
-        compute_heavy_phase,
         frontier_tasks,
-        heavy_declare_complete,
-        heavy_workflow_brief,
         primary_task,
         sync_heavy_phase,
     )
@@ -334,17 +331,14 @@ def validate_spec(
     # the tasks ARE the acceptance criteria, and their live evidence is produced at
     # validate-task time (judged), not at authoring time.
     tasks = spec.get("tasks")
-    has_tasks = isinstance(tasks, list) and any(
-        isinstance(t, dict) and str(t.get("check", "")).strip() for t in tasks
-    )
+    has_tasks = isinstance(tasks, list) and any(isinstance(t, dict) and str(t.get("check", "")).strip() for t in tasks)
     criteria = spec.get("acceptance_criteria")
     if has_tasks:
         pass  # tasks stand in for acceptance_criteria
     elif spec.get("requires_tasks"):
         # Auto-created task-spec with no requirement yet: the agent must add >=1.
         reasons.append(
-            "no requirements yet: add at least one with "
-            "`unifable add-task --title '<req>' --check '<runnable check>'`."
+            "no requirements yet: add at least one with `unifable add-task --title '<req>' --check '<runnable check>'`."
         )
     elif not isinstance(criteria, list) or not criteria:
         reasons.append("'acceptance_criteria' is required and must contain at least one entry.")
@@ -393,16 +387,14 @@ def validate_spec(
         repo_context = repo_context_of(spec)  # accepts legacy `must_read` alias
         if not repo_context:
             reasons.append(
-                "evidence gate: 'repo_context' is required (list, >=1 "
-                "{cite: 'path:line', why: 'why this passage is relevant'})."
+                "evidence gate: 'repo_context' is required (list, >=1 {cite: 'path:line', why: 'why this passage is relevant'})."
             )
         else:
             for idx, item in enumerate(repo_context):
                 cite, why = repo_context_parts(item)
                 if not is_path_line(cite):
                     reasons.append(
-                        f"repo_context[{idx}].cite must be a 'path:line' code citation "
-                        f"(e.g. src/app.py:42), got {item!r}."
+                        f"repo_context[{idx}].cite must be a 'path:line' code citation (e.g. src/app.py:42), got {item!r}."
                     )
                 elif check_fake_evidence(cite):
                     reasons.append(
@@ -434,9 +426,7 @@ def validate_spec(
                 for idx, item in enumerate(prior_art):
                     cite, why = prior_art_parts(item)
                     if not is_source_url(cite):
-                        reasons.append(
-                            f"prior_art[{idx}].cite must be a source URL (http(s)://...), got {item!r}."
-                        )
+                        reasons.append(f"prior_art[{idx}].cite must be a source URL (http(s)://...), got {item!r}.")
                     if not why.strip():
                         reasons.append(
                             f"prior_art[{idx}] needs a non-empty 'why' (why this source backs the "
@@ -454,6 +444,7 @@ def validate_spec(
 # ---------------------------------------------------------------------------
 # File helpers
 # ---------------------------------------------------------------------------
+
 
 def resolve_session_id(input_data: dict | None = None, default: str | None = "default") -> str | None:
     """Resolve the per-session key for spec artifacts, consistent across hosts.
@@ -597,12 +588,7 @@ def format_spec_location(cwd: str | Path, session_id: str | None) -> str:
     sid = _safe_session(session_id)
     dh = dir_hash(root)
     path = spec_path(root, session_id)
-    return (
-        f"session-id: {sid}\n"
-        f"project: {root}\n"
-        f"dirhash: {dh} (path segment only -- not your session-id)\n"
-        f"spec: {path}"
-    )
+    return f"session-id: {sid}\nproject: {root}\ndirhash: {dh} (path segment only -- not your session-id)\nspec: {path}"
 
 
 def _read_spec_file(path: Path) -> dict[str, Any] | None:
@@ -810,10 +796,7 @@ def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
         if spec.get("requires_tasks"):
             return False, ["<no requirements added yet>"]
         return True, []
-    incomplete = [
-        str(t.get("id")) for t in tasks
-        if not (isinstance(t, dict) and t.get("status") in RESOLVED_STATUSES)
-    ]
+    incomplete = [str(t.get("id")) for t in tasks if not (isinstance(t, dict) and t.get("status") in RESOLVED_STATUSES)]
     return (not incomplete), incomplete
 
 
@@ -845,7 +828,8 @@ def _apply_dispute_verdict(
     task["status"] = "retracted" if verdict == 1 else "failed"
     if verdict != 1:
         notify_spec_update(
-            spec, f"Dispute rejected for {tid}.",
+            spec,
+            f"Dispute rejected for {tid}.",
             highlight_task=tid,
         )
         headlines.append(f"{tid}: dispute rejected")
@@ -854,7 +838,8 @@ def _apply_dispute_verdict(
         if all_tasks_validated(spec)[0]:
             headline += " Completion breaker open."
         notify_spec_update(
-            spec, headline,
+            spec,
+            headline,
             highlight_task=tid,
         )
         headlines.append(headline)
@@ -864,7 +849,10 @@ def _apply_dispute_verdict(
 def _apply_dispute(spec: dict[str, Any], task: dict[str, Any], *, plan_mode: dict[str, Any] | None = None) -> list[str]:
     """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
     verdict, reason = judge_dispute(
-        spec, task, str(task.get("dispute_evidence") or ""), plan_mode=plan_mode,
+        spec,
+        task,
+        str(task.get("dispute_evidence") or ""),
+        plan_mode=plan_mode,
     )
     return _apply_dispute_verdict(spec, task, verdict, reason)
 
@@ -981,11 +969,7 @@ def detect_requirement_fragmentation(spec: dict[str, Any]) -> dict[str, Any] | N
     """Detect many failed requirements plus overlapping pending judge additions."""
     tasks = [t for t in (spec.get("tasks") or []) if isinstance(t, dict)]
     failed = [t for t in tasks if str(t.get("status") or "") == "failed"]
-    pending_judge = [
-        t for t in tasks
-        if str(t.get("status") or "") in ("pending", "delivered")
-        and t.get("added_by") == "judge"
-    ]
+    pending_judge = [t for t in tasks if str(t.get("status") or "") in ("pending", "delivered") and t.get("added_by") == "judge"]
     if len(failed) < 3 or not pending_judge:
         return None
     failed_by_norm = {_normalize_title(t.get("title")): str(t.get("id")) for t in failed}
@@ -1041,7 +1025,7 @@ def _apply_supersedes_bundle(
 def _current_requirements_payload(spec: dict[str, Any]) -> list[dict[str, str]]:
     """Every requirement on the board (all statuses) for judge duplicate reasoning."""
     out: list[dict[str, str]] = []
-    for t in (spec.get("tasks") or []):
+    for t in spec.get("tasks") or []:
         if not isinstance(t, dict):
             continue
         entry: dict[str, str] = {
@@ -1089,8 +1073,13 @@ def _check_inputs_for_task(
 
 
 def _apply_check_result(
-    spec: dict[str, Any], task: dict[str, Any], exit_code: int, output: str,
-    verdict: int, reason: str, new_reqs: list[dict[str, str]],
+    spec: dict[str, Any],
+    task: dict[str, Any],
+    exit_code: int,
+    output: str,
+    verdict: int,
+    reason: str,
+    new_reqs: list[dict[str, str]],
     *,
     frontier_outcome: str = "",
     prior_exit: int | None = None,
@@ -1109,7 +1098,8 @@ def _apply_check_result(
     if task.get("status") == "retracted" and task.get("added_by") == "judge":
         headline = f"{tid} retracted by judge: {str(task.get('judge_reason') or reason)[:80]}"
         notify_spec_update(
-            spec, headline,
+            spec,
+            headline,
             highlight_task=tid,
         )
         return [headline]
@@ -1119,16 +1109,14 @@ def _apply_check_result(
     # a batch Stop can supersede sibling tasks without a later item re-failing them.
     existing_pairs = {
         (str(t.get("title") or "").strip(), str(t.get("check") or "").strip())
-        for t in (spec.get("tasks") or []) if isinstance(t, dict)
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict)
     }
-    existing_norm_titles = {
-        _normalize_title(t.get("title"))
-        for t in (spec.get("tasks") or []) if isinstance(t, dict)
-    }
+    existing_norm_titles = {_normalize_title(t.get("title")) for t in (spec.get("tasks") or []) if isinstance(t, dict)}
     judge_unresolved = sum(
-        1 for t in (spec.get("tasks") or [])
-        if isinstance(t, dict) and t.get("added_by") == "judge"
-        and t.get("status") not in RESOLVED_STATUSES
+        1
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict) and t.get("added_by") == "judge" and t.get("status") not in RESOLVED_STATUSES
     )
     filtered_reqs = _filter_judge_new_requirements(new_reqs, existing_pairs, existing_norm_titles)
     for req in filtered_reqs:
@@ -1138,10 +1126,7 @@ def _apply_check_result(
         if pair in existing_pairs:
             continue
         norm_title = _normalize_title(req.get("title"))
-        if norm_title and (
-            norm_title in existing_norm_titles
-            or _norm_title_conflicts(norm_title, existing_norm_titles)
-        ):
+        if norm_title and (norm_title in existing_norm_titles or _norm_title_conflicts(norm_title, existing_norm_titles)):
             continue
         spec.setdefault("tasks", [])
         nt = _new_task(spec, req["title"], req["check"])
@@ -1156,7 +1141,10 @@ def _apply_check_result(
         if isinstance(supersedes, list) and supersedes:
             extra_headlines.extend(
                 _apply_supersedes_bundle(
-                    spec, new_tid, [str(x) for x in supersedes], reason=reason,
+                    spec,
+                    new_tid,
+                    [str(x) for x in supersedes],
+                    reason=reason,
                 )
             )
     if str(task.get("status") or "") in ("superseded", "retracted"):
@@ -1194,7 +1182,8 @@ def _apply_check_result(
         if added:
             headline += f" Judge added {', '.join(added)}."
     notify_spec_update(
-        spec, headline,
+        spec,
+        headline,
         highlight_task=tid,
     )
     return prefix + [headline] + extra_headlines
@@ -1215,14 +1204,29 @@ def _validate_one_task(
     transcript, plan_mode = _judge_context(transcript_path)
     if transcript:
         verdict, reason, new_reqs, frontier_outcome = judge_task(
-            spec, task, exit_code, output, transcript=transcript, plan_mode=plan_mode,
+            spec,
+            task,
+            exit_code,
+            output,
+            transcript=transcript,
+            plan_mode=plan_mode,
         )
     else:
         verdict, reason, new_reqs, frontier_outcome = judge_task(
-            spec, task, exit_code, output, plan_mode=plan_mode,
+            spec,
+            task,
+            exit_code,
+            output,
+            plan_mode=plan_mode,
         )
     return _apply_check_result(
-        spec, task, exit_code, output, verdict, reason, new_reqs,
+        spec,
+        task,
+        exit_code,
+        output,
+        verdict,
+        reason,
+        new_reqs,
         frontier_outcome=frontier_outcome,
     )
 
@@ -1256,12 +1260,17 @@ def auto_validate_spec(
         pending.append((idx, task))
 
     if _is_heavy_spec(spec):
-        pending.sort(key=lambda it: (
-            0 if str(it[1].get("approach_kind") or "") == "frontier" else
-            1 if str(it[1].get("approach_kind") or "") == "primary" else 2,
-            int(it[1].get("attempts") or 0),
-            it[0],
-        ))
+        pending.sort(
+            key=lambda it: (
+                0
+                if str(it[1].get("approach_kind") or "") == "frontier"
+                else 1
+                if str(it[1].get("approach_kind") or "") == "primary"
+                else 2,
+                int(it[1].get("attempts") or 0),
+                it[0],
+            )
+        )
     else:
         pending.sort(key=lambda it: (int(it[1].get("attempts") or 0), it[0]))
     pending_tasks = [task for _, task in pending]
@@ -1281,10 +1290,16 @@ def auto_validate_spec(
         # research tasks. Route it to evidence_only judging against captured tool
         # activity (reads, fetches, MCP results) + the transcript instead.
         if not is_runnable_check(check):
-            items.append({
-                "task": task, "kind": "validate", "exit_code": None,
-                "output": "", "evidence_only": True, "prior_exit": None,
-            })
+            items.append(
+                {
+                    "task": task,
+                    "kind": "validate",
+                    "exit_code": None,
+                    "output": "",
+                    "evidence_only": True,
+                    "prior_exit": None,
+                }
+            )
             continue
         prior_exit: int | None = None
         if str(task.get("status") or "") == "failed" and not _should_replay_failed_check(task):
@@ -1299,18 +1314,26 @@ def auto_validate_spec(
         # run (exit 127 + command-not-found) -> it is prose too; adjudicate on
         # evidence rather than recording a spurious failure.
         if exit_code == 127 and "not found" in (output or "").lower():
-            items.append({
-                "task": task, "kind": "validate", "exit_code": None,
-                "output": "", "evidence_only": True, "prior_exit": None,
-            })
+            items.append(
+                {
+                    "task": task,
+                    "kind": "validate",
+                    "exit_code": None,
+                    "output": "",
+                    "evidence_only": True,
+                    "prior_exit": None,
+                }
+            )
             continue
-        items.append({
-            "task": task,
-            "kind": "validate",
-            "exit_code": exit_code,
-            "output": output,
-            "prior_exit": prior_exit,
-        })
+        items.append(
+            {
+                "task": task,
+                "kind": "validate",
+                "exit_code": exit_code,
+                "output": output,
+                "prior_exit": prior_exit,
+            }
+        )
 
     if items:
         spec.pop("_stop_adjust_headlines", None)
@@ -1332,8 +1355,13 @@ def auto_validate_spec(
                     continue
                 messages.extend(
                     _apply_check_result(
-                        spec, task, exit_code, output,
-                        verdict, reason, new_reqs,
+                        spec,
+                        task,
+                        exit_code,
+                        output,
+                        verdict,
+                        reason,
+                        new_reqs,
                         frontier_outcome=frontier_outcome,
                         prior_exit=it.get("prior_exit"),
                     )
@@ -1356,16 +1384,79 @@ def auto_validate_spec(
 # evidence description, not a runnable command -- so it is adjudicated against the
 # captured evidence instead of being executed and failing with exit 127. This is
 # what breaks the prose-check-as-shell doom loop for research tasks.
-_CHECK_BUILTINS = frozenset({
-    "test", "[", "[[", "cd", ":", "true", "false", "echo", "printf",
-    "cat", "ls", "grep", "egrep", "fgrep", "rg", "sed", "awk", "find",
-    "head", "tail", "wc", "diff", "cmp", "sort", "uniq", "tr", "cut",
-    "jq", "yq", "xargs", "stat", "file", "touch", "cp", "mv", "rm", "mkdir",
-    "python", "python3", "python2", "pip", "pip3", "pytest", "git", "bash",
-    "sh", "zsh", "node", "npm", "npx", "pnpm", "yarn", "bun", "deno",
-    "go", "cargo", "rustc", "make", "just", "ruff", "mypy", "pyright",
-    "tsc", "eslint", "curl", "wget", "ln", "tee", "env",
-})
+_CHECK_BUILTINS = frozenset(
+    {
+        "test",
+        "[",
+        "[[",
+        "cd",
+        ":",
+        "true",
+        "false",
+        "echo",
+        "printf",
+        "cat",
+        "ls",
+        "grep",
+        "egrep",
+        "fgrep",
+        "rg",
+        "sed",
+        "awk",
+        "find",
+        "head",
+        "tail",
+        "wc",
+        "diff",
+        "cmp",
+        "sort",
+        "uniq",
+        "tr",
+        "cut",
+        "jq",
+        "yq",
+        "xargs",
+        "stat",
+        "file",
+        "touch",
+        "cp",
+        "mv",
+        "rm",
+        "mkdir",
+        "python",
+        "python3",
+        "python2",
+        "pip",
+        "pip3",
+        "pytest",
+        "git",
+        "bash",
+        "sh",
+        "zsh",
+        "node",
+        "npm",
+        "npx",
+        "pnpm",
+        "yarn",
+        "bun",
+        "deno",
+        "go",
+        "cargo",
+        "rustc",
+        "make",
+        "just",
+        "ruff",
+        "mypy",
+        "pyright",
+        "tsc",
+        "eslint",
+        "curl",
+        "wget",
+        "ln",
+        "tee",
+        "env",
+    }
+)
 _ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _STRUCTURE_OPS = ("&&", "||", "|", ";", ">", "<", "$(", "`", "$((")
 _FILE_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,6}$")
@@ -1430,8 +1521,12 @@ def run_check(check: str, cwd: str | Path = ".", timeout: int = _CHECK_TIMEOUT) 
     """Run a task's check command -> (exit_code, combined stdout+stderr, capped)."""
     try:
         proc = subprocess.run(
-            check, shell=True, cwd=str(cwd),
-            capture_output=True, text=True, timeout=timeout,
+            check,
+            shell=True,
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            timeout=timeout,
         )
         out = (proc.stdout or "") + (proc.stderr or "")
         return proc.returncode, out[-_OUTPUT_LIMIT:]
@@ -1537,8 +1632,7 @@ _JUDGE_HEAL_SYSTEM = (
     "Review judge_owned_open and return adjust_requirements ONLY (no "
     "new_requirements): action 'revise' with a runnable shell check when the check "
     "is broken, non-portable, prose, or environment-specific; action 'retract' when "
-    "redundant with a validated requirement or unsatisfiable. "
-    + _JUDGE_CORE_GUIDANCE
+    "redundant with a validated requirement or unsatisfiable. " + _JUDGE_CORE_GUIDANCE
 )
 _JUDGE_HEAL_SCHEMA = {
     "type": "object",
@@ -1597,10 +1691,7 @@ _JUDGE_SYSTEM = (
     "Be skeptical of empty output, errors, skipped tests, and mismatches. "
     "You may ADJUST requirements: 'retract' only for judge-added tasks; "
     "'revise' to fix any broken check; 'supersedes' on new_requirements to replace "
-    "agent tasks. Every adjustment is reported to the agent. "
-    + _JUDGE_CORE_GUIDANCE
-    + " "
-    + _JUDGE_FEEDBACK_GUIDANCE
+    "agent tasks. Every adjustment is reported to the agent. " + _JUDGE_CORE_GUIDANCE + " " + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _FRONTIER_JUDGE_SYSTEM = (
@@ -1612,18 +1703,14 @@ _FRONTIER_JUDGE_SYSTEM = (
     "- still_viable: more exploration warranted.\n"
     "- accepted_approach: check passed, viable implementation path.\n"
     "Set verdict 1 when the check passed, 0 otherwise. "
-    "outcome drives resolution, not verdict.\n"
-    + _JUDGE_CORE_GUIDANCE
-    + " "
-    + _JUDGE_FEEDBACK_GUIDANCE
+    "outcome drives resolution, not verdict.\n" + _JUDGE_CORE_GUIDANCE + " " + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _PRIMARY_JUDGE_SYSTEM = (
     "You are validating delivery of the evidence-backed PRIMARY fallback approach. "
     "This task only runs when all frontier approaches were rejected (none adopted). "
     "Return verdict 1 only if the check output proves the primary approach was "
-    "implemented correctly. "
-    + _JUDGE_FEEDBACK_GUIDANCE
+    "implemented correctly. " + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _DISCOVER_SYSTEM = (
@@ -1720,11 +1807,8 @@ _VALIDATE_ALL_SYSTEM = (
     "- approach_kind=frontier: return outcome rejected_approach, still_viable, or "
     "accepted_approach. Verdict 1 when check passed.\n"
     "- approach_kind=primary: validate primary delivery after frontiers ruled out.\n"
-    "Return task_verdicts (same fields as single-task validation). "
-    + _JUDGE_CORE_GUIDANCE
-    + " "
-    "You may ADJUST requirements via adjust_requirements on any task verdict. "
-    + _JUDGE_FEEDBACK_GUIDANCE
+    "Return task_verdicts (same fields as single-task validation). " + _JUDGE_CORE_GUIDANCE + " "
+    "You may ADJUST requirements via adjust_requirements on any task verdict. " + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _DISPUTE_ADJUDICATION = (
@@ -1753,13 +1837,7 @@ def _plan_mode_judge_section(plan_mode: dict[str, Any] | None) -> str:
         return ""
     host = str(plan_mode.get("host") or "host")
     marker = str(plan_mode.get("marker") or "")
-    return (
-        f"\n\n--- PLAN MODE ({host}) ---\n"
-        f"plan_mode_enabled: true\n"
-        f"marker: {marker}\n"
-        + _PLAN_MODE_JUDGE_RULES
-        + "\n"
-    )
+    return f"\n\n--- PLAN MODE ({host}) ---\nplan_mode_enabled: true\nmarker: {marker}\n" + _PLAN_MODE_JUDGE_RULES + "\n"
 
 
 def _session_context_payload(plan_mode: dict[str, Any] | None) -> dict[str, Any]:
@@ -1841,11 +1919,14 @@ def _judge_user(spec: dict[str, Any], task: dict[str, Any], exit_code: int, outp
     payload["current_requirements"] = _current_requirements_payload(spec)
     # Requirements the judge itself added and may now adjust (retract/revise).
     adjustable = [
-        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
-         "check": str(t.get("check") or ""), "status": str(t.get("status") or "")}
+        {
+            "id": str(t.get("id")),
+            "title": str(t.get("title") or ""),
+            "check": str(t.get("check") or ""),
+            "status": str(t.get("status") or ""),
+        }
         for t in (spec.get("tasks") or [])
-        if isinstance(t, dict) and t.get("added_by") == "judge"
-        and t.get("status") != "retracted"
+        if isinstance(t, dict) and t.get("added_by") == "judge" and t.get("status") != "retracted"
     ]
     if adjustable:
         payload["existing_judge_requirements"] = adjustable[-20:]
@@ -1933,7 +2014,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
 def _judge_owned_open_tasks(spec: dict[str, Any]) -> list[dict[str, Any]]:
     """Open judge-added tasks the agent cannot retract or revise."""
     out: list[dict[str, Any]] = []
-    for t in (spec.get("tasks") or []):
+    for t in spec.get("tasks") or []:
         if not isinstance(t, dict):
             continue
         if t.get("added_by") != "judge":
@@ -2028,9 +2109,7 @@ def heal_judge_owned_requirements(
     except Exception:
         pass
     if _judge_owned_open_tasks(spec):
-        headlines.extend(
-            judge_heal_own_requirements(spec, transcript_path=transcript_path)
-        )
+        headlines.extend(judge_heal_own_requirements(spec, transcript_path=transcript_path))
         try:
             from heavy_workflow import advance_primary_if_ready, sync_heavy_phase
 
@@ -2083,8 +2162,10 @@ def _evidence_payload(evidence: dict[str, Any] | None) -> dict[str, list[str]] |
     (research) requirement is adjudicated against."""
     if not isinstance(evidence, dict):
         return None
+
     def _take(key: str, n: int) -> list[str]:
         return [str(x) for x in (evidence.get(key) or []) if str(x)][-n:]
+
     out = {
         "read_paths": _take("read_paths", 30),
         "fetched_urls": _take("fetched_urls", 20),
@@ -2137,11 +2218,14 @@ def _build_validate_all_user(
     if ev:
         payload["evidence"] = ev
     adjustable = [
-        {"id": str(t.get("id")), "title": str(t.get("title") or ""),
-         "check": str(t.get("check") or ""), "status": str(t.get("status") or "")}
+        {
+            "id": str(t.get("id")),
+            "title": str(t.get("title") or ""),
+            "check": str(t.get("check") or ""),
+            "status": str(t.get("status") or ""),
+        }
         for t in (spec.get("tasks") or [])
-        if isinstance(t, dict) and t.get("added_by") == "judge"
-        and t.get("status") != "retracted"
+        if isinstance(t, dict) and t.get("added_by") == "judge" and t.get("status") != "retracted"
     ]
     if adjustable:
         payload["existing_judge_requirements"] = adjustable[-20:]
@@ -2192,10 +2276,7 @@ def judge_frontier_comparison(spec: dict[str, Any]) -> list[str]:
     accepted_approach status. Reads persisted evidence (exit, output,
     judge_reason) from each frontier task -- no new persistence layer."""
     frontiers = frontier_tasks(spec)
-    accepted = [
-        t for t in frontiers
-        if str(t.get("status") or "") == "accepted_approach"
-    ]
+    accepted = [t for t in frontiers if str(t.get("status") or "") == "accepted_approach"]
     if not accepted:
         return []
 
@@ -2239,9 +2320,7 @@ def judge_frontier_comparison(spec: dict[str, Any]) -> list[str]:
         if tid == selected_id:
             t["comparison_winner"] = True
             t["judge_reason"] = f"Selected as best approach: {rationale[:200]}"
-            headlines.append(
-                f"{tid} selected as best frontier: {rationale[:80]}."
-            )
+            headlines.append(f"{tid} selected as best frontier: {rationale[:80]}.")
         elif str(t.get("status") or "") == "accepted_approach":
             t["status"] = "rejected_approach"
             t["comparison_winner"] = False
@@ -2334,7 +2413,8 @@ def judge_task(
         res = ask_structured(
             _judge_system_for_task(task, transcript=transcript, plan_mode=plan_mode),
             _judge_user(spec, task, exit_code, output),
-            _judge_schema_for_task(task), schema_name="task_verdict",
+            _judge_schema_for_task(task),
+            schema_name="task_verdict",
         )
     except JudgeError as exc:
         return 0, f"judge error: {exc}", [], ""
@@ -2352,9 +2432,7 @@ def judge_tasks(
     evidence: dict[str, Any] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge all items in one unified structured call (validate + dispute)."""
-    return judge_all_tasks(
-        spec, items, transcript=transcript, plan_mode=plan_mode, evidence=evidence
-    )
+    return judge_all_tasks(spec, items, transcript=transcript, plan_mode=plan_mode, evidence=evidence)
 
 
 def _normalize_scope_paths(raw: Any) -> list[str]:
@@ -2412,15 +2490,18 @@ def judge_discover_frontiers(
         from judge_transport import ask_structured
     except ImportError:
         return []
-    user = json.dumps({
-        "goal": spec.get("restated_goal", ""),
-        "existing_frontiers": [t.get("title") for t in frontier_tasks(spec)],
-        "current_requirements": _current_requirements_payload(spec),
-        "read_paths": (recent_activity.get("read_paths") or [])[-20:],
-        "fetched_urls": (recent_activity.get("fetched_urls") or [])[-10:],
-        "repo_context": spec.get("repo_context") or [],
-        "prior_art": spec.get("prior_art") or [],
-    }, ensure_ascii=False)
+    user = json.dumps(
+        {
+            "goal": spec.get("restated_goal", ""),
+            "existing_frontiers": [t.get("title") for t in frontier_tasks(spec)],
+            "current_requirements": _current_requirements_payload(spec),
+            "read_paths": (recent_activity.get("read_paths") or [])[-20:],
+            "fetched_urls": (recent_activity.get("fetched_urls") or [])[-10:],
+            "repo_context": spec.get("repo_context") or [],
+            "prior_art": spec.get("prior_art") or [],
+        },
+        ensure_ascii=False,
+    )
     try:
         res = ask_structured(_DISCOVER_SYSTEM, user, _DISCOVER_SCHEMA, schema_name="frontier_discover")
     except JudgeError:
@@ -2439,7 +2520,9 @@ def judge_discover_frontiers(
         if len(frontier_tasks(spec)) >= 2:
             break
         task = append_frontier_task(
-            spec, title, check,
+            spec,
+            title,
+            check,
             added_by="judge",
             scope_paths=_normalize_scope_paths(item.get("scope_paths")),
         )
@@ -2483,18 +2566,20 @@ def judge_dispute(
         "is weak, the task is merely hard or inconvenient, or the agent is dodging "
         "work; in reason, tell the agent bluntly what real proof would be required. "
         "Do not accept a claim that work is 'complete' here -- this is only about "
-        "whether the requirement is genuinely impossible. "
-        + _JUDGE_FEEDBACK_GUIDANCE
+        "whether the requirement is genuinely impossible. " + _JUDGE_FEEDBACK_GUIDANCE
     )
     system += _plan_mode_judge_section(plan_mode)
-    user = json.dumps({
-        "goal": spec.get("restated_goal", ""),
-        "task_title": task.get("title", ""),
-        "check": task.get("check", ""),
-        "impossibility_evidence": evidence,
-        "current_requirements": _current_requirements_payload(spec),
-        "session_context": _session_context_payload(plan_mode),
-    }, ensure_ascii=False)
+    user = json.dumps(
+        {
+            "goal": spec.get("restated_goal", ""),
+            "task_title": task.get("title", ""),
+            "check": task.get("check", ""),
+            "impossibility_evidence": evidence,
+            "current_requirements": _current_requirements_payload(spec),
+            "session_context": _session_context_payload(plan_mode),
+        },
+        ensure_ascii=False,
+    )
     try:
         res = ask_structured(system, user, _DISPUTE_SCHEMA, schema_name="dispute_verdict")
     except JudgeError as exc:
@@ -2527,16 +2612,19 @@ def judge_hint(spec: dict[str, Any], *, signal: str, recent: str = "") -> str:
         "doing. If you have nothing genuinely useful to say, return an empty hint."
     )
     board = spec.get("tasks") or []
-    user = json.dumps({
-        "goal": spec.get("restated_goal", ""),
-        "why_it_looks_stuck": signal,
-        "tasks": [
-            {"id": t.get("id"), "title": t.get("title"),
-             "status": t.get("status"), "judge_reason": t.get("judge_reason")}
-            for t in board if isinstance(t, dict)
-        ],
-        "recent_activity": recent[:2000],
-    }, ensure_ascii=False)
+    user = json.dumps(
+        {
+            "goal": spec.get("restated_goal", ""),
+            "why_it_looks_stuck": signal,
+            "tasks": [
+                {"id": t.get("id"), "title": t.get("title"), "status": t.get("status"), "judge_reason": t.get("judge_reason")}
+                for t in board
+                if isinstance(t, dict)
+            ],
+            "recent_activity": recent[:2000],
+        },
+        ensure_ascii=False,
+    )
     try:
         res = ask_structured(system, user, _HINT_SCHEMA, schema_name="hint")
     except JudgeError:
@@ -2548,12 +2636,8 @@ def spec_template() -> dict[str, Any]:
     """Return an empty spec scaffold the model can fill in."""
     return {
         "restated_goal": "",
-        "acceptance_criteria": [
-            {"check": "", "evidence": ""}
-        ],
-        "repo_context": [
-            {"cite": "", "why": ""}
-        ],
+        "acceptance_criteria": [{"check": "", "evidence": ""}],
+        "repo_context": [{"cite": "", "why": ""}],
         "prior_art": [],
         "evidence_profile": "code",
         "risks": [],
@@ -2605,7 +2689,7 @@ def contract_string(
     try:
         from evidence_policy import DEFAULT_EVIDENCE_PROFILE, resolve_evidence_profile
     except ImportError:  # pragma: no cover
-        from scripts.gate.evidence_policy import DEFAULT_EVIDENCE_PROFILE, resolve_evidence_profile
+        from scripts.gate.evidence_policy import DEFAULT_EVIDENCE_PROFILE
 
     grade = (grade or "STANDARD").upper()
     base = _CONTRACT.get(grade, _CONTRACT["STANDARD"])
@@ -2654,20 +2738,14 @@ def format_spec_validation_block(
 
     if "prior_art" in joined:
         fixes.append(
-            "fetch at least one relevant source URL (WebFetch or curl); "
-            "prior_art entries sync from fetched URLs automatically"
+            "fetch at least one relevant source URL (WebFetch or curl); prior_art entries sync from fetched URLs automatically"
         )
     if "repo_context" in joined:
-        fixes.append(
-            "read relevant repo files (Read/Grep); "
-            "repo_context entries sync from reads automatically"
-        )
+        fixes.append("read relevant repo files (Read/Grep); repo_context entries sync from reads automatically")
     if "restate" in joined or "restated_goal" in joined or "goal_seeded" in joined:
         fixes.append("run `unifable restate '<goal in your own words>'`")
     if "no requirements yet" in joined or "requires_tasks" in joined:
-        fixes.append(
-            "run `unifable add-task --title '<requirement>' --check '<runnable check>'`"
-        )
+        fixes.append("run `unifable add-task --title '<requirement>' --check '<runnable check>'`")
     if grade == "HEAVY" and ("frontier" in joined or "primary approach" in joined):
         fixes.append("HEAVY: use `unifable add-frontier` (>=2) and `unifable set-primary`")
 
@@ -2689,6 +2767,7 @@ def format_spec_validation_block(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
+
 
 def _cmd_validate(args: argparse.Namespace) -> int:
     spec = load_spec(args.root, args.task_id)
@@ -2723,9 +2802,16 @@ def _next_task_id(spec: dict[str, Any]) -> str:
 
 def _new_task(spec: dict[str, Any], title: str, check: str) -> dict[str, Any]:
     return {
-        "id": _next_task_id(spec), "title": title.strip(), "check": check.strip(),
-        "status": "pending", "exit": None, "output": "",
-        "judge_verdict": None, "judge_reason": "", "judge_hint": "", "attempts": 0,
+        "id": _next_task_id(spec),
+        "title": title.strip(),
+        "check": check.strip(),
+        "status": "pending",
+        "exit": None,
+        "output": "",
+        "judge_verdict": None,
+        "judge_reason": "",
+        "judge_hint": "",
+        "attempts": 0,
     }
 
 
@@ -2807,8 +2893,7 @@ def _cmd_restate(args: argparse.Namespace) -> int:
     save_spec(args.root, args.task_id, spec)
     if created:
         print(
-            f"spec created at {spec_path(args.root, args.task_id)}; "
-            f"restated_goal set ({len(goal)} chars); goal_seeded cleared."
+            f"spec created at {spec_path(args.root, args.task_id)}; restated_goal set ({len(goal)} chars); goal_seeded cleared."
         )
     else:
         print(f"restated_goal set ({len(goal)} chars); goal_seeded cleared.")
@@ -2876,8 +2961,7 @@ def _apply_cli_context(args: argparse.Namespace) -> int | None:
     args.task_id = resolve_session_id(default=None)
     if args.cmd not in (None, "contract") and not args.task_id:
         print(
-            "No session id: set CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, "
-            "or CURSOR_CONVERSATION_ID (Cursor).",
+            "No session id: set CLAUDE_CODE_SESSION_ID, CODEX_THREAD_ID, or CURSOR_CONVERSATION_ID (Cursor).",
             file=sys.stderr,
         )
         return 1
@@ -2893,13 +2977,21 @@ def main(argv: list[str] | None = None) -> int:
 
     p_validate = sub.add_parser("validate", help="Validate an existing spec (harness/dev).")
     p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
-    p_validate.add_argument("--require-evidence", action="store_true", dest="require_evidence",
-                            help="Also require citation evidence (repo_context, prior_art).")
+    p_validate.add_argument(
+        "--require-evidence",
+        action="store_true",
+        dest="require_evidence",
+        help="Also require citation evidence (repo_context, prior_art).",
+    )
 
     p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier (harness/dev).")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
-    p_contract.add_argument("--require-evidence", action="store_true", dest="require_evidence",
-                            help="Include the evidence-gate citation requirements.")
+    p_contract.add_argument(
+        "--require-evidence",
+        action="store_true",
+        dest="require_evidence",
+        help="Include the evidence-gate citation requirements.",
+    )
 
     p_add = sub.add_parser("add-task", help="Append a task to an existing spec.")
     p_add.add_argument("--title", required=True)
@@ -2930,8 +3022,9 @@ def main(argv: list[str] | None = None) -> int:
         help="Submit evidence a requirement is impossible; harness adjudicates on stop.",
     )
     p_dispute.add_argument("--task", required=True, help="Task id, e.g. T1.")
-    p_dispute.add_argument("--evidence", required=True,
-                           help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
+    p_dispute.add_argument(
+        "--evidence", required=True, help="Proof the requirement cannot be satisfied (the judge adjudicates it)."
+    )
 
     p_doctor = sub.add_parser("doctor", help="Operator diagnostics.")
     doctor_sub = p_doctor.add_subparsers(dest="doctor_cmd")
@@ -2942,7 +3035,8 @@ def main(argv: list[str] | None = None) -> int:
     if err is not None:
         return err
     dispatch = {
-        "validate": _cmd_validate, "contract": _cmd_contract,
+        "validate": _cmd_validate,
+        "contract": _cmd_contract,
         "restate": _cmd_restate,
         "add-task": _cmd_add_task,
         "set-primary": _cmd_set_primary,

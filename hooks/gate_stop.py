@@ -36,11 +36,16 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "shadow"))
 from atomicio import write_text_atomic
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
-from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
 from transcript_locate import locate_transcript
-from verify_state import (MAX_STOP_BLOCKS, completion_runaway_warning,
-                          note_completion_block, reset_completion_stall,
-                          should_block_stop, warning_after_max_blocks)
+from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
+from verify_state import (
+    MAX_STOP_BLOCKS,
+    completion_runaway_warning,
+    note_completion_block,
+    reset_completion_stall,
+    should_block_stop,
+    warning_after_max_blocks,
+)
 
 GOAL_TRANSCRIPT_TOKENS = TRANSCRIPT_TOKEN_BUDGET
 try:
@@ -86,14 +91,12 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
     try:
         ledger = load_ledger(input_data)
         count = int(ledger.get("completion_stop_blocks") or 0)
-        if count < COMPLETION_HINT_THRESHOLD or \
-                (count - COMPLETION_HINT_THRESHOLD) % COMPLETION_HINT_STEP != 0:
+        if count < COMPLETION_HINT_THRESHOLD or (count - COMPLETION_HINT_THRESHOLD) % COMPLETION_HINT_STEP != 0:
             return ""
         from spec import judge_hint
 
         recent = " | ".join(
-            (ledger.get("ran_commands") or [])[-6:]
-            + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
+            (ledger.get("ran_commands") or [])[-6:] + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
         )
         signal = (
             f"The completion breaker has re-blocked Stop {count} times; "
@@ -282,8 +285,7 @@ def _handle_completion_loop_release(
 
     if should_invoke_loop_judge(ledger, incomplete, pending_block=True, spec=spec):
         recent = " | ".join(
-            (ledger.get("ran_commands") or [])[-6:]
-            + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
+            (ledger.get("ran_commands") or [])[-6:] + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
         )
         signal = (
             f"Completion breaker blocked Stop with {len(incomplete)} incomplete task(s) "
@@ -316,6 +318,7 @@ def _holdout_suppresses(input_data: dict) -> bool:
         return False
     try:
         from shadow_logger import holdout_arm
+
         return holdout_arm(input_data.get("session_id") or "") == "off"
     except Exception:
         return False
@@ -326,8 +329,8 @@ def _log_holdout(input_data: dict, reason: str) -> None:
     the model and never raises into the gate path."""
     try:
         from shadow_logger import append_event, make_event
-        append_event(make_event(input_data.get("session_id") or "", "holdout_suppress",
-                                {"would_block_reason": reason}))
+
+        append_event(make_event(input_data.get("session_id") or "", "holdout_suppress", {"would_block_reason": reason}))
     except Exception:
         pass
 
@@ -357,6 +360,7 @@ def _goals_path(cwd: str | Path, session_id: str | None) -> Path:
     # The goals plan lives beside the spec in the per-(directory, session) dir, so a
     # new session never inherits a prior session's plan (the stale-plan bleed fix).
     from spec import session_dir
+
     return session_dir(cwd, session_id) / "goals.json"
 
 
@@ -388,10 +392,7 @@ def _remaining_goals(plan: dict) -> list[dict]:
     goals = plan.get("goals")
     if not isinstance(goals, list):
         return []
-    return [
-        goal for goal in goals
-        if isinstance(goal, dict) and goal.get("status") in {"pending", "in_progress"}
-    ]
+    return [goal for goal in goals if isinstance(goal, dict) and goal.get("status") in {"pending", "in_progress"}]
 
 
 def _goal_condition(plan: dict, goal: dict) -> str:
@@ -409,9 +410,16 @@ def _goal_condition(plan: dict, goal: dict) -> str:
 
 def _goal_hook_arguments(input_data: dict) -> dict:
     keys = (
-        "session_id", "transcript_path", "cwd", "permission_mode", "effort",
-        "hook_event_name", "stop_hook_active", "last_assistant_message",
-        "background_tasks", "session_crons",
+        "session_id",
+        "transcript_path",
+        "cwd",
+        "permission_mode",
+        "effort",
+        "hook_event_name",
+        "stop_hook_active",
+        "last_assistant_message",
+        "background_tasks",
+        "session_crons",
     )
     return {key: input_data.get(key) for key in keys if key in input_data}
 
@@ -428,7 +436,7 @@ def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> 
         '- {"ok": false, "reason": "<quote what is missing or what blocks the condition>"}\n'
         '- {"ok": false, "impossible": true, "reason": "<explain why the condition can never be satisfied>"}\n'
         'Always include a "reason" field, quoting specific text from the transcript whenever possible. '
-        'If the transcript does not contain clear evidence that the condition is satisfied, return '
+        "If the transcript does not contain clear evidence that the condition is satisfied, return "
         '{"ok": false, "reason": "insufficient evidence in transcript"}. Only use '
         '{"ok": false, "impossible": true} when the condition is genuinely unachievable in this session.'
     )
@@ -464,13 +472,10 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
     gpt-realtime-2 through codex_judge. Returns a Stop payload or None to allow."""
     if not input_data or input_data.get("_parse_error"):
         return None
-    if not (
-        input_data.get("session_id")
-        or input_data.get("transcript_path")
-        or input_data.get("last_assistant_message")
-    ):
+    if not (input_data.get("session_id") or input_data.get("transcript_path") or input_data.get("last_assistant_message")):
         return None
     from spec import resolve_session_id
+
     session_id = resolve_session_id(input_data, default=None)
     plan = _load_goal_plan(cwd, session_id)
     if not plan:
@@ -481,12 +486,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
 
     ledger = load_ledger(input_data)
     if int(ledger.get("goal_stop_blocks") or 0) >= GOAL_STOP_BLOCK_CAP:
-        return {
-            "systemMessage": (
-                "unifable goal stop hook block cap reached; allowing stop with "
-                "an incomplete goals.py plan."
-            )
-        }
+        return {"systemMessage": ("unifable goal stop hook block cap reached; allowing stop with an incomplete goals.py plan.")}
 
     condition = _goal_condition(plan, goal)
     transcript = _transcript_for_goal_judge(input_data.get("transcript_path"), input_data)
@@ -573,13 +573,15 @@ def main() -> int:
                 )
             elif spec is not None:
                 try:
-                    from citations import (activity_from_ledger, enabled,
-                                           filter_gate_defect_citation_reasons,
-                                           merge_activity, scan_transcript,
-                                           verify_citations)
-                    from heavy_workflow import (
-                                                clear_stale_heavy_workflow,
-                                                heavy_snapshot)
+                    from citations import (
+                        activity_from_ledger,
+                        enabled,
+                        filter_gate_defect_citation_reasons,
+                        merge_activity,
+                        scan_transcript,
+                        verify_citations,
+                    )
+                    from heavy_workflow import clear_stale_heavy_workflow, heavy_snapshot
                     from spec import auto_validate_spec, save_spec
                     from spec_hygiene import apply_spec_hygiene
 
@@ -594,9 +596,7 @@ def main() -> int:
                     if clear_stale_heavy_workflow(spec, grade):
                         save_spec(cwd, task_key, spec)
                     stop_evidence = dict(activity)
-                    stop_evidence["tool_evidence"] = [
-                        str(x) for x in (_stop_ledger.get("tool_evidence") or [])
-                    ][-60:]
+                    stop_evidence["tool_evidence"] = [str(x) for x in (_stop_ledger.get("tool_evidence") or [])][-60:]
                     spec, val_msgs = auto_validate_spec(
                         spec,
                         cwd,
@@ -610,17 +610,24 @@ def main() -> int:
                     # val_msgs, which only surfaces when the completion breaker
                     # blocks -- never on an allow-stop (AGENTS.md additionalContext rule).
                     extra_msgs = _stop_workflow_notes(
-                        spec, heavy_before, stop_added,
-                        ledger_activity, transcript_activity, cwd,
+                        spec,
+                        heavy_before,
+                        stop_added,
+                        ledger_activity,
+                        transcript_activity,
+                        cwd,
                     )
                     if extra_msgs:
                         val_msgs = list(val_msgs) + extra_msgs
                     validate_ctx, validate_ctx_truncated = _build_stop_validate_context(
-                        spec, val_msgs,
+                        spec,
+                        val_msgs,
                     )
                     if validate_ctx:
                         full_ctx, _ = _build_stop_validate_context(
-                            spec, val_msgs, max_len=1_000_000,
+                            spec,
+                            val_msgs,
+                            max_len=1_000_000,
                         )
                         stop_digest_path = _persist_stop_digest(cwd, task_key, full_ctx)
                 except Exception:
@@ -633,21 +640,28 @@ def main() -> int:
                     loop_lift_ctx = ""
                     try:
                         _led = load_ledger(input_data)
-                        spec, ok_tasks, incomplete, val_msgs, validate_ctx, early = (
-                            _handle_completion_loop_release(
-                                input_data, cwd, task_key, spec, _led, incomplete,
-                                val_msgs, validate_ctx,
-                            )
+                        spec, ok_tasks, incomplete, val_msgs, validate_ctx, early = _handle_completion_loop_release(
+                            input_data,
+                            cwd,
+                            task_key,
+                            spec,
+                            _led,
+                            incomplete,
+                            val_msgs,
+                            validate_ctx,
                         )
                         if early is not None:
                             emit_json(early)
                             return 0
                         validate_ctx, validate_ctx_truncated = _build_stop_validate_context(
-                            spec, val_msgs,
+                            spec,
+                            val_msgs,
                         )
                         if validate_ctx:
                             full_ctx, _ = _build_stop_validate_context(
-                                spec, val_msgs, max_len=1_000_000,
+                                spec,
+                                val_msgs,
+                                max_len=1_000_000,
                             )
                             stop_digest_path = _persist_stop_digest(cwd, task_key, full_ctx)
                         from loop_release import format_loop_lift_context, loop_lift_active
@@ -677,9 +691,7 @@ def main() -> int:
                             save_ledger(input_data, _led)
                         except Exception:
                             pass  # fail open -- the safety cap never hard-blocks on its own bug
-                        ev_reason = (
-                            f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)})."
-                        )
+                        ev_reason = f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)})."
                         if not str(validate_ctx or "").strip():
                             try:
                                 from model_notify import format_blocking_task_hints, task_ids_from_headlines
@@ -723,11 +735,16 @@ def main() -> int:
                     else:
                         # Citation truth-check: code-profile tasks only.
                         try:
-                            from citations import (activity_from_ledger, enabled,
-                                                   filter_gate_defect_citation_reasons,
-                                                   format_citation_verify_message,
-                                                   merge_activity, scan_transcript,
-                                                   verify_citations)
+                            from citations import (
+                                activity_from_ledger,
+                                enabled,
+                                filter_gate_defect_citation_reasons,
+                                format_citation_verify_message,
+                                merge_activity,
+                                scan_transcript,
+                                verify_citations,
+                            )
+
                             profile = resolve_evidence_profile(ledger, spec)
                             if enabled() and profile != "operational":
                                 activity = merge_activity(
@@ -815,8 +832,7 @@ def main() -> int:
         emit_json(
             {
                 "decision": "block",
-                "reason": f"{len(blockers)} open high/critical finding(s) to resolve or reject "
-                f"before completing: {ids}.",
+                "reason": f"{len(blockers)} open high/critical finding(s) to resolve or reject before completing: {ids}.",
             }
         )
         return 0
@@ -833,9 +849,7 @@ def main() -> int:
         if int(ledger.get("stop_blocks") or 0) < MAX_STOP_BLOCKS:
             ledger["stop_blocks"] = int(ledger.get("stop_blocks") or 0) + 1
             save_ledger(input_data, ledger)
-            emit_json(
-                {"decision": "block", "reason": obs_reason}
-            )
+            emit_json({"decision": "block", "reason": obs_reason})
             return 0
 
     warning = warning_after_max_blocks(ledger)

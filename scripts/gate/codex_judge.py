@@ -41,17 +41,18 @@ import struct
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 # --- Realtime + codex OAuth constants (mirror crates/cse-realtime/src/*.rs) ---
 REALTIME_HOST = "api.openai.com"
-REALTIME_PATH = "/v1/realtime"                            # ?model=<model> appended (protocol.rs/lib.rs)
-OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"   # auth.rs:33
-OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"          # auth.rs:35
-OAUTH_SCOPE = "openid profile email"                       # auth.rs:37
-ORIGINATOR = "codex_cli_rs"                                # protocol.rs build_request
+REALTIME_PATH = "/v1/realtime"  # ?model=<model> appended (protocol.rs/lib.rs)
+OAUTH_TOKEN_URL = "https://auth.openai.com/oauth/token"  # auth.rs:33
+OAUTH_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"  # auth.rs:35
+OAUTH_SCOPE = "openid profile email"  # auth.rs:37
+ORIGINATOR = "codex_cli_rs"  # protocol.rs build_request
 
 # gpt-realtime-2 over the Realtime API, authenticated with the Codex ChatGPT
 # OAuth bearer (tokens.access_token in ~/.codex/auth.json) -- the same path
@@ -98,6 +99,7 @@ class JudgeError(Exception):
 # Auth: load ~/.codex/auth.json, refresh the access_token when stale (auth.rs)
 # ---------------------------------------------------------------------------
 
+
 def _auth_path(override: str | os.PathLike[str] | None) -> Path:
     if override:
         return Path(override)
@@ -137,14 +139,18 @@ def _refresh(doc: dict[str, Any], path: Path) -> dict[str, Any]:
     refresh_token = tokens.get("refresh_token") or ""
     if not refresh_token:
         raise JudgeError("no refresh_token in auth.json")
-    body = json.dumps({
-        "client_id": OAUTH_CLIENT_ID,
-        "grant_type": "refresh_token",
-        "refresh_token": refresh_token,
-        "scope": OAUTH_SCOPE,
-    }).encode("utf-8")
+    body = json.dumps(
+        {
+            "client_id": OAUTH_CLIENT_ID,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            "scope": OAUTH_SCOPE,
+        }
+    ).encode("utf-8")
     req = urllib.request.Request(
-        OAUTH_TOKEN_URL, data=body, method="POST",
+        OAUTH_TOKEN_URL,
+        data=body,
+        method="POST",
         headers={"content-type": "application/json", "user-agent": ORIGINATOR},
     )
     try:
@@ -160,8 +166,7 @@ def _refresh(doc: dict[str, Any], path: Path) -> dict[str, Any]:
             pass
         if "reuse" in detail.lower() or "already been used" in detail.lower():
             raise JudgeError(
-                "codex token refresh failed (refresh_token already used); "
-                "run `codex login` to re-authenticate"
+                "codex token refresh failed (refresh_token already used); run `codex login` to re-authenticate"
             ) from exc
         raise JudgeError(f"codex token refresh failed: HTTP {exc.code} {detail}".rstrip()) from exc
     except Exception as exc:  # noqa: BLE001
@@ -176,7 +181,7 @@ def _refresh(doc: dict[str, Any], path: Path) -> dict[str, Any]:
         tokens["id_token"] = new_id
     tokens["refresh_token"] = new_refresh
     doc["tokens"] = tokens
-    doc["last_refresh"] = datetime.now(timezone.utc).isoformat()
+    doc["last_refresh"] = datetime.now(UTC).isoformat()
     _atomic_write(path, json.dumps(doc, indent=2))
     return doc
 
@@ -204,6 +209,7 @@ def _fresh_tokens(auth_path: str | os.PathLike[str] | None, force: bool = False)
 # ---------------------------------------------------------------------------
 # Minimal RFC 6455 WebSocket client over stdlib socket + ssl
 # ---------------------------------------------------------------------------
+
 
 def _read_exactly(sock: ssl.SSLSocket, n: int) -> bytes:
     buf = bytearray()
@@ -295,6 +301,7 @@ def _ws_connect(tokens: dict[str, Any], model: str, timeout: float) -> ssl.SSLSo
 # ---------------------------------------------------------------------------
 # Realtime structured ask (function tool + tool_choice=required)
 # ---------------------------------------------------------------------------
+
 
 def _provider_error(err: Any) -> str:
     if not isinstance(err, dict):
@@ -477,14 +484,15 @@ def ask_structured(
 # frame (function_call_arguments.*, output_text.delta, response.done) by response_id.
 # ---------------------------------------------------------------------------
 
+
 def _new_batch_state(n: int) -> dict[str, Any]:
     return {
         "n": n,
         "rid_to_cid": {},
         "args": {i: [] for i in range(n)},
-        "done_args": {i: None for i in range(n)},
+        "done_args": dict.fromkeys(range(n)),
         "text": {i: [] for i in range(n)},
-        "error": {i: None for i in range(n)},
+        "error": dict.fromkeys(range(n)),
         "finished": set(),
         "session_error": None,
     }
@@ -548,11 +556,7 @@ def _batch_route(state: dict[str, Any], env: dict[str, Any]) -> None:
 
 
 def _batch_chosen(state: dict[str, Any], cid: int) -> str:
-    return (
-        state["done_args"][cid]
-        or ("".join(state["args"][cid]) if state["args"][cid] else "")
-        or "".join(state["text"][cid])
-    )
+    return state["done_args"][cid] or ("".join(state["args"][cid]) if state["args"][cid] else "") or "".join(state["text"][cid])
 
 
 def _collect_batch(envelopes: list[dict[str, Any]], n: int) -> list[tuple[str | None, str | None]]:
@@ -597,23 +601,25 @@ def _response_create(req: dict[str, Any], cid: int) -> dict[str, Any]:
             "tools": [tool],
             "tool_choice": "required",
             "metadata": {"cid": str(cid)},
-            "input": [{
-                "type": "message", "role": "user",
-                "content": [{"type": "input_text", "text": f"{_QUESTION_PREFIX}{user}"}],
-            }],
+            "input": [
+                {
+                    "type": "message",
+                    "role": "user",
+                    "content": [{"type": "input_text", "text": f"{_QUESTION_PREFIX}{user}"}],
+                }
+            ],
         },
     }
 
 
-def _batch_once(chunk: list[dict[str, Any]], model: str,
-                auth_path: str | os.PathLike[str] | None, timeout: float,
-                force_refresh: bool) -> dict[str, Any]:
+def _batch_once(
+    chunk: list[dict[str, Any]], model: str, auth_path: str | os.PathLike[str] | None, timeout: float, force_refresh: bool
+) -> dict[str, Any]:
     tokens = _fresh_tokens(auth_path, force=force_refresh)
     sock = _ws_connect(tokens, model, HANDSHAKE_TIMEOUT)
     state = _new_batch_state(len(chunk))
     try:
-        _send_text(sock, {"type": "session.update",
-                          "session": {"type": "realtime", "output_modalities": ["text"]}})
+        _send_text(sock, {"type": "session.update", "session": {"type": "realtime", "output_modalities": ["text"]}})
         for cid, req in enumerate(chunk):
             _send_text(sock, _response_create(req, cid))
         deadline = time.monotonic() + timeout
@@ -656,13 +662,11 @@ def ask_structured_batch(
     raises for a single bad slot, so one failed judge can't poison the others). A
     handshake auth rejection refreshes the token and retries once, like
     ask_structured."""
-    results: list[dict[str, Any] | JudgeError] = [
-        JudgeError("no result") for _ in requests
-    ]
+    results: list[dict[str, Any] | JudgeError] = [JudgeError("no result") for _ in requests]
     if not requests:
         return []
     for start in range(0, len(requests), BATCH_MAX_INFLIGHT):
-        chunk = requests[start:start + BATCH_MAX_INFLIGHT]
+        chunk = requests[start : start + BATCH_MAX_INFLIGHT]
         try:
             state = _batch_once(chunk, model, auth_path, timeout, force_refresh=False)
         except JudgeError as exc:
@@ -699,6 +703,7 @@ def ask_structured_batch(
 
 if __name__ == "__main__":  # tiny live smoke test against gpt-realtime-2
     import sys
+
     schema = {
         "type": "object",
         "properties": {
@@ -710,10 +715,10 @@ if __name__ == "__main__":  # tiny live smoke test against gpt-realtime-2
     }
     try:
         out = ask_structured(
-            "You are a strict validator. Return verdict 1 only if the user's "
-            "statement is true, else 0, with a one-line reason.",
+            "You are a strict validator. Return verdict 1 only if the user's statement is true, else 0, with a one-line reason.",
             "Statement: 1 + 1 = 2.",
-            schema, schema_name="verdict",
+            schema,
+            schema_name="verdict",
         )
         print(f"OK model={MODEL}", json.dumps(out))
         sys.exit(0 if out.get("verdict") == 1 else 2)

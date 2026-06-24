@@ -14,6 +14,7 @@ same transcript and returning the same verdict. These tests pin the fix:
 
 Run: python3 -m pytest tests/test_judge_coalesce.py -q
 """
+
 from __future__ import annotations
 
 import sys
@@ -60,8 +61,12 @@ class CountingJudge:
             return {"drift_level": 0, "feedback": ""}
         if "release monitor" in low:
             return {
-                "grounded": 0, "needed": "read X and cite it", "load_bearing": 1,
-                "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                "grounded": 0,
+                "needed": "read X and cite it",
+                "load_bearing": 1,
+                "provisional_release": 0,
+                "lift_reason": "",
+                "lift_scope": "",
             }
         v, s, c = self.arm_ret
         return {"verdict": v, "steering": s, "claim": c, "load_bearing": 1}
@@ -72,6 +77,7 @@ def _payload(session="batch", cwd="/repo"):
 
 
 # --- C1: the coalesce flag skips judging but preserves the block ----------------
+
 
 def test_coalesce_true_skips_judge_but_still_blocks_when_armed(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
@@ -98,13 +104,18 @@ def test_coalesce_true_does_not_increment_block_count(monkeypatch):
     state["breaker_key"] = gb.breaker_key("S", "P")
     state["breaker_block_count"] = 1
     gb.evaluate_pre_tool(
-        _payload(session="S"), state, now=5.0, active_task="P",
-        judge=CountingJudge(hold=False), coalesce=True,
+        _payload(session="S"),
+        state,
+        now=5.0,
+        active_task="P",
+        judge=CountingJudge(hold=False),
+        coalesce=True,
     )
     assert state["breaker_block_count"] == 1  # unchanged
 
 
 # --- C2 + C3: a parallel batch makes one call and counts as one block -----------
+
 
 def test_parallel_batch_makes_one_judge_call(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
@@ -138,6 +149,7 @@ def test_parallel_batch_makes_one_judge_call(monkeypatch, tmp_path):
 
 # --- C4: spacing beyond the window judges again ---------------------------------
 
+
 def test_sequential_beyond_window_each_judges(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
@@ -152,6 +164,7 @@ def test_sequential_beyond_window_each_judges(monkeypatch, tmp_path):
 
 
 # --- C5: fail-open when fcntl is unavailable ------------------------------------
+
 
 def test_locked_path_arms_when_fcntl_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))

@@ -16,13 +16,13 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 from spec import (  # noqa: E402
     _apply_cli_context,
     _cmd_doctor_session_env,
+    _safe_session,
     canonical_project_root,
     dir_hash,
     load_spec,
     save_spec,
     spec_path,
     spec_template,
-    _safe_session,
 )
 
 

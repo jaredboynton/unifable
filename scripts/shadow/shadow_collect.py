@@ -12,6 +12,7 @@ Events per ledger snapshot:
   - effort_candidate : shadow label only (placeholder basis; real signal is HOLD)
   - recovery_repeat  : count of recorded failures (silent-recovery signal, no intervention)
 """
+
 from __future__ import annotations
 
 import json
@@ -71,27 +72,60 @@ def collect() -> int:
         failures = led.get("failures", []) or []
         base = {"_dedupe": dedupe, "ledger_key": key, "last_updated": stamp}
 
-        append_event(make_event(sid, "classify", {
-            **base, "mode": mode, "risk_flags": risk, "change_kinds": change_kinds,
-        }))
+        append_event(
+            make_event(
+                sid,
+                "classify",
+                {
+                    **base,
+                    "mode": mode,
+                    "risk_flags": risk,
+                    "change_kinds": change_kinds,
+                },
+            )
+        )
         # §5/§8: would the gate have fired? The live observation gate
         # (verify_state.should_block_stop) blocks HEAVY (deep) only, so mirror that
         # here. Counting STANDARD (normal) as firing over-reported the gate's reach
         # and drifted from the real decision.
         would_fire = mode == "deep" and changed and not verified
-        append_event(make_event(sid, "gate_fire", {
-            **base, "stop_blocks": stop_blocks, "changed": changed,
-            "verified": verified, "would_fire": would_fire,
-        }))
+        append_event(
+            make_event(
+                sid,
+                "gate_fire",
+                {
+                    **base,
+                    "stop_blocks": stop_blocks,
+                    "changed": changed,
+                    "verified": verified,
+                    "would_fire": would_fire,
+                },
+            )
+        )
         # §7/§8: effort delegation candidate — LABEL ONLY, no actual delegation.
         # Placeholder basis (mode==deep); the real difficulty signal stays HOLD.
-        append_event(make_event(sid, "effort_candidate", {
-            **base, "candidate": mode == "deep", "basis": "mode==deep (shadow placeholder)",
-        }))
+        append_event(
+            make_event(
+                sid,
+                "effort_candidate",
+                {
+                    **base,
+                    "candidate": mode == "deep",
+                    "basis": "mode==deep (shadow placeholder)",
+                },
+            )
+        )
         # silent-recovery signal — count only, no intervention.
-        append_event(make_event(sid, "recovery_repeat", {
-            **base, "failure_count": len(failures),
-        }))
+        append_event(
+            make_event(
+                sid,
+                "recovery_repeat",
+                {
+                    **base,
+                    "failure_count": len(failures),
+                },
+            )
+        )
         written += 4
 
     return written

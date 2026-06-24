@@ -20,10 +20,10 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 import bump_version as bv  # noqa: E402
 
-
 # ---------------------------------------------------------------------------
 # Managed-set wiring
 # ---------------------------------------------------------------------------
+
 
 def test_agents_md_is_managed():
     assert "AGENTS.md" in bv.MANAGED
@@ -48,6 +48,7 @@ def test_all_manifests_still_managed():
 # Pattern discrimination
 # ---------------------------------------------------------------------------
 
+
 def test_just_version_matches_concrete_example():
     m = bv.JUST_VERSION.search("just version 1.2.3")
     assert m and m.group(2) == "1.2.3"
@@ -68,6 +69,7 @@ def test_version_field_captures_semver():
 # ---------------------------------------------------------------------------
 # End-to-end on a throwaway tree
 # ---------------------------------------------------------------------------
+
 
 def test_rejects_explicit_downgrade():
     old_repo = bv.REPO
@@ -118,16 +120,17 @@ def test_end_to_end_syncs_agents_md_and_manifest():
             bv.REPO = old_repo
 
     assert rc == 0
-    assert "just version 1.9.5" in out                 # concrete example bumped
-    assert "just version <X.Y.Z>" in out               # angle-bracket form untouched
-    assert "just version patch|minor|major" in out     # keyword form untouched
-    assert "1.9.4" not in out                           # no stale concrete version left
+    assert "just version 1.9.5" in out  # concrete example bumped
+    assert "just version <X.Y.Z>" in out  # angle-bracket form untouched
+    assert "just version patch|minor|major" in out  # keyword form untouched
+    assert "1.9.4" not in out  # no stale concrete version left
     assert manifest["version"] == "1.9.5"
 
 
 # ---------------------------------------------------------------------------
 # Runner (standalone, mirrors the other test files)
 # ---------------------------------------------------------------------------
+
 
 def _run_all() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

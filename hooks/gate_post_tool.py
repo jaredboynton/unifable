@@ -18,19 +18,16 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
-from spec import canonical_project_root
 from model_notify import (
     bash_output_text,
     build_citation_sync_context,
     build_spec_context_from_output,
     build_spec_context_from_spec,
     format_spec_action_digest_delta,
-    format_spec_status,
     is_mutating_spec_cli,
     is_spec_cli_command,
     parse_spec_cli_invocation,
 )
-from posttool_notify import emit_posttool_context, prepare_posttool_parts, should_suppress_cite_only
 from parse_tool_result import (
     changed_kinds,
     command_from_input,
@@ -43,6 +40,8 @@ from parse_tool_result import (
     response_text,
     verification_record,
 )
+from posttool_notify import emit_posttool_context, prepare_posttool_parts, should_suppress_cite_only
+from spec import canonical_project_root
 
 
 def _abs(path: str, cwd: str) -> str:
@@ -108,9 +107,7 @@ def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool
 
         ledger = load_ledger(input_data)
         active_task = str(ledger.get("active_task") or "")
-        _grounded, _needed, message = evaluate_post_tool_release(
-            input_data, breaker, fresh_tool=fresh, active_task=active_task
-        )
+        _grounded, _needed, message = evaluate_post_tool_release(input_data, breaker, fresh_tool=fresh, active_task=active_task)
         save_breaker(input_data, breaker)
         return message
     except Exception:
@@ -127,8 +124,7 @@ def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int)
         task_id = resolve_session_id(input_data, default=None)
         spec = (load_spec(cwd, task_id) if task_id else None) or {}
         recent = " | ".join(
-            (ledger.get("ran_commands") or [])[-6:]
-            + [f"failure:{f}" for f in (ledger.get("failures") or [])[-4:]]
+            (ledger.get("ran_commands") or [])[-6:] + [f"failure:{f}" for f in (ledger.get("failures") or [])[-4:]]
         )
         signal = (
             f"The same class of failure has repeated {count} times this session. "
@@ -188,13 +184,18 @@ def _emit_context(
     cache_updates: dict[str, str] = {}
     try:
         filtered, cache_updates = prepare_posttool_parts(
-            input_data, parts, failure_sig=failure_sig,
+            input_data,
+            parts,
+            failure_sig=failure_sig,
         )
     except Exception:
         pass
     body = "\n".join(p for p in filtered if p and p.strip())
     emit_posttool_context(
-        input_data, body, guidance_map=guidance_map, cache_updates=cache_updates,
+        input_data,
+        body,
+        guidance_map=guidance_map,
+        cache_updates=cache_updates,
     )
 
 
@@ -240,10 +241,7 @@ def main() -> int:
     ran = ran_command(input_data) if executed_ok else None
     mcp_ev = mcp_evidence(input_data) if executed_ok else None
     tool_name = str(input_data.get("tool_name") or "unknown")
-    observed = (
-        f"{tool_name}: {response_text(input_data.get('tool_response', input_data), 180)}"
-        if executed_ok else ""
-    )
+    observed = f"{tool_name}: {response_text(input_data.get('tool_response', input_data), 180)}" if executed_ok else ""
 
     def apply(ledger):
         if kinds:
@@ -273,10 +271,10 @@ def main() -> int:
     citation_context = ""
     try:
         from citations import activity_from_ledger
-        from spec_hygiene import apply_spec_hygiene
         from evidence_policy import resolve_grade
         from heavy_workflow import format_approach_board, frontier_tasks
         from spec import judge_discover_frontiers, load_spec, resolve_session_id, save_spec
+        from spec_hygiene import apply_spec_hygiene
 
         task_id = resolve_session_id(input_data, default=None)
         grade = resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
@@ -297,12 +295,7 @@ def main() -> int:
                         pass
                     if _cite_headline:
                         citation_context = build_citation_sync_context(_cite_headline)
-            if (
-                spec
-                and grade == "HEAVY"
-                and tool_name in research_tools
-                and len(frontier_tasks(spec)) < 2
-            ):
+            if spec and grade == "HEAVY" and tool_name in research_tools and len(frontier_tasks(spec)) < 2:
                 if grade == "HEAVY":
                     n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
                     discoveries = int(ledger.get("frontier_discovery_count") or 0)
@@ -326,8 +319,7 @@ def main() -> int:
                                 "unifable spec update:\n"
                                 f"Judge added frontier approach(s): {ids}. Explore ALL frontiers"
                                 " thoroughly (check each one). The judge compares evidence on Stop"
-                                " and may adopt the best over primary.\n"
-                                + format_approach_board(spec)
+                                " and may adopt the best over primary.\n" + format_approach_board(spec)
                             )
     except Exception:
         pass
@@ -345,7 +337,9 @@ def main() -> int:
             _sp = load_spec(cwd, _tid) if _tid else None
             if isinstance(_sp, dict):
                 _, guidance_map = _spec_action_context_from_spec(
-                    input_data, _sp, force=True,
+                    input_data,
+                    _sp,
+                    force=True,
                 )
         except Exception:
             pass

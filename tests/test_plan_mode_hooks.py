@@ -3,11 +3,9 @@
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parent.parent
 GATE = REPO / "scripts" / "gate"
@@ -19,7 +17,6 @@ import gate_prompt  # noqa: E402
 import pre_tool_use  # noqa: E402
 from ledger import load_ledger, update_ledger  # noqa: E402
 from plan_mode import append_plan_mode_note  # noqa: E402
-from pretool_block import emit_pretool_block  # noqa: E402
 
 
 def _run_gate_prompt(payload: dict, monkeypatch) -> dict:
@@ -38,10 +35,7 @@ def _run_gate_prompt(payload: dict, monkeypatch) -> dict:
 
 def test_gate_prompt_injects_plan_mode_context(tmp_path, monkeypatch):
     os.environ["UNIFABLE_DATA"] = str(tmp_path)
-    prompt = (
-        "plan the feature\n\n"
-        "<system_reminder>Plan mode is active. Do not execute.</system_reminder>"
-    )
+    prompt = "plan the feature\n\n<system_reminder>Plan mode is active. Do not execute.</system_reminder>"
     payload = {
         "prompt": prompt,
         "cwd": str(tmp_path),

@@ -3,7 +3,6 @@
 
 from __future__ import annotations
 
-import os
 import sys
 import tempfile
 import unittest
@@ -73,9 +72,7 @@ class TestGradeApply(unittest.TestCase):
 
     def test_apply_classified_grade_ledger_operational_profile(self) -> None:
         ledger: dict = {}
-        apply_classified_grade_ledger(
-            ledger, "normal", "account research", by="judge", evidence_profile="operational"
-        )
+        apply_classified_grade_ledger(ledger, "normal", "account research", by="judge", evidence_profile="operational")
         self.assertEqual(ledger["evidence_profile"], "operational")
 
     def test_format_override_context(self) -> None:
@@ -92,6 +89,7 @@ class TestJudgeClassifyFailOpen(unittest.TestCase):
     def test_judge_fn_exception_returns_none(self) -> None:
         def boom(**kw):
             raise RuntimeError("down")
+
         self.assertIsNone(judge_grade_classify("fix bug", judge_fn=boom))
 
     def test_parse_none_falls_to_normal(self) -> None:

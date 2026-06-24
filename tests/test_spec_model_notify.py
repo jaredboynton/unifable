@@ -228,8 +228,7 @@ def test_format_spec_status_collapses_resolved():
         {"id": "T2", "title": "beta", "check": "true", "status": "validated"},
         {"id": "T3", "title": "gamma", "check": "true", "status": "validated"},
         {"id": "T4", "title": "delta", "check": "true", "status": "validated"},
-        {"id": "T5", "title": "still failing", "check": "true", "status": "failed",
-         "judge_reason": LONG_JUDGE},
+        {"id": "T5", "title": "still failing", "check": "true", "status": "failed", "judge_reason": LONG_JUDGE},
         {"id": "T6", "title": "still pending", "check": "true", "status": "pending"},
     ]
     collapsed = mn.format_spec_status(spec, show_judge_for=frozenset({"T5"}), collapse_resolved=True)
@@ -253,8 +252,7 @@ def test_stop_context_omits_resolved_tasks():
     spec["restated_goal"] = "g"
     spec["tasks"] = [
         {"id": "T1", "title": "old done", "check": "true", "status": "validated"},
-        {"id": "T2", "title": "freshly retracted", "check": "true", "status": "retracted",
-         "judge_reason": DISPUTE_ACCEPT_REASON},
+        {"id": "T2", "title": "freshly retracted", "check": "true", "status": "retracted", "judge_reason": DISPUTE_ACCEPT_REASON},
     ]
     headlines = ["T2 retracted — judge accepted impossibility."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
@@ -270,15 +268,12 @@ def test_spec_board_not_duplicated_across_channels():
     only; the short alarm stays in reason (no cross-channel duplication)."""
     import gate_stop
 
-    board = (
-        "unifable spec update (stop validation):\n"
-        "  [XX] T1 (req) something\nbreaker: CLOSED (1 left: T1)"
-    )
+    board = "unifable spec update (stop validation):\n  [XX] T1 (req) something\nbreaker: CLOSED (1 left: T1)"
     payload = {"decision": "block", "reason": "breaker CLOSED: 1 task(s) not validated (T1)."}
     gate_stop._attach_validate_context(payload, board)
     ctx = (payload.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert board in ctx                       # board rides additionalContext
-    assert board not in payload["reason"]     # not duplicated into reason
+    assert board in ctx  # board rides additionalContext
+    assert board not in payload["reason"]  # not duplicated into reason
     assert "breaker CLOSED" in payload["reason"]  # alarm stays in reason
 
 
@@ -289,8 +284,7 @@ def test_collapse_already_done_tasks_to_count():
     spec["tasks"] = [
         {"id": "T1", "title": "alpha", "check": "true", "status": "validated"},
         {"id": "T2", "title": "beta", "check": "true", "status": "validated"},
-        {"id": "T3", "title": "still failing", "check": "true", "status": "failed",
-         "judge_reason": "needs more"},
+        {"id": "T3", "title": "still failing", "check": "true", "status": "failed", "judge_reason": "needs more"},
     ]
     out = mn.format_spec_status(spec, show_judge_for=frozenset({"T3"}), collapse_resolved=True)
     assert "done (2): T1, T2" in out
@@ -440,29 +434,33 @@ def test_stop_action_digest_before_stale_items():
     spec["restated_goal"] = "g"
     tasks = []
     for i in range(1, 10):
-        tasks.append({
-            "id": f"T{i}",
-            "title": f"stale {i}",
-            "check": "true",
-            "status": "failed",
-            "judge_reason": STALE_JUDGE,
-        })
-    tasks.extend([
-        {
-            "id": "T17",
-            "title": "behavioral proof",
-            "check": "true",
-            "status": "failed",
-            "judge_reason": f"Check passed but evidence is non-probative. {T17_HINT}",
-        },
-        {
-            "id": "T18",
-            "title": "grep only",
-            "check": "true",
-            "status": "failed",
-            "judge_reason": f"String grep alone is insufficient. {T18_HINT}",
-        },
-    ])
+        tasks.append(
+            {
+                "id": f"T{i}",
+                "title": f"stale {i}",
+                "check": "true",
+                "status": "failed",
+                "judge_reason": STALE_JUDGE,
+            }
+        )
+    tasks.extend(
+        [
+            {
+                "id": "T17",
+                "title": "behavioral proof",
+                "check": "true",
+                "status": "failed",
+                "judge_reason": f"Check passed but evidence is non-probative. {T17_HINT}",
+            },
+            {
+                "id": "T18",
+                "title": "grep only",
+                "check": "true",
+                "status": "failed",
+                "judge_reason": f"String grep alone is insufficient. {T18_HINT}",
+            },
+        ]
+    )
     spec["tasks"] = tasks
     headlines = [
         "T17 check ran (exit 0); judge rejected the evidence.",
@@ -486,20 +484,24 @@ def test_stop_context_prioritizes_hints_in_first_2kb():
     spec["restated_goal"] = "g"
     tasks = []
     for i in range(1, 16):
-        tasks.append({
-            "id": f"T{i}",
-            "title": f"stale {i}",
+        tasks.append(
+            {
+                "id": f"T{i}",
+                "title": f"stale {i}",
+                "check": "true",
+                "status": "failed",
+                "judge_reason": STALE_JUDGE,
+            }
+        )
+    tasks.append(
+        {
+            "id": "T17",
+            "title": "needs behavioral test",
             "check": "true",
             "status": "failed",
-            "judge_reason": STALE_JUDGE,
-        })
-    tasks.append({
-        "id": "T17",
-        "title": "needs behavioral test",
-        "check": "true",
-        "status": "failed",
-        "judge_reason": f"Non-probative grep. {T17_HINT}",
-    })
+            "judge_reason": f"Non-probative grep. {T17_HINT}",
+        }
+    )
     spec["tasks"] = tasks
     headlines = ["T17 check ran (exit 0); judge rejected the evidence."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
@@ -550,7 +552,9 @@ def test_format_blocking_task_hints_prioritizes_changed():
         },
     ]
     text = mn.format_blocking_task_hints(
-        spec, ["T1", "T17"], changed_ids={"T17"},
+        spec,
+        ["T1", "T17"],
+        changed_ids={"T17"},
     )
     assert "Action:" in text
     assert T17_HINT in text

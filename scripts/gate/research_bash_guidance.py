@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Install-detected copy for explore-skill trace.sh in Bash whitelist guidance.
+"""Install-detected copy for explore-skill scripts in Bash whitelist guidance.
 
 Host-agnostic: resolves whether the explore skill is present on disk and builds
-user-facing allowlist strings. Enforcement (basename trace.sh) lives in
-bash_classify.py and is intentionally broader than this guidance.
+user-facing allowlist strings. Enforcement (basename trace.sh / websearch.sh)
+lives in bash_classify.py and is intentionally broader than this guidance.
 """
 
 from __future__ import annotations
@@ -14,6 +14,8 @@ import re
 from pathlib import Path
 
 _EXPLORE_NAME_RE = re.compile(r"(?m)^name:\s*explore\s*$")
+
+EXPLORE_SCRIPT_BASENAMES = ("trace.sh", "websearch.sh")
 
 _DEFAULT_EXPLORE_ROOTS = (
     ".agents/skills/explore",
@@ -50,8 +52,8 @@ def _valid_explore_skill_root(root: Path) -> bool:
 
 
 @functools.lru_cache(maxsize=8)
-def _resolve_explore_trace_sh_cached(home: str, override: str) -> str | None:
-    """Return trace.sh path string or None; keyed by home + env override."""
+def _resolve_explore_skill_root_cached(home: str, override: str) -> str | None:
+    """Return explore skill root path string or None; keyed by home + env override."""
     roots: tuple[Path, ...]
     if override:
         roots = (Path(override).expanduser(),)
@@ -59,64 +61,100 @@ def _resolve_explore_trace_sh_cached(home: str, override: str) -> str | None:
         home_path = Path(home)
         roots = tuple(home_path / rel for rel in _DEFAULT_EXPLORE_ROOTS)
     for root in roots:
-        if not _valid_explore_skill_root(root):
-            continue
-        return str((root / "scripts" / "trace.sh").resolve())
+        if _valid_explore_skill_root(root):
+            return str(root.resolve())
     return None
 
 
-def resolve_explore_trace_sh() -> Path | None:
-    """Return the explore skill's trace.sh when SKILL.md + script exist."""
-    raw = _resolve_explore_trace_sh_cached(
+def _resolve_explore_skill_root() -> Path | None:
+    raw = _resolve_explore_skill_root_cached(
         str(_home()),
         os.environ.get("UNIFABLE_EXPLORE_SKILL_ROOT", "").strip(),
     )
     return Path(raw) if raw else None
 
 
+def _installed_explore_scripts() -> list[tuple[str, Path]]:
+    """Return installed explore scripts as (basename, path) pairs in stable order."""
+    root = _resolve_explore_skill_root()
+    if root is None:
+        return []
+    out: list[tuple[str, Path]] = []
+    for name in EXPLORE_SCRIPT_BASENAMES:
+        script = root / "scripts" / name
+        if script.is_file():
+            out.append((name, script.resolve()))
+    return out
+
+
+def resolve_explore_trace_sh() -> Path | None:
+    """Return the explore skill's trace.sh when SKILL.md + script exist."""
+    for name, path in _installed_explore_scripts():
+        if name == "trace.sh":
+            return path
+    return None
+
+
+def resolve_explore_websearch_sh() -> Path | None:
+    """Return the explore skill's websearch.sh when installed alongside trace.sh."""
+    for name, path in _installed_explore_scripts():
+        if name == "websearch.sh":
+            return path
+    return None
+
+
 def clear_explore_guidance_cache() -> None:
     """Clear resolver cache (tests and setup re-runs)."""
-    _resolve_explore_trace_sh_cached.cache_clear()
+    _resolve_explore_skill_root_cached.cache_clear()
+
+
+def _explore_scripts_clause(*, markdown: bool) -> str:
+    scripts = _installed_explore_scripts()
+    if not scripts:
+        return ""
+    if markdown:
+        parts = [f"`{name}` (`{_display_path(path)}`)" for name, path in scripts]
+    else:
+        parts = [f"{name} ({_display_path(path)})" for name, path in scripts]
+    joined = " and ".join(parts)
+    return f"the explore skill's {joined}"
 
 
 def explore_trace_list_item() -> str:
     """Comma-prefixed list item for parenthesized allowlists, or empty."""
-    path = resolve_explore_trace_sh()
-    if path is None:
+    clause = _explore_scripts_clause(markdown=False)
+    if not clause:
         return ""
-    return f", the explore skill's trace.sh ({_display_path(path)})"
+    return f", {clause}"
 
 
 def explore_trace_list_item_md() -> str:
     """Markdown comma-prefixed list item for context_block.py."""
-    path = resolve_explore_trace_sh()
-    if path is None:
+    clause = _explore_scripts_clause(markdown=True)
+    if not clause:
         return ""
-    return f", the explore skill's `trace.sh` (`{_display_path(path)}`)"
+    return f", {clause}"
 
 
 def explore_trace_inline_prefix() -> str:
     """Inline prefix before the next allowlist item, or empty."""
-    path = resolve_explore_trace_sh()
-    if path is None:
+    clause = _explore_scripts_clause(markdown=False)
+    if not clause:
         return ""
-    return f"the explore skill's trace.sh ({_display_path(path)}), "
+    return f"{clause}, "
 
 
 def explore_trace_inline_md() -> str:
     """Markdown inline prefix for context_block.py."""
-    path = resolve_explore_trace_sh()
-    if path is None:
+    clause = _explore_scripts_clause(markdown=True)
+    if not clause:
         return ""
-    return f"the explore skill's `trace.sh` (`{_display_path(path)}`), "
+    return f"{clause}, "
 
 
 def groundedness_bash_whitelist_fragment() -> str:
     """Middle clause for judge steering schema descriptions."""
-    path = resolve_explore_trace_sh()
-    if path is None:
-        return ""
-    return f"the explore skill's trace.sh ({_display_path(path)}), "
+    return explore_trace_inline_prefix()
 
 
 def bash_allowed_summary() -> str:

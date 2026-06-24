@@ -13,7 +13,7 @@ import copy
 import json
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -29,9 +29,18 @@ except ImportError:  # pragma: no cover
 
 from ledger import data_root, ledger_key, ledger_path, utc_now
 
-EVENT_KINDS = frozenset({
-    "ARM", "DISARM", "NEEDED", "FAIL_OPEN", "STALE_ARM_DROPPED", "LIFT", "REINSTATE", "SCOPE_HINT",
-})
+EVENT_KINDS = frozenset(
+    {
+        "ARM",
+        "DISARM",
+        "NEEDED",
+        "FAIL_OPEN",
+        "STALE_ARM_DROPPED",
+        "LIFT",
+        "REINSTATE",
+        "SCOPE_HINT",
+    }
+)
 MAX_EVENTS = 50
 
 DEFAULT_BREAKER: dict[str, Any] = {
@@ -122,7 +131,7 @@ def breaker_lock(input_data: dict[str, Any], timeout: float | None = None):
 
 
 def _event_ts() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def render_events(events: list[dict[str, Any]]) -> str:
@@ -137,18 +146,22 @@ def render_events(events: list[dict[str, Any]]) -> str:
         if ts:
             parts.append(f'timestamp="{ts}"')
         for key in (
-            "claim", "steering", "needed", "block_count", "grounded", "reason", "scope", "corrective", "hint",
+            "claim",
+            "steering",
+            "needed",
+            "block_count",
+            "grounded",
+            "reason",
+            "scope",
+            "corrective",
+            "hint",
         ):
             value = event.get(key)
             if value not in (None, "", False):
                 text = str(value).replace('"', "'").replace("\n", " ")
                 parts.append(f'{key}="{text}"')
         padded = str(idx).zfill(6)
-        lines.append(
-            f'<record line="{padded}" type="unifable_breaker" role="gate">\n'
-            + " ".join(parts)
-            + "\n</record>"
-        )
+        lines.append(f'<record line="{padded}" type="unifable_breaker" role="gate">\n' + " ".join(parts) + "\n</record>")
     return "\n".join(lines) + "\n"
 
 

@@ -127,6 +127,7 @@ def main() -> int:
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
         from ledger import load_ledger
+
         matched_tags = set(load_ledger(data).get("router_matched_tags") or [])
     except Exception:
         pass

@@ -10,6 +10,7 @@ Env knobs:
   UNIFABLE_TEST_DEBOUNCE=45    min seconds between runs per project root
   UNIFABLE_TEST_TIMEOUT=60     per-run subprocess timeout in seconds
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -20,7 +21,6 @@ import sys
 import tempfile
 import time
 from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Config
@@ -34,10 +34,26 @@ TAIL_LINES = 30
 # .json is intentionally NOT in this set so projects with JSON-driven fixtures
 # remain testable; only clear docs/media/lockfiles are skipped.
 SKIP_EXTS = {
-    ".md", ".markdown", ".mdx", ".txt", ".rst", ".adoc",
-    ".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp", ".ico", ".pdf",
-    ".mp3", ".mp4", ".mov", ".wav",
-    ".lock", ".lockb",
+    ".md",
+    ".markdown",
+    ".mdx",
+    ".txt",
+    ".rst",
+    ".adoc",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".svg",
+    ".webp",
+    ".ico",
+    ".pdf",
+    ".mp3",
+    ".mp4",
+    ".mov",
+    ".wav",
+    ".lock",
+    ".lockb",
 }
 
 # Tool names that indicate a code edit occurred.
@@ -48,6 +64,7 @@ EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"}
 # Output helpers
 # ---------------------------------------------------------------------------
 
+
 def _emit(payload: dict) -> None:
     sys.stdout.write(json.dumps(payload, ensure_ascii=True) + "\n")
 
@@ -57,17 +74,20 @@ def _emit_skip() -> None:
 
 
 def _emit_context(message: str) -> None:
-    _emit({
-        "hookSpecificOutput": {
-            "hookEventName": "PostToolUse",
-            "additionalContext": message,
+    _emit(
+        {
+            "hookSpecificOutput": {
+                "hookEventName": "PostToolUse",
+                "additionalContext": message,
+            }
         }
-    })
+    )
 
 
 # ---------------------------------------------------------------------------
 # Extension filter
 # ---------------------------------------------------------------------------
+
 
 def should_skip_path(file_path: str) -> bool:
     """Return True when the edited file has a doc/asset/lock extension to skip."""
@@ -78,6 +98,7 @@ def should_skip_path(file_path: str) -> bool:
 # ---------------------------------------------------------------------------
 # Runner discovery
 # ---------------------------------------------------------------------------
+
 
 def discover_runner(start_dir: str) -> tuple[str | None, list[str] | None, str | None]:
     """Walk up from start_dir to find the nearest test runner.
@@ -109,8 +130,7 @@ def discover_runner(start_dir: str) -> tuple[str | None, list[str] | None, str |
 
         # Python: pyproject.toml / setup.cfg / pytest.ini / tox.ini or a tests/ dir
         py_markers = ("pyproject.toml", "setup.cfg", "pytest.ini", "tox.ini", "setup.py")
-        if any(os.path.isfile(os.path.join(d, m)) for m in py_markers) or \
-                os.path.isdir(os.path.join(d, "tests")):
+        if any(os.path.isfile(os.path.join(d, m)) for m in py_markers) or os.path.isdir(os.path.join(d, "tests")):
             if os.path.isfile(os.path.join(d, "uv.lock")):
                 return d, ["uv", "run", "pytest", "-q"], "uv run pytest -q"
             return d, [sys.executable, "-m", "pytest", "-q"], "pytest -q"
@@ -145,6 +165,7 @@ def discover_runner(start_dir: str) -> tuple[str | None, list[str] | None, str |
 # Debounce
 # ---------------------------------------------------------------------------
 
+
 def _marker_path(root: str) -> str:
     h = hashlib.sha256(root.encode("utf-8", "replace")).hexdigest()[:16]
     return os.path.join(tempfile.gettempdir(), f"unifable-tae-{h}")
@@ -176,6 +197,7 @@ def stamp_debounce(root: str) -> None:
 # Main logic
 # ---------------------------------------------------------------------------
 
+
 def run_tests(root: str, cmd: list[str], label: str) -> str:
     """Run cmd in root with a timeout; return a human-readable summary string."""
     try:
@@ -187,10 +209,7 @@ def run_tests(root: str, cmd: list[str], label: str) -> str:
             timeout=TIMEOUT_SECS,
         )
     except subprocess.TimeoutExpired:
-        return (
-            f"unifable test-after-edit: TIMEOUT ({label}): "
-            f"suite exceeded {TIMEOUT_SECS}s in {root}; result inconclusive."
-        )
+        return f"unifable test-after-edit: TIMEOUT ({label}): suite exceeded {TIMEOUT_SECS}s in {root}; result inconclusive."
     except FileNotFoundError:
         # Runner binary not installed — stay silent (emit {} from caller)
         return ""
@@ -202,9 +221,7 @@ def run_tests(root: str, cmd: list[str], label: str) -> str:
 
     if result.returncode == 0:
         return f"unifable test-after-edit: PASS ({label}): {tail}"
-    return (
-        f"unifable test-after-edit: FAIL ({label}) exit={result.returncode}:\n{tail}"
-    )
+    return f"unifable test-after-edit: FAIL ({label}) exit={result.returncode}:\n{tail}"
 
 
 def main() -> int:
@@ -262,6 +279,6 @@ def main() -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except Exception as exc:  # noqa: BLE001 — fail open
+    except Exception:  # noqa: BLE001 — fail open
         _emit({})
         raise SystemExit(0)

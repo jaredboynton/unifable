@@ -39,9 +39,7 @@ def test_judge_classifies_nrg_like_prompt_operational():
             "evidence_profile": "operational",
         }
 
-    prompt = (
-        "research NRG account across Salesforce/Slack/Gong and draft a reply to Bill"
-    )
+    prompt = "research NRG account across Salesforce/Slack/Gong and draft a reply to Bill"
     with patch("grade_override.ask_structured", fake_ask, create=True):
         with patch("codex_judge.ask_structured", fake_ask):
             verdict = go.judge_grade_classify(

@@ -9,12 +9,13 @@ model — no additionalContext, no systemMessage, no stdout the gate reads. It
 only appends to events.jsonl outside the repo. Holdout is deterministic per
 session_id (20% off arm); instrumentation sunsets after ~50 sessions with no signal.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ SUNSET_SESSIONS = 50
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def data_root() -> Path:

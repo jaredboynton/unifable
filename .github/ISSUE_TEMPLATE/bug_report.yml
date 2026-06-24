@@ -1,0 +1,76 @@
+name: Bug report
+description: Report a reproducible unifable failure.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What failed, and what were you trying to do?
+      placeholder: The evidence gate blocked ... while ...
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Hooks
+        - Evidence gate
+        - Groundedness breaker
+        - Unifusion
+        - Install or setup
+        - Tests or evals
+        - Documentation
+        - Unsure
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Include exact commands, prompts, and any relevant hook output.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Paste the smallest useful error or transcript excerpt.
+    validations:
+      required: true
+  - type: input
+    id: host
+    attributes:
+      label: Host
+      description: Claude Code, Codex, or another compatible host.
+      placeholder: Codex
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification
+      description: Commands already run, with relevant output.
+      placeholder: just test-parallel
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links, affected files, or anything else needed to debug.
+    validations:
+      required: false

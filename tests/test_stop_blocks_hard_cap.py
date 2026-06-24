@@ -17,6 +17,7 @@ leaving only completion_stop_blocks climbing -- but no release path read it.
 
 Run: python3 -m pytest tests/test_stop_blocks_hard_cap.py -q
 """
+
 from __future__ import annotations
 
 import sys
@@ -90,9 +91,7 @@ def test_completion_stop_hint_no_longer_mutates_counter(monkeypatch, tmp_path):
     from ledger import load_ledger
 
     reloaded = load_ledger(payload)
-    assert reloaded["completion_stop_blocks"] == 2, (
-        "_completion_stop_hint must not mutate completion_stop_blocks"
-    )
+    assert reloaded["completion_stop_blocks"] == 2, "_completion_stop_hint must not mutate completion_stop_blocks"
 
 
 # H3 -------------------------------------------------------------------------

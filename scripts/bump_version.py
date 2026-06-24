@@ -42,17 +42,17 @@ JUST_VERSION = re.compile(r"(\bjust version )(\d+\.\d+\.\d+)\b")
 # uses the pattern's own capture groups. The codex/devin marketplace.json files
 # have no version key today but stay listed so the set is complete if one is
 # added later -- the pattern simply no-ops on a file with no match.
-TARGETS: list[tuple[str, "re.Pattern[str]", str]] = [
-    (".claude-plugin/plugin.json",       VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    (".claude-plugin/marketplace.json",  VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    (".codex-plugin/plugin.json",        VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    (".codex-plugin/marketplace.json",   VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    (".devin-plugin/plugin.json",        VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    (".devin-plugin/marketplace.json",   VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    (".factory-plugin/plugin.json",      VERSION_FIELD, r"\g<1>{new}\g<3>"),
+TARGETS: list[tuple[str, re.Pattern[str], str]] = [
+    (".claude-plugin/plugin.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".claude-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".codex-plugin/plugin.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".codex-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".devin-plugin/plugin.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".devin-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    (".factory-plugin/plugin.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
     (".factory-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    ("setup/setup.sh",                   VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    ("AGENTS.md",                        JUST_VERSION,  r"\g<1>{new}"),
+    ("setup/setup.sh", VERSION_FIELD, r"\g<1>{new}\g<3>"),
+    ("AGENTS.md", JUST_VERSION, r"\g<1>{new}"),
 ]
 MANAGED = {rel for rel, _, _ in TARGETS}
 

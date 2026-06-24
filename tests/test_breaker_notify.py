@@ -11,6 +11,7 @@ These cover the previously-silent transitions:
 
 Run: python3 -m pytest tests/test_breaker_notify.py -q
 """
+
 from __future__ import annotations
 
 import sys
@@ -42,12 +43,20 @@ class _Judge:
             self.disarm_calls += 1
             if self.grounded:
                 return {
-                    "grounded": 1, "needed": "", "load_bearing": 1,
-                    "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                    "grounded": 1,
+                    "needed": "",
+                    "load_bearing": 1,
+                    "provisional_release": 0,
+                    "lift_reason": "",
+                    "lift_scope": "",
                 }
             return {
-                "grounded": 0, "needed": self.needed, "load_bearing": 1,
-                "provisional_release": 0, "lift_reason": "", "lift_scope": "",
+                "grounded": 0,
+                "needed": self.needed,
+                "load_bearing": 1,
+                "provisional_release": 0,
+                "lift_reason": "",
+                "lift_scope": "",
             }
         self.arm_calls += 1
         v, st, c = self.arm
@@ -64,9 +73,7 @@ def test_pre_tool_disarm_emits_breaker_open_notify(monkeypatch):
     state = default_breaker()
     gb.arm(state, gb.breaker_key("S", "P"), 0.0, "read X and cite it", "claim X")
     judge = _Judge(grounded=1)
-    blocked, steering, notify = gb.evaluate_pre_tool(
-        _pre("Edit"), state, now=1.0, active_task="P", judge=judge
-    )
+    blocked, steering, notify = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False
     assert state["breaker_armed"] is False
     assert "breaker open" in notify.lower()
@@ -78,9 +85,7 @@ def test_pre_tool_needed_emits_still_armed_notify_on_read(monkeypatch):
     state = default_breaker()
     gb.arm(state, gb.breaker_key("S", "P"), 0.0, "read X", "claim X")
     judge = _Judge(grounded=0, needed="read foo.py:10 and cite the constant")
-    blocked, steering, notify = gb.evaluate_pre_tool(
-        _pre("Read"), state, now=1.0, active_task="P", judge=judge
-    )
+    blocked, steering, notify = gb.evaluate_pre_tool(_pre("Read"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False  # Read is never blocked
     assert state["breaker_armed"] is True
     assert "still armed" in notify.lower()
@@ -95,9 +100,7 @@ def test_fail_open_emits_auto_released_notify(monkeypatch):
     state = default_breaker()
     b1, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
     b2, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
-    b3, steering3, notify3 = gb.evaluate_pre_tool(
-        _pre("Edit"), state, now=2.0, active_task="P", judge=judge
-    )
+    b3, steering3, notify3 = gb.evaluate_pre_tool(_pre("Edit"), state, now=2.0, active_task="P", judge=judge)
     assert b1 is True and b2 is True and b3 is False
     assert state["breaker_armed"] is False
     assert "fail-open" in notify3.lower() or "auto-released" in notify3.lower()
@@ -109,9 +112,7 @@ def test_stale_arm_dropped_emits_notify(monkeypatch):
     state = default_breaker()
     gb.arm(state, gb.breaker_key("S", "P1"), 0.0, "blocked", "claim X")
     judge = _Judge(arm=(0, "", ""))
-    blocked, steering, notify = gb.evaluate_pre_tool(
-        _pre("Read", session="S"), state, now=1.0, active_task="P2", judge=judge
-    )
+    blocked, steering, notify = gb.evaluate_pre_tool(_pre("Read", session="S"), state, now=1.0, active_task="P2", judge=judge)
     assert blocked is False
     assert state["breaker_armed"] is False
     assert "stale" in notify.lower()

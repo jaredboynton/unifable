@@ -58,9 +58,7 @@ def test_apply_provisional_verdict_sets_budget():
     spec = spec_template()
     spec["tasks"] = [_task("T1", "failed")]
     led = {"loop_episode_id": "T1"}
-    verdict = lr.LoopReleaseVerdict(
-        True, "provisional", "stuck on bad check", "fix the check command", [], 2
-    )
+    verdict = lr.LoopReleaseVerdict(True, "provisional", "stuck on bad check", "fix the check command", [], 2)
     headlines, msg = lr.apply_loop_release_verdict(spec, led, verdict)
     assert led["loop_lift_stops_remaining"] == 2
     assert led["loop_lift_kind"] == "provisional"
@@ -120,9 +118,7 @@ def test_permanent_redundancy_retract_still_judge_added_only():
         _task("T2", "failed", added_by="judge"),
     ]
     led = {"loop_episode_id": "T1,T2"}
-    verdict = lr.LoopReleaseVerdict(
-        True, "permanent", "T2 duplicates validated T1", "", ["T1", "T2"], 0
-    )
+    verdict = lr.LoopReleaseVerdict(True, "permanent", "T2 duplicates validated T1", "", ["T1", "T2"], 0)
     with patch("spec.notify_spec_update"):
         lr.apply_loop_release_verdict(spec, led, verdict)
     assert spec["tasks"][0]["status"] == "validated"
@@ -243,9 +239,7 @@ def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
     monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
 
-    verdict = lr.LoopReleaseVerdict(
-        True, "provisional", "loop detected", "rewrite check", [], 1
-    )
+    verdict = lr.LoopReleaseVerdict(True, "provisional", "loop detected", "rewrite check", [], 1)
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
         out = _run_stop(gate_stop, {"session_id": "loopsess2", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
@@ -288,9 +282,7 @@ def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
         out = _run_stop(gate_stop, {"session_id": "loopdecl", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
-    blob = ((out.get("reason") or "") + " " + (
-        (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    )).lower()
+    blob = ((out.get("reason") or "") + " " + ((out.get("hookSpecificOutput") or {}).get("additionalContext") or "")).lower()
     assert "no suicide loop" not in blob
     assert "completion loop check" not in blob
     events = load_ledger({"session_id": "loopdecl", "cwd": str(tmp_path)}).get("loop_events") or []
@@ -319,9 +311,7 @@ def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):
 
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items])
-    monkeypatch.setattr(
-        spec_mod, "auto_validate_spec", lambda spec, cwd, **kw: (spec, [])
-    )
+    monkeypatch.setattr(spec_mod, "auto_validate_spec", lambda spec, cwd, **kw: (spec, []))
 
     verdict = lr.LoopReleaseVerdict(
         True,
@@ -335,8 +325,6 @@ def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):
         out = _run_stop(gate_stop, {"session_id": "loopsess3", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
     assert load_spec(str(tmp_path), "loopsess3")["tasks"][0]["status"] == "retracted"
-    blob = (out.get("reason") or "") + " " + (
-        (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    )
+    blob = (out.get("reason") or "") + " " + ((out.get("hookSpecificOutput") or {}).get("additionalContext") or "")
     assert "completion loop lift (permanent)" not in blob.lower()
     assert "retract the failed" not in blob.lower()

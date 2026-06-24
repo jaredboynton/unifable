@@ -5,6 +5,7 @@ Run directly: `python3 tests/test_recovery.py`. Verifies one-off failures stay
 quiet, the same failure class repeating >=2 discloses, path/number variants
 normalize to the same class, and the threshold is honoured.
 """
+
 from __future__ import annotations
 
 import sys
@@ -62,8 +63,7 @@ def main() -> int:
         for x in failures:
             print("  -", x)
         return 1
-    print("RESULT: recovery guard pass (one-off quiet; 2x same class discloses; "
-          "paths/numbers normalized; threshold respected)")
+    print("RESULT: recovery guard pass (one-off quiet; 2x same class discloses; paths/numbers normalized; threshold respected)")
     return 0
 
 

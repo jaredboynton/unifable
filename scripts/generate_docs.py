@@ -5,14 +5,12 @@ from __future__ import annotations
 
 import argparse
 import copy
-import importlib
 import json
-import os
-import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 GATE_DIR = ROOT / "scripts" / "gate"
@@ -26,9 +24,9 @@ for path in (str(GATE_DIR), str(HOOKS_DIR)):
         sys.path.insert(0, path)
 
 import classify_task  # noqa: E402
+import codex_judge  # noqa: E402
 import completion_handoff  # noqa: E402
 import context_block  # noqa: E402
-import codex_judge  # noqa: E402
 import gate_prompt_effort  # noqa: E402
 import gate_stop  # noqa: E402
 import grade_override  # noqa: E402
@@ -39,7 +37,6 @@ import loop_release  # noqa: E402
 import pretool_block  # noqa: E402
 import spec as spec_mod  # noqa: E402
 from atomicio import write_text_atomic  # noqa: E402
-
 
 DOCS: tuple[tuple[str, str], ...] = (
     ("claude-hookoutputs.md", "claude"),
@@ -106,9 +103,15 @@ def _read_json(path: Path) -> dict[str, Any]:
 
 
 def _hook_command_name(command: str) -> str:
-    for token in ("router.sh", "gate_prompt.py", "gate_prompt_effort.py",
-                  "pre_tool_use.py", "gate_post_tool.py", "test_after_edit.py",
-                  "gate_stop.py"):
+    for token in (
+        "router.sh",
+        "gate_prompt.py",
+        "gate_prompt_effort.py",
+        "pre_tool_use.py",
+        "gate_post_tool.py",
+        "test_after_edit.py",
+        "gate_stop.py",
+    ):
         if token in command:
             return token
     return command
@@ -178,13 +181,9 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
     if len(effort_context) > 12_000:
         effort_context = effort_context[:12_000].rstrip() + "\n...[truncated in generated docs]"
 
-    post_context = (
-        "Requirement T2 added: Generated docs implementation tests pass.\n"
-        "T2: Generated docs implementation tests pass"
-    )
+    post_context = "Requirement T2 added: Generated docs implementation tests pass.\nT2: Generated docs implementation tests pass"
     test_context = (
-        "unifable test-after-edit: pytest selected tests passed\n"
-        "command: python3 -m pytest tests/test_generate_docs.py -q"
+        "unifable test-after-edit: pytest selected tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
     )
     breaker_context = "unifable breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
     session_start_context = context_block.build_session_context()
@@ -269,8 +268,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
         HookScenario(
             name="PreToolUse delegation block",
             event="PreToolUse",
-            stderr=pretool_block.GATE_PREFIX
-            + pretool_block.format_delegation_block("Task", "sample-session"),
+            stderr=pretool_block.GATE_PREFIX + pretool_block.format_delegation_block("Task", "sample-session"),
             exit_code=2,
         ),
         HookScenario(
@@ -459,11 +457,7 @@ def _fake_response(schema_name: str, schema: dict[str, Any], user: str) -> dict[
             ids = [str(t.get("id")) for t in payload.get("tasks_to_adjudicate", [])]
         except Exception:
             ids = ["T1"]
-        return {
-            "task_verdicts": [
-                {"id": tid, "verdict": 0, "reason": "sample judge rejection"} for tid in ids
-            ]
-        }
+        return {"task_verdicts": [{"id": tid, "verdict": 0, "reason": "sample judge rejection"} for tid in ids]}
     if schema_name == "frontier_discover":
         return {"frontiers": [], "reason": "sample"}
     if schema_name == "frontier_comparison":
@@ -592,7 +586,7 @@ def collect_judge_prompts() -> list[JudgePrompt]:
         lambda: spec_mod.judge_all_tasks(
             copy.deepcopy(sample_spec),
             [{"task": copy.deepcopy(standard_task), "kind": "validate", "exit_code": 0, "output": "docs are current\n"}],
-            transcript="<record line=\"000001\" role=\"assistant\">sample</record>",
+            transcript='<record line="000001" role="assistant">sample</record>',
         ),
     )
     cases += _capture_call(
@@ -649,7 +643,7 @@ def collect_judge_prompts() -> list[JudgePrompt]:
             "scripts/gate/groundedness.py",
             "groundedness",
             lambda judge: groundedness.arm_judge(
-                "<record line=\"000001\" role=\"assistant\">The docs are already current.</record>",
+                '<record line="000001" role="assistant">The docs are already current.</record>',
                 events=[],
                 judge=judge,
             ),
@@ -662,7 +656,7 @@ def collect_judge_prompts() -> list[JudgePrompt]:
             "groundedness",
             lambda judge: groundedness.disarm_judge(
                 "The docs are already current.",
-                "<record line=\"000002\" role=\"tool\">python3 scripts/generate_docs.py --check passed</record>",
+                '<record line="000002" role="tool">python3 scripts/generate_docs.py --check passed</record>',
                 user_goal="Generate docs.",
                 judge=judge,
             ),
@@ -676,7 +670,7 @@ def collect_judge_prompts() -> list[JudgePrompt]:
             lambda judge: groundedness.monitor_provisional_judge(
                 "The docs are already current.",
                 "Run the generated-docs check.",
-                "<record line=\"000003\" role=\"tool\">checking docs</record>",
+                '<record line="000003" role="tool">checking docs</record>',
                 "Bash",
                 user_goal="Generate docs.",
                 judge=judge,
@@ -703,7 +697,7 @@ def collect_judge_prompts() -> list[JudgePrompt]:
         "hooks/gate_stop.py",
         lambda: gate_stop._judge_goal_condition(
             "Generated docs are current.",
-            "<record line=\"000001\" role=\"assistant\">Ran python3 scripts/generate_docs.py --check.</record>",
+            '<record line="000001" role="assistant">Ran python3 scripts/generate_docs.py --check.</record>',
             {"session_id": "sample-session", "cwd": str(ROOT)},
         ),
     )
@@ -711,7 +705,7 @@ def collect_judge_prompts() -> list[JudgePrompt]:
         "Completion handoff",
         "scripts/gate/completion_handoff.py",
         lambda: completion_handoff.judge_completion_handoff(
-            "<record line=\"000001\" role=\"assistant\">Want me to read the transcript?</record>",
+            '<record line="000001" role="assistant">Want me to read the transcript?</record>',
             user_goal="Analyze benchmark overhead.",
             last_text="Want me to read the transcript?",
             grade="STANDARD",

@@ -3,6 +3,7 @@
 it is exactly a direct codex_judge.ask_structured call, and token usage from the
 direct path is still recorded to the session ledger.
 """
+
 from __future__ import annotations
 
 import sys

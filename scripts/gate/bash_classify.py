@@ -4,8 +4,8 @@
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
 spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only `git` subcommands,
 git workflow commands (`status`, `add`, `commit`, `push` without `--force`), a
-file whose basename is `trace.sh` when the explore skill is installed (guidance
-shows the resolved path), or a file whose basename is
+file whose basename is `trace.sh` or `websearch.sh` when the explore skill is
+installed (guidance shows resolved paths), or a file whose basename is
 one of the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
 """
@@ -16,21 +16,23 @@ import re
 import shlex
 
 try:
-    from research_bash_guidance import allowed_research_bash_detail
+    from research_bash_guidance import EXPLORE_SCRIPT_BASENAMES, allowed_research_bash_detail
 except ImportError:  # pragma: no cover
-    from scripts.gate.research_bash_guidance import allowed_research_bash_detail
+    from scripts.gate.research_bash_guidance import EXPLORE_SCRIPT_BASENAMES, allowed_research_bash_detail
 
 ALLOWED_RESEARCH_BASH = allowed_research_bash_detail()
 
 _ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg"})
 _PIPELINE_SINKS = frozenset({"head", "tail", "wc", "sort", "uniq"})
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
-_UNIFUSION_SCRIPT_NAMES = frozenset({
-    "unifusion.sh",
-    "save_run.sh",
-    "summarize_session.sh",
-    "resolve_session.sh",
-})
+_UNIFUSION_SCRIPT_NAMES = frozenset(
+    {
+        "unifusion.sh",
+        "save_run.sh",
+        "summarize_session.sh",
+        "resolve_session.sh",
+    }
+)
 _PY_INTERPRETERS = frozenset({"python", "python3"})
 # The agent may drive the evidence spec ONLY through these append-only subcommands.
 # Creation is automatic (the gate_prompt hook), and removal is judge-only, so
@@ -48,33 +50,109 @@ _AGENT_BLOCKED_ASSIGN_NAMES = frozenset({"UNIFABLE_DEV"})
 _SAFE_DECL_PREFIXES = frozenset({"export"})
 # Assigning these can change which binary the shell resolves or how words split,
 # so a standalone declaration of them is NOT a no-op and stays blocked.
-_DANGEROUS_ASSIGN_NAMES = frozenset({
-    "PATH", "IFS", "LD_PRELOAD", "LD_LIBRARY_PATH", "DYLD_INSERT_LIBRARIES",
-    "DYLD_LIBRARY_PATH", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4",
-    "GLOBIGNORE", "CDPATH",
-})
+_DANGEROUS_ASSIGN_NAMES = frozenset(
+    {
+        "PATH",
+        "IFS",
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
+        "DYLD_LIBRARY_PATH",
+        "BASH_ENV",
+        "ENV",
+        "SHELLOPTS",
+        "BASHOPTS",
+        "PS4",
+        "GLOBIGNORE",
+        "CDPATH",
+    }
+)
 # Git subcommands allowed before the evidence spec validates.
-_ALLOWED_GIT_SUBCMDS = frozenset({
-    "status", "log", "diff", "show", "rev-parse", "describe", "branch", "remote",
-    "tag", "stash", "blame", "shortlog", "reflog", "merge-base", "name-rev", "config",
-    "add", "commit", "push",
-})
-_BLOCKED_GIT_SUBCMDS = frozenset({
-    "pull", "fetch", "checkout", "switch", "restore", "reset",
-    "revert", "merge", "rebase", "cherry-pick", "clean", "rm", "mv", "init", "clone",
-    "apply", "am", "bisect", "bundle", "filter-branch", "gc", "maintenance", "notes",
-    "receive-pack", "send-pack", "submodule", "update-index", "update-ref",
-    "worktree",
-})
+_ALLOWED_GIT_SUBCMDS = frozenset(
+    {
+        "status",
+        "log",
+        "diff",
+        "show",
+        "rev-parse",
+        "describe",
+        "branch",
+        "remote",
+        "tag",
+        "stash",
+        "blame",
+        "shortlog",
+        "reflog",
+        "merge-base",
+        "name-rev",
+        "config",
+        "add",
+        "commit",
+        "push",
+    }
+)
+_BLOCKED_GIT_SUBCMDS = frozenset(
+    {
+        "pull",
+        "fetch",
+        "checkout",
+        "switch",
+        "restore",
+        "reset",
+        "revert",
+        "merge",
+        "rebase",
+        "cherry-pick",
+        "clean",
+        "rm",
+        "mv",
+        "init",
+        "clone",
+        "apply",
+        "am",
+        "bisect",
+        "bundle",
+        "filter-branch",
+        "gc",
+        "maintenance",
+        "notes",
+        "receive-pack",
+        "send-pack",
+        "submodule",
+        "update-index",
+        "update-ref",
+        "worktree",
+    }
+)
 # Global git options that take a value and must be skipped before the subcommand.
-_GIT_GLOBAL_OPTS_WITH_VALUE = frozenset({
-    "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix",
-})
-_GIT_GLOBAL_OPTS = frozenset({
-    "-C", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix",
-    "--no-pager", "--no-optional-locks", "-c", "--literal-pathspecs", "--glob-pathspecs",
-    "--noglob-pathspecs", "--icase-pathspecs", "--no-replace-objects", "--no-optional-locks",
-})
+_GIT_GLOBAL_OPTS_WITH_VALUE = frozenset(
+    {
+        "-C",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--exec-path",
+        "--super-prefix",
+    }
+)
+_GIT_GLOBAL_OPTS = frozenset(
+    {
+        "-C",
+        "--git-dir",
+        "--work-tree",
+        "--namespace",
+        "--exec-path",
+        "--super-prefix",
+        "--no-pager",
+        "--no-optional-locks",
+        "-c",
+        "--literal-pathspecs",
+        "--glob-pathspecs",
+        "--noglob-pathspecs",
+        "--icase-pathspecs",
+        "--no-replace-objects",
+    }
+)
 
 
 def _logical_lines(command: str) -> list[str]:
@@ -189,7 +267,7 @@ def _first_command(tokens: list[str]) -> tuple[str, list[str]]:
         break
     if idx >= len(tokens):
         return "", []
-    return tokens[idx], tokens[idx + 1:]
+    return tokens[idx], tokens[idx + 1 :]
 
 
 def _agent_blocked_assignment_reason(tokens: list[str]) -> str:
@@ -200,18 +278,15 @@ def _agent_blocked_assignment_reason(tokens: list[str]) -> str:
 
         base = _basename(tok)
         if base in ("export", "declare", "typeset", "local", "readonly"):
-            for arg in tokens[idx + 1:]:
+            for arg in tokens[idx + 1 :]:
                 if arg.startswith("-"):
                     continue
                 match = _ASSIGN_NAME_RE.match(arg)
                 if match and match.group(1) in _AGENT_BLOCKED_ASSIGN_NAMES:
-                    return (
-                        f"{match.group(1)} is reserved for operator diagnostics "
-                        "and cannot be set from agent Bash"
-                    )
+                    return f"{match.group(1)} is reserved for operator diagnostics and cannot be set from agent Bash"
             return ""
         if base == "unset":
-            for arg in tokens[idx + 1:]:
+            for arg in tokens[idx + 1 :]:
                 if arg.startswith("-"):
                     continue
                 if arg in _AGENT_BLOCKED_ASSIGN_NAMES:
@@ -260,8 +335,10 @@ def _is_unifusion_script(token: str) -> bool:
 def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
     """Validate append-only subcommands for unifable-spec or scripts/gate/spec.py."""
     if "--force" in args:
-        return False, ("spec CLI --force is not allowed: the agent cannot overwrite or "
-                       "remove a spec (creation is automatic, removal is judge-only).")
+        return False, (
+            "spec CLI --force is not allowed: the agent cannot overwrite or "
+            "remove a spec (creation is automatic, removal is judge-only)."
+        )
     sub = ""
     for tok in args:
         if tok.startswith("-"):
@@ -269,12 +346,8 @@ def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
         sub = tok
         break
     if sub in _SPEC_APPEND_SUBCMDS:
-        if sub == "restate" and any(
-            tok == "--goal" or tok.startswith("--goal=") for tok in args
-        ):
-            return False, (
-                "restate uses a positional goal: unifable restate '<goal>' (not --goal)."
-            )
+        if sub == "restate" and any(tok == "--goal" or tok.startswith("--goal=") for tok in args):
+            return False, ("restate uses a positional goal: unifable restate '<goal>' (not --goal).")
         return True, ""
     return False, (
         f"spec CLI '{sub or '<none>'}' is not an append-only subcommand "
@@ -346,7 +419,7 @@ def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
         break
     if not script.replace("\\", "/").endswith("scripts/gate/spec.py"):
         return False, ""
-    return _validate_spec_append_args(rest[script_idx + 1:])
+    return _validate_spec_append_args(rest[script_idx + 1 :])
 
 
 def _command_substitution_reason(text: str) -> str:
@@ -417,9 +490,7 @@ def _declaration_segment(seg: str) -> tuple[bool, tuple[bool, str] | None]:
         names.append(match.group(1))
     for name in names:
         if name in _DANGEROUS_ASSIGN_NAMES:
-            return True, (False,
-                          f"{name}= changes command resolution and is not allowed "
-                          "before the evidence spec is validated")
+            return True, (False, f"{name}= changes command resolution and is not allowed before the evidence spec is validated")
     return True, (True, "")
 
 
@@ -451,11 +522,11 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
-    if base == "trace.sh" or _is_unifusion_script(command):
+    if base in EXPLORE_SCRIPT_BASENAMES or _is_unifusion_script(command):
         return True, ""
     if base in _TRACE_INTERPRETERS:
         target_base = _basename(_trace_target_from_interpreter(rest))
-        if target_base == "trace.sh" or target_base in _UNIFUSION_SCRIPT_NAMES:
+        if target_base in EXPLORE_SCRIPT_BASENAMES or target_base in _UNIFUSION_SCRIPT_NAMES:
             return True, ""
     if base in _PY_INTERPRETERS:
         ok, reason = _spec_cli_segment(rest)

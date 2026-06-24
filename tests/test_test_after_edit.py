@@ -10,9 +10,9 @@ Tests cover:
 
 No real test suites are executed; subprocess is stubbed via a temp wrapper script.
 """
+
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import subprocess
@@ -34,13 +34,12 @@ sys.path.insert(0, str(REPO_ROOT / "hooks"))
 
 import test_after_edit as tae  # noqa: E402  (after sys.path manipulation)
 
-
 # ---------------------------------------------------------------------------
 # Extension skip
 # ---------------------------------------------------------------------------
 
-class TestShouldSkipPath(unittest.TestCase):
 
+class TestShouldSkipPath(unittest.TestCase):
     def test_markdown_skipped(self):
         self.assertTrue(tae.should_skip_path("docs/README.md"))
 
@@ -92,8 +91,8 @@ class TestShouldSkipPath(unittest.TestCase):
 # Runner discovery
 # ---------------------------------------------------------------------------
 
-class TestDiscoverRunner(unittest.TestCase):
 
+class TestDiscoverRunner(unittest.TestCase):
     def _make_tree(self, *files: str) -> str:
         """Create a temp directory tree with the given relative paths and return the root."""
         root = tempfile.mkdtemp()
@@ -119,7 +118,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertIn("pytest", " ".join(cmd))
             self.assertIn("pytest", label)
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_python_tests_dir(self):
         root = self._make_tree("tests/__init__.py", "src/app.py")
@@ -128,7 +129,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(found_root, root)
             self.assertIn("pytest", " ".join(cmd))
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_python_uv_lock(self):
         root = self._make_tree("pyproject.toml", "uv.lock")
@@ -137,7 +140,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(cmd[:2], ["uv", "run"])
             self.assertIn("uv", label)
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_rust_cargo(self):
         root = self._make_tree("Cargo.toml", "src/lib.rs")
@@ -146,7 +151,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(found_root, root)
             self.assertEqual(cmd, ["cargo", "test", "-q"])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_go_mod(self):
         root = self._make_tree("go.mod", "pkg/server.go")
@@ -155,7 +162,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(found_root, root)
             self.assertEqual(cmd, ["go", "test", "./..."])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_node_npm(self):
         root = self._make_tree("package.json")
@@ -167,7 +176,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(found_root, root)
             self.assertEqual(cmd, ["npm", "test"])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_node_pnpm(self):
         root = self._make_tree("package.json", "pnpm-lock.yaml")
@@ -178,7 +189,9 @@ class TestDiscoverRunner(unittest.TestCase):
             found_root, cmd, label = tae.discover_runner(root)
             self.assertEqual(cmd, ["pnpm", "test"])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_node_yarn(self):
         root = self._make_tree("package.json", "yarn.lock")
@@ -189,7 +202,9 @@ class TestDiscoverRunner(unittest.TestCase):
             found_root, cmd, label = tae.discover_runner(root)
             self.assertEqual(cmd, ["yarn", "test"])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_node_bun(self):
         root = self._make_tree("package.json", "bun.lockb")
@@ -200,7 +215,9 @@ class TestDiscoverRunner(unittest.TestCase):
             found_root, cmd, label = tae.discover_runner(root)
             self.assertEqual(cmd, ["bun", "test"])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_node_no_test_script_ignored(self):
         """package.json with no test script should not match Node runner."""
@@ -213,7 +230,9 @@ class TestDiscoverRunner(unittest.TestCase):
             # Should fall through to None (no other runner files present)
             self.assertIsNone(cmd)
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_makefile_with_test_target(self):
         root = tempfile.mkdtemp()
@@ -225,7 +244,9 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(found_root, root)
             self.assertEqual(cmd, ["make", "test"])
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_makefile_without_test_target_ignored(self):
         root = tempfile.mkdtemp()
@@ -236,7 +257,9 @@ class TestDiscoverRunner(unittest.TestCase):
             found_root, cmd, label = tae.discover_runner(root)
             self.assertIsNone(cmd)
         finally:
-            import shutil; shutil.rmtree(root, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(root, ignore_errors=True)
 
     def test_innermost_wins(self):
         """Nested project: inner pyproject.toml beats outer Cargo.toml."""
@@ -254,15 +277,17 @@ class TestDiscoverRunner(unittest.TestCase):
             self.assertEqual(found_root, inner)
             self.assertIn("pytest", " ".join(cmd))
         finally:
-            import shutil; shutil.rmtree(outer, ignore_errors=True)
+            import shutil
+
+            shutil.rmtree(outer, ignore_errors=True)
 
 
 # ---------------------------------------------------------------------------
 # Debounce
 # ---------------------------------------------------------------------------
 
-class TestDebounce(unittest.TestCase):
 
+class TestDebounce(unittest.TestCase):
     def test_first_call_not_debounced(self):
         with tempfile.TemporaryDirectory() as d:
             # Ensure no stale marker
@@ -305,6 +330,7 @@ class TestDebounce(unittest.TestCase):
 # ---------------------------------------------------------------------------
 # Full hook via subprocess (no real suite execution)
 # ---------------------------------------------------------------------------
+
 
 class TestHookPipeline(unittest.TestCase):
     """Drive the hook as a subprocess with env control and stubbed test runner."""
@@ -498,8 +524,8 @@ class TestHookPipeline(unittest.TestCase):
 # run_tests return value
 # ---------------------------------------------------------------------------
 
-class TestRunTestsSummary(unittest.TestCase):
 
+class TestRunTestsSummary(unittest.TestCase):
     def test_pass_contains_pass(self):
         with patch("subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stdout="3 passed", stderr="")

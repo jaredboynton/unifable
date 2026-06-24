@@ -6,6 +6,7 @@ default-OFF (so the gate is unchanged) and only suppresses for the 'off' arm
 when UNIFABLE_HOLDOUT=1, and that the outcome parser counts reverts/rework/
 reinstructions.
 """
+
 from __future__ import annotations
 
 import os
@@ -18,9 +19,9 @@ sys.path.insert(0, str(ROOT / "hooks"))
 
 
 def main() -> int:
-    import shadow_logger as SL
-    import outcome_collect as OC
     import gate_stop as GS
+    import outcome_collect as OC
+    import shadow_logger as SL
 
     failures: list[str] = []
 
@@ -62,8 +63,9 @@ def main() -> int:
         for f in failures:
             print("  -", f)
         return 1
-    print("RESULT: M3 pass (outcome: 1 revert / 1 rework / 2 reinstruct; "
-          "holdout default-off, suppresses only off-arm when enabled)")
+    print(
+        "RESULT: M3 pass (outcome: 1 revert / 1 rework / 2 reinstruct; holdout default-off, suppresses only off-arm when enabled)"
+    )
     return 0
 
 

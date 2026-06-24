@@ -3,6 +3,7 @@
 append-only prefix across calls (so the transcript caches) instead of sliding by
 one unit per appended char (which busts the prompt cache every turn).
 """
+
 from __future__ import annotations
 
 import sys
@@ -35,10 +36,10 @@ def test_prefix_stable_across_appends_within_chunk():
 
 def test_sticky_start_jumps_by_chunk_on_boundary():
     # budget 100, ratio 0.8 -> drop_chunk 20
-    assert _sticky_start(120, 100, 0.8) == 20   # overflow 20 -> 1 chunk
-    assert _sticky_start(121, 100, 0.8) == 40   # overflow 21 -> 2 chunks (jump)
-    assert _sticky_start(139, 100, 0.8) == 40   # still within 2nd chunk -> stable
-    assert _sticky_start(100, 100, 0.8) == 0    # at budget -> no drop
+    assert _sticky_start(120, 100, 0.8) == 20  # overflow 20 -> 1 chunk
+    assert _sticky_start(121, 100, 0.8) == 40  # overflow 21 -> 2 chunks (jump)
+    assert _sticky_start(139, 100, 0.8) == 40  # still within 2nd chunk -> stable
+    assert _sticky_start(100, 100, 0.8) == 0  # at budget -> no drop
 
 
 def test_ratio_one_is_plain_last_n():

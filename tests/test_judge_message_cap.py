@@ -72,13 +72,16 @@ def test_ask_structured_caps_before_send(monkeypatch):
 
     def fake_ws_connect(tokens, model, timeout):
         from unittest.mock import MagicMock
+
         return MagicMock()
 
     def fake_read_frame(sock):
-        payload = json.dumps({
-            "type": "response.done",
-            "response": {"output": [{"type": "function_call", "arguments": '{"verdict":1}'}]},
-        }).encode()
+        payload = json.dumps(
+            {
+                "type": "response.done",
+                "response": {"output": [{"type": "function_call", "arguments": '{"verdict":1}'}]},
+            }
+        ).encode()
         return 0x1, payload
 
     def capture_send(sock, obj):
@@ -105,10 +108,7 @@ def test_arm_judge_system_stays_bounded_with_many_adjudicated_claims():
     def bad_judge(system, user, schema):
         return {"verdict": 0, "steering": "", "claim": "", "load_bearing": 0}
 
-    events = [
-        {"kind": "DISARM", "claim": "claim " + ("c" * 10_000)}
-        for _ in range(50)
-    ]
+    events = [{"kind": "DISARM", "claim": "claim " + ("c" * 10_000)} for _ in range(50)]
     _verdict, _steering, _claim = gb.arm_judge("segment", events=events, judge=bad_judge)
     # arm_judge passes system to judge; verify cap via re-running cap on composed system
     from transcript_tail import cap_judge_message as cap
@@ -116,10 +116,7 @@ def test_arm_judge_system_stays_bounded_with_many_adjudicated_claims():
     system = gb._JUDGE_SYSTEM
     done = gb.adjudicated_claims(events)
     claims_str = "\n".join(f"- {c}" for c in done)
-    append = (
-        f"\n\nDo NOT flag any of the following claims as they have already been "
-        f"adjudicated or grounded:\n{claims_str}"
-    )
+    append = f"\n\nDo NOT flag any of the following claims as they have already been adjudicated or grounded:\n{claims_str}"
     room = JUDGE_EFFECTIVE_MAX_CHARS - len(system)
     composed = system + cap(append, room)
     assert len(composed) <= JUDGE_EFFECTIVE_MAX_CHARS

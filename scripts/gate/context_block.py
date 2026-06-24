@@ -12,12 +12,12 @@ Host-agnostic: no imports from hooks/ or install/. Fail-open by design.
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 try:
     from research_bash_guidance import explore_trace_inline_md, explore_trace_list_item_md
 except Exception:  # noqa: BLE001 -- fail open
+
     def explore_trace_inline_md() -> str:
         return ""
 
@@ -40,8 +40,7 @@ def _explore_list() -> str:
 
 
 _HEADER = (
-    "unifable operating mode (auto-route by task signal; "
-    "apply what the task signals, baseline only when there is no signal)."
+    "unifable operating mode (auto-route by task signal; apply what the task signals, baseline only when there is no signal)."
 )
 
 _ALWAYS = (
@@ -99,6 +98,15 @@ _ORCH_POSTURE = (
     "documentation or research corroborated by a repo or document URL."
 )
 
+_RESEARCH_DELEGATION = (
+    "- Research phase = no subagents: Task/Agent delegation is BLOCKED by the evidence "
+    "gate until the spec validates (both Claude and Codex). Do NOT spawn subagents to "
+    "explore -- they will be blocked, and waiting on them deadlocks. Favor skills over "
+    "agents for exploration: use the explore skill's `trace.sh` for codebase tracing and "
+    "`websearch.sh` for rapid external research (docs, papers, GitHub prior art); both are "
+    "in the Bash research whitelist. Delegate to subagents only after the gate lifts."
+)
+
 
 def build_session_context(plugin_root: str | Path | None = None) -> str:
     """Return the standing SessionStart context string.
@@ -121,6 +129,7 @@ def build_session_context(plugin_root: str | Path | None = None) -> str:
         _EDIT_DISCIPLINE,
         _FINAL_RESPONSE,
         _ORCH_POSTURE,
+        _RESEARCH_DELEGATION,
     ]
     return "\n".join(parts)
 

@@ -12,6 +12,7 @@ object. This test replicates Codex's decision exactly and asserts no prompt
 triggers FAIL.
 Run: python3 tests/test_router_codex_json.py
 """
+
 from __future__ import annotations
 
 import json
@@ -57,9 +58,7 @@ def main() -> int:
     bad = 0
     for prompt in PROMPTS:
         payload = json.dumps({"prompt": prompt, "session_id": "t", "cwd": "/tmp"})
-        proc = subprocess.run(
-            ["bash", str(ROUTER)], input=payload, capture_output=True, text=True
-        )
+        proc = subprocess.run(["bash", str(ROUTER)], input=payload, capture_output=True, text=True)
         verdict = codex_verdict(proc.stdout)
         ok = verdict != "FAIL" and proc.returncode == 0
         # when a pack matches, output must be a valid JSON object with additionalContext

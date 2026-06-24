@@ -6,6 +6,7 @@ as test_gate.py). Verifies: deterministic holdout ~20%, collector emits the 4
 event types, idempotency, would_fire logic, and that events.jsonl lands
 out-of-band (outside the repo).
 """
+
 from __future__ import annotations
 
 import json
@@ -40,12 +41,20 @@ def main() -> int:
         tmp = Path(td)
         (tmp / "ledgers").mkdir(parents=True)
         (tmp / "ledgers" / "deadbeefcafe000000000001.json").write_text(
-            json.dumps({
-                "task_mode": "deep", "risk_flags": ["database"],
-                "changed_files_seen": True, "change_kinds": ["code"],
-                "verification_results": [], "failures": [{"kind": "test"}],
-                "stop_blocks": 1, "last_updated": "2026-06-18T00:00:00+00:00",
-            }), encoding="utf-8")
+            json.dumps(
+                {
+                    "task_mode": "deep",
+                    "risk_flags": ["database"],
+                    "changed_files_seen": True,
+                    "change_kinds": ["code"],
+                    "verification_results": [],
+                    "failures": [{"kind": "test"}],
+                    "stop_blocks": 1,
+                    "last_updated": "2026-06-18T00:00:00+00:00",
+                }
+            ),
+            encoding="utf-8",
+        )
 
         import shadow_collect as SC
 
@@ -88,8 +97,7 @@ def main() -> int:
         for f in failures:
             print("  -", f)
         return 1
-    print(f"RESULT: all shadow checks pass (holdout off={frac:.3f}, 4 event types, "
-          f"idempotent, out-of-band)")
+    print(f"RESULT: all shadow checks pass (holdout off={frac:.3f}, 4 event types, idempotent, out-of-band)")
     return 0
 
 

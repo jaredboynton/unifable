@@ -13,8 +13,6 @@ from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "hooks"))
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
@@ -228,13 +226,15 @@ def test_judge_heal_includes_plan_mode_context(monkeypatch, tmp_path):
     spec = {
         "requires_tasks": True,
         "restated_goal": "g",
-        "tasks": [{
-            "id": "T9",
-            "title": "needs repo file",
-            "check": "test -f plan.md",
-            "status": "failed",
-            "added_by": "judge",
-        }],
+        "tasks": [
+            {
+                "id": "T9",
+                "title": "needs repo file",
+                "check": "test -f plan.md",
+                "status": "failed",
+                "added_by": "judge",
+            }
+        ],
     }
     captured: dict = {}
 
