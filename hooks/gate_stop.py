@@ -778,6 +778,7 @@ def main() -> int:
                         # Citation truth-check: code-profile tasks only.
                         try:
                             from citations import (activity_from_ledger, enabled,
+                                                   format_citation_verify_message,
                                                    merge_activity, scan_transcript,
                                                    verify_citations)
                             profile = resolve_evidence_profile(ledger, spec)
@@ -788,7 +789,7 @@ def main() -> int:
                                 )
                                 cited = verify_citations(spec, activity, cwd, require_commands=True)
                                 if cited:
-                                    ev_reason = "spec citations not backed by real activity: " + "; ".join(cited)
+                                    ev_reason = format_citation_verify_message(cited)
                         except Exception:
                             pass  # fail open
             if ev_reason:

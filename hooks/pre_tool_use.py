@@ -50,6 +50,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
 from bash_classify import is_allowed_research_bash
+from citations import format_citation_verify_message
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json
 from pretool_block import (
@@ -314,10 +315,7 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
             input_data,
             kind="spec",
             detail=f"citations:{detail}",
-            message=(
-                "spec citations are not backed by real activity this session: "
-                + detail
-            ),
+            message=format_citation_verify_message(cited),
         )
 
     if grade == "HEAVY":

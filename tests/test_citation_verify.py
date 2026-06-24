@@ -19,6 +19,8 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 from citations import (  # noqa: E402
     command_was_run,
+    empty_activity,
+    format_citation_verify_message,
     path_was_read,
     url_was_fetched,
     verify_citations,
@@ -145,6 +147,28 @@ def test_verify_citations_all_backed_and_none_backed():
     assert len(verify_citations(spec, none, "/repo", require_commands=True)) == 3
     # require_commands=False (pre-edit): the unrun check is not yet required
     assert len(verify_citations(spec, none, "/repo", require_commands=False)) == 2
+
+
+def test_format_citation_verify_message_no_repeated_boilerplate():
+    reasons = verify_citations(
+        {
+            "repo_context": [
+                {"cite": "scripts/gate:1", "why": "x"},
+                {"cite": "hooks:1", "why": "y"},
+            ],
+            "prior_art": [{"cite": "https://docs.example.com/x", "why": "z"}],
+        },
+        empty_activity(),
+        "/repo",
+        require_commands=False,
+    )
+    msg = format_citation_verify_message(reasons)
+    assert msg.count("Read each cited file") == 1
+    assert msg.count("Fetch each URL") == 1
+    assert "repo_context[0]: 'scripts/gate:1'" in msg
+    assert "repo_context[1]: 'hooks:1'" in msg
+    assert "prior_art[0]: 'https://docs.example.com/x'" in msg
+    assert "you cannot cite what you did not open" not in msg
 
 
 # --------------------------------------------------------------------- integration

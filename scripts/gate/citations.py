@@ -187,17 +187,14 @@ def verify_citations(
         cite, _why = repo_context_parts(item)
         if cite and not path_was_read(cite, read_paths, cwd):
             reasons.append(
-                f"repo_context[{i}] cites {cite!r} but that file was never read this session -- "
-                "read it (Read/grep) before citing it (the gate verifies citations against "
-                "actual tool activity; you cannot cite what you did not open)."
+                f"repo_context[{i}]: {cite!r} (never read this session)"
             )
 
     for i, item in enumerate(spec.get("prior_art") or []):
         cite, _why = prior_art_parts(item)
         if cite and not url_was_fetched(cite, fetched):
             reasons.append(
-                f"prior_art[{i}] cites {cite!r} but that URL was never fetched this session -- "
-                "fetch it (WebFetch or curl) before citing it as prior art."
+                f"prior_art[{i}]: {cite!r} (never fetched this session)"
             )
 
     if require_commands:
@@ -205,11 +202,37 @@ def verify_citations(
             check = ac.get("check") if isinstance(ac, dict) else ""
             if check and not command_was_run(str(check), ran):
                 reasons.append(
-                    f"acceptance_criteria[{i}].check {str(check)!r} was never executed this session -- "
-                    "run it and cite its real output as evidence (the gate verifies the command ran)."
+                    f"acceptance_criteria[{i}].check {str(check)!r} (never run this session)"
                 )
 
     return reasons
+
+
+def format_citation_verify_message(reasons: list[str]) -> str:
+    """One headline, compact per-cite lines, shared footnotes (no repeated boilerplate)."""
+    items = [str(r).strip() for r in (reasons or []) if str(r).strip()]
+    if not items:
+        return ""
+    lines = ["spec citations are not backed by real activity this session:"]
+    lines.extend(f"  {item}" for item in items)
+    footnotes: list[str] = []
+    if any(r.startswith("repo_context[") for r in items):
+        footnotes.append(
+            "Read each cited file (Read/grep) before citing it "
+            "(the gate verifies repo_context against actual tool activity)."
+        )
+    if any(r.startswith("prior_art[") for r in items):
+        footnotes.append(
+            "Fetch each URL (WebFetch or curl) before citing it as prior art."
+        )
+    if any(r.startswith("acceptance_criteria[") for r in items):
+        footnotes.append(
+            "Run each acceptance check command before citing its output."
+        )
+    if footnotes:
+        lines.append("")
+        lines.extend(footnotes)
+    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
