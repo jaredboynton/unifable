@@ -10,3 +10,7 @@ _default:
 # Usage: just version 1.9.4   (or: just version patch|minor|major)
 version VERSION:
     python3 scripts/bump_version.py {{VERSION}}
+
+# Regenerate rendered hook-output and judge-prompt reference docs.
+generated-docs:
+    python3 scripts/generate_docs.py

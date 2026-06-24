@@ -42,6 +42,9 @@ managed_paths=(
   ".factory-plugin/marketplace.json"
   "setup/setup.sh"
   "AGENTS.md"
+  "docs/generated/claude-hookoutputs.md"
+  "docs/generated/codex-hookoutputs.md"
+  "docs/generated/judgeprompts.md"
 )
 
 current_version() {
@@ -76,9 +79,12 @@ old_version="$(current_version)"
 python3 scripts/bump_version.py "$VERSION_ARG"
 new_version="$(current_version)"
 
+STAGE_GENERATED_DOCS=0 bash scripts/pre-commit-generated-docs.sh
 python3 -m py_compile \
   hooks/pre_tool_use.py \
   hooks/gate_stop.py \
+  scripts/generate_docs.py \
+  scripts/gate/codex_judge.py \
   scripts/gate/groundedness.py \
   scripts/gate/ledger.py \
   scripts/gate/spec.py

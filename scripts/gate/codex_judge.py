@@ -23,6 +23,8 @@ applies cap_judge_message() to system and user text before sending.
 Public API:
     ask_structured(system, user, schema, *, schema_name="result", model=MODEL,
                    auth_path=None, timeout=180.0) -> dict
+    render_structured_request(system, user, schema, *, schema_name="result")
+                   -> dict
     JudgeError -- raised on any auth/transport/protocol failure.
 
 Stdlib only: socket + ssl (WebSocket), urllib (OAuth refresh), base64/struct/json.
@@ -315,6 +317,51 @@ def _function_args_from_done(env: dict[str, Any]) -> str | None:
     return None
 
 
+def render_structured_request(
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+    *,
+    schema_name: str = "result",
+) -> dict[str, dict[str, Any]]:
+    """Render the exact Realtime events used by ask_structured."""
+    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
+
+    system = cap_judge_message(system, JUDGE_EFFECTIVE_MAX_CHARS)
+    user_cap = JUDGE_EFFECTIVE_MAX_CHARS - len(_QUESTION_PREFIX)
+    user = cap_judge_message(user, user_cap)
+    tool = {
+        "type": "function",
+        "name": schema_name,
+        "description": "Return the structured result. Call exactly once with the complete object.",
+        "parameters": schema,
+    }
+    return {
+        "session.update": {
+            "type": "session.update",
+            "session": {
+                "type": "realtime",
+                "instructions": system,
+                "output_modalities": ["text"],
+                "tools": [tool],
+                "tool_choice": "required",
+            },
+        },
+        "conversation.item.create": {
+            "type": "conversation.item.create",
+            "item": {
+                "type": "message",
+                "role": "user",
+                "content": [{"type": "input_text", "text": f"{_QUESTION_PREFIX}{user}"}],
+            },
+        },
+        "response.create": {
+            "type": "response.create",
+            "response": {"output_modalities": ["text"]},
+        },
+    }
+
+
 def ask_structured(
     system: str,
     user: str,
@@ -330,33 +377,10 @@ def ask_structured(
     Returns the parsed object. Raises JudgeError on any failure (so callers fail
     safe). Refreshes the access_token if expired, and retries once on a handshake
     auth rejection after forcing a refresh (protocol.rs run_session_structured)."""
-    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
-
-    system = cap_judge_message(system, JUDGE_EFFECTIVE_MAX_CHARS)
-    user_cap = JUDGE_EFFECTIVE_MAX_CHARS - len(_QUESTION_PREFIX)
-    user = cap_judge_message(user, user_cap)
-    tool = {
-        "type": "function",
-        "name": schema_name,
-        "description": "Return the structured result. Call exactly once with the complete object.",
-        "parameters": schema,
-    }
-    session_update = {
-        "type": "session.update",
-        "session": {
-            "type": "realtime",
-            "instructions": system,
-            "output_modalities": ["text"],
-            "tools": [tool],
-            "tool_choice": "required",
-        },
-    }
-    question = {
-        "type": "conversation.item.create",
-        "item": {"type": "message", "role": "user",
-                 "content": [{"type": "input_text", "text": f"{_QUESTION_PREFIX}{user}"}]},
-    }
-    response_create = {"type": "response.create", "response": {"output_modalities": ["text"]}}
+    rendered = render_structured_request(system, user, schema, schema_name=schema_name)
+    session_update = rendered["session.update"]
+    question = rendered["conversation.item.create"]
+    response_create = rendered["response.create"]
 
     def _once(force_refresh: bool) -> str:
         tokens = _fresh_tokens(auth_path, force=force_refresh)
