@@ -11,6 +11,7 @@ SEARCH_DIRS = ("tests", "scripts", "hooks", "benchmark")
 SUFFIXES = {".py", ".md"}
 SCAN_RE = re.compile("|".join(("sleep\\(", "time\\.sleep", "wa" + "it", "time" + "out")))
 SLEEP_RE = re.compile("|".join(("sleep\\(", "time\\.sleep")))
+DOC_PATH_RE = re.compile(r"`([^`]+)`")
 
 COVERED = {
     "benchmark/bench.py",
@@ -70,26 +71,52 @@ def matching_files(pattern: re.Pattern[str]) -> set[str]:
     return matches
 
 
+def documented_decisions(doc_text: str) -> tuple[set[str], list[str]]:
+    documented: set[str] = set()
+    incomplete: list[str] = []
+    for raw_line in doc_text.splitlines():
+        line = raw_line.strip()
+        if not line.startswith("|") or "`" not in line:
+            continue
+        cols = [col.strip() for col in line.strip("|").split("|")]
+        if len(cols) < 3:
+            continue
+        paths = [path for path in DOC_PATH_RE.findall(cols[0]) if path.endswith(tuple(SUFFIXES))]
+        if not paths:
+            continue
+        decision = cols[1]
+        review = cols[2]
+        for path in paths:
+            documented.add(path)
+            if not decision or not review or decision == "---" or review == "---":
+                incomplete.append(path)
+    return documented, sorted(set(incomplete))
+
+
 def main() -> int:
     matches = matching_files(SCAN_RE)
     doc_text = (ROOT / DOC).read_text(encoding="utf-8")
+    documented, incomplete = documented_decisions(doc_text)
     missing = sorted(matches - COVERED)
     stale = sorted(COVERED - matches)
-    undocumented = sorted(rel for rel in matches if rel != DOC.as_posix() and f"`{rel}`" not in doc_text)
+    undocumented = sorted(matches - documented)
     test_sleeps = sorted(rel for rel in matching_files(SLEEP_RE) if rel.startswith("tests/"))
 
-    if missing or stale or undocumented or test_sleeps:
+    if missing or stale or undocumented or incomplete or test_sleeps:
         if missing:
             print("uncovered files:", ", ".join(missing), file=sys.stderr)
         if stale:
             print("stale coverage:", ", ".join(stale), file=sys.stderr)
         if undocumented:
-            print("missing doc entries:", ", ".join(undocumented), file=sys.stderr)
+            print("missing documented decisions:", ", ".join(undocumented), file=sys.stderr)
+        if incomplete:
+            print("incomplete documented decisions:", ", ".join(incomplete), file=sys.stderr)
         if test_sleeps:
             print("test sleep calls remain:", ", ".join(test_sleeps), file=sys.stderr)
         return 1
 
     print(f"latency audit covered {len(matches)} grep-matched file(s)")
+    print(f"documented decisions: {len(documented & matches)} file(s)")
     print("test sleep calls: 0")
     return 0
 

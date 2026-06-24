@@ -39,10 +39,13 @@ Audit verification is now executable:
 
 ```text
 command: python3 scripts/audit_waits.py
-result: latency audit covered 32 grep-matched file(s); test sleep calls: 0
+result:
+latency audit covered 32 grep-matched file(s)
+documented decisions: 32 file(s)
+test sleep calls: 0
 ```
 
-`scripts/audit_waits.py` reruns the same file set used by the broad grep check, fails if a matched file is missing from this coverage ledger, fails if this doc lists stale coverage, and fails if any `tests/` file contains a `sleep(` or `time.sleep` call.
+`scripts/audit_waits.py` reruns the same file set used by the broad grep check, fails if a matched file is missing from this coverage ledger, fails if this doc lists stale coverage, fails if any matched file lacks a triage-table decision and review result, and fails if any `tests/` file contains a `sleep(` or `time.sleep` call.
 
 | Matched files from the broad grep rerun | Decision | Review result |
 |---|---|---|
