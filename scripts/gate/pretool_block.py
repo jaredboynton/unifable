@@ -3,8 +3,16 @@
 
 Codex (and other hosts) may invoke PreToolUse hooks concurrently for parallel tool
 calls. Without coordination each blocked call prints the full stderr message.
-This module emits one full message per (epoch, signature) and silent blocks for
-repeats within the same turn.
+
+Change-only stderr policy:
+- First block per (epoch, block_signature) emits full or compact instructions.
+- Identical retries (same kind+detail) emit nothing — exit 2 only.
+- A new signature in the same turn emits compact output (cite lines kept, unlock
+  footer not repeated).
+- Gate cleared (additionalContext on allow) signals a state transition.
+
+Exit code 2 is the block signal; stderr is elaboration on first sighting or when
+the reason changes, not on every retry.
 """
 
 from __future__ import annotations
@@ -14,7 +22,6 @@ import hashlib
 import os
 import re
 import sys
-import time
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
@@ -28,11 +35,6 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 GATE_PREFIX = "unifable pre-edit gate: "
-
-REPEAT_BLOCK_NOTE = "Still blocked for the same reason as before."
-
-# Sequential retries are usually spaced out; parallel PreToolUse invocations land together.
-_REPEAT_NOTE_MIN_GAP_S = 0.1
 
 BASH_ALLOWED_SUMMARY = (
     "cd, ls, glob, rg, read-only git, git add/commit/push (no --force), "
@@ -252,22 +254,16 @@ def emit_pretool_block(
             if not isinstance(counts, dict):
                 counts = {}
             prev = int(counts.get(sig, 0))
-            prev_mono = float(ledger.get("pretool_block_last_mono_at") or 0.0)
-            gap = (time.time() - prev_mono) if prev_mono else 999.0
             count = prev + 1
             counts[sig] = count
             ledger["pretool_block_counts"] = counts
-            ledger["pretool_block_last_mono_at"] = time.time()
             _record_pretool_block_in_lock(input_data, ledger, kind, detail)
             save_ledger(input_data, ledger)
-        if message:
-            if count == 1:
-                out = compact_pretool_output(message, footer_sent=footer_sent)
-                print(f"{GATE_PREFIX}{out}", file=sys.stderr)
-                if not footer_sent:
-                    _mark_unlock_footer_sent(input_data)
-            elif prev >= 1 and count == 2 and gap >= _REPEAT_NOTE_MIN_GAP_S:
-                print(f"{GATE_PREFIX}{REPEAT_BLOCK_NOTE}", file=sys.stderr)
+        if message and count == 1:
+            out = compact_pretool_output(message, footer_sent=footer_sent)
+            print(f"{GATE_PREFIX}{out}", file=sys.stderr)
+            if not footer_sent:
+                _mark_unlock_footer_sent(input_data)
         return 2
     except Exception:
         if message:

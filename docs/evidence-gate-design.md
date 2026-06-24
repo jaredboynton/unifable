@@ -47,6 +47,17 @@ agent thrashes through edits first and only "cites" at the end.
   via `supersedes: [ids]` — non-blocking). Agent-facing CLI: `unifable restate`,
   `unifable add-task`, `unifable dispute`, and `unifable retry-task`.
 
+## PreToolUse block stderr (change-only dedup)
+
+`scripts/gate/pretool_block.py` scopes dedup to one assistant turn (`block_epoch`) and one block
+reason (`block_signature` = kind + normalized detail). The first block for a signature emits full
+instructions (or `compact_pretool_output` when the unlock footer already went out this turn — cite
+lines kept, boilerplate not repeated). Identical retries emit nothing on stderr; exit code 2 alone
+signals the block. A new signature in the same turn (e.g. bash whitelist then citation verify) still
+emits compact output because the reason changed. When the gate lifts, `consume_gate_cleared_notify`
+emits `Gate cleared.` (+ optional hygiene headlines) via PreToolUse `additionalContext` — the
+positive transition notify; block counts are not reset on clear (re-block same signature stays silent).
+
 ## Delta 1 — broaden the locked surface (pre_tool_use.py)
 
 Today guard 2 only fires for `tool_name in WRITE_TOOLS`. Add an evidence-gate guard that also

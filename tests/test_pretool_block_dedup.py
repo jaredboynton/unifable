@@ -9,7 +9,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -23,7 +22,6 @@ PY = sys.executable
 sys.path.insert(0, str(GATE))
 
 from pretool_block import (  # noqa: E402
-    REPEAT_BLOCK_NOTE,
     compact_pretool_output,
     emit_pretool_block,
     format_bash_research_block,
@@ -67,16 +65,15 @@ def test_bash_block_message_size_under_budget():
     assert len(msg) < 450
 
 
-def test_sequential_same_signature_second_block_emits_repeat_note():
+def test_sequential_same_signature_second_and_third_are_silent():
     with tempfile.TemporaryDirectory() as tmp:
         payload = _bash_payload(cwd=tmp)
         rc1, err1 = _run_pre_tool(payload, data_root=tmp)
-        time.sleep(0.12)
         rc2, err2 = _run_pre_tool(payload, data_root=tmp)
         rc3, err3 = _run_pre_tool(payload, data_root=tmp)
         assert rc1 == 2 and rc2 == 2 and rc3 == 2
         assert "pre-edit gate" in err1
-        assert "same reason as before" in err2
+        assert err2.strip() == ""
         assert err3.strip() == ""
 
 
@@ -201,4 +198,3 @@ def test_compact_citation_keeps_cite_lines_when_footer_sent():
     assert "repo_context[0]" in out
     assert "prior_art[0]" in out
     assert "Read each cited file" not in out
-    assert REPEAT_BLOCK_NOTE not in out
