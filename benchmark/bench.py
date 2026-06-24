@@ -20,6 +20,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TASK = REPO_ROOT / "benchmark/tasks/evidence_gate_regression.md"
+EXPLORE_SKILL_FIXTURE = REPO_ROOT / "benchmark/fixtures/explore-skill"
 WORKSPACE_ROOT = Path(os.environ.get("UNIFABLE_BENCH_WORKSPACE_ROOT", Path(tempfile.gettempdir()) / "unifable-benchmark-workspaces"))
 TOKEN_RE = re.compile(r"(?P<key>input|output|cached|total)[ _-]?tokens[^0-9]*(?P<value>[0-9][0-9,]*)", re.I)
 
@@ -114,6 +115,17 @@ def _copy_auth(src_home: Path, dst_home: Path, filename: str) -> None:
         shutil.copy2(src, dst)
 
 
+def _install_explore_skill(home: Path) -> Path:
+    """Install a valid explore skill tree so trace.sh guidance resolves in hermetic homes."""
+    dest = home / ".agents" / "skills" / "explore"
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(EXPLORE_SKILL_FIXTURE, dest)
+    for script in (dest / "scripts" / "trace.sh", dest / "scripts" / "websearch.sh"):
+        script.chmod(script.stat().st_mode | 0o111)
+    return dest.resolve()
+
+
 def _prepare_claude_home(run_dir: Path, condition: Condition) -> Path:
     """Build a hermetic CLAUDE_CONFIG_DIR holding only our minimal settings.json.
 
@@ -128,7 +140,9 @@ def _prepare_claude_home(run_dir: Path, condition: Condition) -> Path:
         shutil.rmtree(claude_home)
     claude_home.mkdir(parents=True)
     (claude_home / "settings.json").write_text(json.dumps(CLAUDE_SETTINGS, indent=2) + "\n", encoding="utf-8")
+    explore = _install_explore_skill(claude_home)
     (run_dir / "claude-config-dir.txt").write_text(str(claude_home) + "\n", encoding="utf-8")
+    (run_dir / "explore-skill-path.txt").write_text(str(explore) + "\n", encoding="utf-8")
     return claude_home
 
 
@@ -140,6 +154,8 @@ def _prepare_codex_home(run_dir: Path, condition: Condition) -> Path:
         shutil.rmtree(codex_home)
     codex_home.mkdir(parents=True)
     (run_dir / "codex-home-path.txt").write_text(str(codex_home) + "\n", encoding="utf-8")
+    explore = _install_explore_skill(codex_home)
+    (run_dir / "explore-skill-path.txt").write_text(str(explore) + "\n", encoding="utf-8")
     _copy_auth(Path.home() / ".codex", codex_home, "auth.json")
     config = codex_home / "config.toml"
     config.write_text(CODEX_CONFIG_BASE, encoding="utf-8")
@@ -168,8 +184,14 @@ def _env_for(condition: Condition, worktree: Path, run_dir: Path) -> dict[str, s
     env["UNIFABLE_BENCHMARK_WORKTREE"] = str(worktree)
     if condition.host == "codex":
         env["CODEX_HOME"] = str(_prepare_codex_home(run_dir, condition))
+        explore_root = run_dir / "explore-skill-path.txt"
+        if explore_root.is_file():
+            env["UNIFABLE_EXPLORE_SKILL_ROOT"] = explore_root.read_text(encoding="utf-8").strip()
     if condition.host == "claude":
         env["CLAUDE_CONFIG_DIR"] = str(_prepare_claude_home(run_dir, condition))
+        explore_root = run_dir / "explore-skill-path.txt"
+        if explore_root.is_file():
+            env["UNIFABLE_EXPLORE_SKILL_ROOT"] = explore_root.read_text(encoding="utf-8").strip()
         # Shell env wins over settings.json, so builtin subagents stay disabled
         # regardless of how settings load.
         env["CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"] = "1"

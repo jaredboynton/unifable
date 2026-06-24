@@ -32,6 +32,7 @@ from spec import (
     load_spec,
     resolve_session_id,
 )
+from task_context import self_referential_harness_context_line
 
 
 def _prompt_key(prompt: str) -> str:
@@ -168,6 +169,13 @@ def main() -> int:
     heavy_scaffold = effective_grade == "HEAVY"
 
     context = context_for_mode(mode, risks)
+
+    try:
+        sr_line = self_referential_harness_context_line(operative)
+        if sr_line:
+            context += sr_line
+    except Exception:
+        pass
 
     try:
         plan_mode = resolve_plan_mode(input_data, transcript_path=input_data.get("transcript_path"))

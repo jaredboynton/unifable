@@ -290,7 +290,8 @@ def format_citation_verify_message(reasons: list[str]) -> str:
     footnotes: list[str] = []
     if any(r.startswith("repo_context[") for r in items):
         footnotes.append(
-            "Read each cited file (Read/grep) before citing it (the gate verifies repo_context against actual tool activity)."
+            "Do not hand-author repo_context in the spec CLI — Read/Grep each file first; "
+            "citations sync automatically from tool activity (the gate verifies against what you actually read)."
         )
     if any(r.startswith("prior_art[") for r in items):
         footnotes.append("Fetch each URL (WebFetch or curl) before citing it as prior art.")

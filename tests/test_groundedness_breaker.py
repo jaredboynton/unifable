@@ -316,6 +316,26 @@ def test_arm_judge_forces_verdict0_when_load_bearing_false():
     assert verdict == 0 and steering == "" and claim == ""
 
 
+def test_arm_judge_rejects_path_hypothesis_when_read_is_imminent():
+    claim = "The acceptance logic lives in benchmark/summarize.py"
+    segment = (
+        "assistant: I'll inspect summarize.py next.\n"
+        '[tool_use name=Read]{"file_path":"benchmark/summarize.py"}\n'
+    )
+    input_data = {"tool_name": "Read", "tool_input": {"file_path": "benchmark/summarize.py"}}
+
+    def bad_judge(system, user, schema):
+        return {
+            "verdict": 1,
+            "steering": "read summarize.py before asserting",
+            "claim": claim,
+            "load_bearing": 1,
+        }
+
+    verdict, steering, out_claim = gb.arm_judge(segment, judge=bad_judge, input_data=input_data)
+    assert verdict == 0 and steering == "" and out_claim == ""
+
+
 def test_arm_judge_rejects_harness_self_referential_claim():
     def bad_judge(system, user, schema):
         return {

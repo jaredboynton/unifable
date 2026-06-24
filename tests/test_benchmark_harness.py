@@ -86,6 +86,22 @@ def test_summary_requires_all_four_benchmark_cells(tmp_path):
     assert summarize.missing_conditions(incomplete) == {"codex:baseline"}
 
 
+def test_hermetic_home_installs_explore_skill(tmp_path, monkeypatch):
+    bench = _load_module("bench.py", "benchmark_bench_explore")
+    monkeypatch.setattr(bench, "WORKSPACE_ROOT", tmp_path / "workspaces")
+    run_dir = tmp_path / "workspaces" / "run-id" / "claude-unifable-r1"
+    run_dir.mkdir(parents=True)
+    condition = bench.Condition("claude", "opus-4.8", "xhigh", True)
+
+    home = bench._prepare_claude_home(run_dir, condition)
+    explore = home / ".agents" / "skills" / "explore"
+    assert (explore / "SKILL.md").is_file()
+    assert (explore / "scripts" / "trace.sh").is_file()
+    assert (explore / "scripts" / "websearch.sh").is_file()
+    assert (run_dir / "explore-skill-path.txt").is_file()
+    assert explore.resolve().as_posix() in (run_dir / "explore-skill-path.txt").read_text(encoding="utf-8")
+
+
 def _write_session_full(raw_dir, name, host, unifable, *, elapsed, usage, files_changed, model=None):
     path = raw_dir / name
     path.mkdir(parents=True)

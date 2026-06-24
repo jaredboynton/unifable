@@ -183,7 +183,7 @@ def test_format_citation_verify_message_no_repeated_boilerplate():
         require_commands=False,
     )
     msg = format_citation_verify_message(reasons)
-    assert msg.count("Read each cited file") == 1
+    assert msg.count("Do not hand-author repo_context") == 1
     assert msg.count("Fetch each URL") == 1
     assert "repo_context[0]: 'scripts/gate:1'" in msg
     assert "repo_context[1]: 'hooks:1'" in msg

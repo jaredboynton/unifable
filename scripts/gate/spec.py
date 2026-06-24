@@ -251,6 +251,20 @@ _REPO_MAINTENANCE_RE = re.compile(
     r")\b",
     re.I,
 )
+# Bounded in-repo engineering: follow existing tests/patterns; repo_context suffices.
+_IN_REPO_WORK_RE = re.compile(
+    r"\b("
+    r"regression\s+test|"
+    r"add(?:\s+an?|\s+the)?\s+(?:focused\s+|unit\s+|integration\s+)?tests?\b|"
+    r"tests?/test_|"
+    r"\bpytest\b|"
+    r"test\s+(?:coverage|harness|suite)|"
+    r"in-repo|in\s+this\s+repo|within\s+(?:the\s+)?repo|this\s+codebase|"
+    r"follow(?:ing)?\s+(?:the\s+)?existing\s+(?:test|pattern|convention)s?|"
+    r"extend(?:ing)?\s+(?:the\s+)?existing\s+test"
+    r")\b",
+    re.I,
+)
 _EXTERNAL_RESEARCH_RE = re.compile(
     r"\b("
     r"api\s+doc|external\s+api|third.?party|platform\s+behavior|undocumented\s+endpoint|"
@@ -261,9 +275,11 @@ _EXTERNAL_RESEARCH_RE = re.compile(
 
 
 def repo_maintenance_waives_prior_art(spec: dict[str, Any]) -> bool:
-    """True when the work is bounded in-repo maintenance (version bump, manifest sync).
+    """True when prior_art is not required for bounded in-repo work.
 
-    Repo conventions documented in AGENTS.md/justfile do not need external prior_art.
+    Covers repo maintenance (version bump, manifest sync) and engineering that
+    follows existing in-repo patterns (regression tests, test additions, harness
+    self-tests). External-research signals in the goal or tasks override the waiver.
     """
     if not isinstance(spec, dict):
         return False
@@ -276,7 +292,7 @@ def repo_maintenance_waives_prior_art(spec: dict[str, Any]) -> bool:
     combined = "\n".join(chunks)
     if _EXTERNAL_RESEARCH_RE.search(combined):
         return False
-    return bool(_REPO_MAINTENANCE_RE.search(combined))
+    return bool(_REPO_MAINTENANCE_RE.search(combined) or _IN_REPO_WORK_RE.search(combined))
 
 
 def validate_spec(
@@ -412,9 +428,10 @@ def validate_spec(
                         "The gate rejects assumptions -- prove why the passage is relevant."
                     )
 
-        # prior_art — required from STANDARD up unless repo-internal maintenance
-        # (version bump, manifest sync) where repo_context from AGENTS.md suffices.
-        waive_prior_art = repo_maintenance_waives_prior_art(spec)
+        # prior_art — required from STANDARD up unless bounded in-repo work at STANDARD
+        # (maintenance, regression tests, existing-pattern edits) where repo_context suffices.
+        # HEAVY always requires prior_art for architectural exploration.
+        waive_prior_art = grade != "HEAVY" and repo_maintenance_waives_prior_art(spec)
         if not waive_prior_art:
             prior_art = spec.get("prior_art")
             if not isinstance(prior_art, list) or not prior_art:
@@ -2706,9 +2723,10 @@ def contract_string(
         else:
             if isinstance(spec, dict) and repo_maintenance_waives_prior_art(spec):
                 base = base + (
-                    " Evidence gate (repo maintenance): include 'repo_context' (>=1 "
-                    "{cite:'path:line', why:'why it's relevant'}) from in-repo docs; "
-                    "external prior_art is not required for version bumps or manifest sync."
+                    " Evidence gate (in-repo): include 'repo_context' (>=1 "
+                    "{cite:'path:line', why:'why it's relevant'}) from code you read; "
+                    "external prior_art is not required for bounded in-repo work "
+                    "(maintenance, regression tests, patterns from existing code)."
                 )
             else:
                 base = base + (

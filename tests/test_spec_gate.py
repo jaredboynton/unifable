@@ -331,6 +331,36 @@ def test_repo_maintenance_waives_prior_art():
     assert not any("prior_art" in r for r in reasons)
 
 
+def test_in_repo_regression_test_waives_prior_art():
+    """Regression tests bounded to this repo need repo_context only."""
+    spec = _standard_spec_with_evidence()
+    spec["restated_goal"] = (
+        "Add a focused regression test proving saved summaries require all four benchmark cells"
+    )
+    spec["tasks"] = [
+        {
+            "id": "T1",
+            "title": "Regression test for four-cell acceptance",
+            "check": "python3 -m pytest tests/test_benchmark_harness.py::test_saved_summary -q",
+            "status": "pending",
+        }
+    ]
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert ok, reasons
+    assert not any("prior_art" in r for r in reasons)
+
+
+def test_external_research_overrides_in_repo_waiver():
+    """External-research signals still require prior_art even when adding tests."""
+    spec = _standard_spec_with_evidence()
+    spec["restated_goal"] = "Add regression test for third-party API platform behavior"
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r for r in reasons)
+
+
 def test_normal_code_still_requires_prior_art():
     """Non-maintenance code tasks still require prior_art."""
     spec = _standard_spec_with_evidence()

@@ -263,6 +263,24 @@ def emit_pretool_block(
             print(f"{GATE_PREFIX}{out}", file=sys.stderr)
             if not footer_sent:
                 _mark_unlock_footer_sent(input_data)
+        elif message and not str(input_data.get("turn_id") or "").strip():
+            # turn_id is a host-provided input field (never written by this repo);
+            # its presence is the Codex signal in hook_output.detect_host, while
+            # Claude is detected by other signals. When it is absent, block_epoch
+            # above falls back to the stable task/session scope, so this
+            # per-signature count never resets across the task. Without this
+            # branch every repeat after the first returns exit 2 with empty
+            # stderr, which Claude renders as a bare "hook error: No stderr
+            # output" blank wall that drives blind retries. Emit a compact
+            # one-line pointer instead; never empty stderr on a block. Turn-scoped
+            # hosts keep silent parallel dedup via the count branch above.
+            headline = pretool_headline_only(message)
+            print(
+                f"{GATE_PREFIX}{headline} "
+                "(repeat -- same block as the earlier gate message this session; "
+                "see it for the unlock steps.)",
+                file=sys.stderr,
+            )
         return 2
     except Exception:
         if message:

@@ -145,6 +145,94 @@ def is_task_board_status_claim(text: str) -> bool:
     return bool(_TASK_BOARD_STATUS_CLAIM_RE.search(str(text or "")))
 
 
+_REPO_PATH_IN_TEXT_RE = re.compile(
+    r"\b(?:[\w.-]+/)+[\w.-]+\.(?:py|md|json|toml|sh|yaml|yml)(?::\d+)?\b",
+    re.I,
+)
+_HYPOTHESIS_PHRASE_RE = re.compile(
+    r"\b("
+    r"lives?\s+in|is\s+(?:implemented\s+)?in|likely\s+in|probably\s+in|"
+    r"appears?\s+to\s+be\s+in|seems?\s+to\s+be\s+in|should\s+be\s+in|"
+    r"I(?:'ll|\s+will)\s+(?:read|check|look)|let\s+me\s+(?:read|check|look|explore)|"
+    r"I(?:'m|\s+am)\s+going\s+to\s+(?:read|check|look)"
+    r")\b",
+    re.I,
+)
+_READ_TOOL_USE_RE = re.compile(
+    r"\[tool_use name=(?:Read|Grep|Glob|NotebookRead)[^\]]*\][\s\S]{0,800}",
+    re.I,
+)
+
+
+def _norm_repo_path(path: str) -> str:
+    return str(path or "").replace("\\", "/").lstrip("./").split(":", 1)[0]
+
+
+def paths_in_text(text: str) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for match in _REPO_PATH_IN_TEXT_RE.finditer(str(text or "")):
+        norm = _norm_repo_path(match.group(0))
+        if norm and norm not in seen:
+            seen.add(norm)
+            out.append(norm)
+    return out
+
+
+def _path_targets_match(left: str, right: str) -> bool:
+    a = _norm_repo_path(left)
+    b = _norm_repo_path(right)
+    if not a or not b:
+        return False
+    return a == b or a.endswith("/" + b) or b.endswith("/" + a)
+
+
+def _imminent_read_target(input_data: dict | None) -> str:
+    if not isinstance(input_data, dict):
+        return ""
+    tool = str(input_data.get("tool_name") or "")
+    if tool not in RELEASE_TOOLS:
+        return ""
+    inp = input_data.get("tool_input")
+    if not isinstance(inp, dict):
+        return ""
+    for key in ("file_path", "path", "pattern", "glob_pattern"):
+        value = str(inp.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _segment_plans_read(segment: str, path: str) -> bool:
+    norm = re.escape(_norm_repo_path(path))
+    if not norm:
+        return False
+    for block in _READ_TOOL_USE_RE.finditer(str(segment or "")):
+        if re.search(norm, block.group(0), re.I):
+            return True
+    if re.search(rf'file_path["\']?\s*:\s*["\'][^"\']*{norm}', segment, re.I):
+        return True
+    return False
+
+
+def should_suppress_path_hypothesis_arm(
+    claim: str,
+    segment: str,
+    input_data: dict | None = None,
+) -> bool:
+    """Skip arming when a planning hypothesis names a path the agent is about to read."""
+    if not _HYPOTHESIS_PHRASE_RE.search(str(claim or "")):
+        return False
+    paths = paths_in_text(claim)
+    if not paths:
+        return False
+    imminent = _imminent_read_target(input_data)
+    if imminent and any(_path_targets_match(p, imminent) for p in paths):
+        return True
+    tail = str(segment or "")[-6000:]
+    return any(_segment_plans_read(tail, p) for p in paths)
+
+
 # A skill loaded via the Skill tool injects its own documentation as the
 # authoritative definition of what that skill does. That content is NOT in the
 # breaker judge's transcript view (only "Successfully loaded skill" is), so a
@@ -632,6 +720,7 @@ def arm_judge(
     segment: str,
     events: list[dict[str, Any]] | None = None,
     judge: JudgeFn | None = None,
+    input_data: dict | None = None,
 ) -> tuple[int, str, str]:
     if not segment.strip():
         return 0, "", ""
@@ -666,6 +755,8 @@ def arm_judge(
     ):
         return 0, "", ""
     if verdict == 1 and claim_describes_loaded_skill(claim, segment):
+        return 0, "", ""
+    if verdict == 1 and should_suppress_path_hypothesis_arm(claim, segment, input_data):
         return 0, "", ""
     return verdict, steering, claim
 
@@ -971,7 +1062,7 @@ def evaluate_pre_tool(
         if not armed and not coalesce and should_judge(state, key, now):
             segment = judge_transcript(input_data, events)
             state["breaker_judge_call_at"] = now
-            verdict, steering, claim = arm_judge(segment, events=events, judge=judge)
+            verdict, steering, claim = arm_judge(segment, events=events, judge=judge, input_data=input_data)
             if verdict == 1 and claim and claim_already_adjudicated(claim, events):
                 verdict, steering, claim = 0, "", ""
             record_verdict(state, key, now, verdict, steering, claim)
