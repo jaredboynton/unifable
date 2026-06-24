@@ -82,6 +82,18 @@ The broad audit was reviewed by category:
 | Test stubs that accept a `timeout` parameter or assert timeout handling | Kept | These tests validate timeout propagation or monkeypatch timeout-aware APIs. They do not add real waiting to normal suite execution. |
 | Prose matches in docs or task examples | Kept | These are documentation or fixture strings, not executable waits. |
 
+Rerun coverage ledger for `rg -l "sleep\\(|time\\.sleep|wait|timeout" tests scripts hooks benchmark docs/testing-optimization.md -g '*.py' -g '*.md' | sort`:
+
+| Matched files | Decision | Review result |
+|---|---|---|
+| `tests/test_judge_coalesce.py` | Changed, then kept | Removed the prior `time.sleep`; remaining matches are bounded `Event.wait` / `Barrier.wait` synchronization used only to make the lock-contention regression deterministic. |
+| `scripts/gate/breaker_state.py`, `scripts/gate/judge_client.py` | Kept | These are the only non-doc files still matched by the narrower `rg -l "time\\.sleep|sleep\\(" ...` check. Both sleeps are bounded gate/judge polling loops, not pytest waits. |
+| `benchmark/bench.py` | Kept | Benchmark harness timeouts bound external CLI/terminal sessions and record timeout status. They are required to prevent benchmark hangs. |
+| `hooks/test_after_edit.py` | Kept | Hook subprocess timeout for automatic post-edit verification. Safety budget, not a test wait. |
+| `hooks/gate_stop.py`, `scripts/gate/spec.py`, `scripts/gate/codex_judge.py`, `scripts/gate/judge_daemon.py`, `scripts/gate/judge_transport.py`, `scripts/gate/groundedness.py`, `scripts/gate/cli_install.py`, `scripts/gate/runtime_sync.py`, `scripts/gate/grade_override.py`, `scripts/generate_docs.py`, `scripts/shadow/outcome_collect.py` | Kept | Host hook, network, subprocess, generated-doc metadata, and fail-open timeout budgets. These bound external work and are outside pytest scheduling. |
+| `tests/test_stop_timeout_budget.py`, `tests/test_runtime_sync.py`, `tests/test_test_after_edit.py`, `tests/test_loop_release.py`, `tests/test_grade_adjudicate_hook.py`, `tests/test_spec_state_notifications.py`, `tests/test_stop_codex_json.py`, `tests/test_judge_message_cap.py`, `tests/test_judge_runaway.py`, `tests/test_mcp_evidence.py`, `tests/test_completion_handoff.py`, `tests/test_auto_validate_stop.py`, `tests/test_supersession.py` | Kept | Test fixtures and assertions for timeout behavior, monkeypatched `timeout` parameters, or prose strings. The audit found no removable wall-clock sleeps in these tests. |
+| `docs/testing-optimization.md`, `scripts/gate/context_block.py` | Kept | Documentation/prose matches only. |
+
 No remaining match is a realistic runtime optimization target. The suite-level runtime improvement came from parallel scheduling, and the post-change full-suite xdist checks pass.
 
 ## Critic review
