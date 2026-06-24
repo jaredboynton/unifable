@@ -394,6 +394,47 @@ def _sample_task(kind: str = "requirement") -> dict[str, Any]:
     return task
 
 
+def _sample_heavy_spec_for_comparison() -> dict[str, Any]:
+    """Spec with >=2 terminal frontiers (>=1 accepted) so the comparison fires."""
+    return {
+        "restated_goal": "Generate docs for hook outputs and judge prompts.",
+        "tasks": [
+            {
+                "id": "T1",
+                "title": "Streaming doc generator",
+                "check": "python3 scripts/generate_docs.py --check",
+                "status": "accepted_approach",
+                "approach_kind": "frontier",
+                "added_by": "agent",
+                "exit": 0,
+                "output": "5 passed\n",
+                "judge_reason": "viable: fast and comprehensive",
+            },
+            {
+                "id": "T2",
+                "title": "Batch doc generator",
+                "check": "python3 scripts/generate_docs_batch.py --check",
+                "status": "accepted_approach",
+                "approach_kind": "frontier",
+                "added_by": "agent",
+                "exit": 0,
+                "output": "3 passed\n",
+                "judge_reason": "viable: simpler but slower",
+            },
+            {
+                "id": "T3",
+                "title": "Static site fallback",
+                "check": "python3 scripts/static_docs.py --check",
+                "status": "rejected_approach",
+                "approach_kind": "primary",
+                "added_by": "agent",
+            },
+        ],
+        "repo_context": [{"cite": "scripts/generate_docs.py:1", "why": "generator entrypoint"}],
+        "prior_art": [{"cite": "https://git-scm.com/docs/githooks", "why": "commit hook behavior"}],
+    }
+
+
 def _fake_response(schema_name: str, schema: dict[str, Any], user: str) -> dict[str, Any]:
     if schema_name == "grade_classify":
         return {"mode": "normal", "risk_flags": [], "reason": "sample", "evidence_profile": "code"}
@@ -412,6 +453,8 @@ def _fake_response(schema_name: str, schema: dict[str, Any], user: str) -> dict[
         }
     if schema_name == "frontier_discover":
         return {"frontiers": [], "reason": "sample"}
+    if schema_name == "frontier_comparison":
+        return {"selected_id": "T1", "selection_rationale": "T1 has more comprehensive test coverage"}
     if schema_name == "hint":
         return {"hint": "Run the generated-docs check and inspect the first diff."}
     if schema_name == "loop_release":
@@ -541,6 +584,13 @@ def collect_judge_prompts() -> list[JudgePrompt]:
         "Frontier approach validation",
         "scripts/gate/spec.py",
         lambda: spec_mod.judge_task(copy.deepcopy(sample_spec), copy.deepcopy(frontier_task), 1, "experiment failed\n"),
+    )
+    cases += _capture_call(
+        "Frontier comparison",
+        "scripts/gate/spec.py",
+        lambda: spec_mod.judge_frontier_comparison(
+            _sample_heavy_spec_for_comparison(),
+        ),
     )
     cases += _capture_call(
         "Primary approach validation",

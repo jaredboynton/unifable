@@ -1073,6 +1073,113 @@ Before adding ANY new_requirement you MUST reason against current_requirements (
 }
 ```
 
+## Frontier comparison
+
+Source: `scripts/gate/spec.py`
+
+Schema name: `frontier_comparison`
+
+### System
+
+```text
+You are a senior engineer comparing frontier approaches that were ALL explored. You receive the goal and every frontier's title, check, exit code, output, and prior judge reasoning. Your job is to select the SINGLE best frontier -- the one with the strongest empirical evidence (passing checks, better output quality, more robust approach, closer fit to the goal). You MUST select one when any frontier has accepted_approach status. Provide selection_rationale explaining WHY the winner was chosen over the others, citing specific evidence from the frontier results (exit codes, output characteristics, approach trade-offs). If NO frontier has accepted_approach status, return selected_id as null (the primary fallback will be used instead).
+```
+
+### User
+
+```json
+{"goal": "Generate docs for hook outputs and judge prompts.", "frontiers": [{"id": "T1", "title": "Streaming doc generator", "check": "python3 scripts/generate_docs.py --check", "exit_code": 0, "output": "5 passed\n", "judge_reason": "viable: fast and comprehensive", "status": "accepted_approach"}, {"id": "T2", "title": "Batch doc generator", "check": "python3 scripts/generate_docs_batch.py --check", "exit_code": 0, "output": "3 passed\n", "judge_reason": "viable: simpler but slower", "status": "accepted_approach"}]}
+```
+
+### Function Schema
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "selected_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selection_rationale": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "selected_id",
+    "selection_rationale"
+  ],
+  "type": "object"
+}
+```
+
+### Realtime Request Shape
+
+```json
+{
+  "conversation.item.create": {
+    "item": {
+      "content": [
+        {
+          "text": "QUESTION: {\"goal\": \"Generate docs for hook outputs and judge prompts.\", \"frontiers\": [{\"id\": \"T1\", \"title\": \"Streaming doc generator\", \"check\": \"python3 scripts/generate_docs.py --check\", \"exit_code\": 0, \"output\": \"5 passed\\n\", \"judge_reason\": \"viable: fast and comprehensive\", \"status\": \"accepted_approach\"}, {\"id\": \"T2\", \"title\": \"Batch doc generator\", \"check\": \"python3 scripts/generate_docs_batch.py --check\", \"exit_code\": 0, \"output\": \"3 passed\\n\", \"judge_reason\": \"viable: simpler but slower\", \"status\": \"accepted_approach\"}]}",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    "type": "conversation.item.create"
+  },
+  "response.create": {
+    "response": {
+      "output_modalities": [
+        "text"
+      ]
+    },
+    "type": "response.create"
+  },
+  "session.update": {
+    "session": {
+      "instructions": "You are a senior engineer comparing frontier approaches that were ALL explored. You receive the goal and every frontier's title, check, exit code, output, and prior judge reasoning. Your job is to select the SINGLE best frontier -- the one with the strongest empirical evidence (passing checks, better output quality, more robust approach, closer fit to the goal). You MUST select one when any frontier has accepted_approach status. Provide selection_rationale explaining WHY the winner was chosen over the others, citing specific evidence from the frontier results (exit codes, output characteristics, approach trade-offs). If NO frontier has accepted_approach status, return selected_id as null (the primary fallback will be used instead).",
+      "output_modalities": [
+        "text"
+      ],
+      "tool_choice": "required",
+      "tools": [
+        {
+          "description": "Return the structured result. Call exactly once with the complete object.",
+          "name": "frontier_comparison",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "selected_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "selection_rationale": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "selected_id",
+              "selection_rationale"
+            ],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ],
+      "type": "realtime"
+    },
+    "type": "session.update"
+  }
+}
+```
+
 ## Primary approach validation
 
 Source: `scripts/gate/spec.py`

@@ -40,6 +40,7 @@ def test_judge_prompt_capture_covers_known_schema_names():
         "groundedness",
         "loop_release",
         "goal_stop",
+        "frontier_comparison",
     } <= schema_names
     assert all(case.system for case in prompts)
     assert all(case.user for case in prompts)

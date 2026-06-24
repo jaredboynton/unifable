@@ -3,11 +3,13 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
 import sys
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
@@ -21,6 +23,8 @@ PY = sys.executable
 sys.path.insert(0, str(GATE))
 
 from pretool_block import (  # noqa: E402
+    REPEAT_BLOCK_NOTE,
+    compact_pretool_output,
     emit_pretool_block,
     format_bash_research_block,
 )
@@ -63,14 +67,17 @@ def test_bash_block_message_size_under_budget():
     assert len(msg) < 450
 
 
-def test_sequential_same_signature_second_block_is_silent():
+def test_sequential_same_signature_second_block_emits_repeat_note():
     with tempfile.TemporaryDirectory() as tmp:
         payload = _bash_payload(cwd=tmp)
         rc1, err1 = _run_pre_tool(payload, data_root=tmp)
+        time.sleep(0.12)
         rc2, err2 = _run_pre_tool(payload, data_root=tmp)
-        assert rc1 == 2 and rc2 == 2
+        rc3, err3 = _run_pre_tool(payload, data_root=tmp)
+        assert rc1 == 2 and rc2 == 2 and rc3 == 2
         assert "pre-edit gate" in err1
-        assert err2.strip() == ""
+        assert "same reason as before" in err2
+        assert err3.strip() == ""
 
 
 def test_parallel_blocks_emit_one_stderr():
@@ -118,10 +125,12 @@ def test_epoch_reset_allows_full_message_again():
 def test_emit_fail_open_still_blocks_with_message(monkeypatch):
     input_data = {"session_id": "fail-open", "cwd": "/tmp", "turn_id": "t1"}
 
-    def boom(_input_data, _signature):
+    @contextlib.contextmanager
+    def boom(_input_data):
         raise RuntimeError("lock failed")
+        yield
 
-    monkeypatch.setattr("pretool_block._record_block_count", boom)
+    monkeypatch.setattr("pretool_block._pretool_lock", boom)
     rc = emit_pretool_block(
         input_data,
         kind="bash",
@@ -131,7 +140,7 @@ def test_emit_fail_open_still_blocks_with_message(monkeypatch):
     assert rc == 2
 
 
-def test_mixed_block_kinds_second_is_headline_only(tmp_path, capsys):
+def test_mixed_block_kinds_second_is_compact_not_full_footer(tmp_path, capsys):
     import pretool_block as pb
 
     os.environ["UNIFABLE_DATA"] = str(tmp_path)
@@ -155,6 +164,7 @@ def test_mixed_block_kinds_second_is_headline_only(tmp_path, capsys):
     err2 = capsys.readouterr().err
     assert "Task blocked" in err2
     assert "Unlock:" not in err2
+    assert "earlier gate message" in err2
 
     with tempfile.TemporaryDirectory() as tmp:
         base = _bash_payload(cwd=tmp)
@@ -177,3 +187,18 @@ def test_mixed_block_kinds_second_is_headline_only(tmp_path, capsys):
         assert all(rc == 2 for rc, _ in results)
         non_empty = [err for _, err in results if err.strip()]
         assert len(non_empty) == 2
+
+
+def test_compact_citation_keeps_cite_lines_when_footer_sent():
+    msg = (
+        "spec citations are not backed by real activity this session:\n"
+        "  repo_context[0]: 'hooks/pre_tool_use.py:1' (never read this session)\n"
+        "  prior_art[0]: 'https://example.com' (never fetched this session)\n"
+        "\n"
+        "Read each cited file (Read/grep) before citing it."
+    )
+    out = compact_pretool_output(msg, footer_sent=True)
+    assert "repo_context[0]" in out
+    assert "prior_art[0]" in out
+    assert "Read each cited file" not in out
+    assert REPEAT_BLOCK_NOTE not in out

@@ -14,6 +14,7 @@ import hashlib
 import os
 import re
 import sys
+import time
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
@@ -27,6 +28,11 @@ except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
 GATE_PREFIX = "unifable pre-edit gate: "
+
+REPEAT_BLOCK_NOTE = "Still blocked for the same reason as before."
+
+# Sequential retries are usually spaced out; parallel PreToolUse invocations land together.
+_REPEAT_NOTE_MIN_GAP_S = 0.1
 
 BASH_ALLOWED_SUMMARY = (
     "cd, ls, glob, rg, read-only git, git add/commit/push (no --force), "
@@ -94,6 +100,27 @@ def pretool_headline_only(message: str) -> str:
     return text.split("\n", 1)[0].strip()
 
 
+def compact_pretool_output(message: str, *, footer_sent: bool) -> str:
+    """Shrink a block when the unlock footer already went out this turn.
+
+    Keeps headline plus indented detail lines (e.g. per-cite list) but drops
+    repeated unlock boilerplate. Falls back to a pointer at the first full message."""
+    text = str(message or "").strip()
+    if not text or not footer_sent:
+        return text
+    lines = text.splitlines()
+    headline = lines[0].strip()
+    detail_lines: list[str] = []
+    for line in lines[1:]:
+        if not line.strip():
+            break
+        if line.startswith("  "):
+            detail_lines.append(line)
+    if detail_lines:
+        return headline + "\n" + "\n".join(detail_lines)
+    return f"{headline} (see the earlier gate message this turn.)"
+
+
 def format_bash_research_block(why: str, session_id: str) -> str:
     """Compact full block for bash research-phase whitelist failures."""
     why = " ".join(str(why or "").split())
@@ -147,25 +174,11 @@ def _pretool_lock(input_data: dict[str, Any]):
         os.close(fd)
 
 
-def _record_block_count(input_data: dict[str, Any], signature: str) -> tuple[int, bool]:
-    """Increment block count; return (count, unlock_footer_already_sent_this_epoch)."""
-    with _pretool_lock(input_data):
-        ledger = load_ledger(input_data)
-        epoch = block_epoch(input_data, ledger)
-        footer_sent = ledger.get("pretool_unlock_footer_epoch") == epoch
-        if ledger.get("pretool_block_epoch") != epoch:
-            ledger["pretool_block_epoch"] = epoch
-            ledger["pretool_block_counts"] = {}
-            ledger["pretool_unlock_footer_epoch"] = ""
-            footer_sent = False
-        counts = ledger.get("pretool_block_counts")
-        if not isinstance(counts, dict):
-            counts = {}
-        count = int(counts.get(signature, 0)) + 1
-        counts[signature] = count
-        ledger["pretool_block_counts"] = counts
-        save_ledger(input_data, ledger)
-        return count, footer_sent
+def _record_pretool_block_in_lock(
+    input_data: dict[str, Any], ledger: dict[str, Any], kind: str, detail: str,
+) -> None:
+    ledger["pretool_last_block_kind"] = str(kind or "")[:40]
+    ledger["pretool_last_block_detail"] = " ".join(str(detail or "").split())[:200]
 
 
 def _mark_unlock_footer_sent(input_data: dict[str, Any]) -> None:
@@ -179,13 +192,10 @@ def _mark_unlock_footer_sent(input_data: dict[str, Any]) -> None:
 def _record_pretool_block(input_data: dict[str, Any], kind: str, detail: str) -> None:
     """Remember the last PreToolUse block so the next allow can emit Gate cleared."""
     try:
-        def apply(ld: dict[str, Any]) -> None:
-            ld["pretool_last_block_kind"] = str(kind or "")[:40]
-            ld["pretool_last_block_detail"] = " ".join(str(detail or "").split())[:200]
-
-        from ledger import update_ledger
-
-        update_ledger(input_data, apply)
+        with _pretool_lock(input_data):
+            ledger = load_ledger(input_data)
+            _record_pretool_block_in_lock(input_data, ledger, kind, detail)
+            save_ledger(input_data, ledger)
     except Exception:
         pass
 
@@ -228,14 +238,36 @@ def emit_pretool_block(
     """Block the tool (exit 2). Print full_message only on first emission per epoch+signature."""
     message = str(full_message or "").strip()
     try:
-        _record_pretool_block(input_data, kind, detail)
         sig = block_signature(kind, detail)
-        count, footer_sent = _record_block_count(input_data, sig)
-        if count == 1 and message:
-            out = pretool_headline_only(message) if footer_sent else message
-            print(f"{GATE_PREFIX}{out}", file=sys.stderr)
-            if not footer_sent:
-                _mark_unlock_footer_sent(input_data)
+        with _pretool_lock(input_data):
+            ledger = load_ledger(input_data)
+            epoch = block_epoch(input_data, ledger)
+            footer_sent = ledger.get("pretool_unlock_footer_epoch") == epoch
+            if ledger.get("pretool_block_epoch") != epoch:
+                ledger["pretool_block_epoch"] = epoch
+                ledger["pretool_block_counts"] = {}
+                ledger["pretool_unlock_footer_epoch"] = ""
+                footer_sent = False
+            counts = ledger.get("pretool_block_counts")
+            if not isinstance(counts, dict):
+                counts = {}
+            prev = int(counts.get(sig, 0))
+            prev_mono = float(ledger.get("pretool_block_last_mono_at") or 0.0)
+            gap = (time.time() - prev_mono) if prev_mono else 999.0
+            count = prev + 1
+            counts[sig] = count
+            ledger["pretool_block_counts"] = counts
+            ledger["pretool_block_last_mono_at"] = time.time()
+            _record_pretool_block_in_lock(input_data, ledger, kind, detail)
+            save_ledger(input_data, ledger)
+        if message:
+            if count == 1:
+                out = compact_pretool_output(message, footer_sent=footer_sent)
+                print(f"{GATE_PREFIX}{out}", file=sys.stderr)
+                if not footer_sent:
+                    _mark_unlock_footer_sent(input_data)
+            elif prev >= 1 and count == 2 and gap >= _REPEAT_NOTE_MIN_GAP_S:
+                print(f"{GATE_PREFIX}{REPEAT_BLOCK_NOTE}", file=sys.stderr)
         return 2
     except Exception:
         if message:

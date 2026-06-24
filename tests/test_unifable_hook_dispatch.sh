@@ -89,6 +89,43 @@ else
   pass "~/.local/bin/unifable-hook not installed (skipped)"
 fi
 
+# 4) Runtime survives cache-version deletion (sandboxed; never touches real ~/.unifable)
+TMP_RT="$(mktemp -d "${TMPDIR:-/tmp}/unifable-hook-rt-sync.XXXXXX")"
+SANDBOX_HOME="$TMP_RT/unifable-home"
+SANDBOX_BINDIR="$TMP_RT/local-bin"
+SANDBOX_CACHE="$TMP_RT/cache/unifable/unifable"
+mkdir -p "$SANDBOX_BINDIR" "$SANDBOX_CACHE"
+RT_VERSION="$(python3 -c "import json; print(json.load(open('${ROOT}/.claude-plugin/plugin.json'))['version'])")"
+RT_VDIR="$SANDBOX_CACHE/$RT_VERSION"
+mkdir -p "$RT_VDIR"
+for _rt_dir in hooks scripts bin setup packs; do
+  cp -R "$ROOT/$_rt_dir" "$RT_VDIR/$_rt_dir"
+done
+if UNIFABLE_HOME="$SANDBOX_HOME" UNIFABLE_BIN_DIR="$SANDBOX_BINDIR" \
+  UNIFABLE_CACHE_ROOTS="$SANDBOX_CACHE" HOME="$TMP_RT" \
+  python3 "$ROOT/scripts/gate/runtime_sync.py" --source "$RT_VDIR" >/dev/null 2>&1 \
+  && [ -x "$SANDBOX_BINDIR/unifable-hook" ]; then
+  # Marketplace upgrade deletes the old cache version dir.
+  rm -rf "$RT_VDIR"
+  OUT4="$(env -i HOME="$TMP_RT" USER="${USER:-$(id -un)}" PATH="/usr/bin:/bin:/usr/sbin:/sbin" \
+    UNIFABLE_HOME="$SANDBOX_HOME" \
+    "$SANDBOX_BINDIR/unifable-hook" router.sh <<<"$PAYLOAD" 2>&1)" || RC4=$?
+  RC4="${RC4:-0}"
+  if [ "$RC4" -ne 0 ]; then
+    fail "cache deletion exit $RC4 (expected 0; the exit-127 bug); output: $OUT4"
+  else
+    VERDICT4="$(codex_verdict "$OUT4")"
+    if [ "$VERDICT4" = "FAIL" ]; then
+      fail "cache deletion codex verdict FAIL; output: $OUT4"
+    else
+      pass "runtime survives cache-version deletion verdict=$VERDICT4"
+    fi
+  fi
+else
+  fail "runtime sync seed failed for cache-deletion case"
+fi
+rm -rf "$TMP_RT"
+
 rm -rf "$TMP"
 
 echo ""

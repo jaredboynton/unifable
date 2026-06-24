@@ -95,6 +95,9 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # (epoch, signature) when parallel hooks fire on the same turn.
     "pretool_block_epoch": "",
     "pretool_block_counts": {},
+    "pretool_block_last_mono_at": 0.0,
+    "pretool_last_block_kind": "",
+    "pretool_last_block_detail": "",
     # Host Plan Mode (plan_mode.py), set at UserPromptSubmit, read at PreToolUse.
     "plan_mode_enabled": False,
     "plan_mode_host": "",
