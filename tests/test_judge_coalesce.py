@@ -31,20 +31,30 @@ from breaker_state import default_breaker, load_breaker  # noqa: E402
 class CountingJudge:
     """Routes arm/disarm/monitor like the real judges and counts every call.
 
-    Sleeps briefly so the first caller holds the breaker lock long enough to
-    force the rest of a parallel batch to contend for it."""
+    When *hold* is set, the first call blocks on *hold_release* until the test
+    signals that every peer thread has entered evaluate_pre_tool_locked. That
+    keeps the first caller inside the judge while the rest contend on the breaker
+    file lock without wall-clock sleep."""
 
-    def __init__(self, *, arm=(1, "blocked: prove it", "the cause is Y"), hold=0.05):
+    def __init__(
+        self,
+        *,
+        arm=(1, "blocked: prove it", "the cause is Y"),
+        hold=True,
+        hold_release: threading.Event | None = None,
+    ):
         self.arm_ret = arm
         self.hold = hold
+        self.hold_release = hold_release or threading.Event()
         self.lock = threading.Lock()
         self.calls = 0
 
     def __call__(self, system, user, schema):
         with self.lock:
             self.calls += 1
-        if self.hold:
-            time.sleep(self.hold)
+            first = self.calls == 1
+        if self.hold and first:
+            self.hold_release.wait(timeout=2.0)
         low = system.lower()
         if "provisional-lift monitor" in low:
             return {"drift_level": 0, "feedback": ""}
@@ -70,7 +80,7 @@ def test_coalesce_true_skips_judge_but_still_blocks_when_armed(monkeypatch):
     state["breaker_claim"] = "claim X"
     state["breaker_steering"] = "blocked: prove claim X"
     state["breaker_key"] = gb.breaker_key("S", "P")
-    judge = CountingJudge(hold=0)
+    judge = CountingJudge(hold=False)
     blocked, steering, _ = gb.evaluate_pre_tool(
         _payload(session="S"), state, now=5.0, active_task="P", judge=judge, coalesce=True
     )
@@ -89,7 +99,7 @@ def test_coalesce_true_does_not_increment_block_count(monkeypatch):
     state["breaker_block_count"] = 1
     gb.evaluate_pre_tool(
         _payload(session="S"), state, now=5.0, active_task="P",
-        judge=CountingJudge(hold=0), coalesce=True,
+        judge=CountingJudge(hold=False), coalesce=True,
     )
     assert state["breaker_block_count"] == 1  # unchanged
 
@@ -99,13 +109,15 @@ def test_coalesce_true_does_not_increment_block_count(monkeypatch):
 def test_parallel_batch_makes_one_judge_call(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: definitely the cause is Y")
-    judge = CountingJudge()
+    judge = CountingJudge(hold=False)
     payload = _payload(session="parallel-1", cwd=str(tmp_path))
 
     results: list[tuple] = []
     rlock = threading.Lock()
+    arrive = threading.Barrier(6)
 
     def one() -> None:
+        arrive.wait(timeout=2.0)
         out = gb.evaluate_pre_tool_locked(payload, time.time(), "P", judge=judge)
         with rlock:
             results.append(out)
@@ -129,7 +141,7 @@ def test_parallel_batch_makes_one_judge_call(monkeypatch, tmp_path):
 def test_sequential_beyond_window_each_judges(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
-    judge = CountingJudge(hold=0)
+    judge = CountingJudge(hold=False)
     payload = _payload(session="seq", cwd=str(tmp_path))
 
     gb.evaluate_pre_tool_locked(payload, 1000.0, "P", judge=judge)  # arms (1 call)
@@ -145,7 +157,7 @@ def test_locked_path_arms_when_fcntl_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
     monkeypatch.setattr(bs, "fcntl", None)
-    judge = CountingJudge(hold=0)
+    judge = CountingJudge(hold=False)
     payload = _payload(session="no-fcntl", cwd=str(tmp_path))
     block, steering, notify, state = gb.evaluate_pre_tool_locked(payload, 10.0, "P", judge=judge)
     assert block is True

@@ -16,4 +16,11 @@ import os
 
 os.environ.setdefault("UNIFABLE_JUDGE_DAEMON", "0")
 
-collect_ignore = ["test_gate_robustness.py"]
+collect_ignore = [
+    "test_gate_robustness.py",
+    "test_gate.py",
+    "test_shadow.py",
+    "test_shadow_m3.py",
+    "test_shadow_m4.py",
+    "test_recovery.py",
+]

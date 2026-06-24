@@ -88,9 +88,7 @@ python3 -m py_compile \
   scripts/gate/groundedness.py \
   scripts/gate/ledger.py \
   scripts/gate/spec.py
-python3 -m pytest tests/ -q --ignore=tests/test_gate_robustness.py
-python3 tests/test_gate_robustness.py
-python3 tests/eval_gate_proof.py
+bash scripts/run_tests.sh
 
 if [ "$ALLOW_DIRTY" = "1" ]; then
   git add -u

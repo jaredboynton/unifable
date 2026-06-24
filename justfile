@@ -26,3 +26,7 @@ test-parallel:
 # Show the slowest tests in a serial run.
 test-profile:
     uv run --no-project --with-requirements requirements-dev.txt python -m pytest -n 0 tests -q --durations=20 --durations-min=0
+
+# Run pytest + eval_gate_proof + test_gate_robustness (commit.sh parity).
+test-all:
+    bash scripts/run_tests.sh

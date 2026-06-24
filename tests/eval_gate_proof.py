@@ -19,6 +19,8 @@ import os
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -27,6 +29,7 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 from spec import save_spec  # noqa: E402
 
 BLOCK, ALLOW = "block", "allow"
+Scenario = tuple[str, str, str, dict, str, Callable[[str], dict]]
 
 
 def run(payload: dict, env_extra: dict, grade: str) -> str:
@@ -96,108 +99,110 @@ EV = {}
 OFF = {"UNIFABLE_EVIDENCE_GATE": "0", "UNIFABLE_SPEC_GATE": "0"}
 
 
-def scenarios(cwd: str):
-    """Yield (id, description, expected, env, grade, payload). Specs are written per-scenario."""
-    def with_spec(sid, spec):
-        save_spec(cwd, sid, spec)
-        return sid
+def _seed(cwd: str, sid: str, spec: dict) -> str:
+    save_spec(cwd, sid, spec)
+    return sid
 
-    # --- evidence gate: forces citations before an edit ---
-    yield ("E1", "evidence-gate STANDARD, no spec", BLOCK, EV, "STANDARD", edit(cwd, "src/a.py", "E1"))
-    yield ("E2", "evidence-gate STANDARD, spec missing repo_context", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E2", {"restated_goal": "x", "acceptance_criteria": GOOD_ACC})))
-    yield ("E3", "evidence-gate STANDARD, cited spec", ALLOW, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E3", STD_CITED)))
-    yield ("E4", "evidence-gate repo_context malformed (no :line)", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E4", {**STD_CITED, "repo_context": [{"cite": "src/mw.py", "why": "hook"}]})))
-    yield ("E5", "evidence-gate repo_context placeholder why", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E5", {**STD_CITED, "repo_context": [{"cite": "src/a.py:1", "why": "tbd"}]})))
-    yield ("E5b", "evidence-gate repo_context missing why", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E5b", {**STD_CITED, "repo_context": [{"cite": "src/a.py:1", "why": ""}]})))
-    yield ("E6b", "evidence-gate STANDARD missing prior_art", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E6b", {k: v for k, v in STD_CITED.items() if k != "prior_art"})))
-    yield ("E6", "evidence-gate acceptance evidence faked", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E6", {**STD_CITED,
-                "acceptance_criteria": [{"check": "pytest", "evidence": "not run"}]})))
-    yield ("E7", "evidence-gate HEAVY missing prior_art", BLOCK, EV, "HEAVY",
-           edit(cwd, "src/a.py", with_spec("E7", {k: v for k, v in HEAVY_FULL.items() if k != "prior_art"})))
-    yield ("E8", "evidence-gate HEAVY full (incl prior_art {cite,why})", ALLOW, EV, "HEAVY",
-           edit(cwd, "src/a.py", with_spec("E8", HEAVY_FULL)))
-    yield ("E9", "evidence-gate HEAVY prior_art not a URL", BLOCK, EV, "HEAVY",
-           edit(cwd, "src/a.py", with_spec("E9", {**HEAVY_FULL, "prior_art": [{"cite": "a blog I read", "why": "context"}]})))
-    yield ("E9b", "evidence-gate prior_art missing why", BLOCK, EV, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("E9b", {**STD_CITED, "prior_art": [{"cite": "https://example.com/doc", "why": ""}]})))
 
-    # --- Bash research whitelist (research phase: no valid spec yet) ---
-    yield ("BL1", "bash-whitelist rm blocked pre-spec", BLOCK, EV, "STANDARD", bash(cwd, "rm -rf build", "BL1"))
-    yield ("BL2", "bash-whitelist git diff allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "git diff --stat", "BL2"))
-    yield ("BL2b", "bash-whitelist git commit allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "git commit -m x", "BL2b"))
-    yield ("BL3", "bash-whitelist echo blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "echo hi", "BL3"))
-    yield ("BL4", "bash-whitelist pytest blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "pytest tests/ -q", "BL4"))
-    yield ("BL5", "bash-whitelist cat blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "cat README.md", "BL5"))
-    yield ("BL6", "bash-whitelist chained ls && cat blocked pre-spec", BLOCK, EV, "STANDARD",
-           bash(cwd, "ls && cat README.md", "BL6"))
-    yield ("BL7", "bash-whitelist rg allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "rg foo src", "BL7"))
-    yield ("BL8", "bash-whitelist ls allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "ls -la", "BL8"))
-    yield ("BL13", "bash-whitelist cd && rg allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "cd subdir && rg foo src", "BL13"))
-    yield ("BL9", "bash-whitelist trace.sh allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "bash ./trace.sh --brief auth", "BL9"))
-    yield ("BL9b", "bash-whitelist unifusion.sh allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "bash ./unifusion.sh /tmp/q.txt", "BL9b"))
-    yield ("BL10", "bash-unlock: valid spec allows mutate (action phase)", ALLOW, EV, "STANDARD",
-           bash(cwd, "rm -rf build", with_spec("BL10", STD_CITED)))
-    yield ("BL11", "bash-whitelist LIGHT waives", ALLOW, EV, "LIGHT", bash(cwd, "rm -rf build", "BL11"))
-    yield ("BL12", "bash-whitelist: removed escape env ignored, non-whitelist still blocked", BLOCK, OFF,
-           "STANDARD", bash(cwd, "rm -rf build", "BL12"))
-    yield ("DG1", "delegation Task blocked pre-spec", BLOCK, EV, "STANDARD",
-           delegate(cwd, "Task", "DG1"))
-    yield ("DG2", "delegation Agent blocked pre-spec", BLOCK, EV, "STANDARD",
-           delegate(cwd, "Agent", "DG2"))
-    yield ("DG3", "delegation LIGHT waives", ALLOW, EV, "LIGHT",
-           delegate(cwd, "Task", "DG3"))
-    yield ("DG4", "delegation valid spec unlocks action phase", ALLOW, EV, "STANDARD",
-           delegate(cwd, "Task", with_spec("DG4", STD_CITED)))
+def scenario_specs() -> list[Scenario]:
+    """Return (id, description, expected, env, grade, build_payload). Each build uses its own cwd."""
+    return [
+        ("E1", "evidence-gate STANDARD, no spec", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", "E1")),
+        ("E2", "evidence-gate STANDARD, spec missing repo_context", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E2", {"restated_goal": "x", "acceptance_criteria": GOOD_ACC}))),
+        ("E3", "evidence-gate STANDARD, cited spec", ALLOW, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E3", STD_CITED))),
+        ("E4", "evidence-gate STANDARD, repo_context malformed (no :line)", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E4", {**STD_CITED, "repo_context": [{"cite": "src/mw.py", "why": "hook"}]}))),
+        ("E5", "evidence-gate repo_context placeholder why", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E5", {**STD_CITED, "repo_context": [{"cite": "src/a.py:1", "why": "tbd"}]}))),
+        ("E5b", "evidence-gate repo_context missing why", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E5b", {**STD_CITED, "repo_context": [{"cite": "src/a.py:1", "why": ""}]}))),
+        ("E6b", "evidence-gate STANDARD missing prior_art", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E6b", {k: v for k, v in STD_CITED.items() if k != "prior_art"}))),
+        ("E6", "evidence-gate acceptance evidence faked", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E6", {**STD_CITED,
+                "acceptance_criteria": [{"check": "pytest", "evidence": "not run"}]}))),
+        ("E7", "evidence-gate HEAVY missing prior_art", BLOCK, EV, "HEAVY",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E7", {k: v for k, v in HEAVY_FULL.items() if k != "prior_art"}))),
+        ("E8", "evidence-gate HEAVY full (incl prior_art {cite,why})", ALLOW, EV, "HEAVY",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E8", HEAVY_FULL))),
+        ("E9", "evidence-gate HEAVY prior_art not a URL", BLOCK, EV, "HEAVY",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E9", {**HEAVY_FULL, "prior_art": [{"cite": "a blog I read", "why": "context"}]}))),
+        ("E9b", "evidence-gate prior_art missing why", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "E9b", {**STD_CITED, "prior_art": [{"cite": "https://example.com/doc", "why": ""}]}))),
+        ("BL1", "bash-whitelist rm blocked pre-spec", BLOCK, EV, "STANDARD", lambda cwd: bash(cwd, "rm -rf build", "BL1")),
+        ("BL2", "bash-whitelist git diff allowed pre-spec", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "git diff --stat", "BL2")),
+        ("BL2b", "bash-whitelist git commit allowed pre-spec", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "git commit -m x", "BL2b")),
+        ("BL3", "bash-whitelist echo blocked pre-spec", BLOCK, EV, "STANDARD", lambda cwd: bash(cwd, "echo hi", "BL3")),
+        ("BL4", "bash-whitelist pytest blocked pre-spec", BLOCK, EV, "STANDARD",
+         lambda cwd: bash(cwd, "pytest tests/ -q", "BL4")),
+        ("BL5", "bash-whitelist cat blocked pre-spec", BLOCK, EV, "STANDARD",
+         lambda cwd: bash(cwd, "cat README.md", "BL5")),
+        ("BL6", "bash-whitelist chained ls && cat blocked pre-spec", BLOCK, EV, "STANDARD",
+         lambda cwd: bash(cwd, "ls && cat README.md", "BL6")),
+        ("BL7", "bash-whitelist rg allowed pre-spec", ALLOW, EV, "STANDARD", lambda cwd: bash(cwd, "rg foo src", "BL7")),
+        ("BL8", "bash-whitelist ls allowed pre-spec", ALLOW, EV, "STANDARD", lambda cwd: bash(cwd, "ls -la", "BL8")),
+        ("BL13", "bash-whitelist cd && rg allowed pre-spec", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "cd subdir && rg foo src", "BL13")),
+        ("BL9", "bash-whitelist trace.sh allowed pre-spec", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "bash ./trace.sh --brief auth", "BL9")),
+        ("BL9b", "bash-whitelist unifusion.sh allowed pre-spec", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "bash ./unifusion.sh /tmp/q.txt", "BL9b")),
+        ("BL10", "bash-unlock: valid spec allows mutate (action phase)", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "rm -rf build", _seed(cwd, "BL10", STD_CITED))),
+        ("BL11", "bash-whitelist LIGHT waives", ALLOW, EV, "LIGHT", lambda cwd: bash(cwd, "rm -rf build", "BL11")),
+        ("BL12", "bash-whitelist: removed escape env ignored, non-whitelist still blocked", BLOCK, OFF,
+         "STANDARD", lambda cwd: bash(cwd, "rm -rf build", "BL12")),
+        ("DG1", "delegation Task blocked pre-spec", BLOCK, EV, "STANDARD", lambda cwd: delegate(cwd, "Task", "DG1")),
+        ("DG2", "delegation Agent blocked pre-spec", BLOCK, EV, "STANDARD", lambda cwd: delegate(cwd, "Agent", "DG2")),
+        ("DG3", "delegation LIGHT waives", ALLOW, EV, "LIGHT", lambda cwd: delegate(cwd, "Task", "DG3")),
+        ("DG4", "delegation valid spec unlocks action phase", ALLOW, EV, "STANDARD",
+         lambda cwd: delegate(cwd, "Task", _seed(cwd, "DG4", STD_CITED))),
+        ("N1", "no-brick LIGHT (quick) waives spec", ALLOW, EV, "LIGHT", lambda cwd: edit(cwd, "src/a.py", "N1")),
+        ("N2", "specs are CLI-only: direct spec edit is blocked", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, ".unifable/spec/N2.json", "N2")),
+        ("N3", "no-brick whitelisted Bash (rg) allowed pre-spec", ALLOW, EV, "STANDARD",
+         lambda cwd: bash(cwd, "rg --files", "N3")),
+        ("B1", "bypass write protected ledger (even with cited spec)", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, ".unifable/ledger_x.json", _seed(cwd, "B1", STD_CITED))),
+        ("B2", "bypass path traversal out of spec dir", BLOCK, EV, "STANDARD",
+         lambda cwd: edit(cwd, ".unifable/spec/../../.unifable/goals.json", _seed(cwd, "B2", STD_CITED))),
+        ("S1", "spec-only env does NOT downgrade: cited-less spec still blocked", BLOCK, OFF, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", _seed(cwd, "S1", {"restated_goal": "x", "acceptance_criteria": GOOD_ACC}))),
+        ("D1", "default (no gate env): gate ON, uncited edit blocked", BLOCK, {}, "STANDARD",
+         lambda cwd: edit(cwd, "src/a.py", "D1")),
+        ("D2", "removed escape env UNIFABLE_EVIDENCE_GATE=0 ignored, edit still blocked", BLOCK, OFF,
+         "STANDARD", lambda cwd: edit(cwd, "src/a.py", "D2")),
+    ]
 
-    # --- no-brick: research/authoring is never blocked ---
-    yield ("N1", "no-brick LIGHT (quick) waives spec", ALLOW, EV, "LIGHT", edit(cwd, "src/a.py", "N1"))
-    yield ("N2", "specs are CLI-only: direct spec edit is blocked", BLOCK, EV, "STANDARD",
-           edit(cwd, ".unifable/spec/N2.json", "N2"))
-    yield ("N3", "no-brick whitelisted Bash (rg) allowed pre-spec", ALLOW, EV, "STANDARD",
-           bash(cwd, "rg --files", "N3"))
 
-    # --- bypass attempts must fail (protected state, traversal) ---
-    yield ("B1", "bypass write protected ledger (even with cited spec)", BLOCK, EV, "STANDARD",
-           edit(cwd, ".unifable/ledger_x.json", with_spec("B1", STD_CITED)))
-    yield ("B2", "bypass path traversal out of spec dir", BLOCK, EV, "STANDARD",
-           edit(cwd, ".unifable/spec/../../.unifable/goals.json", with_spec("B2", STD_CITED)))
-
-    # --- removed escape hatch + removed spec-only mode: the old envs are ignored ---
-    yield ("S1", "spec-only env does NOT downgrade: cited-less spec still blocked", BLOCK, OFF, "STANDARD",
-           edit(cwd, "src/a.py", with_spec("S1", {"restated_goal": "x", "acceptance_criteria": GOOD_ACC})))
-
-    # --- always-on: no env set => gate ON; the removed escape env stays ignored ---
-    yield ("D1", "default (no gate env): gate ON, uncited edit blocked", BLOCK, {}, "STANDARD",
-           edit(cwd, "src/a.py", "D1"))
-    yield ("D2", "removed escape env UNIFABLE_EVIDENCE_GATE=0 ignored, edit still blocked", BLOCK, OFF,
-           "STANDARD", edit(cwd, "src/a.py", "D2"))
+def _run_scenario(spec: Scenario) -> tuple[str, str, str, str, str]:
+    sid, desc, expected, env, grade, build = spec
+    with tempfile.TemporaryDirectory() as cwd:
+        payload = build(cwd)
+        actual = run(payload, env, grade)
+    ok = actual == expected
+    return sid, desc, expected, actual, "PASS" if ok else "FAIL"
 
 
 def main() -> int:
-    rows, failures = [], 0
-    with tempfile.TemporaryDirectory() as cwd:
-        for sid, desc, expected, env, grade, payload in scenarios(cwd):
-            actual = run(payload, env, grade)
-            ok = actual == expected
-            failures += not ok
-            rows.append((sid, desc, expected, actual, "PASS" if ok else "FAIL"))
+    specs = scenario_specs()
+    order = {spec[0]: idx for idx, spec in enumerate(specs)}
+    rows: list[tuple[str, str, str, str, str]] = []
+    failures = 0
+    workers = min(len(specs), os.cpu_count() or 4)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(_run_scenario, spec) for spec in specs]
+        for fut in as_completed(futures):
+            row = fut.result()
+            rows.append(row)
+            if row[4] != "PASS":
+                failures += 1
+    rows.sort(key=lambda row: order[row[0]])
 
     w = max(len(r[1]) for r in rows)
     print(f"{'ID':<4} {'SCENARIO':<{w}} {'EXPECT':<6} {'ACTUAL':<6} RESULT")

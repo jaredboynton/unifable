@@ -61,8 +61,9 @@ completion gate for load-bearing behavior.
 ## Commands
 
 ```bash
-# full gate suite is run by pre-commit; do not run these individually before commit
-# unless debugging a specific failing check.
+# full gate suite (pytest + eval_gate_proof + test_gate_robustness): just test-all
+# dev deps: uv run --with-requirements requirements-dev.txt  (see requirements-dev.txt)
+# parallel pytest only: just test-parallel   serial profile: just test-profile
 
 # a single gate's tests
 python3 -m pytest tests/test_groundedness_breaker.py -q
