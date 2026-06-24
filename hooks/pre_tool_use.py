@@ -49,9 +49,17 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
-from bash_classify import ALLOWED_RESEARCH_BASH, is_allowed_research_bash
+from bash_classify import is_allowed_research_bash
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json
+from pretool_block import (
+    BASH_ALLOWED_SUMMARY,
+    emit_pretool_block,
+    format_bash_research_block,
+    format_delegation_block,
+    format_spec_missing_block,
+    normalize_bash_detail,
+)
 from heavy_workflow import (
     compute_heavy_phase,
     edit_targets_primary_scope,
@@ -61,7 +69,6 @@ from heavy_workflow import (
 from spec import (
     canonical_project_root,
     contract_string,
-    format_spec_location,
     format_spec_validation_block,
     load_spec,
     resolve_session_id,
@@ -155,9 +162,29 @@ def _task_id(input_data: dict) -> str:
 # Block helper
 # ---------------------------------------------------------------------------
 
-def _block(reason: str) -> int:
-    print(f"unifable pre-edit gate: {reason}", file=sys.stderr)
-    return 2
+def _plan_mode_state(input_data: dict) -> dict:
+    try:
+        from plan_mode import resolve_plan_mode_for_hooks
+
+        return resolve_plan_mode_for_hooks(input_data)
+    except Exception:
+        return {"enabled": False, "host": "", "marker": ""}
+
+
+def _block(
+    input_data: dict,
+    *,
+    kind: str,
+    detail: str,
+    message: str,
+) -> int:
+    try:
+        from plan_mode import append_plan_mode_note
+
+        message = append_plan_mode_note(message, _plan_mode_state(input_data))
+    except Exception:
+        pass
+    return emit_pretool_block(input_data, kind=kind, detail=detail, full_message=message)
 
 
 def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: bool) -> list[str]:
@@ -209,20 +236,30 @@ def _evidence_profile(input_data: dict | None, spec: dict | None) -> str:
     return resolve_evidence_profile(ledger, spec if isinstance(spec, dict) else None)
 
 
-def _enforce_heavy_writes(spec: dict, cwd: str, target: str | None) -> int:
+def _enforce_heavy_writes(input_data: dict, spec: dict, cwd: str, target: str | None) -> int:
     """HEAVY frontier-first phase gates on write tools after spec validates."""
     phase = compute_heavy_phase(spec)
     if phase == "declare" or not heavy_declare_complete(spec):
         return _block(
-            "HEAVY declare phase: research only — no edits until restated goal, "
-            "citation evidence, >=2 frontier tasks, and 1 primary task exist.\n"
-            + heavy_workflow_brief(spec, phase)
+            input_data,
+            kind="heavy",
+            detail="declare",
+            message=(
+                "HEAVY declare phase: research only — no edits until restated goal, "
+                "citation evidence, >=2 frontier tasks, and 1 primary task exist.\n"
+                + heavy_workflow_brief(spec, phase)
+            ),
         )
     if phase == "frontier" and target and edit_targets_primary_scope(spec, target, cwd):
         return _block(
-            "HEAVY frontier phase: primary approach is blocked until the judge marks "
-            "ALL frontier tasks rejected_approach. Work on frontier tasks first.\n"
-            + heavy_workflow_brief(spec, phase)
+            input_data,
+            kind="heavy",
+            detail="frontier",
+            message=(
+                "HEAVY frontier phase: primary approach is blocked until the judge marks "
+                "ALL frontier tasks rejected_approach. Work on frontier tasks first.\n"
+                + heavy_workflow_brief(spec, phase)
+            ),
         )
     return 0
 
@@ -249,17 +286,12 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
         except Exception:
             pass
     if spec is None:
-        loc = format_spec_location(cwd, task_id)
+        contract = contract_string(grade, True, _evidence_profile(input_data, None))
         return _block(
-            f"no evidence spec for session '{task_id}' (grade={grade}). The spec is "
-            "auto-created on the hook path; build it through the append-only CLI "
-            "(never edit the JSON, never run create):\n"
-            f"{loc}\n"
-            f"  unifable restate '<your restatement>'\n"
-            f"  unifable add-task --title '<requirement>' --check '<runnable check>'\n"
-            f"  HEAVY: unifable set-primary / unifable add-frontier (>=2)\n"
-            f"Citations sync from reads/fetches automatically. "
-            f"{contract_string(grade, True, _evidence_profile(input_data, None))}"
+            input_data,
+            kind="spec",
+            detail=f"missing:{grade}",
+            message=format_spec_missing_block(grade, task_id, contract),
         )
 
     profile = _evidence_profile(input_data, spec)
@@ -267,17 +299,29 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
         spec, grade, require_evidence=True, evidence_profile=profile
     )
     if not ok:
-        return _block(format_spec_validation_block(grade, reasons, profile, spec))
+        detail = "; ".join(reasons)
+        return _block(
+            input_data,
+            kind="spec",
+            detail=detail,
+            message=format_spec_validation_block(grade, reasons, profile, spec),
+        )
 
     cited = _citation_reasons(spec, input_data, cwd, require_commands=False)
     if cited:
+        detail = "; ".join(cited)
         return _block(
-            "spec citations are not backed by real activity this session: "
-            + "; ".join(cited)
+            input_data,
+            kind="spec",
+            detail=f"citations:{detail}",
+            message=(
+                "spec citations are not backed by real activity this session: "
+                + detail
+            ),
         )
 
     if grade == "HEAVY":
-        rc = _enforce_heavy_writes(spec, cwd, write_target)
+        rc = _enforce_heavy_writes(input_data, spec, cwd, write_target)
         if rc != 0:
             return rc
 
@@ -308,13 +352,11 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
     allowed, why = is_allowed_research_bash(command)
     if not allowed:
-        loc = format_spec_location(cwd, task_id)
         return _block(
-            f"Bash command blocked before evidence spec validation: {why}. "
-            f"Allowed before unlock: {ALLOWED_RESEARCH_BASH}. "
-            f"To unblock other Bash, restate the goal and add requirements with "
-            f"`unifable restate` / `unifable add-task` "
-            f"(HEAVY also: set-primary, add-frontier; citations sync from activity):\n{loc}"
+            input_data,
+            kind="bash",
+            detail=normalize_bash_detail(why),
+            message=format_bash_research_block(why, task_id),
         )
 
     return 0
@@ -336,14 +378,11 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0
 
-    loc = format_spec_location(cwd, task_id)
     return _block(
-        f"{tool_name} is blocked before evidence spec validation so delegated work cannot bypass "
-        "the write/Bash gates. Still available before unlock: Read/Grep/Glob/web/source-fetch tools "
-        f"and Bash commands limited to {ALLOWED_RESEARCH_BASH}. To unblock Task/Agent and broader "
-        f"Bash, restate the goal and add requirements with `unifable restate` / `unifable add-task` "
-        f"(HEAVY also: set-primary, add-frontier; citations sync from activity):\n"
-        f"{loc}"
+        input_data,
+        kind="delegate",
+        detail=tool_name,
+        message=format_delegation_block(tool_name, task_id),
     )
 
 
@@ -389,12 +428,19 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
             events = breaker.get("events") if isinstance(breaker.get("events"), list) else []
             if events and events[-1].get("kind") == "REINSTATE":
                 steering = f"Groundedness breaker reinstated: {steering}"
-            return _block(steering or (
+            message = steering or (
                 "Groundedness breaker: you asserted something confidently without "
                 "backing it up. Your tools are restricted to read-only ones (Read, "
                 "WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
-                f"({ALLOWED_RESEARCH_BASH}) until you ground the claim."
-            )), ""
+                f"({BASH_ALLOWED_SUMMARY}) until you ground the claim."
+            )
+            detail = " ".join(str(message).split())[:80]
+            return _block(
+                input_data,
+                kind="breaker",
+                detail=detail,
+                message=message,
+            ), ""
         return None, notify or ""
     except Exception:
         return None, ""  # fail open on any breaker/judge failure
@@ -429,10 +475,15 @@ def main() -> int:
         if target and _is_protected(target, cwd):
             return _gate_block(
                 _block(
-                    f"write to protected unifable state file '{target}' is not allowed. "
-                    "Specs are CLI-only: create and mutate them via "
-                    "`unifable` (restate / add-task / set-primary / add-frontier / dispute), never by hand-editing the JSON. ledger, goals, "
-                    "findings, and state are off-limits too."
+                    input_data,
+                    kind="protected",
+                    detail="write",
+                    message=(
+                        f"write to protected unifable state file '{target}' is not allowed. "
+                        "Specs are CLI-only: create and mutate them via "
+                        "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
+                        "never by hand-editing the JSON. ledger, goals, findings, and state are off-limits too."
+                    ),
                 ),
                 breaker_notify,
             )

@@ -778,9 +778,11 @@ def _apply_dispute_verdict(
     return headlines
 
 
-def _apply_dispute(spec: dict[str, Any], task: dict[str, Any]) -> list[str]:
+def _apply_dispute(spec: dict[str, Any], task: dict[str, Any], *, plan_mode: dict[str, Any] | None = None) -> list[str]:
     """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
-    verdict, reason = judge_dispute(spec, task, str(task.get("dispute_evidence") or ""))
+    verdict, reason = judge_dispute(
+        spec, task, str(task.get("dispute_evidence") or ""), plan_mode=plan_mode,
+    )
     return _apply_dispute_verdict(spec, task, verdict, reason)
 
 
@@ -1107,16 +1109,17 @@ def _validate_one_task(
 ) -> list[str]:
     """Validate ONE task (dispute adjudication or check+judge). Mutates spec in place."""
     if task.get("status") == "disputed":
-        return _apply_dispute(spec, task)
+        _, plan_mode = _judge_context(transcript_path)
+        return _apply_dispute(spec, task, plan_mode=plan_mode)
     exit_code, output = _check_inputs_for_task(task, cwd, deadline=None)
-    transcript = _render_judge_transcript(transcript_path)
+    transcript, plan_mode = _judge_context(transcript_path)
     if transcript:
         verdict, reason, new_reqs, frontier_outcome = judge_task(
-            spec, task, exit_code, output, transcript=transcript,
+            spec, task, exit_code, output, transcript=transcript, plan_mode=plan_mode,
         )
     else:
         verdict, reason, new_reqs, frontier_outcome = judge_task(
-            spec, task, exit_code, output,
+            spec, task, exit_code, output, plan_mode=plan_mode,
         )
     return _apply_check_result(
         spec, task, exit_code, output, verdict, reason, new_reqs,
@@ -1162,7 +1165,7 @@ def auto_validate_spec(
         pending.sort(key=lambda it: (int(it[1].get("attempts") or 0), it[0]))
     pending_tasks = [task for _, task in pending]
 
-    transcript = _render_judge_transcript(transcript_path)
+    transcript, plan_mode = _judge_context(transcript_path)
 
     items: list[dict[str, Any]] = []
     for task in pending_tasks:
@@ -1180,9 +1183,9 @@ def auto_validate_spec(
         })
 
     if items:
-        adjust_headlines: list[str] = []
-        verdicts = judge_tasks(spec, items, transcript=transcript, adjust_sink=adjust_headlines)
-        for h in adjust_headlines:
+        spec.pop("_stop_adjust_headlines", None)
+        verdicts = judge_tasks(spec, items, transcript=transcript, plan_mode=plan_mode)
+        for h in spec.pop("_stop_adjust_headlines", []):
             if h not in messages:
                 messages.append(h)
         for it, (verdict, reason, new_reqs, frontier_outcome) in zip(items, verdicts):
@@ -1545,8 +1548,45 @@ _VALIDATE_ALL_SYSTEM = (
 
 _DISPUTE_ADJUDICATION = (
     "For kind=dispute: accept (verdict 1) ONLY if dispute_evidence genuinely "
-    "proves impossibility; reject (verdict 0) if merely hard or inconvenient."
+    "proves impossibility; reject (verdict 0) if merely hard or inconvenient. "
+    "When session_context.plan_mode_enabled is true, accept disputes where "
+    "evidence shows the check requires repo-tracked mutation that host Plan Mode "
+    "forbade for this turn."
 )
+
+
+_PLAN_MODE_JUDGE_RULES = (
+    "When plan_mode_enabled is true: mutating repo-tracked files is forbidden. "
+    "Expected deliverables: Codex <proposed_plan>; Claude ~/.claude/plans via "
+    "ExitPlanMode; Cursor ~/.cursor/plans or CreatePlan output. "
+    "For kind=dispute accept when evidence shows repo-file checks are impossible "
+    "this turn. For kind=validate do not fail solely on missing repo files when "
+    "the check targets repo output Plan Mode prevented; prefer adjust_requirements "
+    "revise to a plan-based check or accept a valid dispute. "
+    "Do not add new_requirements requiring repo edits while plan mode is active."
+)
+
+
+def _plan_mode_judge_section(plan_mode: dict[str, Any] | None) -> str:
+    if not isinstance(plan_mode, dict) or not plan_mode.get("enabled"):
+        return ""
+    host = str(plan_mode.get("host") or "host")
+    marker = str(plan_mode.get("marker") or "")
+    return (
+        f"\n\n--- PLAN MODE ({host}) ---\n"
+        f"plan_mode_enabled: true\n"
+        f"marker: {marker}\n"
+        + _PLAN_MODE_JUDGE_RULES
+        + "\n"
+    )
+
+
+def _session_context_payload(plan_mode: dict[str, Any] | None) -> dict[str, Any]:
+    pm = plan_mode if isinstance(plan_mode, dict) else {}
+    return {
+        "plan_mode_enabled": bool(pm.get("enabled")),
+        "plan_mode_host": str(pm.get("host") or ""),
+    }
 
 
 _JUDGE_TRANSCRIPT_SECTION = (
@@ -1561,17 +1601,34 @@ _JUDGE_TRANSCRIPT_SECTION = (
 
 def _render_judge_transcript(transcript_path: str | None) -> str:
     """Render stripped transcript tail for requirement-validation judges."""
+    tail, _pm = _judge_context(transcript_path)
+    return tail
+
+
+def _judge_context(transcript_path: str | None) -> tuple[str, dict[str, Any]]:
+    """Stripped transcript tail plus plan-mode state from raw JSONL."""
+    try:
+        from plan_mode import detect_plan_mode, empty_plan_mode
+    except ImportError:
+        empty_plan_mode = lambda: {"enabled": False, "host": "", "marker": ""}  # noqa: E731
+        detect_plan_mode = lambda _p: empty_plan_mode()  # noqa: E731
+    plan_mode = detect_plan_mode(transcript_path)
     if not transcript_path:
-        return ""
+        return "", plan_mode
     try:
         from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
     except ImportError:
-        return ""
-    return stripped_transcript_tail(transcript_path, TRANSCRIPT_TOKEN_BUDGET)
+        return "", plan_mode
+    return stripped_transcript_tail(transcript_path, TRANSCRIPT_TOKEN_BUDGET), plan_mode
 
 
-def _judge_system_with_transcript(base: str, transcript: str) -> str:
-    """Append session transcript tail to judge instructions (tail-preserving cap)."""
+def _judge_system_with_transcript(
+    base: str,
+    transcript: str,
+    plan_mode: dict[str, Any] | None = None,
+) -> str:
+    """Append plan-mode rules and session transcript tail (tail-preserving cap)."""
+    base = base + _plan_mode_judge_section(plan_mode)
     if not (transcript and transcript.strip()):
         return base
     try:
@@ -1784,7 +1841,12 @@ def heal_judge_owned_requirements(spec: dict[str, Any]) -> list[str]:
     return headlines
 
 
-def _judge_system_for_task(task: dict[str, Any], *, transcript: str = "") -> str:
+def _judge_system_for_task(
+    task: dict[str, Any],
+    *,
+    transcript: str = "",
+    plan_mode: dict[str, Any] | None = None,
+) -> str:
     kind = str(task.get("approach_kind") or "requirement")
     if kind == "frontier":
         base = _FRONTIER_JUDGE_SYSTEM
@@ -1792,7 +1854,7 @@ def _judge_system_for_task(task: dict[str, Any], *, transcript: str = "") -> str
         base = _PRIMARY_JUDGE_SYSTEM
     else:
         base = _JUDGE_SYSTEM
-    return _judge_system_with_transcript(base, transcript)
+    return _judge_system_with_transcript(base, transcript, plan_mode=plan_mode)
 
 
 def _judge_schema_for_task(task: dict[str, Any]) -> dict[str, Any]:
@@ -1818,6 +1880,7 @@ def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, st
 def _build_validate_all_user(
     spec: dict[str, Any],
     items: list[dict[str, Any]],
+    plan_mode: dict[str, Any] | None = None,
 ) -> str:
     """Build the unified validation payload for all open tasks."""
     tasks_payload: list[dict[str, Any]] = []
@@ -1843,6 +1906,7 @@ def _build_validate_all_user(
         "goal": spec.get("restated_goal", ""),
         "current_requirements": _current_requirements_payload(spec),
         "tasks_to_adjudicate": tasks_payload,
+        "session_context": _session_context_payload(plan_mode),
     }
     adjustable = [
         {"id": str(t.get("id")), "title": str(t.get("title") or ""),
@@ -1859,9 +1923,9 @@ def _build_validate_all_user(
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _validate_all_system(transcript: str) -> str:
+def _validate_all_system(transcript: str, plan_mode: dict[str, Any] | None = None) -> str:
     base = _VALIDATE_ALL_SYSTEM + " " + _DISPUTE_ADJUDICATION
-    return _judge_system_with_transcript(base, transcript)
+    return _judge_system_with_transcript(base, transcript, plan_mode=plan_mode)
 
 
 def judge_all_tasks(
@@ -1869,13 +1933,15 @@ def judge_all_tasks(
     items: list[dict[str, Any]],
     *,
     transcript: str = "",
-    adjust_sink: list[str] | None = None,
+    plan_mode: dict[str, Any] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge every open task in ONE structured call from shared session context.
 
-    When ``adjust_sink`` is provided, judge retract/revise headlines from
-    adjust_requirements are appended to it so the Stop digest can surface them
-    (otherwise they are applied to the spec but lost to the model)."""
+    Judge retract/revise headlines from adjust_requirements are stashed on
+    ``spec["_stop_adjust_headlines"]`` so auto_validate_spec can merge them into
+    the Stop digest -- otherwise they are applied to the spec but lost to the
+    model. The stash is transient and drained + popped by auto_validate_spec; it
+    avoids threading a new kwarg through the judge seam that tests stub."""
     if not items:
         return []
     try:
@@ -1884,8 +1950,8 @@ def judge_all_tasks(
         return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
     try:
         res = ask_structured(
-            _validate_all_system(transcript),
-            _build_validate_all_user(spec, items),
+            _validate_all_system(transcript, plan_mode),
+            _build_validate_all_user(spec, items, plan_mode),
             _VALIDATE_ALL_SCHEMA,
             schema_name="validate_all",
         )
@@ -1909,8 +1975,8 @@ def judge_all_tasks(
         if it["task"].get("added_by") == "judge":
             skip.discard(tid)
         hl = _apply_adjustments(spec, v, skip_ids=skip)
-        if adjust_sink is not None:
-            adjust_sink.extend(hl)
+        if hl:
+            spec.setdefault("_stop_adjust_headlines", []).extend(hl)
         out.append(_judge_result(v, it["task"]))
     return out
 
@@ -1922,6 +1988,7 @@ def judge_task(
     output: str,
     *,
     transcript: str = "",
+    plan_mode: dict[str, Any] | None = None,
 ) -> tuple[int, str, list[dict[str, str]], str]:
     """Ask the judge whether a single check output validates the task.
 
@@ -1933,7 +2000,7 @@ def judge_task(
         return 0, f"judge unavailable: {exc}", [], ""
     try:
         res = ask_structured(
-            _judge_system_for_task(task, transcript=transcript),
+            _judge_system_for_task(task, transcript=transcript, plan_mode=plan_mode),
             _judge_user(spec, task, exit_code, output),
             _judge_schema_for_task(task), schema_name="task_verdict",
         )
@@ -1949,10 +2016,10 @@ def judge_tasks(
     items: list[dict[str, Any]],
     *,
     transcript: str = "",
-    adjust_sink: list[str] | None = None,
+    plan_mode: dict[str, Any] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge all items in one unified structured call (validate + dispute)."""
-    return judge_all_tasks(spec, items, transcript=transcript, adjust_sink=adjust_sink)
+    return judge_all_tasks(spec, items, transcript=transcript, plan_mode=plan_mode)
 
 
 def _normalize_scope_paths(raw: Any) -> list[str]:
@@ -2053,7 +2120,13 @@ def judge_discover_frontiers(
     return added
 
 
-def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> tuple[int, str]:
+def judge_dispute(
+    spec: dict[str, Any],
+    task: dict[str, Any],
+    evidence: str,
+    *,
+    plan_mode: dict[str, Any] | None = None,
+) -> tuple[int, str]:
     """Adjudicate an agent's claim that a requirement is IMPOSSIBLE.
 
     The agent has submitted `evidence` that the task cannot be satisfied. Return
@@ -2076,12 +2149,14 @@ def judge_dispute(spec: dict[str, Any], task: dict[str, Any], evidence: str) -> 
         "whether the requirement is genuinely impossible. "
         + _JUDGE_FEEDBACK_GUIDANCE
     )
+    system += _plan_mode_judge_section(plan_mode)
     user = json.dumps({
         "goal": spec.get("restated_goal", ""),
         "task_title": task.get("title", ""),
         "check": task.get("check", ""),
         "impossibility_evidence": evidence,
         "current_requirements": _current_requirements_payload(spec),
+        "session_context": _session_context_payload(plan_mode),
     }, ensure_ascii=False)
     try:
         res = ask_structured(system, user, _DISPUTE_SCHEMA, schema_name="dispute_verdict")

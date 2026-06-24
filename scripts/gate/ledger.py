@@ -91,6 +91,13 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "fetched_urls": [],
     "ran_commands": [],
     "observed_tool_results": [],
+    # PreToolUse block dedup (pretool_block.py): one full stderr message per
+    # (epoch, signature) when parallel hooks fire on the same turn.
+    "pretool_block_epoch": "",
+    "pretool_block_counts": {},
+    # Host Plan Mode (plan_mode.py), set at UserPromptSubmit, read at PreToolUse.
+    "plan_mode_enabled": False,
+    "plan_mode_host": "",
     "last_updated": "",
 }
 
@@ -169,6 +176,8 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
                 "observed_tool_results", "loop_lift_retracted", "loop_events"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
+    if not isinstance(ledger.get("pretool_block_counts"), dict):
+        ledger["pretool_block_counts"] = {}
     return ledger
 
 

@@ -79,7 +79,7 @@ def test_auto_validate_passes_rendered_transcript_to_judge_tasks(tmp_path, monke
 
     captured: dict[str, str] = {}
 
-    def fake_judge_tasks(sp, items, *, transcript=""):
+    def fake_judge_tasks(sp, items, *, transcript="", plan_mode=None):
         captured["transcript"] = transcript
         return [(1, "ok", [], "") for _ in items]
 
@@ -99,7 +99,7 @@ def test_auto_validate_no_transcript_when_path_absent(tmp_path, monkeypatch):
 
     captured: dict[str, str] = {}
 
-    def fake_judge_tasks(sp, items, *, transcript=""):
+    def fake_judge_tasks(sp, items, *, transcript="", plan_mode=None):
         captured["transcript"] = transcript
         return [(1, "ok", [], "") for _ in items]
 

@@ -19,6 +19,7 @@ from classify_task import operative_prompt, context_for_mode, grade_of
 from evidence_policy import mode_for_grade, resolve_evidence_profile, resolve_grade
 from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
 from heavy_workflow import clear_stale_heavy_workflow, heavy_workflow_brief
+from plan_mode import plan_mode_context_line, plan_mode_spec_task_guidance, resolve_plan_mode
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
 
 
@@ -165,7 +166,12 @@ def main() -> int:
         ledger["verification_results"] = []
         ledger["failures"] = []
         ledger["stop_blocks"] = 0
+        ledger["pretool_block_epoch"] = ""
+        ledger["pretool_block_counts"] = {}
         ledger["frontier_discovery_count"] = ledger.get("frontier_discovery_count", 0)
+        pm = resolve_plan_mode(input_data, transcript_path=input_data.get("transcript_path"))
+        ledger["plan_mode_enabled"] = bool(pm.get("enabled"))
+        ledger["plan_mode_host"] = str(pm.get("host") or "")
         add_unique(ledger, "risk_flags", risks)
         effective = resolve_grade(ledger)
         if effective == "HEAVY" and not ledger.get("heavy_brief_injected"):
@@ -186,9 +192,31 @@ def main() -> int:
 
     context = context_for_mode(mode, risks)
 
+    try:
+        plan_mode = resolve_plan_mode(input_data, transcript_path=input_data.get("transcript_path"))
+        plan_line = plan_mode_context_line(plan_mode)
+        if plan_line:
+            context += plan_line
+    except Exception:
+        plan_mode = {"enabled": False}
+
+    # Gap 3: when the per-prompt classification shifts the enforcement grade or the
+    # evidence profile, surface the judge's reason and the move -- the generic mode
+    # line above does not tell the model the gate's requirements just changed.
+    if prior_active and (effective_grade != prior_grade or evidence_profile != prior_profile):
+        detail = (reason or "").strip() or "reclassified"
+        line = f"\n\nunifable reclassified: {detail}"
+        if effective_grade != prior_grade:
+            line += f" Grade now {effective_grade} (was {prior_grade})."
+        if evidence_profile != prior_profile:
+            line += f" evidence_profile now {evidence_profile} (was {prior_profile})."
+            if evidence_profile == "operational":
+                line += " repo_context/prior_art not required."
+        context += line
+
     if effective_grade != "LIGHT":
         key = session_key
-        path = _ensure_spec_scaffold(
+        path, scaffold_changes = _ensure_spec_scaffold(
             cwd, key, prompt, heavy=heavy_scaffold, evidence_profile=evidence_profile
         )
         if path:
@@ -197,12 +225,18 @@ def main() -> int:
                 if evidence_profile == "operational"
                 else ""
             )
+            task_guidance = ""
+            try:
+                task_guidance = plan_mode_spec_task_guidance(plan_mode)
+            except Exception:
+                pass
             context += (
                 f"\n\nunifable: evidence spec auto-created at {path}.{profile_note} "
                 f"Drive it via the append-only CLI (never edit the JSON):\n"
                 f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
                 f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
-                f"  - unifable add-task --title '<requirement>' --check '<runnable check>'\n"
+                f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
+                f"{task_guidance}\n"
             )
             if heavy_scaffold:
                 context += (
@@ -216,6 +250,12 @@ def main() -> int:
                 f"requirements get fresh checks, failed/disputed ones are re-adjudicated; "
                 f"superseded tasks ([SS]) no longer block completion."
             )
+            if scaffold_changes:
+                context += (
+                    "\n\nunifable spec scaffold updated: "
+                    + "; ".join(scaffold_changes)
+                    + "."
+                )
 
     try:
         if ledger.get("inject_heavy_brief"):

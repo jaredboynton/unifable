@@ -153,7 +153,7 @@ def test_non_whitelisted_bash_blocked_under_bypass_permissions():
     reports permission_mode=bypassPermissions (YOLO)."""
     rc, stderr = run_pre_tool_bash("echo hi", permission_mode="bypassPermissions")
     assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
-    assert "whitelist" in stderr.lower() or "blocked before evidence spec" in stderr.lower()
+    assert "whitelist" in stderr.lower() or "bash blocked" in stderr.lower() or "pre-edit gate" in stderr.lower()
 
 
 def test_block_is_permission_mode_independent():

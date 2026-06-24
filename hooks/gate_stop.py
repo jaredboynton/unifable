@@ -165,6 +165,71 @@ def _build_stop_validate_context(
         return "", False
 
 
+def _subagent_attribution(
+    stop_added: dict,
+    ledger_activity: dict,
+    transcript_activity: dict,
+    cwd: str,
+) -> str:
+    """Gap 7: name citations the Stop sync credited from sub-agent / transcript
+    activity that the main model never performed directly. Fail-open to ""."""
+    try:
+        added = list(stop_added.get("repo_context") or []) + list(stop_added.get("prior_art") or [])
+        if not added:
+            return ""
+        from citations import path_was_read, url_was_fetched
+
+        ledger_reads = ledger_activity.get("read_paths") or []
+        ledger_fetches = ledger_activity.get("fetched_urls") or []
+        trans_reads = transcript_activity.get("read_paths") or []
+        trans_fetches = transcript_activity.get("fetched_urls") or []
+        credited: list[str] = []
+        for cite in added:
+            c = str(cite)
+            is_url = c.startswith("http://") or c.startswith("https://")
+            if is_url:
+                in_ledger = url_was_fetched(c, ledger_fetches)
+                in_trans = url_was_fetched(c, trans_fetches)
+            else:
+                in_ledger = path_was_read(c, ledger_reads, cwd)
+                in_trans = path_was_read(c, trans_reads, cwd)
+            if in_trans and not in_ledger:
+                credited.append(c)
+        if not credited:
+            return ""
+        shown = ", ".join(credited[:3]) + ("..." if len(credited) > 3 else "")
+        return f"credited sub-agent/transcript activity for {len(credited)} citation(s): {shown}"
+    except Exception:
+        return ""
+
+
+def _stop_workflow_notes(
+    spec: dict,
+    heavy_before: tuple[str, str],
+    stop_added: dict,
+    ledger_activity: dict,
+    transcript_activity: dict,
+    cwd: str,
+) -> list[str]:
+    """Gap 2 + 7: Stop-digest enrichments destined for val_msgs (block-only).
+
+    Headlines for a HEAVY phase flip / primary unblock and for citations
+    backfilled by sub-agent activity. Fail-open to []."""
+    notes: list[str] = []
+    try:
+        from heavy_workflow import heavy_snapshot, heavy_transition_headline
+
+        headline = heavy_transition_headline(heavy_before, heavy_snapshot(spec), spec)
+        if headline:
+            notes.append(headline)
+    except Exception:
+        pass
+    note = _subagent_attribution(stop_added, ledger_activity, transcript_activity, cwd)
+    if note:
+        notes.append(note)
+    return notes
+
+
 def _persist_stop_digest(cwd: str, session_id: str | None, body: str) -> str:
     """Write full stop validation digest; return path or "" on failure."""
     if not body.strip() or not session_id:
@@ -572,14 +637,17 @@ def main() -> int:
                     from citations import (activity_from_ledger, enabled,
                                            merge_activity, scan_transcript,
                                            sync_citations_from_activity, verify_citations)
-                    from heavy_workflow import advance_primary_if_ready, clear_stale_heavy_workflow
+                    from heavy_workflow import (advance_primary_if_ready,
+                                                clear_stale_heavy_workflow,
+                                                heavy_snapshot)
                     from spec import auto_validate_spec, save_spec
 
-                    activity = merge_activity(
-                        activity_from_ledger(load_ledger(input_data)),
-                        scan_transcript(input_data.get("transcript_path")),
-                    )
-                    if sync_citations_from_activity(spec, activity, cwd):
+                    ledger_activity = activity_from_ledger(load_ledger(input_data))
+                    transcript_activity = scan_transcript(input_data.get("transcript_path"))
+                    activity = merge_activity(ledger_activity, transcript_activity)
+                    heavy_before = heavy_snapshot(spec)  # gap 2: phase/primary pre-state
+                    stop_added: dict[str, list[str]] = {}
+                    if sync_citations_from_activity(spec, activity, cwd, added_sink=stop_added):
                         save_spec(cwd, task_key, spec)
                     if clear_stale_heavy_workflow(spec, grade):
                         save_spec(cwd, task_key, spec)
@@ -592,6 +660,16 @@ def main() -> int:
                         transcript_path=input_data.get("transcript_path"),
                     )
                     save_spec(cwd, task_key, spec)
+                    # Gap 2 + 7: enrich the Stop digest with HEAVY phase/primary
+                    # transitions and sub-agent-credited citations. Both ride
+                    # val_msgs, which only surfaces when the completion breaker
+                    # blocks -- never on an allow-stop (AGENTS.md additionalContext rule).
+                    extra_msgs = _stop_workflow_notes(
+                        spec, heavy_before, stop_added,
+                        ledger_activity, transcript_activity, cwd,
+                    )
+                    if extra_msgs:
+                        val_msgs = list(val_msgs) + extra_msgs
                     validate_ctx, validate_ctx_truncated = _build_stop_validate_context(
                         spec, val_msgs,
                     )
