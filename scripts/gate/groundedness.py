@@ -416,8 +416,52 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "when verdict=0."
             ),
         },
+        "verify": {
+            "type": "object",
+            "description": (
+                "Falsifiable check that lets the breaker confirm the claim from the repo itself "
+                "instead of forcing the model to re-prove a TRUE claim by hand. Populate ONLY when "
+                "the claim reduces to literal substring presence/absence in named files that "
+                "ALREADY appear verbatim in the transcript -- e.g. a version bump, a string added "
+                "or removed, a config value. NEVER invent file paths. Leave BOTH arrays empty when "
+                "the claim is not mechanically checkable this way (judgement, behavior, "
+                "external/API facts, anything needing computation or reasoning). The breaker runs "
+                "this read-only: if the files confirm it the claim does NOT arm; if they refute it "
+                "or it is empty the verdict stands. A wrong predicate can only fail safe."
+            ),
+            "properties": {
+                "must_contain": {
+                    "type": "array",
+                    "description": "Each {file, text}: the claim holds only if literal substring `text` is PRESENT in `file`.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file": {"type": "string", "description": "Repo-relative path that appears in the transcript."},
+                            "text": {"type": "string", "description": "Literal substring that must be present."},
+                        },
+                        "required": ["file", "text"],
+                        "additionalProperties": False,
+                    },
+                },
+                "must_not_contain": {
+                    "type": "array",
+                    "description": "Each {file, text}: the claim holds only if literal substring `text` is ABSENT from `file` (e.g. an old version fully removed).",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "file": {"type": "string", "description": "Repo-relative path that appears in the transcript."},
+                            "text": {"type": "string", "description": "Literal substring that must be absent."},
+                        },
+                        "required": ["file", "text"],
+                        "additionalProperties": False,
+                    },
+                },
+            },
+            "required": ["must_contain", "must_not_contain"],
+            "additionalProperties": False,
+        },
     },
-    "required": ["verdict", "steering", "claim", "load_bearing"],
+    "required": ["verdict", "steering", "claim", "load_bearing", "verify"],
     "additionalProperties": False,
 }
 
@@ -743,6 +787,86 @@ def judge_segment(segment: str, judge: JudgeFn | None = None) -> tuple[int, str]
     return verdict, steering
 
 
+# --- Predicate self-verify (Approach A) -------------------------------------
+# The arm judge may emit a falsifiable predicate over repo files alongside its
+# verdict. The breaker runs it READ-ONLY and downgrades an arm to allow ONLY when
+# the files CONFIRM the claim. De-escalation only: a refuted or unverifiable
+# predicate leaves the verdict unchanged, so a buggy or empty predicate can never
+# introduce a new block -- only remove a false one. Fail-safe: any error returns
+# "unverifiable" (no downgrade).
+_VERIFY_MAX_ENTRIES = 20
+_VERIFY_MAX_BYTES = 2_000_000
+
+
+def _verify_read(cwd: str, rel: str) -> str | None:
+    """Read a repo file for predicate checking. None when the path escapes cwd, is
+    missing, oversized, or unreadable -- callers treat None as unverifiable."""
+    try:
+        from pathlib import Path
+
+        base = Path(cwd or ".").resolve()
+        target = Path(rel)
+        target = target.resolve() if target.is_absolute() else (base / target).resolve()
+        if target != base and base not in target.parents:
+            return None  # containment: never read outside cwd
+        if not target.is_file():
+            return None
+        if target.stat().st_size > _VERIFY_MAX_BYTES:
+            return None
+        return target.read_text(encoding="utf-8", errors="replace")
+    except Exception:
+        return None
+
+
+def verify_claim_predicate(predicate: Any, cwd: str) -> str:
+    """Return 'confirmed' | 'refuted' | 'unverifiable' for a judge-supplied predicate.
+
+    predicate = {must_contain: [{file, text}], must_not_contain: [{file, text}]}.
+    confirmed: every must_contain text is present AND every must_not_contain text is
+    absent in its file. refuted: the files contradict the claim. unverifiable: empty
+    or malformed predicate, a missing/oversized/escaping file, or any error."""
+    try:
+        if not isinstance(predicate, dict):
+            return "unverifiable"
+        contains = predicate.get("must_contain") or []
+        forbids = predicate.get("must_not_contain") or []
+        if not isinstance(contains, list) or not isinstance(forbids, list):
+            return "unverifiable"
+        entries = [e for e in (list(contains) + list(forbids)) if isinstance(e, dict)]
+        if not entries or len(entries) > _VERIFY_MAX_ENTRIES:
+            return "unverifiable"
+        cache: dict[str, str | None] = {}
+
+        def body(rel: str) -> str | None:
+            if rel not in cache:
+                cache[rel] = _verify_read(cwd, rel)
+            return cache[rel]
+
+        for entry in contains:
+            f = str(entry.get("file") or "").strip()
+            text = str(entry.get("text") or "")
+            if not f or text == "":
+                return "unverifiable"
+            content = body(f)
+            if content is None:
+                return "unverifiable"
+            if text not in content:
+                return "refuted"
+        for entry in forbids:
+            f = str(entry.get("file") or "").strip()
+            text = str(entry.get("text") or "")
+            if not f or text == "":
+                return "unverifiable"
+            content = body(f)
+            if content is None:
+                return "unverifiable"
+            if text in content:
+                return "refuted"
+        return "confirmed"
+    except Exception:
+        return "unverifiable"
+
+
 def arm_judge(
     segment: str,
     events: list[dict[str, Any]] | None = None,
@@ -785,6 +909,14 @@ def arm_judge(
         return 0, "", ""
     if verdict == 1 and should_suppress_path_hypothesis_arm(claim, segment, input_data):
         return 0, "", ""
+    # Predicate self-verify (de-escalation only): if the judge supplied a falsifiable
+    # predicate that the repo files CONFIRM, the claim is already true -- do not arm.
+    # Refuted/unverifiable leaves the verdict unchanged, so this can only remove a
+    # false arm, never add a block.
+    if verdict == 1:
+        cwd = str((input_data or {}).get("cwd") or os.getcwd())
+        if verify_claim_predicate(obj.get("verify"), cwd) == "confirmed":
+            return 0, "", ""
     return verdict, steering, claim
 
 
