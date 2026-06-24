@@ -5,7 +5,7 @@ flag). This protocol measures whether Bash tool subprocesses receive the same
 session env as the hook/prompt scaffold.
 
 ## Prerequisites (instrumentation already landed)
-- `UNIFABLE_DEV=1 unifable where` emits on stderr:
+- `unifable doctor session-env` emits on stderr:
   `UNIFABLE_SESSION_RESOLVED=<id> SOURCE=<source>`
   (source = payload | env:CLAUDE_CODE_SESSION_ID | env:CODEX_THREAD_ID | env:CURSOR_CONVERSATION_ID | env:CURSOR_SESSION_ID | default | none)
 - Analyzer: `python3 scripts/measure_session_env.py <log>`
@@ -19,7 +19,7 @@ session env as the hook/prompt scaffold.
 2. For each of N (>=10 recommended) Bash probes in the session, execute (via the
    agent's Bash tool or manual if allowed):
    ```
-   UNIFABLE_DEV=1 unifable where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
+   unifable doctor session-env 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
    ```
    Variations to include (label the outputs):
    - From repo root.
@@ -61,7 +61,7 @@ matches the conversation). It does not set `CURSOR_SESSION_ID`. The resolver
 checks `CURSOR_CONVERSATION_ID` first among Cursor vars.
 
 ## Files
-- Probe command: documented in AGENTS.md
-- Emission: scripts/gate/spec.py (resolve_session_id_with_source + _cmd_where)
+- Probe command: `unifable doctor session-env`
+- Emission: scripts/gate/spec.py (resolve_session_id_with_source + _cmd_doctor_session_env)
 - Analyzer: scripts/measure_session_env.py
 - This protocol: docs/session-env-validation.md

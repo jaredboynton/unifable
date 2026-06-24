@@ -13,14 +13,14 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 from spec import (  # noqa: E402
+    _apply_cli_context,
+    _cmd_doctor_session_env,
     canonical_project_root,
     dir_hash,
     load_spec,
     save_spec,
     spec_path,
     spec_template,
-    _cmd_where,
-    _apply_cli_context,
     _safe_session,
 )
 
@@ -107,7 +107,7 @@ def test_apply_cli_context_resolves_env(tmp_path, monkeypatch):
     assert args.root == str(canonical_project_root(repo))
 
 
-def test_where_shows_location(tmp_path, capsys, monkeypatch):
+def test_doctor_session_env_shows_location(tmp_path, capsys, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()
     _with_data(str(data))
@@ -116,9 +116,8 @@ def test_where_shows_location(tmp_path, capsys, monkeypatch):
     _git_init(repo)
     monkeypatch.chdir(repo)
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-w")
-    monkeypatch.setenv("UNIFABLE_DEV", "1")
     save_spec(repo, "sess-w", _spec_with_task())
-    rc = _cmd_where(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
+    rc = _cmd_doctor_session_env(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
     captured = capsys.readouterr()
     out = captured.out
     err = captured.err

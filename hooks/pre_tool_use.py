@@ -50,7 +50,7 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
-from bash_classify import is_allowed_research_bash
+from bash_classify import blocked_agent_env_reason, is_allowed_research_bash
 from citations import format_citation_verify_message
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json, update_ledger
@@ -58,6 +58,7 @@ from pretool_block import (
     block_epoch,
     consume_gate_cleared_notify,
     emit_pretool_block,
+    format_bash_policy_block,
     format_bash_research_block,
     format_delegation_block,
     format_spec_missing_block,
@@ -382,6 +383,16 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
     user-facing unifusion skill scripts so the agent can explore or run a panel
     before unlock. Action phase (valid spec): all shell commands are allowed.
     LIGHT waives entirely."""
+    command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+    blocked_env = blocked_agent_env_reason(command)
+    if blocked_env:
+        return _block(
+            input_data,
+            kind="bash",
+            detail=normalize_bash_detail(blocked_env),
+            message=format_bash_policy_block(blocked_env, _task_id(input_data)),
+        )
+
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
         return 0
@@ -396,7 +407,6 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0  # action phase unlocked
 
-    command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
     allowed, why = is_allowed_research_bash(command)
     if not allowed:
         return _block(

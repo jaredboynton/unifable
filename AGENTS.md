@@ -71,12 +71,8 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.85          # or: just version patch|minor|major
+just version 1.9.86          # or: just version patch|minor|major
 
-# Session env probe: validate that the shell subprocess receives the
-# same session id as the hook/prompt scaffold (see resolve_session_id).
-# Compare UNIFABLE_SESSION_RESOLVED from `where` against the host env vars.
-UNIFABLE_DEV=1 unifable where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CODE_SESSION_ID|CODEX_THREAD_ID|CURSOR_CONVERSATION_ID|CURSOR_SESSION_ID' || true
 ```
 
 ## Conventions
@@ -104,5 +100,5 @@ UNIFABLE_DEV=1 unifable where 2>&1 ; echo '---ENV---' ; env | grep -E 'CLAUDE_CO
 | Evidence-gate design | [docs/evidence-gate-design.md](docs/evidence-gate-design.md) |
 | Pack routing (inline discipline) | [packs/router-manifest.json](packs/router-manifest.json), [scripts/gate/pack_router.py](scripts/gate/pack_router.py) |
 | Generated hook/judge reference | [docs/generated/](docs/generated/), [docs/generated-docs-plan.md](docs/generated-docs-plan.md) |
-| Session env validation | [docs/session-env-validation.md](docs/session-env-validation.md) |
+| Operator session env validation | [docs/session-env-validation.md](docs/session-env-validation.md) |
 | Eval rubric + scenarios | [docs/evals/](docs/evals/), [tests/eval_rubric.md](tests/eval_rubric.md) |

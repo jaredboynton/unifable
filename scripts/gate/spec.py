@@ -12,7 +12,7 @@ Provides:
   - canonical_project_root(cwd) -> Path   (git root / project markers; subdirs share one spec)
   - spec_template() -> dict
   - CLI: validate / contract (harness) / restate / add-task / set-primary /
-    add-frontier / dispute / where (UNIFABLE_DEV=1)
+    add-frontier / dispute / doctor session-env
 
 State is one spec.json per (canonical project root, session), so a new session never
 inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
@@ -2697,10 +2697,7 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_where(args: argparse.Namespace) -> int:
-    if os.environ.get("UNIFABLE_DEV", "").strip().lower() not in ("1", "true", "yes"):
-        print("where is dev-only; set UNIFABLE_DEV=1.", file=sys.stderr)
-        return 1
+def _cmd_doctor_session_env(args: argparse.Namespace) -> int:
     # Always emit a machine-scannable diagnostic for the env-resolved session.
     # This line appears in Bash tool results so probes can validate whether the
     # shell subprocess receives the same session id/env as the hook/prompt scaffold.
@@ -2721,6 +2718,13 @@ def _cmd_where(args: argparse.Namespace) -> int:
         else:
             print("\n(no spec file yet)")
     return 0
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    if getattr(args, "doctor_cmd", "") == "session-env":
+        return _cmd_doctor_session_env(args)
+    print("usage: unifable doctor session-env", file=sys.stderr)
+    return 1
 
 
 def _apply_cli_context(args: argparse.Namespace) -> int | None:
@@ -2788,7 +2792,9 @@ def main(argv: list[str] | None = None) -> int:
     p_dispute.add_argument("--evidence", required=True,
                            help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
 
-    sub.add_parser("where", help="Dev-only: show canonical spec path (UNIFABLE_DEV=1).")
+    p_doctor = sub.add_parser("doctor", help="Operator diagnostics.")
+    doctor_sub = p_doctor.add_subparsers(dest="doctor_cmd")
+    doctor_sub.add_parser("session-env", help="Show canonical spec path and session env diagnostics.")
 
     args = parser.parse_args(argv)
     err = _apply_cli_context(args)
@@ -2801,7 +2807,7 @@ def main(argv: list[str] | None = None) -> int:
         "set-primary": _cmd_set_primary,
         "add-frontier": _cmd_add_frontier,
         "dispute": _cmd_dispute,
-        "where": _cmd_where,
+        "doctor": _cmd_doctor,
     }
     handler = dispatch.get(args.cmd)
     if handler:

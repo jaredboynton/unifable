@@ -41,6 +41,7 @@ _SPEC_CLI_NAMES = frozenset({"unifable", "unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 _ASSIGN_NAME_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=")
+_AGENT_BLOCKED_ASSIGN_NAMES = frozenset({"UNIFABLE_DEV"})
 # Declaration builtins that take NAME=VALUE assignments. A standalone segment made
 # only of these (e.g. `T=/long/path` or `export A=1 B=2`) carries no executable but
 # is a harmless way to name a value for reuse in a later whitelisted segment.
@@ -189,6 +190,57 @@ def _first_command(tokens: list[str]) -> tuple[str, list[str]]:
     if idx >= len(tokens):
         return "", []
     return tokens[idx], tokens[idx + 1:]
+
+
+def _agent_blocked_assignment_reason(tokens: list[str]) -> str:
+    for idx, tok in enumerate(tokens):
+        match = _ASSIGN_NAME_RE.match(tok)
+        if match and match.group(1) in _AGENT_BLOCKED_ASSIGN_NAMES:
+            return f"{match.group(1)} is reserved for operator diagnostics and cannot be set from agent Bash"
+
+        base = _basename(tok)
+        if base in ("export", "declare", "typeset", "local", "readonly"):
+            for arg in tokens[idx + 1:]:
+                if arg.startswith("-"):
+                    continue
+                match = _ASSIGN_NAME_RE.match(arg)
+                if match and match.group(1) in _AGENT_BLOCKED_ASSIGN_NAMES:
+                    return (
+                        f"{match.group(1)} is reserved for operator diagnostics "
+                        "and cannot be set from agent Bash"
+                    )
+            return ""
+        if base == "unset":
+            for arg in tokens[idx + 1:]:
+                if arg.startswith("-"):
+                    continue
+                if arg in _AGENT_BLOCKED_ASSIGN_NAMES:
+                    return f"{arg} is reserved for operator diagnostics and cannot be changed from agent Bash"
+            return ""
+    return ""
+
+
+def blocked_agent_env_reason(command: object) -> str:
+    if not isinstance(command, str) or not command.strip():
+        return ""
+    try:
+        segments = _split_compound(command)
+    except Exception:
+        segments = [command]
+    for segment in segments:
+        try:
+            pipe_parts = _split_pipes(segment)
+        except Exception:
+            pipe_parts = [segment]
+        for part in pipe_parts:
+            try:
+                tokens = shlex.split(part)
+            except ValueError:
+                tokens = part.split()
+            reason = _agent_blocked_assignment_reason(tokens)
+            if reason:
+                return reason
+    return ""
 
 
 def _trace_target_from_interpreter(rest: list[str]) -> str:
@@ -349,6 +401,9 @@ def _declaration_segment(seg: str) -> tuple[bool, tuple[bool, str] | None]:
         return False, None
     if not tokens:
         return False, None
+    reason = _agent_blocked_assignment_reason(tokens)
+    if reason:
+        return True, (False, reason)
     idx = 0
     if tokens[0] in _SAFE_DECL_PREFIXES:
         idx = 1
@@ -379,6 +434,9 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
         tokens = seg.split()
     if not tokens:
         return False, "empty command"
+    reason = _agent_blocked_assignment_reason(tokens)
+    if reason:
+        return False, reason
 
     command, rest = _first_command(tokens)
     if not command:
@@ -417,6 +475,9 @@ def _allowed_pipeline_sink(seg: str) -> tuple[bool, str]:
         tokens = seg.split()
     if not tokens:
         return False, "empty pipeline segment"
+    reason = _agent_blocked_assignment_reason(tokens)
+    if reason:
+        return False, reason
     command, _rest = _first_command(tokens)
     if not command:
         return False, "no executable command found in pipeline"

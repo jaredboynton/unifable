@@ -32,6 +32,8 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 HOOKS = REPO / "hooks"
 PY = sys.executable
+sys.path.insert(0, str(REPO / "scripts" / "gate"))
+from spec import save_spec, spec_template  # noqa: E402
 
 # The two host manifests that wire PreToolUse -> pre_tool_use.py.
 MANIFESTS = {
@@ -69,6 +71,7 @@ def run_pre_tool_bash(
     *,
     grade: str = "STANDARD",
     permission_mode: str = "bypassPermissions",
+    seed_valid_spec: bool = False,
 ) -> tuple[int, str]:
     """Drive hooks/pre_tool_use.py with a Bash payload and return (rc, stderr).
 
@@ -78,6 +81,22 @@ def run_pre_tool_bash(
     only (no transcript -> groundedness arm judge does not fire).
     """
     with tempfile.TemporaryDirectory() as tmp:
+        if seed_valid_spec:
+            old_data = os.environ.get("UNIFABLE_DATA")
+            try:
+                os.environ["UNIFABLE_DATA"] = tmp
+                spec = spec_template()
+                spec["restated_goal"] = "Exercise Bash gate policy"
+                spec["goal_seeded"] = False
+                spec["acceptance_criteria"] = [{"check": "echo ok", "evidence": "ok"}]
+                spec["repo_context"] = [{"cite": "hooks/pre_tool_use.py:378", "why": "Bash gate under test"}]
+                spec["prior_art"] = [{"cite": "https://developers.openai.com/codex/hooks", "why": "host hook behavior"}]
+                save_spec(tmp, "bash-gate-test", spec)
+            finally:
+                if old_data is None:
+                    os.environ.pop("UNIFABLE_DATA", None)
+                else:
+                    os.environ["UNIFABLE_DATA"] = old_data
         payload = {
             "tool_name": "Bash",
             "tool_input": {"command": command},
@@ -195,6 +214,18 @@ def test_light_grade_waives_bash_gate():
     over-gated on trivial work."""
     rc, _ = run_pre_tool_bash("echo hi", grade="LIGHT", permission_mode="bypassPermissions")
     assert rc == 0
+
+
+def test_unifable_dev_block_survives_light_grade():
+    rc, stderr = run_pre_tool_bash("UNIFABLE_DEV=1 rg --files", grade="LIGHT")
+    assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
+    assert "operator diagnostics" in stderr
+
+
+def test_unifable_dev_block_survives_action_phase_unlock():
+    rc, stderr = run_pre_tool_bash("export UNIFABLE_DEV=1; echo ok", seed_valid_spec=True)
+    assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
+    assert "operator diagnostics" in stderr
 
 
 def _seed_armed_breaker(data_root: str, session_id: str, cwd: str) -> None:

@@ -71,6 +71,7 @@ ALLOWED = [
     "git add .",
     "git commit -m 'wip'",
     "git push origin main",
+    "rg UNIFABLE_DEV scripts/gate",
 ]
 
 BLOCKED = [
@@ -118,6 +119,11 @@ BLOCKED = [
     # Dangerous declarations can alter command resolution.
     "PATH=/tmp; rg --files",
     "IFS=x; rg foo",
+    # Operator diagnostics env is not agent-adjustable, even around allowed commands.
+    "UNIFABLE_DEV=1 rg --files",
+    "env UNIFABLE_DEV=1 rg --files",
+    "export UNIFABLE_DEV=1; rg --files",
+    "unset UNIFABLE_DEV; rg --files",
     # A bare declaration keyword with no command is not useful research.
     "export",
 ]

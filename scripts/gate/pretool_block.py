@@ -88,7 +88,7 @@ _UNLOCK_LINE = (
 
 def _session_line(session_id: str) -> str:
     sid = (session_id or "default").strip() or "default"
-    return f"session-id: {sid}  (run: unifable where)"
+    return f"session-id: {sid}"
 
 
 def pretool_headline_only(message: str) -> str:
@@ -129,6 +129,12 @@ def format_bash_research_block(why: str, session_id: str) -> str:
         f"Allowed now: {bash_allowed_summary()}.\n"
         f"{_session_line(session_id)}"
     )
+
+
+def format_bash_policy_block(why: str, session_id: str) -> str:
+    """Compact full block for Bash commands disallowed even after unlock."""
+    why = " ".join(str(why or "").split())
+    return f"Bash blocked by unifable policy: {why}.\n{_session_line(session_id)}"
 
 
 def format_delegation_block(tool_name: str, session_id: str) -> str:
