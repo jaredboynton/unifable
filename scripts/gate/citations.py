@@ -40,6 +40,7 @@ from parse_tool_result import (
     fetched_url_targets,
     ran_command,
     read_targets,
+    research_bash_evidence,
 )
 from spec import prior_art_parts, repo_context_of, repo_context_parts
 
@@ -63,7 +64,7 @@ def enabled() -> bool:
 
 
 def empty_activity() -> dict[str, list[str]]:
-    return {"read_paths": [], "fetched_urls": [], "ran_commands": []}
+    return {"read_paths": [], "fetched_urls": [], "ran_commands": [], "tool_evidence": []}
 
 
 def activity_from_ledger(ledger: dict[str, Any]) -> dict[str, list[str]]:
@@ -72,12 +73,15 @@ def activity_from_ledger(ledger: dict[str, Any]) -> dict[str, list[str]]:
         value = ledger.get(key)
         if isinstance(value, list):
             out[key] = [str(x) for x in value if x]
+    tool_ev = ledger.get("tool_evidence")
+    if isinstance(tool_ev, list):
+        out["tool_evidence"] = [str(x) for x in tool_ev if x]
     return out
 
 
 def merge_activity(*activities: dict[str, list[str]]) -> dict[str, list[str]]:
     out = empty_activity()
-    for key in ACTIVITY_KEYS:
+    for key in (*ACTIVITY_KEYS, "tool_evidence"):
         seen: set[str] = set()
         merged: list[str] = []
         for act in activities:
@@ -365,10 +369,13 @@ def _scan_blocks(content: Any, act: dict[str, list[str]], cwd: str) -> None:
             continue
         for p in read_targets(pseudo_input):
             act["read_paths"].append(_abs(p, cwd))
-        act["fetched_urls"].extend(fetched_url_targets(pseudo_input))
+        act["fetched_urls"].extend(fetched_url_targets(pseudo_full))
         rc = ran_command(pseudo_input)
         if rc:
             act["ran_commands"].append(rc)
+        ev = research_bash_evidence(pseudo_full)
+        if ev:
+            act["tool_evidence"].append(ev)
 
 
 def _scan_file(path: Path, act: dict[str, list[str]]) -> None:

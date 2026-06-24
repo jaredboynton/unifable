@@ -73,6 +73,44 @@ def test_mcp_evidence_none_for_non_mcp_tool():
     assert mcp_evidence({"tool_name": "Read", "tool_response": "file body"}) is None
 
 
+def test_research_bash_evidence_captures_websearch_output():
+    from parse_tool_result import research_bash_evidence  # noqa: PLC0415
+
+    inp = {
+        "tool_name": "Bash",
+        "tool_input": {"command": 'bash ~/.agents/skills/explore/scripts/websearch.sh "immutable inputs"'},
+        "tool_response": {
+            "stdout": "Verified facts\n- Harness engineering uses immutable inputs https://example.com/harness\nRecommendation\nUse hooks not skills.",
+        },
+    }
+    ev = research_bash_evidence(inp)
+    assert ev is not None
+    assert ev.startswith("websearch.sh: ")
+    assert "https://example.com/harness" in ev
+    assert "Recommendation" in ev
+
+
+def test_research_bash_evidence_none_for_plain_bash():
+    from parse_tool_result import research_bash_evidence  # noqa: PLC0415
+
+    assert research_bash_evidence({"tool_name": "Bash", "tool_input": {"command": "rg foo"}, "tool_response": "hit"}) is None
+
+
+def test_research_bash_evidence_capture_into_ledger():
+    from parse_tool_result import research_bash_evidence  # noqa: PLC0415
+
+    led = default_ledger()
+    inp = {
+        "tool_name": "Bash",
+        "tool_input": {"command": "./websearch.sh goal"},
+        "tool_response": "sources: https://github.com/org/repo",
+    }
+    ev = research_bash_evidence(inp)
+    assert ev
+    add_unique(led, "tool_evidence", [ev])
+    assert "github.com" in led["tool_evidence"][0]
+
+
 def test_mcp_evidence_capture_into_ledger():
     """The 3-line gate_post_tool wiring: mcp_evidence -> add_unique('tool_evidence')."""
     led = default_ledger()

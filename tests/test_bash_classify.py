@@ -7,7 +7,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "gate"))
-from bash_classify import is_allowed_research_bash  # noqa: E402
+from bash_classify import explore_script_in_command, is_allowed_research_bash  # noqa: E402
 
 ALLOWED = [
     "cd subdir",
@@ -159,3 +159,9 @@ def test_non_whitelisted_commands_block(cmd):
 def test_non_string_is_blocked():
     assert is_allowed_research_bash(None) == (False, "empty command")
     assert is_allowed_research_bash(123) == (False, "empty command")
+
+
+def test_explore_script_in_command_detects_websearch_and_trace():
+    assert explore_script_in_command('bash ./websearch.sh "goal"') == "websearch.sh"
+    assert explore_script_in_command("~/.agents/skills/explore/scripts/trace.sh q") == "trace.sh"
+    assert explore_script_in_command("rg foo") is None

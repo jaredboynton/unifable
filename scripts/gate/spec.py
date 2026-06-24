@@ -32,6 +32,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -1089,6 +1090,92 @@ def _check_inputs_for_task(
     return run_check(task.get("check", ""), cwd=cwd)
 
 
+def _check_parallelism() -> int:
+    """Max concurrent stop-path check subprocesses (UNIFABLE_CHECK_PARALLELISM)."""
+    try:
+        n = int(os.environ.get("UNIFABLE_CHECK_PARALLELISM", "8") or "8")
+    except (TypeError, ValueError):
+        n = 8
+    return max(1, min(n, 64))
+
+
+def _prior_exit_for_failed_task(task: dict[str, Any]) -> int | None:
+    if str(task.get("status") or "") != "failed" or _should_replay_failed_check(task):
+        return None
+    raw_exit = task.get("exit")
+    if raw_exit is None:
+        return None
+    try:
+        return int(raw_exit)
+    except (TypeError, ValueError):
+        return 1
+
+
+def _apply_runnable_check_result(it: dict[str, Any], exit_code: int, output: str) -> None:
+    """Fill a pending validate item from a subprocess result."""
+    it.pop("_check_pending", None)
+    if exit_code == 127 and "not found" in (output or "").lower():
+        it["exit_code"] = None
+        it["output"] = ""
+        it["evidence_only"] = True
+        it["prior_exit"] = None
+        return
+    it["exit_code"] = exit_code
+    it["output"] = output
+
+
+def _collect_stop_validate_item(task: dict[str, Any]) -> dict[str, Any]:
+    """Build one stop-validation item; runnable checks may stay pending for parallel run."""
+    if task.get("status") == "disputed":
+        return {"task": task, "kind": "dispute"}
+    check = str(task.get("check") or "")
+    if not is_runnable_check(check):
+        return {
+            "task": task,
+            "kind": "validate",
+            "exit_code": None,
+            "output": "",
+            "evidence_only": True,
+            "prior_exit": None,
+        }
+    prior_exit = _prior_exit_for_failed_task(task)
+    if _should_replay_failed_check(task):
+        exit_code = task.get("exit")
+        return {
+            "task": task,
+            "kind": "validate",
+            "exit_code": int(exit_code if exit_code is not None else 1),
+            "output": str(task.get("output") or ""),
+            "prior_exit": prior_exit,
+        }
+    return {
+        "task": task,
+        "kind": "validate",
+        "_check_pending": True,
+        "prior_exit": prior_exit,
+    }
+
+
+def _run_stop_checks_parallel(items: list[dict[str, Any]], cwd: str | Path, deadline: float | None) -> list[dict[str, Any]]:
+    """Run pending shell checks concurrently; drop items the budget no longer covers."""
+    pending = [it for it in items if it.get("_check_pending")]
+    if not pending:
+        return items
+    if deadline is not None and time.monotonic() >= deadline:
+        return [it for it in items if not it.pop("_check_pending", None)]
+    workers = min(len(pending), _check_parallelism())
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = {pool.submit(_check_inputs_for_task, it["task"], cwd, deadline): it for it in pending}
+        for fut in as_completed(futures):
+            it = futures[fut]
+            try:
+                exit_code, output = fut.result()
+            except Exception as exc:  # noqa: BLE001
+                exit_code, output = 127, f"(check failed to run: {exc})"
+            _apply_runnable_check_result(it, exit_code, output)
+    return [it for it in items if not it.get("_check_pending")]
+
+
 def _apply_check_result(
     spec: dict[str, Any],
     task: dict[str, Any],
@@ -1259,7 +1346,8 @@ def auto_validate_spec(
     """Validate every open task on stop. Mutates spec in place.
 
     Open tasks (including failed) get fresh checks bounded by the remaining
-    wall-clock budget unless ``replay_failed`` is set on the task. Disputed
+    wall-clock budget unless ``replay_failed`` is set on the task. Runnable
+    checks run concurrently (``UNIFABLE_CHECK_PARALLELISM``, default 8). Disputed
     tasks are adjudicated in the same unified judge call as
     validation tasks. One ask_structured round-trip judges all tasks together
     from shared context (goal, board, transcript, check outputs). When
@@ -1294,63 +1382,12 @@ def auto_validate_spec(
 
     transcript, plan_mode = _judge_context(transcript_path)
 
-    items: list[dict[str, Any]] = []
+    slots: list[dict[str, Any]] = []
     for task in pending_tasks:
         if deadline is not None and time.monotonic() >= deadline:
             break
-        if task.get("status") == "disputed":
-            items.append({"task": task, "kind": "dispute"})
-            continue
-        check = str(task.get("check") or "")
-        # Non-runnable (prose / natural-language evidence) check: never shell-exec
-        # it -- that is what produced the exit-127 "command not found" doom loop on
-        # research tasks. Route it to evidence_only judging against captured tool
-        # activity (reads, fetches, MCP results) + the transcript instead.
-        if not is_runnable_check(check):
-            items.append(
-                {
-                    "task": task,
-                    "kind": "validate",
-                    "exit_code": None,
-                    "output": "",
-                    "evidence_only": True,
-                    "prior_exit": None,
-                }
-            )
-            continue
-        prior_exit: int | None = None
-        if str(task.get("status") or "") == "failed" and not _should_replay_failed_check(task):
-            raw_exit = task.get("exit")
-            if raw_exit is not None:
-                try:
-                    prior_exit = int(raw_exit)
-                except (TypeError, ValueError):
-                    prior_exit = 1
-        exit_code, output = _check_inputs_for_task(task, cwd, deadline)
-        # Backstop: classified runnable but the shell could not find a command to
-        # run (exit 127 + command-not-found) -> it is prose too; adjudicate on
-        # evidence rather than recording a spurious failure.
-        if exit_code == 127 and "not found" in (output or "").lower():
-            items.append(
-                {
-                    "task": task,
-                    "kind": "validate",
-                    "exit_code": None,
-                    "output": "",
-                    "evidence_only": True,
-                    "prior_exit": None,
-                }
-            )
-            continue
-        items.append(
-            {
-                "task": task,
-                "kind": "validate",
-                "exit_code": exit_code,
-                "output": output,
-                "prior_exit": prior_exit,
-            }
-        )
+        slots.append(_collect_stop_validate_item(task))
+    items = _run_stop_checks_parallel(slots, cwd, deadline)
 
     if items:
         spec.pop("_stop_adjust_headlines", None)

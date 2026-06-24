@@ -60,6 +60,41 @@ def test_auto_validate_one_judge_call_for_all_tasks(tmp_path, monkeypatch):
     assert calls["n"] == 1
 
 
+def test_auto_validate_runs_checks_in_parallel(tmp_path, monkeypatch):
+    import threading
+    import time
+
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [
+        _task("T1", "pending", check="sleep 0"),
+        _task("T2", "pending", check="sleep 0"),
+        _task("T3", "pending", check="sleep 0"),
+    ]
+    save_spec(str(tmp_path), "K", s)
+    lock = threading.Lock()
+    active = {"n": 0, "max": 0}
+
+    def slow_run_check(check, cwd=".", timeout=None):
+        with lock:
+            active["n"] += 1
+            active["max"] = max(active["max"], active["n"])
+        time.sleep(0.12)
+        with lock:
+            active["n"] -= 1
+        return 0, "ok"
+
+    monkeypatch.setattr(spec_mod, "run_check", slow_run_check)
+    monkeypatch.setattr(
+        spec_mod,
+        "judge_tasks",
+        lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items],
+    )
+    auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert active["max"] >= 2
+
+
 def test_failed_always_reruns_check(tmp_path, monkeypatch):
     s = spec_template()
     s["requires_tasks"] = True

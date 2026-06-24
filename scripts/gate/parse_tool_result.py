@@ -286,6 +286,15 @@ def _is_content_tool(tool: str) -> bool:
 # Codex surfaces them as "<server>.<tool>". Core host tools (Read, Bash, apply_patch,
 # Edit, ...) carry neither shape, so this stays precise.
 MCP_EVIDENCE_CHARS = 700
+RESEARCH_BASH_EVIDENCE_CHARS = 4000
+
+
+def _explore_script_in_bash_command(command: str) -> str | None:
+    try:
+        from bash_classify import explore_script_in_command
+    except ImportError:  # pragma: no cover
+        from scripts.gate.bash_classify import explore_script_in_command
+    return explore_script_in_command(command)
 
 
 def is_mcp_tool(tool_name: str) -> bool:
@@ -309,6 +318,27 @@ def mcp_evidence(input_data: dict[str, Any], limit: int = MCP_EVIDENCE_CHARS) ->
     if not body:
         return None
     return f"{tool}: {body}"
+
+
+def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BASH_EVIDENCE_CHARS) -> str | None:
+    """Compact ``<script>: <result>`` evidence for explore trace.sh/websearch.sh Bash.
+
+    Captured into ledger['tool_evidence'] and surfaced to the Stop validation
+    judge so research requirements can be adjudicated against the actual
+    retrieval output, not just the command string in ran_commands."""
+    if str(input_data.get("tool_name") or "") != "Bash":
+        return None
+    cmd = command_from_input(input_data).strip()
+    if not cmd:
+        return None
+    script = _explore_script_in_bash_command(cmd)
+    if not script:
+        return None
+    body = response_text(input_data.get("tool_response", input_data), limit)
+    body = redact(body, limit).strip()
+    if not body:
+        return None
+    return f"{script}: {body}"
 
 
 def read_targets(input_data: dict[str, Any]) -> list[str]:
@@ -345,6 +375,11 @@ def fetched_url_targets(input_data: dict[str, Any]) -> list[str]:
             out.extend(_bash_fetch_urls(str(ti.get("command") or "")))
     elif isinstance(ti, str) and tool == "Bash":
         out.extend(_bash_fetch_urls(ti))
+    if tool == "Bash":
+        cmd = command_from_input(input_data)
+        if _explore_script_in_bash_command(cmd):
+            # websearch.sh / trace.sh embed source URLs in stdout, not the argv.
+            out.extend(_urls_from_any(input_data.get("tool_response")))
     if _is_fetch_tool(tool):
         out.extend(_urls_from_any(input_data.get("tool_response")))
         out.extend(_urls_from_any(ti))

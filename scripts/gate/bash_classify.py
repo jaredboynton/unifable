@@ -582,6 +582,44 @@ def _allowed_compound(compound: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _explore_script_in_segment(seg: str) -> str | None:
+    """Return trace.sh/websearch.sh when this shell segment invokes one."""
+    try:
+        tokens = shlex.split(seg)
+    except ValueError:
+        tokens = seg.split()
+    if not tokens:
+        return None
+    command, rest = _first_command(tokens)
+    if not command:
+        return None
+    base = _basename(command)
+    if base in EXPLORE_SCRIPT_BASENAMES:
+        return base
+    if base in _TRACE_INTERPRETERS:
+        target_base = _basename(_trace_target_from_interpreter(rest))
+        if target_base in EXPLORE_SCRIPT_BASENAMES:
+            return target_base
+    return None
+
+
+def explore_script_in_command(command: str) -> str | None:
+    """Return trace.sh or websearch.sh when *command* invokes one, else None."""
+    if not isinstance(command, str) or not command.strip():
+        return None
+    for line in _join_flag_lines(_logical_lines(command)):
+        for compound in _split_compound(line):
+            try:
+                pipe_parts = _split_pipes(compound)
+            except Exception:
+                pipe_parts = [compound]
+            for part in pipe_parts:
+                found = _explore_script_in_segment(part)
+                if found:
+                    return found
+    return None
+
+
 def is_allowed_research_bash(command: str) -> tuple[bool, str]:
     """Return (allowed, reason). reason is non-empty when blocked."""
     if not isinstance(command, str) or not command.strip():
