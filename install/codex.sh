@@ -20,7 +20,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
 CONFIG="$CODEX_HOME/config.toml"
 HOOKS_JSON="$CODEX_HOME/hooks.json"
-SKILL_OLD="$CODEX_HOME/skills/unifable"
+SKILL_OLD="$CODEX_HOME/skills/unifable"  # legacy, pre-native-plugin
 SOURCE="${UNIFABLE_SOURCE:-jaredboynton/unifable}"
 MKT="unifable"; PLUG="unifable"; KEY="$PLUG@$MKT"
 
@@ -91,7 +91,7 @@ PY
 
 # 3) Migrate OFF the legacy install so the gate is not double-registered.
 #    (a) strip unifable entries from the global ~/.codex/hooks.json (kept for non-unifable hooks),
-#    (b) remove the old ~/.codex/skills/unifable copy. Both backed up.
+#    (b) remove the old ~/.codex/skills/unifable copy if it exists. Both backed up.
 if [ -f "$HOOKS_JSON" ]; then
   cp "$HOOKS_JSON" "$HOOKS_JSON.unifable-bak.$ts"
   python3 - "$HOOKS_JSON" <<'PY'

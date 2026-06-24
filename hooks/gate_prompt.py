@@ -133,6 +133,7 @@ def _format_scaffold_onboarding(
         block += (
             "  - HEAVY: unifable set-primary --title '...' --check '...'\n"
             "  - HEAVY: unifable add-frontier --title '...' --check '...' (>=2; judge may auto-add)\n"
+            "  - HEAVY workflow: explore ALL frontiers, judge picks the best on stop\n"
         )
     block += (
         "  - if a requirement is genuinely impossible: unifable dispute "

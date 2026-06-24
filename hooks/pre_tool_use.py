@@ -260,8 +260,10 @@ def _enforce_heavy_writes(input_data: dict, spec: dict, cwd: str, target: str | 
             kind="heavy",
             detail="frontier",
             message=(
-                "HEAVY frontier phase: primary approach is blocked until the judge marks "
-                "ALL frontier tasks rejected_approach. Work on frontier tasks first.\n"
+                "HEAVY frontier phase: primary approach is blocked. Explore and implement "
+                "ALL frontier approaches first -- the judge adjudicates each on Stop "
+                "(rejected/still_viable/accepted). When all are explored, the judge "
+                "compares evidence and may adopt the best frontier over primary.\n"
                 + heavy_workflow_brief(spec, phase)
             ),
         )

@@ -1,12 +1,12 @@
 # Eval: Delegation
 
-Measures whether the model uses the subagent-brief template (from
-`packs/subagent-brief.md`) when delegating parallel work, and whether the
+Measures whether the model uses the subagent-brief template (injected inline
+by the router) when delegating parallel work, and whether the
 brief contains the required output contract.
 
 Expected unifable route: `gate_prompt.py` classifies as `deep` (DEEP_RE:
-"large", "review" + multi-lane). `router.sh` injects `subagent-brief.md`
-when delegation keywords are detected. Output contract nudge applies at deep.
+"large", "review" + multi-lane). `router.sh` injects the `subagent-brief`
+route when delegation keywords are detected. Gate_prompt context applies at deep.
 
 ---
 
@@ -24,10 +24,10 @@ accuracy. Run the reviews in parallel with separate specialists.
 - Locks output as review.
 - Main agent determines whether parallel delegation is justified (three
   independent read-only lanes exist — yes, A2 is warranted).
-- If delegating, produces a brief per worker using the subagent-brief.md
-  template: objective, context/inputs, constraints (no edits, read-only),
-  strict output contract (five fields), and the verification the worker must
-  run.
+- If delegating, produces a brief per worker using the inline
+  `[unifable:subagent-brief]` route: objective, context/inputs, constraints
+  (no edits, read-only), strict output contract (five fields), and the
+  verification the worker must run.
 - Main agent synthesizes findings and owns the final answer.
 - No edits to PR files unless the user requests fixes.
 

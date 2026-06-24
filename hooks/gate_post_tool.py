@@ -310,7 +310,9 @@ def main() -> int:
                             ids = ", ".join(t["id"] for t in added)
                             discovery_context = (
                                 "unifable spec update:\n"
-                                f"Judge added frontier approach(s): {ids}. Explore before primary.\n"
+                                f"Judge added frontier approach(s): {ids}. Explore ALL frontiers"
+                                " thoroughly (check each one). The judge compares evidence on Stop"
+                                " and may adopt the best over primary.\n"
                                 + format_approach_board(spec)
                             )
     except Exception:

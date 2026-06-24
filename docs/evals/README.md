@@ -12,8 +12,8 @@ live session, observes the response, and scores it against the rubric.
 Run after any change to:
 
 - `hooks/gate_prompt.py` or `scripts/gate/classify_task.py` (classification logic)
-- `hooks/router.sh` (pack injection triggers)
-- Any file under `packs/` (pack content)
+- `hooks/router.sh` (inline discipline injection triggers)
+- `packs/router-manifest.json` (route definitions and inline body content)
 - `setup/unifable-block.md` (the injected system block)
 
 Run a baseline comparison: one session with unifable installed, one without. The

@@ -38,7 +38,9 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     from heavy_workflow import (
         advance_primary_if_ready,
         all_frontiers_rejected,
+        all_frontiers_terminal,
         all_tasks_validated_heavy,
+        any_frontier_accepted,
         compute_heavy_phase,
         frontier_tasks,
         heavy_declare_complete,
@@ -53,7 +55,9 @@ except ImportError:  # pragma: no cover
     from scripts.gate.heavy_workflow import (
         advance_primary_if_ready,
         all_frontiers_rejected,
+        all_frontiers_terminal,
         all_tasks_validated_heavy,
+        any_frontier_accepted,
         compute_heavy_phase,
         frontier_tasks,
         heavy_declare_complete,
@@ -1078,13 +1082,17 @@ def _apply_check_result(
     if kind == "frontier":
         if frontier_outcome == "rejected_approach":
             task["status"] = "rejected_approach"
+        elif frontier_outcome == "accepted_approach":
+            task["status"] = "accepted_approach"
         else:
             task["status"] = "failed"
     else:
         task["status"] = "validated" if verdict == 1 else "failed"
     advance_primary_if_ready(spec)
     sync_heavy_phase(spec)
-    if kind == "frontier" and task["status"] == "rejected_approach":
+    if kind == "frontier" and task["status"] == "accepted_approach":
+        headline = f"{tid} frontier accepted by judge (check passed): {reason[:80]}."
+    elif kind == "frontier" and task["status"] == "rejected_approach":
         headline = f"{tid} frontier ruled out by judge: {reason[:80]}."
         if all_frontiers_rejected(spec):
             headline += " All frontiers rejected — primary phase unlocked."
@@ -1222,6 +1230,19 @@ def auto_validate_spec(
                         prior_exit=it.get("prior_exit"),
                     )
                 )
+
+    # Frontier adoption: when all frontiers are terminal and at least one
+    # was accepted_approach, run the comparison round to select the best.
+    if _is_heavy_spec(spec):
+        if all_frontiers_terminal(spec) and any_frontier_accepted(spec):
+            comparison_headlines = judge_frontier_comparison(spec)
+            if comparison_headlines:
+                messages.extend(comparison_headlines)
+                notify_spec_update(
+                    spec,
+                    comparison_headlines[0],
+                )
+
     return spec, messages
 
 
@@ -1447,12 +1468,16 @@ _FRONTIER_JUDGE_SYSTEM = (
     "You are a strict frontier-approach adjudicator. A frontier approach is a "
     "realistic cutting-edge option the agent was required to explore before falling "
     "back to the evidence-backed primary approach. Given the goal, frontier title, "
-    "check command, exit code, and output, decide whether the exploration is "
-    "sufficient to RULE OUT this frontier (broken boundary found, failed experiment, "
-    "or proven infeasible). Return outcome 'rejected_approach' only when the "
-    "evidence convincingly disqualifies the frontier — not merely because the check "
-    "failed once. Return 'still_viable' when more exploration is warranted. "
-    "Set verdict to 0 always (frontier resolution uses outcome, not verdict). "
+    "check command, exit code, and output, decide:\n"
+    "  - 'rejected_approach': evidence convincingly disqualifies this frontier "
+    "(broken boundary found, failed experiment, or proven infeasible).\n"
+    "  - 'still_viable': more exploration is warranted before deciding.\n"
+    "  - 'accepted_approach': the check PASSED and the approach is a viable "
+    "implementation path that could be adopted as the best approach. Return this "
+    "when the frontier works.\n"
+    "Set verdict to 1 when the check genuinely passed, 0 otherwise. The outcome "
+    "field drives frontier resolution, not verdict. When ALL frontiers are explored, "
+    "a separate comparison round selects the single best accepted frontier.\n"
     + _JUDGE_NEW_REQ_GUIDANCE
     + " "
     + _JUDGE_AGENT_OWNERSHIP
@@ -1461,9 +1486,10 @@ _FRONTIER_JUDGE_SYSTEM = (
 )
 
 _PRIMARY_JUDGE_SYSTEM = (
-    "You are validating delivery of the evidence-backed PRIMARY fallback approach "
-    "after all frontier approaches were ruled out. Return verdict 1 only if the "
-    "check output proves the primary approach was implemented correctly. "
+    "You are validating delivery of the evidence-backed PRIMARY fallback approach. "
+    "This task only runs when all frontier approaches were rejected (none adopted). "
+    "Return verdict 1 only if the check output proves the primary approach was "
+    "implemented correctly. "
     + _JUDGE_FEEDBACK_GUIDANCE
 )
 
@@ -1509,7 +1535,7 @@ _FRONTIER_JUDGE_SCHEMA = {
     "type": "object",
     "properties": {
         "verdict": {"type": "integer", "enum": [0, 1]},
-        "outcome": {"type": "string", "enum": ["rejected_approach", "still_viable"]},
+        "outcome": {"type": "string", "enum": ["rejected_approach", "still_viable", "accepted_approach"]},
         "reason": {"type": "string"},
         "new_requirements": _NEW_REQ_SCHEMA,
         "adjust_requirements": _ADJUST_REQ_SCHEMA,
@@ -1553,8 +1579,12 @@ _VALIDATE_ALL_SYSTEM = (
     "- kind=dispute: adjudicate an agent impossibility claim. Accept (verdict 1) "
     "ONLY if dispute_evidence proves the task cannot be done; reject weak excuses "
     "(verdict 0).\n"
-    "- approach_kind=frontier: rule out or keep viable (outcome rejected_approach "
-    "vs still_viable; verdict always 0).\n"
+    "- approach_kind=frontier: evaluate exploration. Return outcome "
+    "'rejected_approach' (ruled out), 'still_viable' (needs more exploration), or "
+    "'accepted_approach' (check passed, viable implementation path). Set verdict to "
+    "1 when the check passed, 0 otherwise. outcome drives resolution, not verdict. "
+    "When ALL frontiers are explored (terminal status), a separate comparison round "
+    "selects the best accepted frontier.\n"
     "- approach_kind=primary: validate primary delivery after frontiers ruled out.\n"
     "Return task_verdicts with one object per input id (same fields as single-task "
     "validation: verdict, reason, optional new_requirements, adjust_requirements, "
@@ -1906,9 +1936,9 @@ def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, st
     frontier_outcome = ""
     if task and str(task.get("approach_kind") or "") == "frontier" and isinstance(res, dict):
         outcome = str(res.get("outcome") or "").strip()
-        if outcome in ("rejected_approach", "still_viable"):
+        if outcome in ("rejected_approach", "still_viable", "accepted_approach"):
             frontier_outcome = outcome
-        verdict = 0
+        verdict = 1 if outcome == "accepted_approach" else 0
     return verdict, reason, new_reqs, frontier_outcome
 
 
@@ -1961,6 +1991,106 @@ def _build_validate_all_user(
 def _validate_all_system(transcript: str, plan_mode: dict[str, Any] | None = None) -> str:
     base = _VALIDATE_ALL_SYSTEM + " " + _DISPUTE_ADJUDICATION
     return _judge_system_with_transcript(base, transcript, plan_mode=plan_mode)
+
+
+# ---------------------------------------------------------------------------
+# Frontier comparison round (adoption path)
+# ---------------------------------------------------------------------------
+
+_COMPARISON_SYSTEM = (
+    "You are a senior engineer comparing frontier approaches that were ALL explored. "
+    "You receive the goal and every frontier's title, check, exit code, output, and "
+    "prior judge reasoning. Your job is to select the SINGLE best frontier -- the one "
+    "with the strongest empirical evidence (passing checks, better output quality, "
+    "more robust approach, closer fit to the goal). You MUST select one when any "
+    "frontier has accepted_approach status. Provide selection_rationale explaining "
+    "WHY the winner was chosen over the others, citing specific evidence from the "
+    "frontier results (exit codes, output characteristics, approach trade-offs). "
+    "If NO frontier has accepted_approach status, return selected_id as null "
+    "(the primary fallback will be used instead)."
+)
+
+_COMPARISON_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "selected_id": {"type": ["string", "null"]},
+        "selection_rationale": {"type": "string"},
+    },
+    "required": ["selected_id", "selection_rationale"],
+    "additionalProperties": False,
+}
+
+
+def judge_frontier_comparison(spec: dict[str, Any]) -> list[str]:
+    """Compare all explored frontiers and select the best. Returns headlines.
+
+    Called after all task verdicts are applied in auto_validate_spec when
+    all_frontiers_terminal(spec) is True and at least one frontier has
+    accepted_approach status. Reads persisted evidence (exit, output,
+    judge_reason) from each frontier task -- no new persistence layer."""
+    frontiers = frontier_tasks(spec)
+    accepted = [
+        t for t in frontiers
+        if str(t.get("status") or "") == "accepted_approach"
+    ]
+    if not accepted:
+        return []
+
+    payload = {
+        "goal": spec.get("restated_goal", ""),
+        "frontiers": [
+            {
+                "id": str(t.get("id")),
+                "title": str(t.get("title") or ""),
+                "check": str(t.get("check") or ""),
+                "exit_code": t.get("exit"),
+                "output": str(t.get("output") or "")[:2000],
+                "judge_reason": str(t.get("judge_reason") or ""),
+                "status": str(t.get("status") or ""),
+            }
+            for t in frontiers
+        ],
+    }
+    try:
+        from codex_judge import JudgeError, ask_structured
+    except ImportError:
+        return []
+    try:
+        res = ask_structured(
+            _COMPARISON_SYSTEM,
+            json.dumps(payload, ensure_ascii=False),
+            _COMPARISON_SCHEMA,
+            schema_name="frontier_comparison",
+        )
+    except JudgeError:
+        return []
+
+    selected_id = str(res.get("selected_id") or "").strip()
+    rationale = str(res.get("selection_rationale") or "").strip()
+
+    headlines: list[str] = []
+    primary = primary_task(spec)
+    for t in frontiers:
+        tid = str(t.get("id"))
+        if tid == selected_id:
+            t["comparison_winner"] = True
+            t["judge_reason"] = f"Selected as best approach: {rationale[:200]}"
+            headlines.append(
+                f"{tid} selected as best frontier: {rationale[:80]}."
+            )
+        elif str(t.get("status") or "") == "accepted_approach":
+            t["status"] = "rejected_approach"
+            t["comparison_winner"] = False
+            headlines.append(f"{tid} not selected in comparison.")
+
+    if primary and str(primary.get("status") or "") == "blocked":
+        primary["status"] = "superseded"
+        primary["judge_reason"] = f"Superseded by adopted frontier {selected_id}."
+        headlines.append(f"Primary superseded by adopted frontier {selected_id}.")
+
+    sync_heavy_phase(spec)
+    advance_primary_if_ready(spec)
+    return headlines
 
 
 def judge_all_tasks(
@@ -2277,10 +2407,13 @@ _CONTRACT: dict[str, str] = {
         "Evidence must be observed tool output, not assumed."
     ),
     "HEAVY": (
-        "unifable spec contract — HEAVY grade (frontier-first workflow). "
+        "unifable spec contract — HEAVY grade (frontier-first workflow with adoption). "
         "Before editing: restated_goal, citation evidence, >=2 frontier approach tasks, "
-        "and 1 primary approach task (blocked until frontiers ruled out). "
-        "CLI: unifable set-primary / unifable add-frontier. Judge adjudicates frontiers on Stop."
+        "and 1 primary approach task. Judge adjudicates frontiers on Stop "
+        "(rejected_approach / still_viable / accepted_approach). When all frontiers "
+        "are explored, the judge compares evidence and may adopt the best frontier "
+        "(primary is superseded) or fall back to primary if none accepted. "
+        "CLI: unifable set-primary / unifable add-frontier."
     ),
 }
 

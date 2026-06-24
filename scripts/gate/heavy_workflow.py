@@ -3,7 +3,8 @@
 
 Phases:
   declare  — research only; need restated goal, citations, >=2 frontier tasks, 1 primary
-  frontier — explore frontiers; primary task stays blocked
+  frontier — explore ALL frontiers; judge marks each rejected/still_viable/accepted
+  adopted  — judge compared all explored frontiers and selected the best; primary superseded
   primary  — all frontiers rejected_approach; implement and validate primary fallback
 """
 
@@ -12,12 +13,15 @@ from __future__ import annotations
 from typing import Any
 
 APPROACH_KINDS = ("requirement", "frontier", "primary")
-HEAVY_PHASES = ("declare", "frontier", "primary")
+HEAVY_PHASES = ("declare", "frontier", "adopted", "primary")
 
 # Statuses that resolve a frontier task for HEAVY phase progression.
 # rejected_approach: explored and ruled out; retracted/superseded: judge withdrew
-# the frontier requirement — both unblock the primary fallback.
-FRONTIER_RESOLVED = frozenset({"rejected_approach", "retracted", "superseded"})
+# the frontier requirement; accepted_approach: check passed, viable implementation path.
+# All except accepted_approach fall through to the primary fallback.
+FRONTIER_RESOLVED = frozenset({
+    "rejected_approach", "retracted", "superseded", "accepted_approach",
+})
 
 
 def approach_kind(task: dict[str, Any]) -> str:
@@ -41,6 +45,37 @@ def primary_task(spec: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def all_frontiers_rejected(spec: dict[str, Any]) -> bool:
+    """True when all frontiers are resolved AND none was accepted_approach."""
+    frontiers = frontier_tasks(spec)
+    if len(frontiers) < 2:
+        return False
+    return all(
+        str(t.get("status") or "") in FRONTIER_RESOLVED
+        and str(t.get("status") or "") != "accepted_approach"
+        for t in frontiers
+    )
+
+
+def accepted_frontier(spec: dict[str, Any]) -> dict[str, Any] | None:
+    """The single frontier selected as best by the comparison round."""
+    return next(
+        (t for t in frontier_tasks(spec)
+         if str(t.get("status") or "") == "accepted_approach"
+         and t.get("comparison_winner") is True),
+        None,
+    )
+
+
+def any_frontier_accepted(spec: dict[str, Any]) -> bool:
+    """True when at least one frontier has accepted_approach status."""
+    return any(
+        str(t.get("status") or "") == "accepted_approach"
+        for t in frontier_tasks(spec)
+    )
+
+
+def all_frontiers_terminal(spec: dict[str, Any]) -> bool:
+    """True when every frontier has a status in FRONTIER_RESOLVED."""
     frontiers = frontier_tasks(spec)
     if len(frontiers) < 2:
         return False
@@ -67,6 +102,8 @@ def heavy_declare_complete(spec: dict[str, Any]) -> bool:
 def compute_heavy_phase(spec: dict[str, Any]) -> str:
     if not heavy_declare_complete(spec):
         return "declare"
+    if accepted_frontier(spec) is not None:
+        return "adopted"
     if all_frontiers_rejected(spec):
         return "primary"
     return "frontier"
@@ -139,6 +176,30 @@ def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:
         return False, ["<need >=2 frontier approach tasks>"]
     if primary_task(spec) is None:
         return False, ["<need primary approach task>"]
+    winner = accepted_frontier(spec)
+    if winner is not None:
+        # Adoption path: winner must be accepted_approach (prior verdict=1),
+        # all other frontiers resolved, primary superseded.
+        incomplete: list[str] = []
+        for t in tasks:
+            if not isinstance(t, dict):
+                continue
+            kind = approach_kind(t)
+            status = str(t.get("status") or "")
+            tid = str(t.get("id"))
+            if kind == "frontier" and t is winner:
+                if status != "accepted_approach":
+                    incomplete.append(tid)
+            elif kind == "frontier":
+                if status not in FRONTIER_RESOLVED:
+                    incomplete.append(tid)
+            elif kind == "primary":
+                if status != "superseded":
+                    incomplete.append(tid)
+            else:
+                if not task_is_resolved(t):
+                    incomplete.append(tid)
+        return (not incomplete), incomplete
     incomplete = [
         str(t.get("id")) for t in tasks
         if isinstance(t, dict) and not task_is_resolved(t)
@@ -198,9 +259,9 @@ def heavy_workflow_brief(spec: dict[str, Any] | None = None, phase: str | None =
     """Full additionalContext body for first HEAVY trigger and block messages."""
     phase = phase or (compute_heavy_phase(spec) if spec else "declare")
     lines = [
-        "unifable HEAVY workflow (frontier-first):",
+        "unifable HEAVY workflow (frontier-first with adoption):",
         f"  current phase: {phase}",
-        "  declare -> frontier -> primary -> done",
+        "  declare -> frontier -> {adopted | primary} -> done",
         "",
         "Phase rules:",
         "  declare: research only (reads/fetches). No edits until you have:",
@@ -208,10 +269,20 @@ def heavy_workflow_brief(spec: dict[str, Any] | None = None, phase: str | None =
         "    - repo_context + prior_art (auto-sync from reads/fetches)",
         "    - >=2 frontier approach tasks (judge may auto-add during research)",
         "    - 1 primary approach task (evidence-backed fallback)",
-        "  frontier: explore/implement frontier tasks. Primary stays BLOCKED.",
-        "    Only the judge may mark a frontier rejected_approach (on Stop).",
-        "  primary: after ALL frontiers are rejected_approach, implement primary.",
-        "    Judge validates primary delivery on Stop.",
+        "  frontier: explore and implement ALL frontier approaches. Each frontier",
+        "    check should demonstrate the approach working. The judge adjudicates",
+        "    each on Stop with one of:",
+        "      rejected_approach: ruled out (broken, infeasible, or not selected)",
+        "      still_viable: needs more exploration before a decision",
+        "      accepted_approach: check passed, approach is a viable implementation path",
+        "    Primary stays BLOCKED until all frontiers are explored.",
+        "  adopted: when ALL frontiers are explored (terminal status) and at least one",
+        "    was accepted_approach, the judge compares all frontier evidence and",
+        "    selects the BEST one. The winner becomes the implementation path;",
+        "    all others are rejected; primary is superseded. Prior verdict=1 counts",
+        "    as validation -- no extra check needed after selection.",
+        "  primary: all frontiers were rejected_approach. Implement and validate",
+        "    the evidence-backed primary fallback. Judge validates on Stop.",
         "",
         "Manual CLI (append-only; never edit spec JSON):",
         "  unifable restate '<intended outcome>'",
@@ -222,8 +293,14 @@ def heavy_workflow_brief(spec: dict[str, Any] | None = None, phase: str | None =
         "",
         "Judge (background, you are notified via additionalContext):",
         "  - May append frontier tasks while you research (added_by=judge)",
-        "  - Adjudicates frontier exploration on Stop -> rejected_approach or still pending",
-        "  - Validates primary delivery after frontier phase completes",
+        "  - Adjudicates each frontier on Stop -> rejected/still_viable/accepted",
+        "  - When all frontiers are explored, compares evidence and selects best",
+        "    (or falls back to primary if none accepted)",
+        "  - Validates primary delivery after frontier phase completes (fallback only)",
+        "",
+        "Key: explore ALL frontiers thoroughly. The goal is to find the BEST approach,",
+        "not just a working one. A frontier with a passing check may be accepted and",
+        "adopted over the primary if it is empirically better.",
         "",
         "Primary-path edits are hard-blocked during frontier phase when scope_paths are set.",
     ]
@@ -279,6 +356,13 @@ def heavy_transition_headline(
         return (
             f"HEAVY phase: {after_phase} -- primary task {tid} unblocked "
             "(all frontiers rejected); primary-path edits now allowed."
+        )
+    if before_phase == "frontier" and after_phase == "adopted":
+        winner = accepted_frontier(spec)
+        wid = str(winner.get("id") or "") if winner else ""
+        return (
+            f"HEAVY phase: frontier -> adopted. Frontier {wid} selected as best "
+            "approach by the comparison judge. Primary superseded."
         )
     if before_phase != after_phase:
         return f"HEAVY phase: {before_phase} -> {after_phase}."

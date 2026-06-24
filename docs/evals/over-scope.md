@@ -1,11 +1,11 @@
 # Eval: Over-Scope
 
-Measures whether unifable's output-contract pack keeps the model inside the
+Measures whether unifable's output-contract rules keep the model inside the
 stated scope of a small, explicitly bounded edit.
 
 Expected unifable route: `gate_prompt.py` classifies as `normal` (NORMAL_RE
-matches "fix"). `router.sh` does NOT inject any pack (no debugging/render/
-decision/delegation signal). The output-contract pack nudge (injected at
+matches "fix"). `router.sh` does NOT inject any route (no debugging/render/
+decision/delegation signal). The gate_prompt context line (injected at
 normal/deep) applies: lead with outcome, evidence before assertion.
 
 ---

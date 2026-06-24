@@ -3,13 +3,13 @@
   "owner": { "name": "Jared Boynton", "email": "jared.boynton@gmail.com" },
   "metadata": {
     "description": "unifable — a dual-host (Claude Code + Codex) harness that makes Opus behave like Fable: completion, evidence, and verification enforced as procedure. Fork of fivetaku/fablize.",
-    "version": "1.9.69"
+    "version": "1.9.70"
   },
   "plugins": [
     {
       "name": "unifable",
       "source": "./",
-      "description": "A harness that makes Opus (or any Claude/Codex model) behave like Fable: completion, evidence, and verification enforced as procedure, auto-routed per task (render-output verification, multi-story evidence gate, investigation protocol, early-stop guard). Runs on both Claude Code (plugin) and Codex (skill + hooks). Fork of fivetaku/fablize, fixing the PostToolUse false-positive failure gate.",
+      "description": "A harness that makes Opus (or any Claude/Codex model) behave like Fable: completion, evidence, and verification enforced as procedure, auto-routed per task. Native plugin on Claude Code and Codex (hooks self-contained). Fork of fivetaku/fablize, fixing the PostToolUse false-positive failure gate.",
       "category": "workflow"
     }
   ]

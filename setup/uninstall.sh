@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # unifable uninstall — remove the UNIFABLE operating block from the host's memory file (idempotent).
 # Host-aware: Claude -> CLAUDE.md, Codex -> AGENTS.md. Hook entries are removed separately
-# (Claude: uninstall the plugin; Codex: re-run nothing — edit ~/.codex/hooks.json or see install/codex.sh).
+# (Claude: uninstall the plugin; Codex: codex plugin remove unifable@unifable).
 # Usage: uninstall.sh [global|local] [claude|codex]
 set -euo pipefail
 
@@ -43,4 +43,4 @@ rm -f "${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable-spec"
 echo "  removed: ${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable (if present)"
 echo "  removed: ${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable-spec (if present)"
 echo "  Claude: also run /plugin to uninstall the plugin (removes its hooks)."
-echo "  Codex:  remove unifable entries from ~/.codex/hooks.json (commands referencing skills/unifable/hooks)."
+echo "  Codex:  run 'codex plugin remove unifable@unifable'. If upgrading from a legacy skill install, also remove unifable entries from ~/.codex/hooks.json (back up first)."

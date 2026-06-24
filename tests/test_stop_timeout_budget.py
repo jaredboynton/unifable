@@ -9,7 +9,6 @@ so it returns cleanly instead of running unbounded judge/check work."""
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 
@@ -35,12 +34,6 @@ def _stop_gate_timeout(path: Path) -> int:
 def test_manifests_stop_timeout_at_least_120():
     for rel in MANIFESTS:
         assert _stop_gate_timeout(REPO / rel) >= 120, rel
-
-
-def test_installer_stop_timeout_at_least_120():
-    txt = (REPO / "install" / "merge_hooks.py").read_text(encoding="utf-8")
-    m = re.search(r"gate_stop\.py[\s\S]{0,160}?timeout\"?\s*:\s*(\d+)", txt)
-    assert m and int(m.group(1)) >= 120
 
 
 def test_single_judge_call_fits_under_host_budget():

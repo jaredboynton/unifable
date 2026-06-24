@@ -1,11 +1,11 @@
 # Eval: Output Drift
 
-Measures whether unifable's output-contract pack enforces leading with the
+Measures whether unifable's output-contract rules enforce leading with the
 outcome and holding the locked output form throughout the response.
 
 Expected unifable route: `gate_prompt.py` classifies as `normal` (NORMAL_RE
-matches "build"/"implement"). `router.sh` may inject `domain-verification.txt`
-(implementation signal). Output-contract nudge: lead with outcome, no process
+matches "build"/"implement"). `router.sh` may inject the `domain-verify`
+route (implementation signal). Gate_prompt context: lead with outcome, no process
 narration.
 
 ---

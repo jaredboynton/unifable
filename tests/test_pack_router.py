@@ -26,6 +26,12 @@ def test_load_manifest_has_five_routes(routes: list[pack_router.PackRoute]) -> N
     assert tags == {"investigation", "grounding", "decision-trace", "domain-verify", "subagent-brief"}
 
 
+def test_routes_have_body(routes: list[pack_router.PackRoute]) -> None:
+    for r in routes:
+        assert r.body, f"route {r.tag} has empty body"
+        assert len(r.body) > 50, f"route {r.tag} body too short"
+
+
 @pytest.mark.parametrize(
     ("prompt", "expected_tags"),
     [
@@ -51,20 +57,23 @@ def test_match_routes(
     assert [r.tag for r in matched] == expected_tags
 
 
-def test_format_context_compact_single(routes: list[pack_router.PackRoute]) -> None:
+def test_format_context_inline_single(routes: list[pack_router.PackRoute]) -> None:
     matched = pack_router.match_routes("debug the bug", routes)
     ctx = pack_router.format_context(matched, packs_root="/plugin/root")
-    assert ctx.startswith("[unifable:router] Matched task signals — read packs under /plugin/root/packs/:")
-    assert "- investigation (Debugging/root-cause): investigation-protocol.txt —" in ctx
-    assert "/plugin/root/packs/investigation-protocol.txt" not in ctx
+    assert ctx.startswith("[unifable:investigation]")
+    assert "Investigation protocol" in ctx
+    assert "investigation-protocol.txt" not in ctx
+    assert "/plugin/root/packs/" not in ctx
 
 
-def test_format_context_compact_multi(routes: list[pack_router.PackRoute]) -> None:
+def test_format_context_inline_multi(routes: list[pack_router.PackRoute]) -> None:
     matched = pack_router.match_routes("debug html implement subagent", routes)
     ctx = pack_router.format_context(matched, packs_root="${CLAUDE_PLUGIN_ROOT}")
-    lines = ctx.splitlines()
-    assert lines[0].startswith("[unifable:router]")
-    assert len(lines) == 1 + len(matched)
+    assert "[unifable:investigation]" in ctx
+    assert "[unifable:grounding]" in ctx
+    assert "[unifable:domain-verify]" in ctx
+    assert "[unifable:subagent-brief]" in ctx
+    assert ctx.count("[unifable:") == len(matched)
 
 
 def test_route_prompt_returns_envelope(routes: list[pack_router.PackRoute]) -> None:
@@ -72,8 +81,8 @@ def test_route_prompt_returns_envelope(routes: list[pack_router.PackRoute]) -> N
     assert out is not None
     hso = out["hookSpecificOutput"]
     assert hso["hookEventName"] == "UserPromptSubmit"
-    assert "[unifable:router]" in hso["additionalContext"]
-    assert "investigation-protocol.txt" in hso["additionalContext"]
+    assert "[unifable:investigation]" in hso["additionalContext"]
+    assert "Investigation protocol" in hso["additionalContext"]
 
 
 def test_route_prompt_empty_when_no_match() -> None:
@@ -107,7 +116,9 @@ def test_router_sh_integration() -> None:
     assert proc.returncode == 0
     obj = json.loads(proc.stdout.strip())
     ctx = obj["hookSpecificOutput"]["additionalContext"]
-    assert ctx.startswith("[unifable:router]")
-    assert "investigation-protocol.txt" in ctx
-    assert "domain-verification.txt" in ctx
-    assert "subagent-brief.md" in ctx
+    assert "[unifable:investigation]" in ctx
+    assert "[unifable:domain-verify]" in ctx
+    assert "[unifable:subagent-brief]" in ctx
+    assert "Investigation protocol" in ctx
+    assert "Domain verification recipes" in ctx
+    assert "Subagent brief template" in ctx

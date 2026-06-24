@@ -111,7 +111,7 @@ a deterministic hook on the host's critical path, not a skill the worker may cho
 | Stop | `gate_stop.py` (120s) | Completion gate: require the evidence spec; judge active goals; verification-ran + promise-no-act guards; advisory judge hint when stuck behind the completion breaker; **passthrough** (`{}`) when all criteria pass |
 
 Shared core lives in `scripts/gate/` (ledger, task classifier, tool-result parser, verify-state,
-the judge client) and `packs/` (investigation protocol, verification-grounding). It stays
+the judge client) and `packs/router-manifest.json` (inline discipline injected by the router). It stays
 host-agnostic; host wiring lives in `hooks/` and `install/`.
 
 ## Evidence gate
@@ -233,8 +233,8 @@ codex plugin add unifable@unifable
 ```
 
 `install/codex.sh` reproduces this non-interactively and **migrates off** any legacy install: it
-registers the marketplace, installs + force-enables `unifable@unifable`, then retires the old
-`~/.codex/skills/unifable` copy and strips the old unifable entries from `~/.codex/hooks.json`
+registers the marketplace, installs + force-enables `unifable@unifable`, then strips the old
+unifable entries from `~/.codex/hooks.json`
 (both backed up). Optional always-on operating block: prefix with `UNIFABLE_BLOCK=1`.
 
 ```bash
@@ -248,8 +248,8 @@ Restart Codex; the plugin loads its own hooks. Verify with `codex plugin list`.
 
 Beyond the gate, unifable ships: a debounced test-runner (`UNIFABLE_TEST_AFTER_EDIT=1`);
 a findings ledger and warning-threshold accumulation; per-task **grade tiers** and a
-depth-shaped final response; per-model posture files under `skills/unifable/tiers/`; routing
-packs for domain verification, decision traces, subagent briefs, and completion checks;
+depth-shaped final response; inline routing packs for domain verification, decision traces,
+subagent briefs, and investigation (all in `packs/router-manifest.json`, injected by the hooks);
 multi-story goal tracking (`scripts/goals.py`, state under `./.unifable/`); and a behavioral eval
 suite (`docs/evals/`, `tests/eval_rubric.md`).
 

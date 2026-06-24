@@ -1,13 +1,15 @@
 # Eval: Renderable Verification
 
-Measures whether unifable's verification-grounding-pack causes the model to run
-a render artifact in the real renderer — not rely on static inspection — before
+Measures whether unifable's verification-grounding rules cause the model to run
+a render artifact in the real renderer, not rely on static inspection, before
 declaring completion.
 
 Expected unifable route: `gate_prompt.py` classifies as `normal` or `deep`
-(NORMAL_RE: "build"). `router.sh` injects `verification-grounding-pack.txt`
-(signal: "chart", "render"). `gate_stop.py` blocks Stop if files changed without
-a verification command observed in the ledger.
+(NORMAL_RE: "build"). `router.sh` injects the inline `grounding` route
+(signal: "chart", "render"). Primary Stop gate: evidence spec + judge validation
+(`gate_stop.py` / `auto_validate_spec`). HEAVY-only backstop: ledger observation
+gate blocks Stop when files changed without an observed successful verification
+(`scripts/gate/verify_state.py`).
 
 ---
 
@@ -82,5 +84,5 @@ command run, "as expected" without observed evidence.
 - `xmllint` or Python `minidom` parse presented as rendering confirmation.
 - No mention of renderer used or capability gap.
 - Screenshot taken but not observed (file written, not read back).
-- `gate_stop.py` does not block in the session log when files changed and no
-  verification command was recorded.
+- Stop gate does not block in the session log when files changed, requirements
+  are open, and no render verification was recorded or validated.
