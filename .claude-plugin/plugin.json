@@ -1,6 +1,6 @@
 {
   "name": "unifable",
-  "version": "1.9.61",
+  "version": "1.9.62",
   "description": "A harness that makes Opus (or any Claude/Codex model) behave like Fable. It enforces completion, evidence, and verification as procedure, and auto-routes the right verified pack per task: render-output verification, a multi-story evidence gate, an investigation protocol, and an early-stop guard. Dual-host: Claude Code (plugin) + Codex (skill + hooks). Fork of fivetaku/fablize.",
   "author": { "name": "Jared Boynton", "email": "jared.boynton@gmail.com" },
   "homepage": "https://github.com/jaredboynton/unifable",

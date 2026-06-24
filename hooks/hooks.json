@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook router.sh",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" router.sh",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook gate_prompt.py",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt.py",
             "timeout": 95
           }
         ]
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook gate_prompt_effort.py",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt_effort.py",
             "timeout": 10
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook pre_tool_use.py",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" pre_tool_use.py",
             "timeout": 10
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook gate_post_tool.py",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" gate_post_tool.py",
             "timeout": 10
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook test_after_edit.py",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" test_after_edit.py",
             "timeout": 75
           }
         ]
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "unifable-hook gate_stop.py",
+            "command": "\"${HOME}/.local/bin/unifable-hook\" gate_stop.py",
             "timeout": 120
           }
         ]

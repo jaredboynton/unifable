@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Dispatch a unifable hook script from the resolved plugin root.
 # Stable entrypoint for hooks.json — survives versioned cache dir churn after upgrades.
-set -euo pipefail
+# Fail open: resolver errors emit {} and exit 0 so the host is never bricked.
+set -uo pipefail
 
 script="${1:-}"
 if [ -z "$script" ]; then
@@ -9,21 +10,35 @@ if [ -z "$script" ]; then
   exit 0
 fi
 
-_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-_plugin_hint="$(cd "$_here/.." && pwd)"
+_resolve_bootstrap_root() {
+  local s="${BASH_SOURCE[0]}"
+  while [ -L "$s" ]; do
+    local dir
+    dir="$(cd "$(dirname "$s")" && pwd)"
+    s="$(readlink "$s")"
+    case "$s" in /*) ;; *) s="$dir/$s";; esac
+  done
+  local here
+  here="$(cd "$(dirname "$s")" && pwd)"
+  cd "$here/.." && pwd
+}
+
+_plugin_hint="$(_resolve_bootstrap_root)"
 
 ROOT="$(
-  UNIFABLE_PLUGIN_ROOT="${UNIFABLE_PLUGIN_ROOT:-$_plugin_hint}" python3 -c "
+  UNIFABLE_DISPATCH_BOOTSTRAP="$_plugin_hint" python3 -c "
 import os, sys
 from pathlib import Path
 
-hint = Path(os.environ.get('UNIFABLE_PLUGIN_ROOT', '')).expanduser()
-sys.path.insert(0, str(hint / 'scripts' / 'gate'))
+bootstrap = Path(os.environ.get('UNIFABLE_DISPATCH_BOOTSTRAP', '')).expanduser()
+if not bootstrap.is_dir():
+    raise SystemExit(0)
+sys.path.insert(0, str(bootstrap / 'scripts' / 'gate'))
 from plugin_root import resolve_plugin_root
 
-root = resolve_plugin_root(hint if hint.is_dir() else None)
+root = resolve_plugin_root(bootstrap)
 print(root or '')
-"
+" 2>/dev/null || true
 )"
 
 if [ -z "$ROOT" ] || [ ! -f "$ROOT/hooks/$script" ]; then
