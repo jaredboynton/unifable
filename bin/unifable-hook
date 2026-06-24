@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Dispatch a unifable hook script from the resolved plugin root.
+# Stable entrypoint for hooks.json — survives versioned cache dir churn after upgrades.
+set -euo pipefail
+
+script="${1:-}"
+if [ -z "$script" ]; then
+  echo "{}"
+  exit 0
+fi
+
+_here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_plugin_hint="$(cd "$_here/.." && pwd)"
+
+ROOT="$(
+  UNIFABLE_PLUGIN_ROOT="${UNIFABLE_PLUGIN_ROOT:-$_plugin_hint}" python3 -c "
+import os, sys
+from pathlib import Path
+
+hint = Path(os.environ.get('UNIFABLE_PLUGIN_ROOT', '')).expanduser()
+sys.path.insert(0, str(hint / 'scripts' / 'gate'))
+from plugin_root import resolve_plugin_root
+
+root = resolve_plugin_root(hint if hint.is_dir() else None)
+print(root or '')
+"
+)"
+
+if [ -z "$ROOT" ] || [ ! -f "$ROOT/hooks/$script" ]; then
+  echo "{}"
+  exit 0
+fi
+
+export PLUGIN_ROOT="$ROOT"
+export CLAUDE_PLUGIN_ROOT="$ROOT"
+export UNIFABLE_PLUGIN_ROOT="$ROOT"
+
+target="$ROOT/hooks/$script"
+case "$script" in
+  *.sh) exec bash "$target" ;;
+  *) exec python3 "$target" ;;
+esac

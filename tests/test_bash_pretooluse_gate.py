@@ -177,6 +177,19 @@ def test_readonly_git_passes_under_bypass_permissions():
     assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
 
 
+def test_git_workflow_passes_under_bypass_permissions():
+    """Git add/commit/push (non-force) is available before a valid spec exists."""
+    rc, stderr = run_pre_tool_bash("git add . && git commit -m 'wip'", permission_mode="bypassPermissions")
+    assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
+    rc2, stderr2 = run_pre_tool_bash("git push origin main", permission_mode="bypassPermissions")
+    assert rc2 == 0, f"expected pass (rc 0), got {rc2}; stderr={stderr2!r}"
+
+
+def test_git_push_force_blocked_before_spec():
+    rc, stderr = run_pre_tool_bash("git push --force", permission_mode="bypassPermissions")
+    assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
+
+
 def test_light_grade_waives_bash_gate():
     """A LIGHT/quick task waives the bash gate -- routine shell is not
     over-gated on trivial work."""

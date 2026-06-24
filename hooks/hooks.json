@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/hooks/router.sh",
+            "command": "unifable-hook router.sh",
             "timeout": 10
           }
         ]
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_prompt.py\"",
+            "command": "unifable-hook gate_prompt.py",
             "timeout": 95
           }
         ]
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_prompt_effort.py\"",
+            "command": "unifable-hook gate_prompt_effort.py",
             "timeout": 10
           }
         ]
@@ -38,7 +38,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/pre_tool_use.py\"",
+            "command": "unifable-hook pre_tool_use.py",
             "timeout": 10
           }
         ]
@@ -50,7 +50,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_post_tool.py\"",
+            "command": "unifable-hook gate_post_tool.py",
             "timeout": 10
           }
         ]
@@ -60,7 +60,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/test_after_edit.py\"",
+            "command": "unifable-hook test_after_edit.py",
             "timeout": 75
           }
         ]
@@ -71,7 +71,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hooks/gate_stop.py\"",
+            "command": "unifable-hook gate_stop.py",
             "timeout": 120
           }
         ]

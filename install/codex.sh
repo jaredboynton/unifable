@@ -42,6 +42,7 @@ codex plugin marketplace add "$SOURCE" >/dev/null 2>&1 \
 # the latest commit (needed when re-running to pick up a new release).
 codex plugin marketplace upgrade "$MKT" >/dev/null 2>&1 && echo "  ✓ marketplace '$MKT' refreshed to latest" || true
 
+codex plugin remove "$KEY" >/dev/null 2>&1 || true
 codex plugin add "$KEY" >/dev/null 2>&1 \
   && echo "  ✓ plugin '$KEY' installed (cached under $CODEX_HOME/plugins/cache/$MKT/$PLUG/)" \
   || { echo "  ! 'codex plugin add $KEY' failed — run it manually, then re-run."; exit 1; }

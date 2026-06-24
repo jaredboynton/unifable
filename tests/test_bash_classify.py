@@ -68,6 +68,9 @@ ALLOWED = [
     "git rev-parse --show-toplevel",
     "git -C /repo status",
     "cd subdir && git diff",
+    "git add .",
+    "git commit -m 'wip'",
+    "git push origin main",
 ]
 
 BLOCKED = [
@@ -93,9 +96,7 @@ BLOCKED = [
     "unifable add-task --title t --check true && cat /etc/passwd",
     "pytest tests/ -q",
     "npm test",
-    "git commit -m x",
-    "git add .",
-    "git push",
+    "git push --force",
     "git checkout main",
     "curl https://example.com",
     "rm -rf build",

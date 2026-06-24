@@ -42,11 +42,15 @@ def _ensure_spec_scaffold(
     *,
     heavy: bool = False,
     evidence_profile: str = "code",
-) -> str:
+) -> tuple[str, list[str]]:
     """Auto-create the evidence spec (the agent never runs `create`). Writes a
     scaffold with `requires_tasks` so an empty spec is not completable, seeds the
-    goal from the prompt, and returns the spec path for injection. Fail-open:
-    returns "" on any error and never raises into the hook."""
+    goal from the prompt, and returns (spec_path, changes). ``changes`` lists
+    mutations applied to an EXISTING spec (gap 5: set/cleared heavy_workflow,
+    evidence_profile shift) so the prompt hook can tell the model what moved; a
+    fresh create reports none (it has its own 'auto-created' line). Fail-open:
+    returns ("", []) on any error and never raises into the hook."""
+    changes: list[str] = []
     try:
         path = spec_path(cwd, key)
         if not path.exists():
@@ -69,9 +73,12 @@ def _ensure_spec_scaffold(
                 if not s.get("heavy_workflow"):
                     s["heavy_workflow"] = True
                     changed = True
-                if s.get("evidence_profile") != evidence_profile:
+                    changes.append("set heavy_workflow")
+                old_profile = str(s.get("evidence_profile") or "")
+                if old_profile != evidence_profile:
                     s["evidence_profile"] = evidence_profile
                     changed = True
+                    changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
                 if changed:
                     save_spec(cwd, key, s)
         else:
@@ -80,14 +87,17 @@ def _ensure_spec_scaffold(
                 changed = False
                 if clear_stale_heavy_workflow(s, "STANDARD"):
                     changed = True
-                if s.get("evidence_profile") != evidence_profile:
+                    changes.append("cleared stale heavy_workflow/heavy_phase")
+                old_profile = str(s.get("evidence_profile") or "")
+                if old_profile != evidence_profile:
                     s["evidence_profile"] = evidence_profile
                     changed = True
+                    changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
                 if changed:
                     save_spec(cwd, key, s)
-        return str(path)
+        return str(path), changes
     except Exception:
-        return ""
+        return "", []
 
 
 def main() -> int:
@@ -164,6 +174,10 @@ def main() -> int:
         else:
             ledger["inject_heavy_brief"] = False
 
+    prior_ledger = load_ledger(input_data)
+    prior_grade = resolve_grade(prior_ledger)
+    prior_profile = str(prior_ledger.get("evidence_profile") or "")
+    prior_active = bool(prior_ledger.get("active_task"))
     update_ledger(input_data, apply)
 
     ledger = load_ledger(input_data)

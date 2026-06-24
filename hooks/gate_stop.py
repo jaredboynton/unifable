@@ -109,12 +109,44 @@ def _attach_validate_context(payload: dict, ctx: str) -> None:
     Use only when ``decision: block`` is set; allow-stop paths must emit ``{}``
     or ``systemMessage`` alone. The short blocking alarm stays in ``reason``.
     """
-    if not ctx or not ctx.strip():
-        return
-    hso = payload.setdefault("hookSpecificOutput", {})
-    hso["hookEventName"] = "Stop"
-    existing = str(hso.get("additionalContext") or "").strip()
-    hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
+    try:
+        from hook_output import attach_stop_validate_context
+
+        attach_stop_validate_context(payload, ctx)
+    except Exception:
+        if not ctx or not ctx.strip():
+            return
+        hso = payload.setdefault("hookSpecificOutput", {})
+        hso["hookEventName"] = "Stop"
+        existing = str(hso.get("additionalContext") or "").strip()
+        hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
+
+
+def _emit_stop_payload(
+    payload: dict,
+    input_data: dict,
+    *,
+    validate_ctx: str = "",
+    loop_lift_ctx: str = "",
+    digest_path: str = "",
+) -> None:
+    try:
+        from hook_output import finalize_stop_payload
+
+        payload = finalize_stop_payload(
+            payload,
+            validate_ctx=validate_ctx,
+            loop_lift_ctx=loop_lift_ctx,
+            input_data=input_data,
+            digest_path=digest_path,
+        )
+    except Exception:
+        _attach_validate_context(payload, _merge_reason_parts(validate_ctx, loop_lift_ctx))
+    emit_json(payload)
+
+
+def _merge_reason_parts(*parts: str) -> str:
+    return "\n\n".join(p.strip() for p in parts if p and str(p).strip())
 
 
 def _build_stop_validate_context(
@@ -692,14 +724,13 @@ def main() -> int:
                     "decision": "block",
                     "reason": ev_reason,
                 }
-                _attach_validate_context(payload, validate_ctx)
-                if loop_lift_ctx:
-                    hso = payload.setdefault("hookSpecificOutput", {})
-                    hso["hookEventName"] = "Stop"
-                    existing = str(hso.get("additionalContext") or "").strip()
-                    merged = f"{existing}\n{loop_lift_ctx}".strip() if existing else loop_lift_ctx
-                    hso["additionalContext"] = merged
-                emit_json(payload)
+                _emit_stop_payload(
+                    payload,
+                    input_data,
+                    validate_ctx=validate_ctx,
+                    loop_lift_ctx=loop_lift_ctx,
+                    digest_path=stop_digest_path,
+                )
                 return 0
         except Exception:
             pass  # fail open — a gate bug never interrupts the host
@@ -709,8 +740,12 @@ def main() -> int:
     try:
         goal_payload = goal_stop_decision(input_data, cwd)
         if goal_payload:
-            _attach_validate_context(goal_payload, validate_ctx)
-            emit_json(goal_payload)
+            _emit_stop_payload(
+                goal_payload,
+                input_data,
+                validate_ctx=validate_ctx,
+                digest_path=stop_digest_path,
+            )
             return 0
     except Exception:
         pass  # fail open

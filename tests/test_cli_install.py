@@ -39,6 +39,9 @@ def _write_cli_tree(root: Path, *, version: str, executable: bool = True) -> Non
     scripts = root / "scripts" / "gate"
     scripts.mkdir(parents=True, exist_ok=True)
     (scripts / "spec.py").write_text("# stub\n", encoding="utf-8")
+    hooks = root / "hooks"
+    hooks.mkdir(parents=True, exist_ok=True)
+    (hooks / "pre_tool_use.py").write_text("# stub\n", encoding="utf-8")
     setup = root / "setup"
     setup.mkdir(parents=True, exist_ok=True)
     install_src = REPO / "setup" / "install-bin.sh"
@@ -48,7 +51,7 @@ def _write_cli_tree(root: Path, *, version: str, executable: bool = True) -> Non
     )
     bin_dir = root / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
-    for name in ("unifable", "unifable-spec"):
+    for name in ("unifable", "unifable-spec", "unifable-hook"):
         target = bin_dir / name
         target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         mode = stat.S_IRWXU if executable else stat.S_IRUSR | stat.S_IWUSR
@@ -195,8 +198,8 @@ class TestProbeAndEnsureCli(unittest.TestCase):
     def test_probe_current_executable(self) -> None:
         bindir, current, _old = self._make_dirs()
         _write_cli_tree(current, version="1.9.27", executable=True)
-        link = bindir / "unifable"
-        link.symlink_to(current / "bin" / "unifable")
+        (bindir / "unifable").symlink_to(current / "bin" / "unifable")
+        (bindir / "unifable-hook").symlink_to(current / "bin" / "unifable-hook")
         state = probe_installed_cli(bindir_override=bindir)
         ctx = CurrentCliContext(
             plugin_root=current,
@@ -244,6 +247,9 @@ class TestProbeAndEnsureCli(unittest.TestCase):
         target = (bindir / "unifable").resolve()
         self.assertEqual(target, (current / "bin" / "unifable").resolve())
         self.assertTrue(os.access(target, os.X_OK))
+        hook_target = (bindir / "unifable-hook").resolve()
+        self.assertEqual(hook_target, (current / "bin" / "unifable-hook").resolve())
+        self.assertTrue(os.access(hook_target, os.X_OK))
 
     def test_ensure_cli_respects_opt_out(self) -> None:
         bindir, current, _old = self._make_dirs()

@@ -134,6 +134,44 @@ def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int)
         return ""
 
 
+def _citation_sync_headline(added: dict[str, list[str]]) -> str:
+    """One batched headline naming the cites auto-synced this PostToolUse call (gap 1).
+
+    Per-turn batch: a single line covering everything sync_citations_from_activity
+    appended for this tool, capped so a wide read does not flood the channel."""
+    prior = [str(u) for u in (added.get("prior_art") or []) if str(u).strip()]
+    repo = [str(p) for p in (added.get("repo_context") or []) if str(p).strip()]
+    total = len(prior) + len(repo)
+    if not total:
+        return ""
+    segs: list[str] = []
+    if prior:
+        segs.append("prior_art<-fetch [" + ", ".join(prior[:3]) + ("..." if len(prior) > 3 else "") + "]")
+    if repo:
+        segs.append("repo_context<-read [" + ", ".join(repo[:3]) + ("..." if len(repo) > 3 else "") + "]")
+    return f"synced {total} cite(s): " + "; ".join(segs)
+
+
+def _breaker_status_context(input_data: dict) -> str:
+    """Minimal standing groundedness-breaker status (gap 6).
+
+    Empty unless the breaker is armed or provisionally lifted, so the line only
+    appears while the breaker is actually constraining the session. Fails open."""
+    try:
+        from breaker_state import load_breaker
+
+        breaker = load_breaker(input_data)
+        if breaker.get("breaker_armed"):
+            claim = " ".join(str(breaker.get("breaker_claim") or "").split())[:60]
+            return f"breaker: ARMED on '{claim}'" if claim else "breaker: ARMED"
+        if breaker.get("breaker_provisional"):
+            scope = " ".join(str(breaker.get("breaker_lift_scope") or "").split())[:60]
+            return f"breaker: PROVISIONAL lift ({scope})" if scope else "breaker: PROVISIONAL lift"
+    except Exception:
+        return ""
+    return ""
+
+
 def _emit_context(parts: list[str]) -> None:
     body = "\n".join(p for p in parts if p and p.strip())
     if not body:
@@ -188,7 +226,7 @@ def main() -> int:
     ledger = update_ledger(input_data, apply)
 
     discovery_context = ""
-    grade_change_context = ""
+    citation_context = ""
     try:
         from citations import activity_from_ledger, sync_citations_from_activity
         from evidence_policy import resolve_grade
@@ -201,8 +239,12 @@ def main() -> int:
         if task_id:
             spec = load_spec(cwd, task_id)
             activity = activity_from_ledger(ledger)
-            if spec and sync_citations_from_activity(spec, activity, cwd):
+            citation_added: dict[str, list[str]] = {}
+            if spec and sync_citations_from_activity(spec, activity, cwd, added_sink=citation_added):
                 save_spec(cwd, task_id, spec)
+                _cite_headline = _citation_sync_headline(citation_added)
+                if _cite_headline:
+                    citation_context = build_spec_context_from_spec(spec, headlines=[_cite_headline])
             if (
                 spec
                 and grade == "HEAVY"
@@ -238,6 +280,7 @@ def main() -> int:
 
     spec_context = _spec_context(input_data, tool_name, cwd)
     breaker_context = _breaker_release_context(input_data, tool_name, executed_ok)
+    breaker_status_context = _breaker_status_context(input_data)
 
     repeat = repeated_failure(ledger.get("failures", [])) if failure else None
     if repeat:
@@ -249,19 +292,23 @@ def main() -> int:
         parts: list[str] = []
         if hint:
             parts.append("Hint: " + hint)
+        if citation_context:
+            parts.append(citation_context)
         if spec_context:
             parts.append(spec_context)
-        if grade_change_context:
-            parts.append(grade_change_context)
+        if breaker_status_context:
+            parts.append(breaker_status_context)
         _emit_context(parts)
     elif failure and not spec_context:
-        _emit_context(
-            [
-                "unifable gate observed a tool failure. Do not report completion until "
-                "it is fixed, isolated as a known baseline, or explicitly documented.",
-                grade_change_context,
-            ]
-        )
+        parts = [
+            "unifable gate observed a tool failure. Do not report completion until "
+            "it is fixed, isolated as a known baseline, or explicitly documented.",
+        ]
+        if citation_context:
+            parts.append(citation_context)
+        if breaker_status_context:
+            parts.append(breaker_status_context)
+        _emit_context(parts)
     else:
         parts: list[str] = []
         if failure and not spec_context:
@@ -269,12 +316,14 @@ def main() -> int:
                 "unifable gate observed a tool failure. Do not report completion until "
                 "it is fixed, isolated as a known baseline, or explicitly documented."
             )
+        if citation_context:
+            parts.append(citation_context)
         if spec_context:
             parts.append(spec_context)
-        if grade_change_context:
-            parts.append(grade_change_context)
         if discovery_context:
             parts.append(discovery_context)
+        if breaker_status_context:
+            parts.append(breaker_status_context)
         if breaker_context:
             parts.append(breaker_context)
         _emit_context(parts)

@@ -62,13 +62,11 @@ def read_plugin_version(root: Path) -> str | None:
 
 
 def resolve_plugin_root(explicit: Path | None = None) -> Path | None:
-    if explicit is not None:
-        return explicit.resolve()
-    for var in ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT", "UNIFABLE_PLUGIN_ROOT"):
-        raw = os.environ.get(var, "").strip()
-        if raw:
-            return Path(raw).expanduser().resolve()
-    return None
+    try:
+        from plugin_root import resolve_plugin_root as resolve_effective_root
+    except ImportError:  # pragma: no cover
+        from scripts.gate.plugin_root import resolve_plugin_root as resolve_effective_root
+    return resolve_effective_root(explicit)
 
 
 def _resolve_symlink_target(path: Path) -> Path | None:
@@ -128,19 +126,35 @@ def current_cli_context(plugin_root: Path | None = None) -> CurrentCliContext | 
     )
 
 
-def probe_installed_cli(*, bindir_override: Path | None = None) -> InstalledCliState:
-    bdir = (bindir_override or bindir()).expanduser()
-    symlink_path = bdir / "unifable"
+def _probe_command(bdir: Path, name: str) -> tuple[Path | None, Path | None, Path | None, bool, bool]:
+    """Return (command_path, symlink_path, target_path, executable, broken)."""
+    symlink_path = bdir / name
     command_path: Path | None = None
-
     if symlink_path.is_symlink() or symlink_path.exists():
         command_path = symlink_path
+    if command_path is None:
+        return None, None, None, False, True
+    target_path = _resolve_symlink_target(command_path)
+    broken = target_path is None or not target_path.exists()
+    executable = bool(
+        target_path is not None
+        and target_path.is_file()
+        and os.access(target_path, os.X_OK)
+    )
+    return command_path, symlink_path if symlink_path.is_symlink() else None, target_path, executable, broken
+
+
+def probe_installed_cli(*, bindir_override: Path | None = None) -> InstalledCliState:
+    bdir = (bindir_override or bindir()).expanduser()
+    command_path, symlink_path, target_path, executable, broken = _probe_command(bdir, "unifable")
+    hook_path, hook_symlink, hook_target, hook_exec, hook_broken = _probe_command(bdir, "unifable-hook")
 
     if command_path is None:
+        unifable_link = bdir / "unifable"
         return InstalledCliState(
             bindir=bdir,
             command_path=None,
-            symlink_path=symlink_path if symlink_path.exists() or symlink_path.is_symlink() else None,
+            symlink_path=unifable_link if unifable_link.exists() or unifable_link.is_symlink() else None,
             target_path=None,
             plugin_root=None,
             version=None,
@@ -149,21 +163,18 @@ def probe_installed_cli(*, bindir_override: Path | None = None) -> InstalledCliS
             broken=True,
         )
 
-    broken = False
-    target_path = _resolve_symlink_target(command_path)
-    if target_path is None or not target_path.exists():
+    if hook_path is None or hook_broken or not hook_exec:
         broken = True
+    elif hook_target is not None and target_path is not None:
+        hook_root = _plugin_root_from_cli_target(hook_target)
+        cli_root = _plugin_root_from_cli_target(target_path)
+        if hook_root and cli_root and hook_root.resolve() != cli_root.resolve():
+            broken = True
 
     plugin_root = _plugin_root_from_cli_target(target_path)
     version = read_plugin_version(plugin_root) if plugin_root else None
     if version is None and target_path is not None:
         version = _version_from_cache_path(target_path)
-
-    executable = bool(
-        target_path is not None
-        and target_path.is_file()
-        and os.access(target_path, os.X_OK)
-    )
 
     return InstalledCliState(
         bindir=bdir,

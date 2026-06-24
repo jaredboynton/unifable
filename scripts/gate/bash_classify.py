@@ -3,7 +3,8 @@
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
 spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only `git` subcommands,
-a file whose basename is `trace.sh` (explore skill), or a file whose basename is
+git workflow commands (`status`, `add`, `commit`, `push` without `--force`), a
+file whose basename is `trace.sh` (explore skill), or a file whose basename is
 one of the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
 """
@@ -16,6 +17,7 @@ import shlex
 ALLOWED_RESEARCH_BASH = (
     "cd, ls, glob, rg, read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
     "tag -l, stash list, blame, shortlog, reflog, merge-base, name-rev, config get), "
+    "git workflow (add, commit, push without --force), "
     "read-only pipeline sinks (head, tail, wc, sort, uniq) after those, "
     "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), "
     "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
@@ -53,16 +55,17 @@ _DANGEROUS_ASSIGN_NAMES = frozenset({
     "DYLD_LIBRARY_PATH", "BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS", "PS4",
     "GLOBIGNORE", "CDPATH",
 })
-# Read-only git subcommands allowed before the evidence spec validates.
+# Git subcommands allowed before the evidence spec validates.
 _ALLOWED_GIT_SUBCMDS = frozenset({
     "status", "log", "diff", "show", "rev-parse", "describe", "branch", "remote",
     "tag", "stash", "blame", "shortlog", "reflog", "merge-base", "name-rev", "config",
+    "add", "commit", "push",
 })
 _BLOCKED_GIT_SUBCMDS = frozenset({
-    "commit", "add", "push", "pull", "fetch", "checkout", "switch", "restore", "reset",
+    "pull", "fetch", "checkout", "switch", "restore", "reset",
     "revert", "merge", "rebase", "cherry-pick", "clean", "rm", "mv", "init", "clone",
     "apply", "am", "bisect", "bundle", "filter-branch", "gc", "maintenance", "notes",
-    "push", "receive-pack", "send-pack", "submodule", "update-index", "update-ref",
+    "receive-pack", "send-pack", "submodule", "update-index", "update-ref",
     "worktree",
 })
 # Global git options that take a value and must be skipped before the subcommand.
@@ -276,6 +279,10 @@ def _validate_git_readonly(rest: list[str]) -> tuple[bool, str]:
         for tok in rest:
             if tok in ("add", "remove", "rm", "rename", "set-url", "set-head", "set-branches", "update", "prune"):
                 return False, "git remote write is not allowed before the evidence spec is validated"
+    if sub == "push":
+        for tok in rest:
+            if tok in ("-f", "--force", "--force-if-includes"):
+                return False, "git push --force is not allowed before the evidence spec is validated"
     return True, ""
 
 
