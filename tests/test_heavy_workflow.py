@@ -90,6 +90,21 @@ def test_all_tasks_validated_heavy_completion(tmp_path):
     assert ok, incomplete
 
 
+def test_heavy_completion_adopted_frontier_with_validated_primary(tmp_path):
+    """Regression: an adopted frontier (comparison_winner) plus a primary that was
+    validated directly (not auto-superseded) must count as complete. The winner branch
+    must use task_is_resolved, not hardcode 'superseded' for the primary."""
+    spec = _heavy_spec(tmp_path)
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "validated"
+    f1["comparison_winner"] = True
+    f2["status"] = "rejected_approach"
+    primary = hw.primary_task(spec)
+    primary["status"] = "validated"
+    ok, incomplete = all_tasks_validated(spec)
+    assert ok, incomplete
+
+
 def test_clear_stale_heavy_flag_for_standard_without_approach_tasks():
     spec = spec_template()
     spec["heavy_workflow"] = True

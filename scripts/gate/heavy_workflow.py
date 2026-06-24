@@ -301,7 +301,10 @@ def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:
                 if not frontier_is_resolved(t):
                     incomplete.append(tid)
             elif kind == "primary":
-                if status != "superseded":
+                # Primary is done when superseded by the adopted frontier OR validated
+                # directly (judge approved its delivery). Mirror task_is_resolved so the
+                # winner branch matches every other completion path.
+                if not task_is_resolved(t):
                     incomplete.append(tid)
             else:
                 if not task_is_resolved(t):
