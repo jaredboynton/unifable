@@ -51,7 +51,12 @@ class TestResolvePluginRoot(unittest.TestCase):
             new = cache / "1.9.60"
             _write_hooks(new)
             stale = Path(td) / "missing" / "1.9.59"
-            with mock.patch.dict(os.environ, {"PLUGIN_ROOT": str(stale)}, clear=False):
+            # Neutralize ALL env roots, not just PLUGIN_ROOT: a real ambient
+            # CLAUDE_PLUGIN_ROOT/UNIFABLE_PLUGIN_ROOT (set when the suite runs
+            # under a live hook) is a valid hooked root and would be returned
+            # before the cache fallback, masking what this test exercises.
+            env = {"PLUGIN_ROOT": str(stale), "CLAUDE_PLUGIN_ROOT": "", "UNIFABLE_PLUGIN_ROOT": ""}
+            with mock.patch.dict(os.environ, env, clear=False):
                 with mock.patch("plugin_root._CACHE_ROOTS", (cache,)):
                     resolved = resolve_plugin_root()
             self.assertEqual(resolved, new.resolve())
