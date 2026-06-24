@@ -29,4 +29,8 @@ test-profile:
 
 # Run pytest + eval_gate_proof + test_gate_robustness (commit.sh parity).
 test-all:
-    bash scripts/run_tests.sh
+    uv run --no-project --with-requirements requirements-dev.txt bash scripts/run_tests.sh
+
+# Verify every wait/timeout grep match is accounted for in docs/testing-optimization.md.
+wait-audit:
+    python3 scripts/audit_waits.py

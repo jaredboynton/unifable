@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import subprocess
@@ -25,8 +26,17 @@ from spec import (  # noqa: E402
 )
 
 
+@contextlib.contextmanager
 def _with_data(tmp: str):
+    old = os.environ.get("UNIFABLE_DATA")
     os.environ["UNIFABLE_DATA"] = tmp
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = old
 
 
 def _git_init(path: Path) -> None:
@@ -55,44 +65,44 @@ def test_subdir_shares_dirhash_with_repo_root(tmp_path):
 def test_save_in_subdir_visible_from_root(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
-    _with_data(str(data))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git_init(repo)
-    sub = repo / "pkg"
-    sub.mkdir()
-    spec = _spec_with_task()
-    save_spec(sub, "sess-a", spec)
-    loaded = load_spec(repo, "sess-a")
-    assert loaded is not None
-    assert loaded["tasks"][0]["id"] == "T1"
-    assert spec_path(repo, "sess-a") == spec_path(sub, "sess-a")
+    with _with_data(str(data)):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git_init(repo)
+        sub = repo / "pkg"
+        sub.mkdir()
+        spec = _spec_with_task()
+        save_spec(sub, "sess-a", spec)
+        loaded = load_spec(repo, "sess-a")
+        assert loaded is not None
+        assert loaded["tasks"][0]["id"] == "T1"
+        assert spec_path(repo, "sess-a") == spec_path(sub, "sess-a")
 
 
 def test_relocate_fragmented_spec(tmp_path):
     data = tmp_path / "data"
     data.mkdir()
-    _with_data(str(data))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git_init(repo)
-    sub = repo / "nested"
-    sub.mkdir()
+    with _with_data(str(data)):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git_init(repo)
+        sub = repo / "nested"
+        sub.mkdir()
 
-    canonical = dir_hash(repo)
-    wrong_hash = "deadbeefcafebabe"
-    assert wrong_hash != canonical
+        canonical = dir_hash(repo)
+        wrong_hash = "deadbeefcafebabe"
+        assert wrong_hash != canonical
 
-    fragmented = data / "specs" / wrong_hash / _safe_session("sess-r") / "spec.json"
-    fragmented.parent.mkdir(parents=True)
-    spec = _spec_with_task()
-    fragmented.write_text(json.dumps(spec), encoding="utf-8")
+        fragmented = data / "specs" / wrong_hash / _safe_session("sess-r") / "spec.json"
+        fragmented.parent.mkdir(parents=True)
+        spec = _spec_with_task()
+        fragmented.write_text(json.dumps(spec), encoding="utf-8")
 
-    loaded = load_spec(repo, "sess-r")
-    assert loaded is not None
-    assert loaded["tasks"][0]["title"] == "works"
-    assert spec_path(repo, "sess-r").exists()
-    assert not fragmented.exists()
+        loaded = load_spec(repo, "sess-r")
+        assert loaded is not None
+        assert loaded["tasks"][0]["title"] == "works"
+        assert spec_path(repo, "sess-r").exists()
+        assert not fragmented.exists()
 
 
 def test_apply_cli_context_resolves_env(tmp_path, monkeypatch):
@@ -110,22 +120,22 @@ def test_apply_cli_context_resolves_env(tmp_path, monkeypatch):
 def test_doctor_session_env_shows_location(tmp_path, capsys, monkeypatch):
     data = tmp_path / "data"
     data.mkdir()
-    _with_data(str(data))
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    _git_init(repo)
-    monkeypatch.chdir(repo)
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-w")
-    save_spec(repo, "sess-w", _spec_with_task())
-    rc = _cmd_doctor_session_env(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
-    captured = capsys.readouterr()
-    out = captured.out
-    err = captured.err
-    assert rc == 0
-    assert "session-id: sess-w" in out
-    assert "dirhash:" in out
-    assert "not your session-id" in out
-    assert "[--] T1" in out
-    # diagnostic for empirical env validation is emitted on stderr
-    assert "UNIFABLE_SESSION_RESOLVED=" in err
-    assert "SOURCE=" in err
+    with _with_data(str(data)):
+        repo = tmp_path / "repo"
+        repo.mkdir()
+        _git_init(repo)
+        monkeypatch.chdir(repo)
+        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-w")
+        save_spec(repo, "sess-w", _spec_with_task())
+        rc = _cmd_doctor_session_env(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
+        captured = capsys.readouterr()
+        out = captured.out
+        err = captured.err
+        assert rc == 0
+        assert "session-id: sess-w" in out
+        assert "dirhash:" in out
+        assert "not your session-id" in out
+        assert "[--] T1" in out
+        # diagnostic for empirical env validation is emitted on stderr
+        assert "UNIFABLE_SESSION_RESOLVED=" in err
+        assert "SOURCE=" in err
