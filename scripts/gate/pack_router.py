@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ledger import emit_json, read_stdin_json
+from ledger import emit_json, read_stdin_json, update_ledger
 from plugin_root import resolve_plugin_root
 
 _MANIFEST_NAME = "router-manifest.json"
@@ -80,9 +80,35 @@ def format_context(matched: list[PackRoute], *, packs_root: str) -> str:
     return "\n\n".join(blocks)
 
 
-def route_prompt(prompt: str, *, root: Path) -> dict[str, Any] | None:
+def _session_filtered_routes(matched: list[PackRoute], input_data: dict[str, Any] | None) -> list[PackRoute]:
+    if input_data is None or not input_data.get("session_id"):
+        return matched
+    emitted: list[PackRoute] = []
+
+    def updater(ledger: dict[str, Any]) -> None:
+        nonlocal emitted
+        fired = [str(tag) for tag in (ledger.get("router_fired_tags") or []) if str(tag)]
+        fired_set = set(fired)
+        emitted = [route for route in matched if route.tag not in fired_set]
+        emitted_tags = [route.tag for route in emitted]
+        ledger["router_matched_tags"] = emitted_tags
+        for tag in emitted_tags:
+            if tag not in fired_set:
+                fired.append(tag)
+                fired_set.add(tag)
+        ledger["router_fired_tags"] = fired
+
+    try:
+        update_ledger(input_data, updater)
+    except Exception:
+        return matched
+    return emitted
+
+
+def route_prompt(prompt: str, *, root: Path, input_data: dict[str, Any] | None = None) -> dict[str, Any] | None:
     routes = load_manifest(root)
     matched = match_routes(prompt, routes)
+    matched = _session_filtered_routes(matched, input_data)
     if not matched:
         return None
     ctx = format_context(matched, packs_root=str(root))
@@ -103,7 +129,7 @@ def main() -> None:
         root = _plugin_root()
         if root is None:
             return
-        out = route_prompt(prompt, root=root)
+        out = route_prompt(prompt, root=root, input_data=payload)
         if out:
             emit_json(out)
     except Exception:

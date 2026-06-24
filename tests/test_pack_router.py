@@ -13,6 +13,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 import pack_router  # noqa: E402
+from ledger import load_ledger  # noqa: E402
 
 
 @pytest.fixture
@@ -89,6 +90,38 @@ def test_route_prompt_empty_when_no_match() -> None:
     assert pack_router.route_prompt("hello there", root=REPO) is None
 
 
+def test_route_prompt_suppresses_previously_fired_tags_for_session(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    payload = {"session_id": "router-once", "cwd": str(REPO)}
+
+    first = pack_router.route_prompt("debug failing test", root=REPO, input_data=payload)
+    assert first is not None
+    assert "[unifable:investigation]" in first["hookSpecificOutput"]["additionalContext"]
+
+    second = pack_router.route_prompt("debug failing test again", root=REPO, input_data=payload)
+    assert second is None
+
+    third = pack_router.route_prompt("debug and implement the pipeline", root=REPO, input_data=payload)
+    assert third is not None
+    ctx = third["hookSpecificOutput"]["additionalContext"]
+    assert "[unifable:investigation]" not in ctx
+    assert "[unifable:domain-verify]" in ctx
+
+    ledger = load_ledger(payload)
+    assert ledger["router_matched_tags"] == ["domain-verify"]
+    assert ledger["router_fired_tags"] == ["investigation", "domain-verify"]
+
+
+def test_route_prompt_dedup_is_per_session(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    first_session = {"session_id": "router-session-a", "cwd": str(REPO)}
+    second_session = {"session_id": "router-session-b", "cwd": str(REPO)}
+
+    assert pack_router.route_prompt("debug failing test", root=REPO, input_data=first_session) is not None
+    assert pack_router.route_prompt("debug failing test", root=REPO, input_data=first_session) is None
+    assert pack_router.route_prompt("debug failing test", root=REPO, input_data=second_session) is not None
+
+
 def test_main_fail_open_on_bad_manifest(tmp_path: Path, monkeypatch, capsys) -> None:
     bad_root = tmp_path / "plugin"
     (bad_root / "packs").mkdir(parents=True)
@@ -99,18 +132,19 @@ def test_main_fail_open_on_bad_manifest(tmp_path: Path, monkeypatch, capsys) -> 
     assert capsys.readouterr().out == ""
 
 
-def test_router_sh_integration() -> None:
+def test_router_sh_integration(tmp_path: Path) -> None:
     import subprocess
 
     router = REPO / "hooks" / "router.sh"
-    payload = json.dumps({"prompt": "debug and implement subagent"})
+    payload = json.dumps({"prompt": "debug and implement subagent", "session_id": "router-sh", "cwd": str(REPO)})
+    env = {"CLAUDE_PLUGIN_ROOT": str(REPO), "UNIFABLE_DATA": str(tmp_path)}
     proc = subprocess.run(
         ["bash", str(router)],
         input=payload,
         capture_output=True,
         text=True,
         cwd=str(REPO),
-        env={"CLAUDE_PLUGIN_ROOT": str(REPO)},
+        env=env,
         check=False,
     )
     assert proc.returncode == 0
@@ -122,3 +156,15 @@ def test_router_sh_integration() -> None:
     assert "Investigation protocol" in ctx
     assert "Domain verification recipes" in ctx
     assert "Subagent brief template" in ctx
+
+    repeated = subprocess.run(
+        ["bash", str(router)],
+        input=payload,
+        capture_output=True,
+        text=True,
+        cwd=str(REPO),
+        env=env,
+        check=False,
+    )
+    assert repeated.returncode == 0
+    assert repeated.stdout.strip() == ""

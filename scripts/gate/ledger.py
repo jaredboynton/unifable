@@ -103,6 +103,9 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "plan_mode_notified_epoch": "",
     # UserPromptSubmit scaffold onboarding (gate_prompt.py): full CLI tutorial once.
     "prompt_scaffold_notified": False,
+    # UserPromptSubmit router pack dedup (pack_router.py).
+    "router_matched_tags": [],
+    "router_fired_tags": [],
     # PreToolUse unlock footer dedup (pretool_block.py).
     "pretool_unlock_footer_epoch": "",
     # PreToolUse spec validation contract string once per turn (spec.py).
@@ -198,7 +201,8 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
     for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
                 "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
-                "observed_tool_results", "loop_lift_retracted", "loop_events"):
+                "observed_tool_results", "loop_lift_retracted", "loop_events",
+                "router_matched_tags", "router_fired_tags"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
     if not isinstance(ledger.get("pretool_block_counts"), dict):

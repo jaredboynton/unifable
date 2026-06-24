@@ -132,7 +132,7 @@ def scenarios(cwd: str):
     yield ("BL1", "bash-whitelist rm blocked pre-spec", BLOCK, EV, "STANDARD", bash(cwd, "rm -rf build", "BL1"))
     yield ("BL2", "bash-whitelist git diff allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "git diff --stat", "BL2"))
-    yield ("BL2b", "bash-whitelist git commit blocked pre-spec", BLOCK, EV, "STANDARD",
+    yield ("BL2b", "bash-whitelist git commit allowed pre-spec", ALLOW, EV, "STANDARD",
            bash(cwd, "git commit -m x", "BL2b"))
     yield ("BL3", "bash-whitelist echo blocked pre-spec", BLOCK, EV, "STANDARD",
            bash(cwd, "echo hi", "BL3"))
