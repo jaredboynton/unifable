@@ -160,7 +160,7 @@ def groundedness_bash_whitelist_fragment() -> str:
 def bash_allowed_summary() -> str:
     """Compact allowlist for PreToolUse block messages and breaker copy."""
     parts = [
-        "cd, ls, glob, rg, read-only git, git add/commit/push (no --force)",
+        "cd, ls, glob, rg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force)",
     ]
     explore = explore_trace_list_item()
     if explore:
@@ -174,10 +174,10 @@ def allowed_research_bash_detail() -> str:
     explore = explore_trace_list_item()
     explore_clause = explore if explore else ""
     return (
-        "cd, ls, glob, rg, read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
+        "cd, ls, glob, rg, read-only file inspection (head, tail, wc, sort, uniq), "
+        "read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
         "tag -l, stash list, blame, shortlog, reflog, merge-base, name-rev, config get), "
-        "git workflow (add, commit, push without --force), "
-        "read-only pipeline sinks (head, tail, wc, sort, uniq) after those"
+        "git workflow (add, commit, push without --force)"
         f"{explore_clause}, "
         "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
         "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "

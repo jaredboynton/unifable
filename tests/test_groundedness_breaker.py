@@ -138,6 +138,45 @@ def test_release_tools_include_reads_and_fetch():
         assert gb.is_release_tool(t), t
 
 
+def test_whitelisted_bash_is_release_tool_with_input():
+    assert gb.is_release_tool(
+        "Bash",
+        {"tool_name": "Bash", "tool_input": {"command": "rg '1.9.90' .claude-plugin/ | wc -l"}},
+    )
+    assert gb.is_release_tool(
+        "Bash",
+        {"tool_name": "Bash", "tool_input": {"command": "wc -l setup/setup.sh"}},
+    )
+    assert not gb.is_release_tool("Bash")
+    assert not gb.is_release_tool(
+        "Bash",
+        {"tool_name": "Bash", "tool_input": {"command": "npm test"}},
+    )
+
+
+def test_arms_then_disarms_via_whitelisted_bash_post_tool_release(monkeypatch):
+    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(arm=(1, "unproven; blocked", "nine version fields say 1.9.90"), grounded=1)
+    state = _state()
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
+    assert blocked is True and state["breaker_armed"] is True
+    bash_input = {
+        "tool_name": "Bash",
+        "session_id": "S",
+        "cwd": "/repo",
+        "tool_input": {"command": "rg '1.9.90' .claude-plugin/ .codex-plugin/"},
+    }
+    grounded, needed, message = gb.evaluate_post_tool_release(
+        bash_input,
+        state,
+        fresh_tool="[tool_result name=Bash]\n.claude-plugin/plugin.json:3:  \"version\": \"1.9.90\"",
+        judge=judge,
+    )
+    assert grounded is True and needed == "" and "breaker open" in message.lower()
+    assert state["breaker_armed"] is False
+    assert judge.disarm_calls == 1
+
+
 def test_read_and_websearch_never_blocked_even_when_armed(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: definitely the cause is Y")
     judge = FakeJudge([(1, "you claimed Y with no proof; mutation blocked")])

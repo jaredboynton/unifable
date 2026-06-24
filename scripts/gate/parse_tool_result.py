@@ -114,7 +114,7 @@ def response_text(value: Any, limit: int = 4000) -> str:
 # read-style programs with a clean `prog [flags] FILE...` shape. Script-taking
 # readers (awk/sed/jq/yq) are deliberately excluded: their first arg is code,
 # not a file, so path extraction would be fabricable.
-_READ_PROGS = {"cat", "bat", "head", "tail", "nl", "less", "more", "grep", "egrep", "fgrep", "rg", "ag", "ack", "xmllint"}
+_READ_PROGS = {"cat", "bat", "head", "tail", "wc", "nl", "less", "more", "grep", "egrep", "fgrep", "rg", "ag", "ack", "xmllint"}
 # grep-family: the first non-flag arg is the PATTERN, not a file -- skip it.
 _GREP_FAMILY = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
 # fetch-style programs (URL retrievers). Matched in command position only.

@@ -45,15 +45,16 @@ def test_context_block_preempts_research_walls() -> None:
     """W2/W3/W5: the standing block must steer agents off the three common
     research-phase walls before they hit them (see benchmark wall diagnosis)."""
     ctx = context_block.build_session_context()
-    # W2: Bash synonym reflexes (whitelist is exactly cd/ls/glob/rg).
-    assert "(not grep)" in ctx
-    assert "(not find)" in ctx
+    # W2: Bash synonym reflexes.
+    assert "rg not grep" in ctx
+    assert "glob/ls not find" in ctx
+    assert "head/wc/tail not cat" in ctx
     assert "no pwd" in ctx.lower()
-    # W5: no python3 -c / echo / sleep scaffolding before the spec validates.
+    assert "head/wc/tail/sort/uniq" in ctx
+    # W5: no python3 -c scaffolding before the spec validates.
     assert "python3 -c" in ctx
     # W3: read before naming, to avoid arming the groundedness breaker.
-    assert "before naming" in ctx.lower()
-    assert "judge round-trip" in ctx.lower()
+    assert "Read before naming" in ctx
 
 
 def test_build_session_context_under_budget() -> None:

@@ -339,12 +339,22 @@ def _claim_supported_by_spec_board(claim: str, segment: str) -> bool:
     return False
 
 
+def _research_bash_whitelist_summary() -> str:
+    try:
+        from research_bash_guidance import bash_allowed_summary
+    except ImportError:
+        from scripts.gate.research_bash_guidance import bash_allowed_summary  # pragma: no cover
+    return bash_allowed_summary()
+
+
 def _steering_description() -> str:
     explore = groundedness_bash_whitelist_fragment()
+    bash_summary = _research_bash_whitelist_summary()
     return (
         "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
         "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
-        "WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, "
+        "WebFetch, Grep, Glob) and whitelisted research Bash ("
+        f"{bash_summary}, "
         f"{explore}unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of "
         "evidence that would "
         "disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER "
@@ -542,8 +552,9 @@ _JUDGE_SYSTEM = (
     "empirical probe output in the transcript. Do not require official docs when prior art or "
     "empirical proof exists. Do not demand repo files for external truth. "
     "When arming: verdict=1, name the claim, write a steering prompt restricting tools to read-only "
-    "(Read, WebSearch, WebFetch, Grep, Glob) and whitelisted Bash (cd, ls, glob, rg, spec CLI) "
-    "until grounded. Steer repo claims toward files to read, never blocked commands. "
+    "(Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. "
+    "Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), "
+    "never blocked commands. "
     "Otherwise verdict=0, steering and claim MUST be empty. Call the function exactly once."
 )
 
@@ -564,6 +575,8 @@ _DISARM_SYSTEM = (
     "without requiring further evidence; (2) the claim was RETRACTED or corrected, or the model "
     "superseded part of a compound claim and no longer relies on the retracted portion; (3) the "
     "model read the source / cited file:line or tool output that backs the claim -- including "
+    "whitelisted research Bash output in the FRESH TOOL block (rg matches, head/wc counts, "
+    "git diff/show text) when that output directly proves the claim; also including "
     "deriving numeric scores by applying formulas visible in Read source to fields visible in "
     "Read result files (do NOT require re-running a blocked scorer command); (4) negative/absence "
     "claim backed by a reasonable bounded search; (5) external/platform/API claim backed by "
@@ -623,8 +636,22 @@ def is_mutation_tool(tool_name: str) -> bool:
     return tool_name in MUTATION_TOOLS
 
 
-def is_release_tool(tool_name: str) -> bool:
-    return tool_name in RELEASE_TOOLS
+def is_release_tool(tool_name: str, input_data: dict | None = None) -> bool:
+    tool = str(tool_name or "")
+    if tool in RELEASE_TOOLS:
+        return True
+    if tool != "Bash":
+        return False
+    if not isinstance(input_data, dict):
+        return False
+    try:
+        from bash_classify import is_allowed_research_bash
+        from parse_tool_result import command_from_input
+    except ImportError:
+        from scripts.gate.bash_classify import is_allowed_research_bash  # pragma: no cover
+        from scripts.gate.parse_tool_result import command_from_input  # pragma: no cover
+    allowed, _ = is_allowed_research_bash(command_from_input(input_data))
+    return allowed
 
 
 def _encode_cwd(cwd: str) -> str:
@@ -1142,7 +1169,7 @@ def evaluate_post_tool_release(
     if not armed and not provisional:
         return False, "", ""
     tool = str(input_data.get("tool_name") or "")
-    if not is_release_tool(tool):
+    if not is_release_tool(tool, input_data):
         return False, "", ""
     claim = str(state.get("breaker_claim") or "")
     if not claim:

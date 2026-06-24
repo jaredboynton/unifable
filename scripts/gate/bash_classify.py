@@ -2,11 +2,12 @@
 """Classify whether a Bash command is allowed during the pre-spec research phase.
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
-spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only `git` subcommands,
-git workflow commands (`status`, `add`, `commit`, `push` without `--force`), a
-file whose basename is `trace.sh` or `websearch.sh` when the explore skill is
-installed (guidance shows resolved paths), or a file whose basename is
-one of the user-facing unifusion skill scripts (panel research). Once a valid spec
+spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only file inspection
+(`head`, `tail`, `wc`, `sort`, `uniq`), read-only `git` subcommands, git
+workflow commands (`status`, `add`, `commit`, `push` without `--force`), a file
+whose basename is `trace.sh` or `websearch.sh` when the explore skill is
+installed (guidance shows resolved paths), or a file whose basename is one of
+the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
 """
 
@@ -23,7 +24,9 @@ except ImportError:  # pragma: no cover
 ALLOWED_RESEARCH_BASH = allowed_research_bash_detail()
 
 _ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg"})
-_PIPELINE_SINKS = frozenset({"head", "tail", "wc", "sort", "uniq"})
+# Standalone or as pipeline sinks after an allowed command.
+READONLY_INSPECTION_COMMANDS = frozenset({"head", "tail", "wc", "sort", "uniq"})
+_PIPELINE_SINKS = READONLY_INSPECTION_COMMANDS
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
 _UNIFUSION_SCRIPT_NAMES = frozenset(
     {
@@ -514,7 +517,7 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
         return False, "no executable command found"
 
     base = _basename(command)
-    if base in _ALLOWED_COMMANDS:
+    if base in _ALLOWED_COMMANDS or base in READONLY_INSPECTION_COMMANDS:
         return True, ""
     if base in _SPEC_CLI_NAMES:
         ok, reason = _validate_spec_append_args(rest)

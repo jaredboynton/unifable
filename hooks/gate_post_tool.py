@@ -95,7 +95,7 @@ def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool
         from breaker_state import load_breaker, save_breaker
         from groundedness import evaluate_post_tool_release, is_release_tool
 
-        if not executed_ok or not is_release_tool(tool_name):
+        if not executed_ok or not is_release_tool(tool_name, input_data):
             return ""
         breaker = load_breaker(input_data)
         if not breaker.get("breaker_armed") and not breaker.get("breaker_provisional"):

@@ -54,7 +54,8 @@ _ALWAYS = (
 _GATE_POINTER = (
     "- Evidence gate (always on, no disable): until the spec for the current task "
     "validates, it blocks edits, Task/Agent delegation, Bash outside the research "
-    "whitelist (cd, ls, glob, rg, read-only git, git workflow status/add/commit/push "
+    "whitelist (cd, ls, glob, rg, head/wc/tail/sort/uniq, read-only git, "
+    "git workflow status/add/commit/push "
     "(no --force){explore_list}, unifusion scripts, or the append-only spec CLI "
     "unifable restate|add-task|set-primary|add-frontier|dispute), AND "
     "completion. The spec is seeded automatically; FIRST run "
@@ -68,10 +69,10 @@ _HOOK_BLOCK = (
     "Do not retry the same blocked tool, wait out a debounce, or use Bash for sleep/echo "
     "scaffolding. If the groundedness breaker flags a claim, retract it in one sentence "
     "if it is no longer load-bearing, or ground it with a read-only action (Read/Grep/"
-    "Glob/WebSearch/WebFetch or allowed cd/rg/ls Bash) and cite what you actually read "
+    "Glob/WebSearch/WebFetch or allowed research Bash) and cite what you actually read "
     "before retrying. If the evidence-spec gate blocks Bash, use the unifable spec CLI; "
-    "before validation, every Bash segment must start with cd, ls, glob, rg, "
-    "{explore_inline}a whitelisted unifusion script, or unifable."
+    "before validation, every Bash segment must match the research whitelist above "
+    "({explore_inline}unifusion scripts, or unifable)."
 )
 
 _EDIT_DISCIPLINE = (
@@ -99,11 +100,9 @@ _ORCH_POSTURE = (
 )
 
 _RESEARCH_REFLEXES = (
-    "- Avoid two common research walls. (1) Bash synonyms: use rg (not grep), "
-    "glob/ls (not find), the given cwd (no pwd); python3 -c is not research "
-    "Bash (python3 unlocks post-spec). (2) Read before naming: asserting where "
-    "code or a function lives before you Read it arms the groundedness breaker "
-    "and costs a judge round-trip -- cite the Read first."
+    "- Avoid two common research walls. (1) Bash synonyms: rg not grep, glob/ls not find, "
+    "head/wc/tail not cat, no pwd; python3 -c unlocks post-spec only. "
+    "(2) Read before naming locations -- citing unread paths arms the breaker."
 )
 
 _RESEARCH_DELEGATION = (

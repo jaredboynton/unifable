@@ -54,6 +54,11 @@ ALLOWED = [
     "rg foo | head",
     "rg foo | head -20",
     "ls && rg foo | head",
+    "head -20 f",
+    "wc -l setup/setup.sh",
+    "tail -5 README.md",
+    "sort -u paths.txt",
+    "uniq counts.txt",
     # Standalone variable-declaration segments: a long path assigned once and
     # reused is a legit research pattern (the codex-thread bug). The assignment
     # segment carries no executable, but the OTHER segments do.
@@ -86,7 +91,6 @@ BLOCKED = [
     "",
     "echo hi",
     "cat file.py",
-    "head -20 f",
     "grep -r foo .",
     "find . -name '*.py'",
     "unifable validate --grade STANDARD",

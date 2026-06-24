@@ -19,12 +19,13 @@ four cases:
 
   3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
      phase (grade STANDARD+, no valid spec yet), Bash may run only `cd`, `ls`, `glob`,
-     `rg`, read-only `git` subcommands and workflow git (`status`, `add`, `commit`,
-     `push` without `--force`), a file whose basename is `trace.sh` or `websearch.sh`
-     when the explore skill is installed (guidance shows resolved paths), or a user-facing
-     unifusion skill script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`,
-     `resolve_session.sh`). A valid spec unlocks the action phase (all shell
-     commands allowed). LIGHT waives. Classification: scripts/gate/bash_classify.py.
+     `rg`, read-only file inspection (`head`, `tail`, `wc`, `sort`, `uniq`), read-only
+     `git` subcommands and workflow git (`status`, `add`, `commit`, `push` without
+     `--force`), a file whose basename is `trace.sh` or `websearch.sh` when the explore
+     skill is installed (guidance shows resolved paths), or a user-facing unifusion skill
+     script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
+     A valid spec unlocks the action phase (all shell commands allowed). LIGHT waives.
+     Classification: scripts/gate/bash_classify.py.
 
   4. EVIDENCE GATE — delegation lockdown (unconditional): in the research phase,
      Task/Agent are blocked until the same valid spec exists, so subagents cannot
