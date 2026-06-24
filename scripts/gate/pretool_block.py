@@ -176,6 +176,48 @@ def _mark_unlock_footer_sent(input_data: dict[str, Any]) -> None:
         save_ledger(input_data, ledger)
 
 
+def _record_pretool_block(input_data: dict[str, Any], kind: str, detail: str) -> None:
+    """Remember the last PreToolUse block so the next allow can emit Gate cleared."""
+    try:
+        def apply(ld: dict[str, Any]) -> None:
+            ld["pretool_last_block_kind"] = str(kind or "")[:40]
+            ld["pretool_last_block_detail"] = " ".join(str(detail or "").split())[:200]
+
+        from ledger import update_ledger
+
+        update_ledger(input_data, apply)
+    except Exception:
+        pass
+
+
+def consume_gate_cleared_notify(
+    input_data: dict[str, Any],
+    hygiene_headlines: list[str] | None = None,
+) -> str:
+    """Build Gate cleared additionalContext when a prior block was recorded."""
+    try:
+        from ledger import load_ledger, update_ledger
+
+        ledger = load_ledger(input_data)
+        if not ledger.get("pretool_last_block_kind"):
+            lines = [str(h).strip() for h in (hygiene_headlines or []) if str(h).strip()]
+            return "\n".join(lines)
+
+        def clear(ld: dict[str, Any]) -> None:
+            ld.pop("pretool_last_block_kind", None)
+            ld.pop("pretool_last_block_detail", None)
+
+        update_ledger(input_data, clear)
+        lines = ["Gate cleared."]
+        for h in hygiene_headlines or []:
+            text = str(h).strip()
+            if text and text not in lines:
+                lines.append(text)
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def emit_pretool_block(
     input_data: dict[str, Any],
     *,
@@ -186,6 +228,7 @@ def emit_pretool_block(
     """Block the tool (exit 2). Print full_message only on first emission per epoch+signature."""
     message = str(full_message or "").strip()
     try:
+        _record_pretool_block(input_data, kind, detail)
         sig = block_signature(kind, detail)
         count, footer_sent = _record_block_count(input_data, sig)
         if count == 1 and message:

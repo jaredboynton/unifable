@@ -42,6 +42,7 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         all_tasks_validated_heavy,
         any_frontier_accepted,
         compute_heavy_phase,
+        finalize_heavy_adoption,
         frontier_tasks,
         heavy_declare_complete,
         heavy_workflow_brief,
@@ -1231,17 +1232,13 @@ def auto_validate_spec(
                     )
                 )
 
-    # Frontier adoption: when all frontiers are terminal and at least one
-    # was accepted_approach, run the comparison round to select the best.
+    # HEAVY adoption: deterministic finalization once frontiers are terminal.
     if _is_heavy_spec(spec):
         if all_frontiers_terminal(spec) and any_frontier_accepted(spec):
-            comparison_headlines = judge_frontier_comparison(spec)
-            if comparison_headlines:
-                messages.extend(comparison_headlines)
-                notify_spec_update(
-                    spec,
-                    comparison_headlines[0],
-                )
+            adopt_headlines = finalize_heavy_adoption(spec)
+            if adopt_headlines:
+                messages.extend(adopt_headlines)
+                notify_spec_update(spec, adopt_headlines[0])
 
     return spec, messages
 

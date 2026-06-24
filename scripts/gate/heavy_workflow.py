@@ -140,6 +140,88 @@ def clear_stale_heavy_workflow(spec: dict[str, Any], grade: str) -> bool:
     return changed
 
 
+def _frontier_exit_code(task: dict[str, Any]) -> int:
+    raw = task.get("exit")
+    if raw is None:
+        return 999
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return 999
+
+
+def _task_id_sort_key(task: dict[str, Any]) -> tuple[int, str]:
+    tid = str(task.get("id") or "")
+    num = 9999
+    if tid.startswith("T"):
+        try:
+            num = int(tid[1:])
+        except ValueError:
+            pass
+    return num, tid
+
+
+def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
+    """Deterministically select an adopted frontier and supersede primary.
+
+    Runs when all frontiers are terminal and at least one has accepted_approach.
+    No LLM — ranks accepted frontiers by check exit code, then task id.
+    Returns human-readable headlines (empty when nothing to do).
+    """
+    if accepted_frontier(spec) is not None:
+        return []
+    if not all_frontiers_terminal(spec) or not any_frontier_accepted(spec):
+        return []
+
+    accepted = [
+        t for t in frontier_tasks(spec)
+        if str(t.get("status") or "") == "accepted_approach"
+    ]
+    if not accepted:
+        return []
+
+    accepted.sort(
+        key=lambda t: (
+            0 if _frontier_exit_code(t) == 0 else 1,
+            _frontier_exit_code(t),
+            *_task_id_sort_key(t),
+        )
+    )
+    winner = accepted[0]
+    winner_id = str(winner.get("id") or "")
+
+    headlines: list[str] = []
+    for t in frontier_tasks(spec):
+        tid = str(t.get("id") or "")
+        if t is winner:
+            if not t.get("comparison_winner"):
+                t["comparison_winner"] = True
+                exit_code = t.get("exit")
+                headlines.append(
+                    f"{tid} selected as adopted frontier (exit {exit_code})."
+                )
+        elif str(t.get("status") or "") == "accepted_approach":
+            t["status"] = "rejected_approach"
+            t["comparison_winner"] = False
+            headlines.append(f"{tid} not selected in adoption finalization.")
+
+    primary = primary_task(spec)
+    if primary is not None and str(primary.get("status") or "") == "blocked":
+        primary["status"] = "superseded"
+        primary["judge_reason"] = f"Superseded by adopted frontier {winner_id}."
+        headlines.append(f"Primary superseded by adopted frontier {winner_id}.")
+
+    before = heavy_snapshot(spec)
+    sync_heavy_phase(spec)
+    advance_primary_if_ready(spec)
+    after = heavy_snapshot(spec)
+    transition = heavy_transition_headline(before, after, spec)
+    if transition and transition not in headlines:
+        headlines.append(transition)
+
+    return headlines
+
+
 def advance_primary_if_ready(spec: dict[str, Any]) -> bool:
     """Unblock primary task when all frontiers are rejected_approach. Returns True if mutated."""
     changed = sync_heavy_phase(spec)
@@ -362,7 +444,7 @@ def heavy_transition_headline(
         wid = str(winner.get("id") or "") if winner else ""
         return (
             f"HEAVY phase: frontier -> adopted. Frontier {wid} selected as best "
-            "approach by the comparison judge. Primary superseded."
+            "approach. Primary superseded."
         )
     if before_phase != after_phase:
         return f"HEAVY phase: {before_phase} -> {after_phase}."

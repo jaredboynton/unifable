@@ -259,7 +259,8 @@ def main() -> int:
     discovery_context = ""
     citation_context = ""
     try:
-        from citations import activity_from_ledger, sync_citations_from_activity
+        from citations import activity_from_ledger
+        from spec_hygiene import apply_spec_hygiene
         from evidence_policy import resolve_grade
         from heavy_workflow import format_approach_board, frontier_tasks
         from spec import judge_discover_frontiers, load_spec, resolve_session_id, save_spec
@@ -271,7 +272,7 @@ def main() -> int:
             spec = load_spec(cwd, task_id)
             activity = activity_from_ledger(ledger)
             citation_added: dict[str, list[str]] = {}
-            if spec and sync_citations_from_activity(spec, activity, cwd, added_sink=citation_added):
+            if spec and apply_spec_hygiene(spec, activity, cwd, added_sink=citation_added)[0]:
                 save_spec(cwd, task_id, spec)
                 _cite_headline = _citation_sync_headline(citation_added)
                 if _cite_headline:

@@ -36,6 +36,7 @@ from typing import Any
 from parse_tool_result import (
     _SHELL_OPERATORS,
     _tokens,
+    detect_failure,
     fetched_url_targets,
     ran_command,
     read_targets,
@@ -167,6 +168,86 @@ def command_was_run(check: str, ran_commands: list[str]) -> bool:
 # Verdict
 # ---------------------------------------------------------------------------
 
+def _cite_path_exists(cite: str, cwd: str) -> bool:
+    """True when the cited path resolves to an existing file under cwd."""
+    raw = _cite_path(cite)
+    if not raw:
+        return False
+    try:
+        p = Path(raw)
+        if not p.is_absolute():
+            p = Path(cwd) / p
+        return p.is_file()
+    except (OSError, ValueError):
+        return False
+
+
+def _is_harness_auto_read(item: Any) -> bool:
+    if not isinstance(item, dict):
+        return False
+    _cite, why = repo_context_parts(item)
+    return str(why or "").strip() == _READ_WHY
+
+
+def sanitize_harness_citations(spec: dict[str, Any], cwd: str) -> list[str]:
+    """Remove harness auto-sync repo_context cites for nonexistent paths.
+
+    Returns the cite strings removed. Agent-authored cites (substantive why) are
+    never touched."""
+    if not isinstance(spec, dict):
+        return []
+    items = repo_context_of(spec)
+    kept: list[Any] = []
+    removed: list[str] = []
+    for item in items:
+        if not isinstance(item, dict):
+            kept.append(item)
+            continue
+        cite, why = repo_context_parts(item)
+        if (
+            str(why or "").strip() == _READ_WHY
+            and cite
+            and not _cite_path_exists(cite, cwd)
+        ):
+            removed.append(str(cite))
+            continue
+        kept.append(item)
+    if removed:
+        spec["repo_context"] = kept
+    return removed
+
+
+def filter_gate_defect_citation_reasons(
+    spec: dict[str, Any],
+    reasons: list[str],
+    cwd: str,
+) -> list[str]:
+    """Drop verify reasons caused by harness auto-sync cites to missing files."""
+    if not reasons:
+        return []
+    items = repo_context_of(spec)
+    kept: list[str] = []
+    for reason in reasons:
+        m = re.match(r"repo_context\[(\d+)\]:", str(reason))
+        if not m:
+            kept.append(reason)
+            continue
+        idx = int(m.group(1))
+        if idx < 0 or idx >= len(items):
+            kept.append(reason)
+            continue
+        item = items[idx]
+        cite, why = repo_context_parts(item)
+        if (
+            str(why or "").strip() == _READ_WHY
+            and cite
+            and not _cite_path_exists(cite, cwd)
+        ):
+            continue
+        kept.append(reason)
+    return kept
+
+
 def verify_citations(
     spec: dict[str, Any],
     activity: dict[str, list[str]],
@@ -239,17 +320,65 @@ def format_citation_verify_message(reasons: list[str]) -> str:
 # Transcript scan (Stop-only corroboration; recurses sub-agent transcripts)
 # ---------------------------------------------------------------------------
 
+def _tool_result_text(result: Any) -> str:
+    if isinstance(result, str):
+        return result
+    if isinstance(result, list):
+        parts: list[str] = []
+        for block in result:
+            if isinstance(block, dict):
+                parts.append(str(block.get("text") or block.get("content") or ""))
+            else:
+                parts.append(str(block))
+        return "\n".join(parts)
+    if isinstance(result, dict):
+        return str(result.get("content") or result.get("error") or result.get("text") or "")
+    return str(result or "")
+
+
+def _read_result_failed(tool_name: str, result: Any) -> bool:
+    if str(tool_name or "") not in ("Read", "Grep", "Glob", "NotebookRead"):
+        return False
+    text = _tool_result_text(result)
+    if not text.strip():
+        return False
+    if _MISSING_FILE_RE.search(text):
+        return True
+    pseudo = {"tool_name": tool_name, "tool_response": result}
+    return detect_failure(pseudo) is not None
+
+
 def _scan_blocks(content: Any, act: dict[str, list[str]], cwd: str) -> None:
     if not isinstance(content, list):
         return
+    pending: list[dict[str, Any]] = []
     for block in content:
-        if not isinstance(block, dict) or block.get("type") != "tool_use":
+        if not isinstance(block, dict):
             continue
-        pseudo = {"tool_name": block.get("name"), "tool_input": block.get("input") or {}}
-        for p in read_targets(pseudo):
+        btype = block.get("type")
+        if btype == "tool_use":
+            pending.append(block)
+            continue
+        if btype != "tool_result":
+            continue
+        use = pending.pop(0) if pending else None
+        if use is None:
+            continue
+        tool_name = str(use.get("name") or "")
+        pseudo_input = {
+            "tool_name": tool_name,
+            "tool_input": use.get("input") or {},
+        }
+        result = block.get("content")
+        if _read_result_failed(tool_name, result):
+            continue
+        pseudo_full = {**pseudo_input, "tool_response": result}
+        if detect_failure(pseudo_full):
+            continue
+        for p in read_targets(pseudo_input):
             act["read_paths"].append(_abs(p, cwd))
-        act["fetched_urls"].extend(fetched_url_targets(pseudo))
-        rc = ran_command(pseudo)
+        act["fetched_urls"].extend(fetched_url_targets(pseudo_input))
+        rc = ran_command(pseudo_input)
         if rc:
             act["ran_commands"].append(rc)
 
@@ -300,6 +429,13 @@ def scan_transcript(transcript_path: str | None) -> dict[str, list[str]]:
 
 _READ_WHY = "read this session"
 _FETCH_WHY = "fetched this session"
+HARNESS_READ_WHY = _READ_WHY
+HARNESS_FETCH_WHY = _FETCH_WHY
+
+_MISSING_FILE_RE = re.compile(
+    r"(?i)(file does not exist|no such file or directory|cannot find the path|"
+    r"ENOENT|not found(?:\s*$|\s*[\.:]))"
+)
 
 
 def _path_to_cite(abs_path: str, cwd: str) -> str:
@@ -372,6 +508,8 @@ def sync_citations_from_activity(
     for raw in read_paths:
         cite = _path_to_cite(str(raw), cwd)
         if not cite or cite in seen_paths:
+            continue
+        if not _cite_path_exists(cite, cwd):
             continue
         if not path_was_read(cite, read_paths, cwd):
             continue

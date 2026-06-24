@@ -633,23 +633,23 @@ def main() -> int:
             elif spec is not None:
                 try:
                     from citations import (activity_from_ledger, enabled,
+                                           filter_gate_defect_citation_reasons,
                                            merge_activity, scan_transcript,
-                                           sync_citations_from_activity, verify_citations)
-                    from heavy_workflow import (advance_primary_if_ready,
+                                           verify_citations)
+                    from heavy_workflow import (
                                                 clear_stale_heavy_workflow,
                                                 heavy_snapshot)
                     from spec import auto_validate_spec, save_spec
+                    from spec_hygiene import apply_spec_hygiene
 
                     ledger_activity = activity_from_ledger(load_ledger(input_data))
                     transcript_activity = scan_transcript(input_data.get("transcript_path"))
                     activity = merge_activity(ledger_activity, transcript_activity)
                     heavy_before = heavy_snapshot(spec)  # gap 2: phase/primary pre-state
                     stop_added: dict[str, list[str]] = {}
-                    if sync_citations_from_activity(spec, activity, cwd, added_sink=stop_added):
+                    if apply_spec_hygiene(spec, activity, cwd, added_sink=stop_added)[0]:
                         save_spec(cwd, task_key, spec)
                     if clear_stale_heavy_workflow(spec, grade):
-                        save_spec(cwd, task_key, spec)
-                    if advance_primary_if_ready(spec):
                         save_spec(cwd, task_key, spec)
                     spec, val_msgs = auto_validate_spec(
                         spec,
@@ -777,6 +777,7 @@ def main() -> int:
                         # Citation truth-check: code-profile tasks only.
                         try:
                             from citations import (activity_from_ledger, enabled,
+                                                   filter_gate_defect_citation_reasons,
                                                    format_citation_verify_message,
                                                    merge_activity, scan_transcript,
                                                    verify_citations)
@@ -787,6 +788,7 @@ def main() -> int:
                                     scan_transcript(input_data.get("transcript_path")),
                                 )
                                 cited = verify_citations(spec, activity, cwd, require_commands=True)
+                                cited = filter_gate_defect_citation_reasons(spec, cited, cwd)
                                 if cited:
                                     ev_reason = format_citation_verify_message(cited)
                         except Exception:

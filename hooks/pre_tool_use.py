@@ -56,6 +56,7 @@ from ledger import data_root, emit_json, load_ledger, read_stdin_json, update_le
 from pretool_block import (
     BASH_ALLOWED_SUMMARY,
     block_epoch,
+    consume_gate_cleared_notify,
     emit_pretool_block,
     format_bash_research_block,
     format_delegation_block,
@@ -195,7 +196,12 @@ def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: 
     """Reasons the spec's citations are not backed by real session tool activity.
     Empty when the cross-check is disabled or anything fails (fail open)."""
     try:
-        from citations import activity_from_ledger, enabled, verify_citations
+        from citations import (
+            activity_from_ledger,
+            enabled,
+            filter_gate_defect_citation_reasons,
+            verify_citations,
+        )
 
         if not enabled():
             return []
@@ -203,9 +209,38 @@ def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: 
         if resolve_evidence_profile(ledger, spec) == "operational":
             return []
         activity = activity_from_ledger(ledger)
-        return verify_citations(spec, activity, cwd, require_commands=require_commands)
+        reasons = verify_citations(spec, activity, cwd, require_commands=require_commands)
+        return filter_gate_defect_citation_reasons(spec, reasons, cwd)
     except Exception:
         return []
+
+
+def _run_spec_hygiene(input_data: dict, cwd: str) -> list[str]:
+    """Deterministic spec hygiene before gate checks. Returns headlines."""
+    if _effective_grade(input_data) == "LIGHT":
+        return []
+    task_id = _task_id(input_data)
+    spec = load_spec(cwd, task_id)
+    if spec is None:
+        return []
+    try:
+        from citations import activity_from_ledger
+        from spec_hygiene import apply_spec_hygiene
+
+        changed, headlines = apply_spec_hygiene(
+            spec, activity_from_ledger(load_ledger(input_data)), cwd,
+        )
+        if changed:
+            save_spec(cwd, task_id, spec)
+        return headlines
+    except Exception:
+        return []
+
+
+def _allow_notify(input_data: dict, breaker_notify: str, hygiene_headlines: list[str]) -> int:
+    cleared = consume_gate_cleared_notify(input_data, hygiene_headlines)
+    parts = [p.strip() for p in (breaker_notify, cleared) if p and p.strip()]
+    return _emit_allow("\n".join(parts))
 
 
 # ---------------------------------------------------------------------------
@@ -282,15 +317,6 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
-    if spec is not None:
-        try:
-            from citations import activity_from_ledger, sync_citations_from_activity
-            from spec import save_spec
-
-            if sync_citations_from_activity(spec, activity_from_ledger(load_ledger(input_data)), cwd):
-                save_spec(cwd, task_id, spec)
-        except Exception:
-            pass
     if spec is None:
         contract = contract_string(grade, True, _evidence_profile(input_data, None))
         return _block(
@@ -489,6 +515,7 @@ def main() -> int:
 
     # --- Write tools: protected paths + evidence gate (unconditional) ---
     if tool_name in WRITE_TOOLS:
+        hygiene_headlines = _run_spec_hygiene(input_data, cwd)
         target = _target_path(tool_name, tool_input)
 
         # Guard 1: PROTECTED_PATHS (includes .unifable/spec/* — specs are CLI-only)
@@ -510,21 +537,23 @@ def main() -> int:
 
         rc = _enforce_spec(input_data, cwd, write_target=target)
         if rc == 0:
-            return _emit_allow(breaker_notify)
+            return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return _gate_block(rc, breaker_notify)
 
     # --- Bash: research whitelist (unconditional) ---
     if tool_name == "Bash":
+        hygiene_headlines = _run_spec_hygiene(input_data, cwd)
         rc = _enforce_bash(input_data, tool_input, cwd)
         if rc == 0:
-            return _emit_allow(breaker_notify)
+            return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return _gate_block(rc, breaker_notify)
 
     # --- Delegation: locked until the same evidence spec unlocks action phase ---
     if tool_name in DELEGATION_TOOLS:
+        hygiene_headlines = _run_spec_hygiene(input_data, cwd)
         rc = _enforce_delegation(input_data, tool_name, cwd)
         if rc == 0:
-            return _emit_allow(breaker_notify)
+            return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return _gate_block(rc, breaker_notify)
 
     # Any other tool — nothing to gate (read/search/web stay free).

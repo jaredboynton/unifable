@@ -70,6 +70,29 @@ def test_all_docs_render_deterministically():
     assert all(str(ROOT) not in text for text in first.values())
 
 
+def test_router_fixture_renders_matched_pack_context():
+    """The UserPromptSubmit router fixture must not be empty -- the prompt is
+    chosen to match every route in packs/router-manifest.json."""
+    out = generate_docs._run_router_fixture()
+
+    assert "hookSpecificOutput" in out
+    ctx = out["hookSpecificOutput"]["additionalContext"]
+    assert isinstance(ctx, str)
+    assert ctx.strip(), "router fixture produced empty additionalContext"
+    for tag in ("[unifable:investigation]", "[unifable:grounding]",
+                "[unifable:decision-trace]", "[unifable:domain-verify]",
+                "[unifable:subagent-brief]"):
+        assert tag in ctx, f"router fixture missing pack tag {tag}"
+
+
+def test_generated_hook_docs_contain_router_pack_context():
+    for host in ("claude", "codex"):
+        doc = generate_docs.render_hook_doc(host)
+        assert "[unifable:investigation]" in doc, (
+            f"{host} hook doc missing router pack context (fixture returned empty)"
+        )
+
+
 def test_generated_docs_write_and_check_round_trip(tmp_path):
     written = generate_docs.write_docs(tmp_path)
     ok, problems = generate_docs.check_docs(tmp_path)
