@@ -49,7 +49,7 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 
 from bash_classify import ALLOWED_RESEARCH_BASH, is_allowed_research_bash
-from evidence_policy import resolve_grade
+from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import data_root, emit_json, load_ledger, read_stdin_json
 from heavy_workflow import (
     compute_heavy_phase,
@@ -167,7 +167,10 @@ def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: 
 
         if not enabled():
             return []
-        activity = activity_from_ledger(load_ledger(input_data))
+        ledger = load_ledger(input_data)
+        if resolve_evidence_profile(ledger, spec) == "operational":
+            return []
+        activity = activity_from_ledger(ledger)
         return verify_citations(spec, activity, cwd, require_commands=require_commands)
     except Exception:
         return []
@@ -193,6 +196,16 @@ def _effective_grade(input_data: dict | None = None) -> str:
         except Exception:
             ledger = {}
     return resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
+
+
+def _evidence_profile(input_data: dict | None, spec: dict | None) -> str:
+    ledger: dict = {}
+    if input_data is not None:
+        try:
+            ledger = load_ledger(input_data)
+        except Exception:
+            ledger = {}
+    return resolve_evidence_profile(ledger, spec if isinstance(spec, dict) else None)
 
 
 def _enforce_heavy_writes(spec: dict, cwd: str, target: str | None) -> int:
@@ -245,12 +258,15 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
             f"  unifable add-task --title '<requirement>' --check '<runnable check>'\n"
             f"  HEAVY: unifable set-primary / unifable add-frontier (>=2)\n"
             f"Citations sync from reads/fetches automatically. "
-            f"{contract_string(grade, True)}"
+            f"{contract_string(grade, True, _evidence_profile(input_data, None))}"
         )
 
-    ok, reasons = validate_spec(spec, grade, require_evidence=True)
+    profile = _evidence_profile(input_data, spec)
+    ok, reasons = validate_spec(
+        spec, grade, require_evidence=True, evidence_profile=profile
+    )
     if not ok:
-        return _block(format_spec_validation_block(grade, reasons))
+        return _block(format_spec_validation_block(grade, reasons, profile))
 
     cited = _citation_reasons(spec, input_data, cwd, require_commands=False)
     if cited:
@@ -280,8 +296,11 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
+    profile = _evidence_profile(input_data, spec)
     if spec is not None:
-        ok, _ = validate_spec(spec, grade, require_evidence=True)
+        ok, _ = validate_spec(
+            spec, grade, require_evidence=True, evidence_profile=profile
+        )
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0  # action phase unlocked
 
@@ -308,8 +327,11 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
+    profile = _evidence_profile(input_data, spec)
     if spec is not None:
-        ok, _ = validate_spec(spec, grade, require_evidence=True)
+        ok, _ = validate_spec(
+            spec, grade, require_evidence=True, evidence_profile=profile
+        )
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0
 

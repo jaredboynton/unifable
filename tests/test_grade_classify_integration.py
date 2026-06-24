@@ -21,6 +21,7 @@ sys.path.insert(0, str(REPO / "hooks"))
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 from ledger import load_ledger  # noqa: E402
+from spec import load_spec  # noqa: E402
 
 
 def _run_gate_prompt(payload: dict, judge_verdict: dict | None):
@@ -37,6 +38,14 @@ def _run_gate_prompt(payload: dict, judge_verdict: dict | None):
                 rc = gate_prompt.main()
                 out = emit.call_args[0][0] if emit.call_count else {}
     return rc, out
+
+
+def _nrg_prompt():
+    return (
+        "from slack: Bill asked for CSE engagement consideration on NRG Energy. "
+        "Please research the account across Salesforce, Gong call history, internal "
+        "Slack messages, transcripts, and Jira, then propose a response to Bill."
+    )
 
 
 def _payload(cwd, prompt="fix the auth bug in gate_prompt.py", session="test-classify"):
@@ -156,6 +165,39 @@ def test_long_prompt_includes_task_summary(monkeypatch, tmp_path):
     # task_summary is None when no spec exists, but the key difference is it was
     # ATTEMPTED (not short-circuited). Verify _task_summary was callable.
     assert captured["task_summary"] is None  # no spec -> None, but path was taken
+
+
+def test_operational_classification_persists_profile(monkeypatch, tmp_path):
+    cwd = _setup(monkeypatch, tmp_path)
+    verdict = {
+        "mode": "normal",
+        "risk_flags": [],
+        "reason": "account research and reply drafting",
+        "evidence_profile": "operational",
+    }
+    rc, _ = _run_gate_prompt(_payload(cwd, _nrg_prompt()), verdict)
+    assert rc == 0
+    led = load_ledger({"session_id": "test-classify", "cwd": cwd})
+    assert led["evidence_profile"] == "operational"
+    spec = load_spec(cwd, "test-classify")
+    assert spec is not None
+    assert spec.get("evidence_profile") == "operational"
+
+
+def test_operational_deep_verdict_coerced_to_standard(monkeypatch, tmp_path):
+    cwd = _setup(monkeypatch, tmp_path)
+    verdict = {
+        "mode": "deep",
+        "risk_flags": [],
+        "reason": "big account",
+        "evidence_profile": "operational",
+    }
+    rc, _ = _run_gate_prompt(_payload(cwd, _nrg_prompt()), verdict)
+    assert rc == 0
+    led = load_ledger({"session_id": "test-classify", "cwd": cwd})
+    assert led["task_mode"] == "normal"
+    assert led["grade"] == "STANDARD"
+    assert led["evidence_profile"] == "operational"
 
 
 if __name__ == "__main__":

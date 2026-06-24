@@ -108,7 +108,7 @@ a deterministic hook on the host's critical path, not a skill the worker may cho
 | PreToolUse | `pre_tool_use.py` (+ `bash_classify.py`, `groundedness.py`) | **Evidence gate** + **groundedness breaker** + protected-path guard: block edits, delegation, and non-whitelisted research Bash until the spec validates, and block mutations on an unproven confident claim |
 | PostToolUse | `gate_post_tool.py` | Observe evidence on **every** tool call (read paths, fetched URLs, ran commands, real failures) into the ledger; surface an advisory judge hint on a repeating failure |
 | PostToolUse (edits) | `test_after_edit.py` | Debounced test runner after a file change (`UNIFABLE_TEST_AFTER_EDIT=1`) |
-| Stop | `gate_stop.py` (120s) | Completion gate: require the evidence spec; judge active goals; verification-ran + promise-no-act guards; advisory judge hint when stuck behind the completion breaker |
+| Stop | `gate_stop.py` (120s) | Completion gate: require the evidence spec; judge active goals; verification-ran + promise-no-act guards; advisory judge hint when stuck behind the completion breaker; **passthrough** (`{}`) when all criteria pass |
 
 Shared core lives in `scripts/gate/` (ledger, task classifier, tool-result parser, verify-state,
 the judge client) and `packs/` (investigation protocol, verification-grounding). It stays
@@ -121,9 +121,11 @@ On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delega
 `trace.sh`, or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
 `resolve_session.sh`), or finish until the session's evidence spec
 (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec
-must carry: `repo_context` (`{cite: path:line, why}` the worker actually read), `acceptance_criteria`
-(a runnable `check` plus its live `evidence` output — placeholders are rejected), and `prior_art` (a
-source URL, required at HEAVY). Read, search, web, `trace.sh` exploration, and unifusion panel
+must carry (for **code-profile** tasks): `repo_context` (`{cite: path:line, why}` the worker actually
+read), `acceptance_criteria` (a runnable `check` plus its live `evidence` output -- placeholders are
+rejected), and `prior_art` (a source URL fetched via WebFetch/curl, required at STANDARD+). **Operational-profile**
+tasks (account research, draft replies, internal-tool synthesis) waive repo_context and prior_art;
+restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, `trace.sh` exploration, and unifusion panel
 research stay available so the worker can gather that evidence; a valid spec unlocks the action phase. Quick/LIGHT tasks are waived.
 
 The spec is **append-only and CLI-only** — never hand-edited. The worker drives it with
@@ -147,12 +149,15 @@ Checking is continuous, not a one-shot at the end:
   what the worker actually did, kept current in the background on every tool call.
 - On **Stop**, `auto_validate_spec` in `scripts/gate/spec.py` validates open requirements:
   pending/delivered tasks get fresh checks; failed tasks are re-judged on stored output;
-  disputed impossibility claims are adjudicated. Stop feedback is packaged as a **priority digest**
-  (`build_stop_validate_context` in `scripts/gate/model_notify.py`): **Action required** first
-  (full judge reasoning for tasks adjudicated this stop), then a collapsed delta summary, then a
-  compact incomplete-only board. Stale failed tasks no longer replay prior judge essays every stop.
-  The blocking `reason` field also carries `Action:` lines for those tasks so guidance survives
-  host preview truncation. Full digest is persisted to `last_stop_validation.txt` beside the spec.
+  disputed impossibility claims are adjudicated. When Stop **blocks**, feedback is packaged as a
+  **priority digest** (`build_stop_validate_context` in `scripts/gate/model_notify.py`):
+  **Action required** first (full judge reasoning for tasks adjudicated this stop), then a collapsed
+  delta summary, then a compact incomplete-only board. Stale failed tasks no longer replay prior
+  judge essays every stop. The blocking `reason` field also carries `Action:` lines for those tasks
+  so guidance survives host preview truncation. Full digest is persisted to `last_stop_validation.txt`
+  beside the spec on every Stop adjudication; it is injected via `additionalContext` only when Stop
+  blocks — on Claude Code, Stop `additionalContext` continues the turn, so a clean pass emits `{}`
+  and lets the session end.
 - **Completion is blocked** until every requirement is validated, retracted, or superseded —
   the worker cannot declare done with open requirements. Only the judge can retract one
   (by accepting a dispute) or supersede agent-authored tasks via a replacement bundle.

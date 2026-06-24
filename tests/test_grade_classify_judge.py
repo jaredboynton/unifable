@@ -67,36 +67,70 @@ def test_task_board_is_context_only():
 
 def test_schema_is_mode_risk_flags_reason():
     props = go._GRADE_SCHEMA["properties"]
-    assert set(props.keys()) == {"mode", "risk_flags", "reason"}
-    assert go._GRADE_SCHEMA["required"] == ["mode", "risk_flags", "reason"]
+    assert set(props.keys()) == {"mode", "risk_flags", "reason", "evidence_profile"}
+    assert go._GRADE_SCHEMA["required"] == ["mode", "risk_flags", "reason", "evidence_profile"]
     assert props["mode"]["enum"] == ["quick", "normal", "deep"]
+    assert props["evidence_profile"]["enum"] == ["code", "operational"]
 
 
 # parse_grade_verdict --------------------------------------------------------
 
+def test_system_prompt_describes_evidence_profiles():
+    s = go._GRADE_SYSTEM.lower()
+    assert "evidence_profile" in s or "operational" in s
+    assert "operational" in s
+    assert "code" in s
+
+
 def test_parse_valid_verdict():
-    mode, flags, reason = go.parse_grade_verdict(
-        {"mode": "normal", "risk_flags": ["uncertainty"], "reason": "hedged"}
+    mode, flags, reason, profile = go.parse_grade_verdict(
+        {
+            "mode": "normal",
+            "risk_flags": ["uncertainty"],
+            "reason": "hedged",
+            "evidence_profile": "operational",
+        }
     )
     assert mode == "normal"
     assert flags == ["uncertainty"]
     assert reason == "hedged"
+    assert profile == "operational"
+
+
+def test_parse_operational_deep_coerced_to_normal():
+    mode, _, reason, profile = go.parse_grade_verdict(
+        {
+            "mode": "deep",
+            "risk_flags": [],
+            "reason": "account research",
+            "evidence_profile": "operational",
+        }
+    )
+    assert mode == "normal"
+    assert profile == "operational"
+    assert "coerced" in reason.lower()
 
 
 def test_parse_bad_mode_falls_to_normal():
-    mode, _, _ = go.parse_grade_verdict({"mode": "invalid", "risk_flags": [], "reason": ""})
+    mode, _, _, profile = go.parse_grade_verdict(
+        {"mode": "invalid", "risk_flags": [], "reason": "", "evidence_profile": "code"}
+    )
     assert mode == "normal"
+    assert profile == "code"
 
 
 def test_parse_none_verdict_fails_open():
-    mode, flags, reason = go.parse_grade_verdict(None)
+    mode, flags, reason, profile = go.parse_grade_verdict(None)
     assert mode == "normal"
     assert flags == []
     assert reason == ""
+    assert profile == "code"
 
 
 def test_parse_non_list_risk_flags():
-    _, flags, _ = go.parse_grade_verdict({"mode": "quick", "risk_flags": "oops", "reason": ""})
+    _, flags, _, _ = go.parse_grade_verdict(
+        {"mode": "quick", "risk_flags": "oops", "reason": "", "evidence_profile": "code"}
+    )
     assert flags == []
 
 
@@ -118,7 +152,7 @@ def test_judge_uses_injected_fn():
 
     def fake(operative, **kw):
         calls.append(operative)
-        return {"mode": "deep", "risk_flags": [], "reason": "architectural"}
+        return {"mode": "deep", "risk_flags": [], "reason": "architectural", "evidence_profile": "code"}
 
     verdict = go.judge_grade_classify("migrate to event-driven", judge_fn=fake)
     assert verdict["mode"] == "deep"

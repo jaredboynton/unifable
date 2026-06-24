@@ -32,8 +32,13 @@ def main() -> int:
          "uncertainty nudge present in context_for_mode"),
         # parse_grade_verdict must accept uncertainty in risk_flags
         (go.parse_grade_verdict(
-            {"mode": "normal", "risk_flags": ["uncertainty"], "reason": "hedged"}
-        ) == ("normal", ["uncertainty"], "hedged"),
+            {
+                "mode": "normal",
+                "risk_flags": ["uncertainty"],
+                "reason": "hedged",
+                "evidence_profile": "code",
+            }
+        ) == ("normal", ["uncertainty"], "hedged", "code"),
          "parse_grade_verdict preserves uncertainty flag"),
     ]
 

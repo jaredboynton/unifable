@@ -17,10 +17,15 @@ import os
 from typing import Any, Callable
 
 try:
-    from evidence_policy import MODES, grade_for_mode
+    from evidence_policy import DEFAULT_EVIDENCE_PROFILE, EVIDENCE_PROFILES, grade_for_mode, MODES
     from spec import load_spec, resolve_session_id, save_spec
 except ImportError:  # pragma: no cover
-    from scripts.gate.evidence_policy import MODES, grade_for_mode
+    from scripts.gate.evidence_policy import (
+        DEFAULT_EVIDENCE_PROFILE,
+        EVIDENCE_PROFILES,
+        MODES,
+        grade_for_mode,
+    )
     from scripts.gate.spec import load_spec, resolve_session_id, save_spec
 
 _GRADE_SCHEMA: dict[str, Any] = {
@@ -49,8 +54,17 @@ _GRADE_SCHEMA: dict[str, Any] = {
             "type": "string",
             "description": "One sentence explaining the classification.",
         },
+        "evidence_profile": {
+            "type": "string",
+            "enum": list(EVIDENCE_PROFILES),
+            "description": (
+                "code: repo edits, tests, harness work, implementation. operational: "
+                "research/synthesis/drafting with internal tools -- account lookup, "
+                "transcript review, Slack/email reply drafting, CRM summaries."
+            ),
+        },
     },
-    "required": ["mode", "risk_flags", "reason"],
+    "required": ["mode", "risk_flags", "reason", "evidence_profile"],
     "additionalProperties": False,
 }
 
@@ -83,6 +97,13 @@ _GRADE_SYSTEM = (
     "HEAVY', 'manual override to normal') is a strong signal -- obey it.\n"
     "- When ambiguous, prefer normal over deep. HEAVY is for genuine architectural "
     "exploration only, not for any task that happens to touch sensitive code.\n"
+    "Also return evidence_profile:\n"
+    "- operational: research/synthesis/drafting where the deliverable is prose, a "
+    "reply, or a summary -- account lookup, CRM/Salesforce research, Gong/Slack "
+    "transcript review, draft email/Slack response, propose a customer reply. "
+    "Classify as normal (not deep). Operational work is NEVER deep/HEAVY.\n"
+    "- code: file edits in the repo, bug fixes, features, refactors, tests, harness "
+    "self-work. Default when ambiguous between code and operational.\n"
     "risk_flags: free-form short tags for risks the gates should know about. Empty "
     "array if none. reason: one sentence."
 )
@@ -157,12 +178,14 @@ def judge_grade_classify(
         return None
 
 
-def parse_grade_verdict(verdict: dict[str, Any] | None) -> tuple[str, list[str], str]:
-    """Coerce a raw judge verdict into (mode, risk_flags, reason).
+def parse_grade_verdict(
+    verdict: dict[str, Any] | None,
+) -> tuple[str, list[str], str, str]:
+    """Coerce a raw judge verdict into (mode, risk_flags, reason, evidence_profile).
 
-    Returns ('normal', [], '') on any parse failure -- the fail-open default."""
+    Returns ('normal', [], '', 'code') on any parse failure -- the fail-open default."""
     if not isinstance(verdict, dict):
-        return "normal", [], ""
+        return "normal", [], "", DEFAULT_EVIDENCE_PROFILE
     mode = str(verdict.get("mode") or "").lower().strip()
     if mode not in MODES:
         mode = "normal"
@@ -173,7 +196,16 @@ def parse_grade_verdict(verdict: dict[str, Any] | None) -> tuple[str, list[str],
         else []
     )
     reason = str(verdict.get("reason") or "").strip()
-    return mode, flags, reason
+    profile = str(verdict.get("evidence_profile") or "").lower().strip()
+    if profile not in EVIDENCE_PROFILES:
+        profile = DEFAULT_EVIDENCE_PROFILE
+    if profile == "operational" and mode == "deep":
+        mode = "normal"
+        if reason:
+            reason = f"{reason} (operational coerced from deep to normal)"
+        else:
+            reason = "operational work coerced from deep to normal"
+    return mode, flags, reason, profile
 
 
 # ---------------------------------------------------------------------------
@@ -215,14 +247,19 @@ def apply_classified_grade_ledger(
     reason: str,
     *,
     by: str = "judge",
+    evidence_profile: str | None = None,
 ) -> None:
     """Set the classified mode/grade on the ledger. by='judge' for the classifier,
     'operator' for a manual override."""
     m = (mode or "normal").lower().strip()
     if m not in MODES:
         m = "normal"
+    profile = str(evidence_profile or DEFAULT_EVIDENCE_PROFILE).lower().strip()
+    if profile not in EVIDENCE_PROFILES:
+        profile = DEFAULT_EVIDENCE_PROFILE
     ledger["task_mode"] = m
     ledger["grade"] = grade_for_mode(m)
+    ledger["evidence_profile"] = profile
     ledger["grade_override_applied"] = True
     ledger["grade_override_target"] = grade_for_mode(m)
     ledger["grade_override_by"] = (by or "judge").strip()[:32]

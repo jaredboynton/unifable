@@ -76,6 +76,7 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "grade_override_by": "",
     "grade_override_reason": "",
     "grade_re_warrant_reason": "",
+    "evidence_profile": "code",
     "inject_heavy_brief": False,
     "heavy_brief_injected": False,
     "frontier_discovery_count": 0,

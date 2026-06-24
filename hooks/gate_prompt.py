@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from classify_task import operative_prompt, context_for_mode, grade_of
-from evidence_policy import mode_for_grade, resolve_grade
+from evidence_policy import mode_for_grade, resolve_evidence_profile, resolve_grade
 from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
 from heavy_workflow import clear_stale_heavy_workflow, heavy_workflow_brief
 from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
@@ -35,7 +35,14 @@ def _seed_goal(prompt: str, limit: int = 280) -> str:
     return g[:limit]
 
 
-def _ensure_spec_scaffold(cwd: str, key: str, prompt: str, *, heavy: bool = False) -> str:
+def _ensure_spec_scaffold(
+    cwd: str,
+    key: str,
+    prompt: str,
+    *,
+    heavy: bool = False,
+    evidence_profile: str = "code",
+) -> str:
     """Auto-create the evidence spec (the agent never runs `create`). Writes a
     scaffold with `requires_tasks` so an empty spec is not completable, seeds the
     goal from the prompt, and returns the spec path for injection. Fail-open:
@@ -50,19 +57,34 @@ def _ensure_spec_scaffold(cwd: str, key: str, prompt: str, *, heavy: bool = Fals
             s["repo_context"] = []
             s["prior_art"] = []
             s["tasks"] = []
+            s["evidence_profile"] = evidence_profile
             s["requires_tasks"] = True  # empty spec must gain >=1 requirement to complete
             if heavy:
                 s["heavy_workflow"] = True
             save_spec(cwd, key, s)
         elif heavy:
             s = load_spec(cwd, key)
-            if isinstance(s, dict) and not s.get("heavy_workflow"):
-                s["heavy_workflow"] = True
-                save_spec(cwd, key, s)
+            if isinstance(s, dict):
+                changed = False
+                if not s.get("heavy_workflow"):
+                    s["heavy_workflow"] = True
+                    changed = True
+                if s.get("evidence_profile") != evidence_profile:
+                    s["evidence_profile"] = evidence_profile
+                    changed = True
+                if changed:
+                    save_spec(cwd, key, s)
         else:
             s = load_spec(cwd, key)
-            if isinstance(s, dict) and clear_stale_heavy_workflow(s, "STANDARD"):
-                save_spec(cwd, key, s)
+            if isinstance(s, dict):
+                changed = False
+                if clear_stale_heavy_workflow(s, "STANDARD"):
+                    changed = True
+                if s.get("evidence_profile") != evidence_profile:
+                    s["evidence_profile"] = evidence_profile
+                    changed = True
+                if changed:
+                    save_spec(cwd, key, s)
         return str(path)
     except Exception:
         return ""
@@ -98,13 +120,19 @@ def main() -> int:
     if len(operative.split()) >= 20:
         task_summary = _task_summary(prior_spec) if isinstance(prior_spec, dict) else None
     verdict = judge_grade_classify(operative, restated_goal=restated, task_summary=task_summary)
-    mode, risks, reason = parse_grade_verdict(verdict)
+    mode, risks, reason, evidence_profile = parse_grade_verdict(verdict)
     if verdict is None:
-        mode, risks, reason = "normal", [], "judge unavailable: classified as normal (fail-open)"
+        mode, risks, reason, evidence_profile = (
+            "normal",
+            [],
+            "judge unavailable: classified as normal (fail-open)",
+            "code",
+        )
     grade = grade_of(mode)
 
     def apply(ledger):
         ledger["active_task"] = new_key
+        ledger["evidence_profile"] = evidence_profile
         pinned_target = (
             ledger.get("grade_override_target")
             if ledger.get("grade_override_applied")
@@ -146,10 +174,17 @@ def main() -> int:
 
     if effective_grade != "LIGHT":
         key = session_key
-        path = _ensure_spec_scaffold(cwd, key, prompt, heavy=heavy_scaffold)
+        path = _ensure_spec_scaffold(
+            cwd, key, prompt, heavy=heavy_scaffold, evidence_profile=evidence_profile
+        )
         if path:
+            profile_note = (
+                " Operational profile: no repo path:line or external URL required before edits."
+                if evidence_profile == "operational"
+                else ""
+            )
             context += (
-                f"\n\nunifable: evidence spec auto-created at {path}. "
+                f"\n\nunifable: evidence spec auto-created at {path}.{profile_note} "
                 f"Drive it via the append-only CLI (never edit the JSON):\n"
                 f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
                 f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"

@@ -102,6 +102,11 @@ SPEC_SCHEMA: dict[str, dict[str, Any]] = {
         "required": False,
         "description": "RESEARCH evidence: each {cite: 'http(s)://...', why: '<why it backs the approach>'} (docs/repos/papers).",
     },
+    "evidence_profile": {
+        "type": str,
+        "required": False,
+        "description": "code | operational — set by grade classifier; operational waives repo_context/prior_art at STANDARD+.",
+    },
     # CLI-managed task list. Each task carries a runnable `check`; a task becomes
     # `validated` only when the check runs AND the codex judge confirms the output
     # actually satisfies it. When a spec declares tasks, completion (Stop gate)
@@ -231,20 +236,32 @@ def prior_art_parts(item: Any) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def validate_spec(
-    spec: dict[str, Any], grade: str, require_evidence: bool = False
+    spec: dict[str, Any],
+    grade: str,
+    require_evidence: bool = False,
+    evidence_profile: str | None = None,
 ) -> tuple[bool, list[str]]:
     """Validate *spec* against the requirements for *grade*.
 
     When *require_evidence* is True (how the hooks always call it), the spec must
-    also carry citation evidence at STANDARD+: 'repo_context' (>=1 {cite: 'path:line',
-    why: '<why relevant>'}) and 'prior_art' (>=1 {cite: 'http(s)://...', why:
-    '<why relevant>'}). This makes the spec the documented evidence that unlocks action.
+    also carry citation evidence at STANDARD+ for the *code* profile: 'repo_context'
+    (>=1 {cite: 'path:line', why: '<why relevant>'}) and 'prior_art' (>=1
+    {cite: 'http(s)://...', why: '<why relevant>'}). The *operational* profile
+    waives both at STANDARD+; evidence is task-driven and judged at Stop.
 
     Returns (ok, reasons) where reasons is empty when ok is True.
     """
+    try:
+        from evidence_policy import resolve_evidence_profile
+    except ImportError:  # pragma: no cover
+        from scripts.gate.evidence_policy import resolve_evidence_profile
     grade = (grade or "STANDARD").upper()
     if grade not in GRADES:
         return False, [f"Unknown grade '{grade}'; expected one of {', '.join(GRADES)}."]
+
+    profile = resolve_evidence_profile(spec=spec if isinstance(spec, dict) else None)
+    if evidence_profile is not None:
+        profile = (evidence_profile or "").lower().strip() or profile
 
     reasons: list[str] = []
 
@@ -322,11 +339,10 @@ def validate_spec(
         elif not str(primary.get("title") or "").strip() or not str(primary.get("check") or "").strip():
             reasons.append("HEAVY primary approach task must have non-empty title and check.")
 
-    # Evidence gate: citation fields become required at STANDARD+ (LIGHT is exempt
-    # because LIGHT waives the spec entirely upstream). Each repo_context citation must
-    # carry a 'why relevant' rationale, and prior_art (research/frontier evidence) is
-    # required from STANDARD up.
-    if require_evidence and grade in ("STANDARD", "HEAVY"):
+    # Evidence gate: citation fields become required at STANDARD+ for code-profile
+    # tasks (LIGHT is exempt because LIGHT waives the spec entirely upstream).
+    # Operational profile waives repo_context and prior_art; task checks carry evidence.
+    if require_evidence and grade in ("STANDARD", "HEAVY") and profile == "code":
         repo_context = repo_context_of(spec)  # accepts legacy `must_read` alias
         if not repo_context:
             reasons.append(
@@ -2076,6 +2092,7 @@ def spec_template() -> dict[str, Any]:
             {"cite": "", "why": ""}
         ],
         "prior_art": [],
+        "evidence_profile": "code",
         "risks": [],
         "non_goals": [],
         "heavy_workflow": False,
@@ -2108,23 +2125,46 @@ _CONTRACT: dict[str, str] = {
 }
 
 
-def contract_string(grade: str, require_evidence: bool = False) -> str:
+def contract_string(
+    grade: str,
+    require_evidence: bool = False,
+    evidence_profile: str | None = None,
+) -> str:
     """Return the pass-conditions for *grade* as a short additionalContext string.
 
     When *require_evidence* is True, append the evidence-gate citation requirements
-    (repo_context with why-rationale + prior_art, both at STANDARD+).
+    (code profile: repo_context + prior_art at STANDARD+; operational: tasks only).
     """
+    try:
+        from evidence_policy import DEFAULT_EVIDENCE_PROFILE, resolve_evidence_profile
+    except ImportError:  # pragma: no cover
+        from scripts.gate.evidence_policy import DEFAULT_EVIDENCE_PROFILE, resolve_evidence_profile
+
     grade = (grade or "STANDARD").upper()
     base = _CONTRACT.get(grade, _CONTRACT["STANDARD"])
+    profile = (evidence_profile or DEFAULT_EVIDENCE_PROFILE).lower().strip()
+    if profile not in ("code", "operational"):
+        profile = DEFAULT_EVIDENCE_PROFILE
     if require_evidence and grade != "LIGHT":
-        base = base + (
-            " Evidence gate: also include 'repo_context' (>=1 {cite:'path:line', why:'why it's "
-            "relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'})."
-        )
+        if profile == "operational":
+            base = base + (
+                " Evidence gate (operational): restated goal + >=1 requirement task; "
+                "no repo path:line or external URL required before edits -- task "
+                "checks are judged at Stop."
+            )
+        else:
+            base = base + (
+                " Evidence gate: also include 'repo_context' (>=1 {cite:'path:line', why:'why it's "
+                "relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'})."
+            )
     return base
 
 
-def format_spec_validation_block(grade: str, reasons: list[str]) -> str:
+def format_spec_validation_block(
+    grade: str,
+    reasons: list[str],
+    evidence_profile: str | None = None,
+) -> str:
     """Model-facing block text when validate_spec fails.
 
     Omits filesystem paths (the model drives the spec via CLI and activity sync,
@@ -2159,7 +2199,7 @@ def format_spec_validation_block(grade: str, reasons: list[str]) -> str:
         parts.append("To unblock edits: " + "; ".join(fixes) + ".")
     else:
         parts.append("Fix the spec via the unifable CLI (never edit spec.json directly).")
-    parts.append(contract_string(grade, True))
+    parts.append(contract_string(grade, True, evidence_profile))
     return " ".join(parts)
 
 

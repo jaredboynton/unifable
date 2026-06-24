@@ -69,6 +69,14 @@ class TestGradeApply(unittest.TestCase):
         self.assertEqual(ledger["grade_override_target"], "STANDARD")
         self.assertEqual(ledger["grade_override_by"], "judge")
         self.assertTrue(ledger["grade_override_applied"])
+        self.assertEqual(ledger["evidence_profile"], "code")
+
+    def test_apply_classified_grade_ledger_operational_profile(self) -> None:
+        ledger: dict = {}
+        apply_classified_grade_ledger(
+            ledger, "normal", "account research", by="judge", evidence_profile="operational"
+        )
+        self.assertEqual(ledger["evidence_profile"], "operational")
 
     def test_format_override_context(self) -> None:
         ctx = format_override_context("normal", "bounded fix", by="judge")
@@ -87,10 +95,11 @@ class TestJudgeClassifyFailOpen(unittest.TestCase):
         self.assertIsNone(judge_grade_classify("fix bug", judge_fn=boom))
 
     def test_parse_none_falls_to_normal(self) -> None:
-        mode, flags, reason = parse_grade_verdict(None)
+        mode, flags, reason, profile = parse_grade_verdict(None)
         self.assertEqual(mode, "normal")
         self.assertEqual(flags, [])
         self.assertEqual(reason, "")
+        self.assertEqual(profile, "code")
 
 
 if __name__ == "__main__":

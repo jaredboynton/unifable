@@ -384,6 +384,68 @@ def test_evidence_prior_art_requires_why():
     assert any("prior_art" in r and "why" in r for r in reasons), reasons
 
 
+def _operational_spec_with_tasks() -> dict:
+    return {
+        "restated_goal": "Research NRG account across internal systems and draft a reply.",
+        "evidence_profile": "operational",
+        "requires_tasks": True,
+        "tasks": [
+            {
+                "id": "T1",
+                "title": "Resolve NRG account facts from Salesforce",
+                "check": "echo nrg facts gathered",
+                "status": "pending",
+            }
+        ],
+    }
+
+
+def test_operational_standard_waives_citations():
+    spec = _operational_spec_with_tasks()
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert ok, reasons
+
+
+def test_code_standard_still_requires_both():
+    spec = _standard_spec_with_evidence()
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("prior_art" in r for r in reasons)
+
+
+def test_operational_pre_tool_unlocks_write():
+    with tempfile.TemporaryDirectory() as tmp_root, tempfile.TemporaryDirectory() as cwd:
+        session_id = "operational-write"
+        os.environ["UNIFABLE_DATA"] = tmp_root
+        try:
+            spec = _operational_spec_with_tasks()
+            save_spec(cwd, session_id, spec)
+            target = os.path.join(cwd, "scratchpad", "nrg-research.md")
+            payload = _edit_payload(target, session_id=session_id, cwd=cwd)
+            payload["tool_name"] = "Write"
+            payload["tool_input"] = {"file_path": target, "contents": "# NRG research\n"}
+            rc, _, stderr = run_pre_tool(payload, spec_gate="1", grade="STANDARD", tmp_root=tmp_root)
+            assert rc == 0, stderr
+        finally:
+            os.environ.pop("UNIFABLE_DATA", None)
+
+
+def test_operational_stop_skips_citation_requirements():
+    with tempfile.TemporaryDirectory() as cwd:
+        spec = {
+            "restated_goal": "Research NRG account and draft a reply to Bill.",
+            "evidence_profile": "operational",
+            "acceptance_criteria": [{"check": "echo ok", "evidence": "ok"}],
+        }
+        save_spec(cwd, "st-operational", spec)
+        out = run_stop(
+            {"session_id": "st-operational", "cwd": cwd, "stop_hook_active": False},
+            grade="STANDARD",
+        )
+        assert not _blocks(out), out
+
+
 # ---------------------------------------------------------------------------
 # Unit tests: check_fake_evidence
 # ---------------------------------------------------------------------------
@@ -934,7 +996,7 @@ def test_stop_blocks_invalid_spec():
         save_spec(cwd, "st4", spec)
         out = run_stop({"session_id": "st4", "cwd": cwd, "stop_hook_active": False}, grade="STANDARD")
         assert _blocks(out)
-        assert "invalid" in out.get("reason", "").lower()
+        assert "prior_art" in out.get("reason", "").lower()
 
 
 def test_stop_evidence_ignores_loop_guard():

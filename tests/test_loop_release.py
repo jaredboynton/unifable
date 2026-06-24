@@ -216,6 +216,7 @@ def test_gate_stop_provisional_lift_allows_stop(tmp_path, monkeypatch):
     out = _run_stop(gate_stop, {"session_id": "loopsess", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
     assert "provisional Stop lift" in (out.get("systemMessage") or "")
+    assert "hookSpecificOutput" not in out
 
 
 def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
@@ -256,6 +257,7 @@ def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     out2 = _run_stop(gate_stop, {"session_id": "loopsess2", "cwd": str(tmp_path)})
     assert out2.get("decision") != "block"
     assert "provisional Stop lift" in (out2.get("systemMessage") or "")
+    assert "hookSpecificOutput" not in out2
 
 
 def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):

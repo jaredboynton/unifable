@@ -44,7 +44,9 @@ completion gate for load-bearing behavior.
   fetched_urls, ran_commands) and verification results into the ledger. The
   breaker's release gate and citation checks read this log.
 - `hooks/gate_stop.py` — Stop: completion gate (spec present, verification ran,
-  promise-no-act guard).
+  promise-no-act guard). On allow-stop, emit `{}` (or `systemMessage` only for user
+  escalations); inject the spec digest via `additionalContext` only when `decision: block`
+  — Stop `additionalContext` re-engages the session on Claude Code.
 - `scripts/gate/` — host-agnostic core, no host imports:
   `spec.py` (evidence spec validate), `ledger.py` (per-session state),
   `citations.py` (cite-vs-activity check), `groundedness.py` (arm/disarm judge),
@@ -64,7 +66,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.57          # or: just version patch|minor|major
+just version 1.9.59          # or: just version patch|minor|major
 
 # Session env probe: validate that the shell subprocess receives the
 # same session id as the hook/prompt scaffold (see resolve_session_id).

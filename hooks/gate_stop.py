@@ -31,7 +31,7 @@ sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 sys.path.insert(0, str(_HERE.parent / "scripts" / "shadow"))
 
 from atomicio import write_text_atomic
-from evidence_policy import resolve_grade
+from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
 from verify_state import (MAX_STOP_BLOCKS, completion_runaway_warning,
@@ -103,13 +103,11 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
 
 
 def _attach_validate_context(payload: dict, ctx: str) -> None:
-    """Attach the Stop-time spec board to additionalContext only.
+    """Attach the Stop-time spec board to additionalContext on block payloads only.
 
-    additionalContext is the documented channel Claude acts on
-    (https://code.claude.com/docs/en/hooks); the short blocking alarm stays in
-    ``reason``. Both channels surface on Claude Code, so writing the board into
-    both doubled the tokens injected into the model -- the board now rides
-    additionalContext once and is not duplicated into ``reason``.
+    On Stop, additionalContext continues the conversation (Claude Code docs).
+    Use only when ``decision: block`` is set; allow-stop paths must emit ``{}``
+    or ``systemMessage`` alone. The short blocking alarm stays in ``reason``.
     """
     if not ctx or not ctx.strip():
         return
@@ -178,11 +176,7 @@ def _handle_completion_loop_release(
     if loop_lift_active(ledger) and consume_provisional_stop_lift(ledger):
         msg = provisional_allow_message(ledger)
         save_ledger(input_data, ledger)
-        payload = {
-            "systemMessage": msg,
-            "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": msg},
-        }
-        _attach_validate_context(payload, validate_ctx)
+        payload = {"systemMessage": msg}
         return spec, False, incomplete, val_msgs, validate_ctx, payload
 
     if should_invoke_loop_judge(ledger, incomplete, pending_block=True, spec=spec):
@@ -623,13 +617,7 @@ def main() -> int:
                             if note_completion_block(_led, len(incomplete)):
                                 save_ledger(input_data, _led)
                                 _warn = completion_runaway_warning(len(incomplete))
-                                payload = {
-                                    "systemMessage": _warn,
-                                    "hookSpecificOutput": {
-                                        "hookEventName": "Stop", "additionalContext": _warn},
-                                }
-                                _attach_validate_context(payload, validate_ctx)
-                                emit_json(payload)
+                                emit_json({"systemMessage": _warn})
                                 return 0
                             save_ledger(input_data, _led)
                         except Exception:
@@ -661,22 +649,28 @@ def main() -> int:
                         save_ledger(input_data, _led)
                     except Exception:
                         pass  # fail open
-                    ok, reasons = validate_spec(spec, grade, require_evidence=True)
+                    ok, reasons = validate_spec(
+                        spec,
+                        grade,
+                        require_evidence=True,
+                        evidence_profile=resolve_evidence_profile(ledger, spec),
+                    )
                     if not ok:
                         from spec import format_spec_validation_block
 
-                        ev_reason = format_spec_validation_block(grade, reasons)
+                        ev_reason = format_spec_validation_block(
+                            grade,
+                            reasons,
+                            resolve_evidence_profile(ledger, spec),
+                        )
                     else:
-                        # Citation truth-check: every repo_context / prior_art / acceptance
-                        # citation must be backed by real session activity, sourced from
-                        # the ledger UNION the transcript (which recurses sub-agent
-                        # transcripts, so research delegated to sub-agents counts).
-                        # require_commands=True: at completion the checks must have run.
+                        # Citation truth-check: code-profile tasks only.
                         try:
                             from citations import (activity_from_ledger, enabled,
                                                    merge_activity, scan_transcript,
                                                    verify_citations)
-                            if enabled():
+                            profile = resolve_evidence_profile(ledger, spec)
+                            if enabled() and profile != "operational":
                                 activity = merge_activity(
                                     activity_from_ledger(load_ledger(input_data)),
                                     scan_transcript(input_data.get("transcript_path")),
@@ -771,16 +765,7 @@ def main() -> int:
 
     warning = warning_after_max_blocks(ledger)
     if warning:
-        payload = {
-            "systemMessage": warning,
-            "hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": warning},
-        }
-        _attach_validate_context(payload, validate_ctx)
-        emit_json(payload)
-    elif validate_ctx:
-        emit_json(
-            {"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": validate_ctx}}
-        )
+        emit_json({"systemMessage": warning})
     else:
         emit_json({})
     return 0

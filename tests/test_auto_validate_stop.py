@@ -176,9 +176,38 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
-    ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "stop validation" in ctx
+    assert out == {}
     assert load_spec(str(tmp_path), "sess")["tasks"][0]["status"] == "validated"
+    digest = tmp_path / "specs"
+    matches = list(digest.rglob("last_stop_validation.txt")) if digest.is_dir() else []
+    assert matches, "expected persisted stop digest on passthrough"
+    assert "breaker: OPEN" in matches[0].read_text(encoding="utf-8")
+
+
+def test_stop_passthrough_empty_when_breaker_open(tmp_path, monkeypatch):
+    """Clean allow-stop emits {} — no additionalContext that re-engages the session."""
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "validated"), _task("T2", "validated")]
+    save_spec(str(tmp_path), "sess", s)
+    monkeypatch.setattr(
+        spec_mod,
+        "auto_validate_spec",
+        lambda spec, cwd, **kw: (spec, ["T2 validated"]),
+    )
+
+    out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
+    assert out == {}
+    assert "hookSpecificOutput" not in out
+    assert "decision" not in out
 
 
 def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):

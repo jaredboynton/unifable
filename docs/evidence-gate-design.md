@@ -55,10 +55,15 @@ env disable.
 
 ## Delta 2 — citation fields in the unlock predicate (spec.py SPEC_SCHEMA)
 
-Add, so the spec literally *is* the three evidence types:
+Add, so the spec literally *is* the three evidence types (for **code-profile** tasks):
 - `repo_context`: list of `path:line` strings the model read (CODE evidence). Validate each matches
-  `\S+:\d+`; optionally existence-check the file. Required >=1 at STANDARD+.
-- `prior_art`: list of source URLs/repo refs (RESEARCH evidence). Required >=1 at HEAVY (architecture).
+  `\S+:\d+`; optionally existence-check the file. Required >=1 at STANDARD+ for code profile.
+- `prior_art`: list of source URLs/repo refs (RESEARCH evidence). Required >=1 at STANDARD+ for code
+  profile (external docs fetched via WebFetch/curl -- WebSearch alone does not count).
+- `evidence_profile`: `code` (default) or `operational`, set by the grade classifier on
+  UserPromptSubmit. **Operational** tasks (account research, draft replies, internal-tool synthesis)
+  waive both `repo_context` and `prior_art` at STANDARD+; restated goal + requirement tasks unlock
+  edits, and the Stop judge validates task check output.
 - `acceptance_criteria[{check, evidence}]` — TOOL-OUTPUT evidence (already present; FAKE_MARKERS enforced).
 - `rejected_alternatives` (legacy HEAVY field, removed) — HEAVY now uses frontier approach tasks.
 Validation extends `validate_spec` (`spec.py:116`) with these; the contract strings
@@ -144,7 +149,9 @@ model in priority order:
 
 The completion block **`reason`** also appends short `Action:` lines (tasks changed this stop) so
 actionable guidance survives host preview truncation. When the digest is truncated, `reason` points
-at `last_stop_validation.txt` beside the session spec. Regression: `tests/test_spec_model_notify.py`,
+at `last_stop_validation.txt` beside the session spec. The digest is persisted on every Stop
+adjudication; it is injected via `additionalContext` only when Stop is **blocked**, not on clean
+passthrough. Regression: `tests/test_spec_model_notify.py`,
 `tests/test_auto_validate_stop.py`.
 
 ## Completion loop lift — judge-adjudicated Stop release (V1)
@@ -176,7 +183,8 @@ One judge call per loop episode (debounced; not every Stop).
 
 **Hook wiring** — `hooks/gate_stop.py` runs loop detection after `auto_validate_spec` and
 before the completion block decision: consume provisional budget, invoke loop judge when
-triggered, notify via `systemMessage` + `additionalContext`. Regression:
+triggered, notify via `systemMessage` on allow-stop lifts (no `additionalContext`, which would
+re-engage the session). Regression:
 `tests/test_loop_release.py`.
 
 ## Requirement supersession — converging failed sprawl
@@ -197,8 +205,9 @@ Regression: `tests/test_supersession.py`.
 ## Rollout
 
 Unconditional (always on, no env disable), fail-open on malformed input. Graded: LIGHT waives;
-STANDARD = repo_context + acceptance_criteria; HEAVY adds prior_art + rejected_alternatives. Both
-hosts: Claude native hooks + Codex (same `pre_tool_use.py`, both list `apply_patch`). Tests:
+**code** STANDARD+ = repo_context + prior_art + acceptance/tasks; **operational** STANDARD+ =
+restated goal + tasks only (no path:line or URL citations before edits); HEAVY adds frontier workflow.
+Both hosts: Claude native hooks + Codex (same `pre_tool_use.py`, both list `apply_patch`). Tests:
 extend `tests/test_spec_gate.py` + add a Bash-classifier test (allow/block matrix, malformed,
 no-brick), mirroring wfb's 35/35 adversarial set.
 

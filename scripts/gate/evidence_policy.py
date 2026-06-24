@@ -50,6 +50,10 @@ GRADE_TO_MODE = {"LIGHT": "quick", "STANDARD": "normal", "HEAVY": "deep"}
 
 DEFAULT_GRADE = "STANDARD"
 
+# Evidence profile: what citation fields validate_spec requires at STANDARD+.
+EVIDENCE_PROFILES = ("code", "operational")
+DEFAULT_EVIDENCE_PROFILE = "code"
+
 
 def grade_for_mode(mode: str | None) -> str:
     """Derive the enforcement grade for a classifier *mode*. Unknown -> STANDARD."""
@@ -162,3 +166,24 @@ def resolve_policy(ledger: dict[str, Any] | None, env_grade: Any = None) -> Poli
     grade = resolve_grade(ledger, env_grade)
     task_mode = ledger.get("task_mode") if isinstance(ledger, dict) else None
     return Policy(grade, task_mode)
+
+
+def _norm_profile(value: Any) -> str:
+    p = (value or "").lower().strip() if isinstance(value, str) else ""
+    return p if p in EVIDENCE_PROFILES else DEFAULT_EVIDENCE_PROFILE
+
+
+def resolve_evidence_profile(
+    ledger: dict[str, Any] | None = None,
+    spec: dict[str, Any] | None = None,
+) -> str:
+    """Resolve the effective evidence profile. Precedence: spec > ledger > code."""
+    if isinstance(spec, dict):
+        raw = spec.get("evidence_profile")
+        if isinstance(raw, str) and raw.lower().strip() in EVIDENCE_PROFILES:
+            return _norm_profile(raw)
+    if isinstance(ledger, dict):
+        raw = ledger.get("evidence_profile")
+        if isinstance(raw, str) and raw.lower().strip() in EVIDENCE_PROFILES:
+            return _norm_profile(raw)
+    return DEFAULT_EVIDENCE_PROFILE
