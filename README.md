@@ -4,6 +4,15 @@ A harness that makes Opus (or any Claude/Codex model) behave like **Fable** — 
 evidence, and verification enforced as *procedure*, auto-routed per task. **One codebase,
 two hosts:** Claude Code and Codex, each as a **native plugin** (own manifest + own hooks).
 
+## Live Benchmark
+
+> **2026-06-24:** On the saved-summary regression task,
+> Claude Code with unifable completed in **160s / 456,671 tokens** versus
+> **406s / 174,971 tokens** with hooks disabled. Codex CLI with unifable completed in
+> **821s / 3,176,778 tokens** versus **98s / 334,748 tokens** with user config ignored.
+> This is one local four-cell run; raw artifacts and the table are in
+> [benchmark/results/20260624T073500Z/summary.md](benchmark/results/20260624T073500Z/summary.md).
+
 The premise: a harness cannot raise a model's ceiling, but it can make the model reach its own
 ceiling by turning verification, completion, and investigation into procedure the model cannot
 skip. The same gate scripts run on both hosts via Claude-Code-compatible hooks.
@@ -49,7 +58,7 @@ flowchart TB
   UPS["UserPromptSubmit<br/>grade the task: quick / normal / deep"] --> PTU
   PTU["PreToolUse — every tool<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
   POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; suggest approaches on a deep task"] --> STOP
-  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>judge active goals (goal_stop_decision)"]
+  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>judge active goals (goal_stop_decision)<br/>completion handoff judge (completion_handoff_decision)"]
   UPS -.-> CJ
   PTU -.-> CJ
   POST -.-> CJ
@@ -74,8 +83,10 @@ What happens at each stage:
 4. **On Stop — completion gate.** `auto_validate_spec` (`scripts/gate/spec.py`) runs each open
    requirement's check and the judge renders a verdict (`judge_task` / `judge_tasks`), adjudicates
    impossibility disputes (`judge_dispute`), then `goal_stop_decision` (`hooks/gate_stop.py`) judges
-   any active multi-step goal from the transcript. Stop stays blocked until every requirement is
-   validated, retracted, or superseded.
+   any active multi-step goal from the transcript, and `completion_handoff_decision`
+   (`scripts/gate/completion_handoff.py`) blocks when the agent ends by deferring autonomous work.
+   Stop stays blocked until every requirement is validated, retracted, or superseded, and the agent
+   is not dangling permission-seeking follow-ups.
 
 Where the judge decides, and what it falls back to:
 
@@ -86,6 +97,7 @@ Where the judge decides, and what it falls back to:
 | PostToolUse | `judge_hint`, `judge_discover_frontiers` | advisory nudge; suggest approaches for a deep task | fail-open: no hint |
 | Stop | `judge_task` / `judge_tasks`, `judge_dispute` | validate or reject each requirement; accept or deny disputes | fail-open allow; dispute defaults to reject |
 | Stop | `goal_stop_decision` | active goal complete or impossible, from transcript | fail-open allow after cap |
+| Stop | `completion_handoff_decision` | agent may end turn vs deferring autonomous work | fail-open allow after cap |
 
 What the judge catches:
 
@@ -96,6 +108,7 @@ What the judge catches:
 | Worker argues a requirement is impossible to dodge it | `judge_dispute` accepts only with proof and defaults to reject (verdict 0), so impossibility is never granted by default |
 | The same failure class repeats and the worker is looping | One `judge_hint` offers a concrete next step — advisory only, it never unblocks anything |
 | A deep task starts without two or more candidate approaches | `judge_discover_frontiers` proposes candidate approach tasks before work on the chosen one is allowed |
+| Agent ends with permission-seeking or deferred autonomous work | `completion_handoff_decision` blocks Stop and forces the work through (`completion_handoff.py`) |
 
 ## How enforcement is wired
 
@@ -108,7 +121,7 @@ a deterministic hook on the host's critical path, not a skill the worker may cho
 | PreToolUse | `pre_tool_use.py` (+ `bash_classify.py`, `groundedness.py`) | **Evidence gate** + **groundedness breaker** + protected-path guard: block edits, delegation, and non-whitelisted research Bash until the spec validates, and block mutations on an unproven confident claim |
 | PostToolUse | `gate_post_tool.py` | Observe evidence on **every** tool call (read paths, fetched URLs, ran commands, real failures) into the ledger; surface an advisory judge hint on a repeating failure |
 | PostToolUse (edits) | `test_after_edit.py` | Debounced test runner after a file change (`UNIFABLE_TEST_AFTER_EDIT=1`) |
-| Stop | `gate_stop.py` (120s) | Completion gate: require the evidence spec; judge active goals; verification-ran + promise-no-act guards; advisory judge hint when stuck behind the completion breaker; **passthrough** (`{}`) when all criteria pass |
+| Stop | `gate_stop.py` (120s) | Completion gate: require the evidence spec; judge active goals; completion handoff judge for deferred work; advisory judge hint when stuck behind the completion breaker; **passthrough** (`{}`) when all criteria pass |
 
 Shared core lives in `scripts/gate/` (ledger, task classifier, tool-result parser, verify-state,
 the judge client) and `packs/router-manifest.json` (inline discipline injected by the router). It stays

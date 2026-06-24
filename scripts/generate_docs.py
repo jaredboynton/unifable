@@ -26,6 +26,7 @@ for path in (str(GATE_DIR), str(HOOKS_DIR)):
         sys.path.insert(0, path)
 
 import classify_task  # noqa: E402
+import completion_handoff  # noqa: E402
 import context_block  # noqa: E402
 import codex_judge  # noqa: E402
 import gate_prompt_effort  # noqa: E402
@@ -473,6 +474,13 @@ def _fake_response(schema_name: str, schema: dict[str, Any], user: str) -> dict[
         return {"suicide_loop": False, "lift": "none", "reason": "sample"}
     if schema_name == "goal_stop":
         return {"ok": False, "reason": "insufficient evidence in transcript"}
+    if schema_name == "completion_handoff":
+        return {
+            "ok_to_stop": False,
+            "reason": "Agent deferred autonomous investigation.",
+            "steering": "Read the transcript and report findings.",
+            "blocked_on_user_only": False,
+        }
 
     props = schema.get("properties") if isinstance(schema, dict) else {}
     if isinstance(props, dict) and "grounded" in props:
@@ -697,6 +705,17 @@ def collect_judge_prompts() -> list[JudgePrompt]:
             "Generated docs are current.",
             "<record line=\"000001\" role=\"assistant\">Ran python3 scripts/generate_docs.py --check.</record>",
             {"session_id": "sample-session", "cwd": str(ROOT)},
+        ),
+    )
+    cases += _capture_call(
+        "Completion handoff",
+        "scripts/gate/completion_handoff.py",
+        lambda: completion_handoff.judge_completion_handoff(
+            "<record line=\"000001\" role=\"assistant\">Want me to read the transcript?</record>",
+            user_goal="Analyze benchmark overhead.",
+            last_text="Want me to read the transcript?",
+            grade="STANDARD",
+            recent_activity="ran: python3 benchmark/run.py",
         ),
     )
     return cases

@@ -2464,3 +2464,145 @@ ARGUMENTS: {"cwd": "${REPO_ROOT}", "session_id": "sample-session"}
   }
 }
 ```
+
+## Completion handoff
+
+Source: `scripts/gate/completion_handoff.py`
+
+Schema name: `completion_handoff`
+
+### System
+
+```text
+You are a strict completion-handoff monitor for an autonomous coding agent. The agent just ended a turn with text only (no tool calls in that final message). Decide whether it may stop or must continue and finish dangling work.
+
+Use semantic reasoning only. Do NOT pattern-match phrases; infer intent from context.
+
+BLOCK (ok_to_stop=false) when the last assistant message:
+- Asks permission for work the agent could do with available tools (e.g. "Want me to read/investigate/run…?", "If you want X, say the word and I'll run Y", "Should I proceed with the benchmark?").
+- Surfaces unresolved investigation, verification, analysis, or fixes the agent offered but did not execute.
+- Promises future autonomous work without acting in this turn.
+- Ends with optional next steps clearly in-scope for the current task that the agent could self-serve.
+
+ALLOW (ok_to_stop=true) when:
+- The user's request is fully delivered with no dangling autonomous work.
+- The agent is blocked on input ONLY the user can provide: secrets/credentials, irreversible or policy-sensitive actions (commit, push, deploy, force-push), or a genuine product/architecture choice between user-owned options.
+- The user asked a direct question and the agent gave a complete answer.
+- The final message is a status report with nothing left the agent could do without new user direction.
+
+When blocking, steering must name ONE concrete action (read that file, run that command, finish that investigation) — not 'ask the user again'.
+When allowing due to user-only blockage, set blocked_on_user_only=true.
+```
+
+### User
+
+```text
+Conversation transcript:
+<record line="000001" role="assistant">Want me to read the transcript?</record>
+
+Based on the transcript and context above, may the agent end this turn?
+QUESTION: {"user_goal": "Analyze benchmark overhead.", "grade": "STANDARD", "last_assistant_text": "Want me to read the transcript?", "recent_activity": "ran: python3 benchmark/run.py"}
+```
+
+### Function Schema
+
+```json
+{
+  "additionalProperties": false,
+  "properties": {
+    "blocked_on_user_only": {
+      "description": "True when stop is allowed because the agent needs user-only input (secrets, irreversible ops, genuine product choice).",
+      "type": "boolean"
+    },
+    "ok_to_stop": {
+      "description": "True only when the agent may end this turn: deliverable complete, or genuinely blocked on input only the user can provide.",
+      "type": "boolean"
+    },
+    "reason": {
+      "description": "Quote transcript evidence; explain allow or block.",
+      "type": "string"
+    },
+    "steering": {
+      "description": "When ok_to_stop is false: one concrete next action with tool calls. Empty when ok_to_stop is true.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok_to_stop",
+    "reason"
+  ],
+  "type": "object"
+}
+```
+
+### Realtime Request Shape
+
+```json
+{
+  "conversation.item.create": {
+    "item": {
+      "content": [
+        {
+          "text": "QUESTION: Conversation transcript:\n<record line=\"000001\" role=\"assistant\">Want me to read the transcript?</record>\n\nBased on the transcript and context above, may the agent end this turn?\nQUESTION: {\"user_goal\": \"Analyze benchmark overhead.\", \"grade\": \"STANDARD\", \"last_assistant_text\": \"Want me to read the transcript?\", \"recent_activity\": \"ran: python3 benchmark/run.py\"}",
+          "type": "input_text"
+        }
+      ],
+      "role": "user",
+      "type": "message"
+    },
+    "type": "conversation.item.create"
+  },
+  "response.create": {
+    "response": {
+      "output_modalities": [
+        "text"
+      ]
+    },
+    "type": "response.create"
+  },
+  "session.update": {
+    "session": {
+      "instructions": "You are a strict completion-handoff monitor for an autonomous coding agent. The agent just ended a turn with text only (no tool calls in that final message). Decide whether it may stop or must continue and finish dangling work.\n\nUse semantic reasoning only. Do NOT pattern-match phrases; infer intent from context.\n\nBLOCK (ok_to_stop=false) when the last assistant message:\n- Asks permission for work the agent could do with available tools (e.g. \"Want me to read/investigate/run…?\", \"If you want X, say the word and I'll run Y\", \"Should I proceed with the benchmark?\").\n- Surfaces unresolved investigation, verification, analysis, or fixes the agent offered but did not execute.\n- Promises future autonomous work without acting in this turn.\n- Ends with optional next steps clearly in-scope for the current task that the agent could self-serve.\n\nALLOW (ok_to_stop=true) when:\n- The user's request is fully delivered with no dangling autonomous work.\n- The agent is blocked on input ONLY the user can provide: secrets/credentials, irreversible or policy-sensitive actions (commit, push, deploy, force-push), or a genuine product/architecture choice between user-owned options.\n- The user asked a direct question and the agent gave a complete answer.\n- The final message is a status report with nothing left the agent could do without new user direction.\n\nWhen blocking, steering must name ONE concrete action (read that file, run that command, finish that investigation) — not 'ask the user again'.\nWhen allowing due to user-only blockage, set blocked_on_user_only=true.",
+      "output_modalities": [
+        "text"
+      ],
+      "tool_choice": "required",
+      "tools": [
+        {
+          "description": "Return the structured result. Call exactly once with the complete object.",
+          "name": "completion_handoff",
+          "parameters": {
+            "additionalProperties": false,
+            "properties": {
+              "blocked_on_user_only": {
+                "description": "True when stop is allowed because the agent needs user-only input (secrets, irreversible ops, genuine product choice).",
+                "type": "boolean"
+              },
+              "ok_to_stop": {
+                "description": "True only when the agent may end this turn: deliverable complete, or genuinely blocked on input only the user can provide.",
+                "type": "boolean"
+              },
+              "reason": {
+                "description": "Quote transcript evidence; explain allow or block.",
+                "type": "string"
+              },
+              "steering": {
+                "description": "When ok_to_stop is false: one concrete next action with tool calls. Empty when ok_to_stop is true.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "ok_to_stop",
+              "reason"
+            ],
+            "type": "object"
+          },
+          "type": "function"
+        }
+      ],
+      "type": "realtime"
+    },
+    "type": "session.update"
+  }
+}
+```

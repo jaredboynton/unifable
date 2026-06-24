@@ -11,18 +11,21 @@ Blocks completion in priority order; fails open on malformed input:
      The agent is unconditionally required to write its evidence back. Releases
      only on a valid spec, LIGHT grade, no session_id (fail open), the holdout
      'off' arm, or a gate exception (fail open).
-  2. Promise-no-act guard: if the last assistant text only promises future work
-     without a tool call or user question, block once and force the work to happen.
-  3. Observation gate: a non-quick, non-docs task that changed files but has no
-     observed successful verification. Softer — capped at MAX_STOP_BLOCKS then
-     advisory-only, behind the stop_hook_active loop guard, so it never traps.
+  2. Goal stop judge: active goals.py goal must be evidenced complete.
+  3. Completion handoff judge: gpt-realtime-2 blocks when the last text-only turn
+     defers autonomous work (permission-seeking, "say the word and I'll…", dangling
+     follow-ups). Bypasses stop_hook_active; capped at COMPLETION_HANDOFF_BLOCK_CAP.
+  4. Loop guard for softer gates below (findings + observation): never block twice
+     in a row on the same stop.
+  5. Findings cross-link (opt-in).
+  6. Observation gate: changed-but-unverified on HEAVY tasks. Capped at MAX_STOP_BLOCKS,
+     behind stop_hook_active, so it never traps.
 """
 
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 from pathlib import Path
 
@@ -341,45 +344,6 @@ def ledger_grade(input_data: dict) -> str:
         return "STANDARD"
 
 
-def _last_assistant_text_and_tool(transcript_path: str | None) -> tuple[str, bool]:
-    if not transcript_path:
-        return "", False
-    path = Path(transcript_path)
-    if not path.is_file():
-        return "", False
-
-    last_text = ""
-    last_had_tool = False
-    with path.open() as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            msg = obj.get("message", obj)
-            if obj.get("type") != "assistant" and msg.get("role") != "assistant":
-                continue
-            content = msg.get("content", [])
-            if not isinstance(content, list):
-                continue
-            texts = [
-                block.get("text", "")
-                for block in content
-                if isinstance(block, dict) and block.get("type") == "text"
-            ]
-            tools = [
-                block for block in content
-                if isinstance(block, dict) and block.get("type") == "tool_use"
-            ]
-            if texts or tools:
-                last_text = "\n".join(texts).strip()
-                last_had_tool = bool(tools)
-    return last_text, last_had_tool
-
-
 def _transcript_for_goal_judge(transcript_path: str | None, input_data: dict) -> str:
     text = stripped_transcript_tail(transcript_path, GOAL_TRANSCRIPT_TOKENS)
     if text.strip():
@@ -557,37 +521,6 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
     ledger["goal_stop_blocks"] = int(ledger.get("goal_stop_blocks") or 0) + 1
     save_ledger(input_data, ledger)
     return {"decision": "block", "reason": f"Stop hook feedback:\n[{gid}] {reason}"}
-
-
-def promise_no_act_reason(input_data: dict) -> str:
-    """Return a Stop-block reason when the last assistant turn promised work
-    instead of doing it. Fails open on transcript problems."""
-    try:
-        last_text, last_had_tool = _last_assistant_text_and_tool(input_data.get("transcript_path"))
-    except Exception:
-        return ""
-    if last_had_tool or not last_text:
-        return ""
-
-    tail = last_text[-400:]
-    promise = re.search(
-        r"\b(I'?ll|I will|let me|next,? I|now I'?ll)\b[^.]{0,60}"
-        r"\b(now|next|then|implement|create|write|add|run|fix|save|build|start|proceed)\b",
-        tail,
-        re.IGNORECASE,
-    )
-    asks_user = re.search(
-        r"(\?|shall i|would you like|do you want|let me know|which option)",
-        tail,
-        re.IGNORECASE,
-    )
-    if promise and not asks_user:
-        return (
-            "Your previous response ended by stating an intent to do work without actually doing it. "
-            "Do that work now with tool calls. End the turn only when the task is complete or you are "
-            "blocked on input that only the user can provide."
-        )
-    return ""
 
 
 def main() -> int:
@@ -844,17 +777,29 @@ def main() -> int:
     except Exception:
         pass  # fail open
 
-    # 3. Loop guard for the softer gates below (findings + observation): never
+    # 3. Completion handoff judge — blocks text-only turns that defer autonomous
+    #    work. Bypasses stop_hook_active; capped in completion_handoff.py.
+    try:
+        from completion_handoff import completion_handoff_decision
+
+        handoff_payload = completion_handoff_decision(input_data, cwd)
+        if handoff_payload:
+            steering = str(handoff_payload.pop("_handoff_steering", "") or "").strip()
+            _emit_stop_payload(
+                handoff_payload,
+                input_data,
+                validate_ctx=validate_ctx,
+                loop_lift_ctx=steering,
+                digest_path=stop_digest_path,
+            )
+            return 0
+    except Exception:
+        pass  # fail open
+
+    # 4. Loop guard for the softer gates below (findings + observation): never
     #    block twice in a row on the same stop.
     if input_data.get("stop_hook_active") is True:
         emit_json({})
-        return 0
-
-    # 4. Promise-no-act guard: if the agent's final text promises future action
-    #    without a tool call or user handoff question, force one continuation.
-    reason = promise_no_act_reason(input_data)
-    if reason:
-        emit_json({"decision": "block", "reason": reason})
         return 0
 
     # 5. Findings cross-link (opt-in: empty unless .unifable/findings.json exists):

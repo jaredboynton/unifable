@@ -42,6 +42,9 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "warnings": [],
     "stop_blocks": 0,
     "goal_stop_blocks": 0,
+    # Consecutive Stop blocks from completion_handoff.py when the agent defers
+    # autonomous work. Bypasses stop_hook_active; capped at COMPLETION_HANDOFF_BLOCK_CAP.
+    "completion_handoff_blocks": 0,
     # Consecutive Stop blocks caused by the completion breaker (every task not yet
     # validated). Drives the advisory-hint loop in gate_stop.py: once the agent has
     # re-blocked this many times it is plausibly stuck, so the judge offers a nudge.
