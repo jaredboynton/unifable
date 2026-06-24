@@ -58,6 +58,20 @@ def test_phase_transitions():
     assert hw.compute_heavy_phase(spec) == "primary"
 
 
+def test_phase_transitions_adoption():
+    """Adoption path: accepted frontier -> adopted phase."""
+    spec = spec_template()
+    spec["restated_goal"] = "goal"
+    append_frontier_task(spec, "F1", "true")
+    append_frontier_task(spec, "F2", "true")
+    set_primary_task(spec, "Primary", "true")
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "accepted_approach"
+    f1["comparison_winner"] = True
+    f2["status"] = "rejected_approach"
+    assert hw.compute_heavy_phase(spec) == "adopted"
+
+
 def test_heavy_validate_no_constraints(tmp_path):
     spec = _heavy_spec(tmp_path)
     ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
@@ -172,3 +186,93 @@ def test_retracted_frontier_unlocks_primary(tmp_path):
     hw.advance_primary_if_ready(spec)
     assert primary["status"] == "pending"
     assert hw.compute_heavy_phase(spec) == "primary"
+
+
+def test_frontier_accepted_outcome(tmp_path, monkeypatch):
+    """Judge returns accepted_approach -> task gets that status."""
+    spec = _heavy_spec(tmp_path)
+    frontier = hw.frontier_tasks(spec)[0]
+
+    def fake_judge(sp, task, ec, out, **kw):
+        return 1, "check passed, approach is viable", [], "accepted_approach"
+
+    monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
+    from spec import _validate_one_task
+    _validate_one_task(spec, frontier, str(tmp_path))
+    assert frontier["status"] == "accepted_approach"
+
+
+def test_comparison_selects_best_frontier(tmp_path, monkeypatch):
+    """All frontiers terminal, >=1 accepted -> comparison runs, winner selected."""
+    spec = _heavy_spec(tmp_path)
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "accepted_approach"
+    f1["exit"] = 0
+    f1["output"] = "5 passed"
+    f1["judge_reason"] = "viable"
+    f2["status"] = "accepted_approach"
+    f2["exit"] = 0
+    f2["output"] = "3 passed"
+    f2["judge_reason"] = "viable"
+    primary = hw.primary_task(spec)
+
+    import codex_judge
+
+    def fake_ask(system, user, schema, schema_name=None):
+        return {"selected_id": f1["id"], "selection_rationale": "More tests pass"}
+
+    monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
+
+    from spec import judge_frontier_comparison
+    headlines = judge_frontier_comparison(spec)
+    assert f1["comparison_winner"] is True
+    assert f1["status"] == "accepted_approach"
+    assert f2["status"] == "rejected_approach"
+    assert primary["status"] == "superseded"
+    assert hw.compute_heavy_phase(spec) == "adopted"
+    assert any("selected as best frontier" in h for h in headlines)
+
+
+def test_completion_via_adoption(tmp_path):
+    """Accepted frontier with prior verdict=1, others resolved, primary superseded."""
+    spec = _heavy_spec(tmp_path)
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "accepted_approach"
+    f1["comparison_winner"] = True
+    f1["judge_verdict"] = 1
+    f2["status"] = "rejected_approach"
+    primary = hw.primary_task(spec)
+    primary["status"] = "superseded"
+    ok, incomplete = all_tasks_validated(spec)
+    assert ok, incomplete
+
+
+def test_still_viable_does_not_trigger_comparison(tmp_path):
+    """A non-terminal frontier blocks comparison."""
+    spec = _heavy_spec(tmp_path)
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "accepted_approach"
+    f1["exit"] = 0
+    f1["output"] = "passed"
+    # f2 is still pending (not terminal)
+    assert hw.all_frontiers_terminal(spec) is False
+
+
+def test_all_frontiers_rejected_still_works(tmp_path):
+    """Regression: no accepted frontiers -> standard primary path."""
+    spec = _heavy_spec(tmp_path)
+    for t in hw.frontier_tasks(spec):
+        t["status"] = "rejected_approach"
+    hw.advance_primary_if_ready(spec)
+    assert hw.compute_heavy_phase(spec) == "primary"
+    assert hw.accepted_frontier(spec) is None
+
+
+def test_primary_stays_blocked_with_accepted_frontier(tmp_path):
+    """Primary stays blocked when a frontier is accepted but comparison hasn't run."""
+    spec = _heavy_spec(tmp_path)
+    frontiers = hw.frontier_tasks(spec)
+    frontiers[0]["status"] = "accepted_approach"
+    # Not all terminal yet (f2 still pending), no comparison_winner
+    assert hw.compute_heavy_phase(spec) == "frontier"
+    assert hw.primary_task(spec)["status"] == "blocked"

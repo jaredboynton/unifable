@@ -210,6 +210,18 @@ def test_validate_unknown_grade():
     assert any("Unknown grade" in r for r in reasons)
 
 
+def test_frontier_judge_schema_accepts_three_outcomes():
+    """The frontier judge schema must accept accepted_approach in addition to
+    rejected_approach and still_viable."""
+    import json
+    # Verify the enum includes all three outcomes
+    from spec import _FRONTIER_JUDGE_SCHEMA
+    outcome_prop = _FRONTIER_JUDGE_SCHEMA["properties"]["outcome"]
+    assert "accepted_approach" in outcome_prop["enum"]
+    assert "rejected_approach" in outcome_prop["enum"]
+    assert "still_viable" in outcome_prop["enum"]
+
+
 # ---------------------------------------------------------------------------
 # Citation-format helpers
 # ---------------------------------------------------------------------------
