@@ -13,6 +13,7 @@ import spec as spec_mod  # noqa: E402
 from spec import (  # noqa: E402
     all_tasks_validated,
     auto_validate_spec,
+    ensure_spec_scaffold,
     load_spec,
     save_spec,
     spec_template,
@@ -96,9 +97,7 @@ def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):
 
 
 def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
-    import gate_prompt
-    path, _changes, _created = gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "Refactor the auth module please")
+    path, _changes, _created = ensure_spec_scaffold(str(tmp_path), "K", "Refactor the auth module please")
     assert path and Path(path).exists()
     s = load_spec(str(tmp_path), "K")
     assert s["requires_tasks"] is True
@@ -108,10 +107,8 @@ def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
 
 
 def test_seeded_goal_blocks_until_restated(tmp_path):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
-    import gate_prompt
     from spec import _cmd_add_task, _cmd_restate, validate_spec
-    gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "make the parser faster")
+    ensure_spec_scaffold(str(tmp_path), "K", "make the parser faster")
     _cmd_add_task(SimpleNamespace(root=str(tmp_path), task_id="K", title="t", check="true"))
     s = load_spec(str(tmp_path), "K")
     s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
@@ -129,9 +126,7 @@ def test_seeded_goal_blocks_until_restated(tmp_path):
 
 
 def test_end_to_end_add_task_and_auto_validate(tmp_path, monkeypatch):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "hooks"))
-    import gate_prompt
-    gate_prompt._ensure_spec_scaffold(str(tmp_path), "K", "do the thing")
+    ensure_spec_scaffold(str(tmp_path), "K", "do the thing")
     from spec import _cmd_restate
     _cmd_restate(SimpleNamespace(root=str(tmp_path), task_id="K", goal="Make greet reject empty names"))
     _cmd_add_task(SimpleNamespace(root=str(tmp_path), task_id="K", title="thing works", check="true"))
@@ -148,3 +143,14 @@ def test_end_to_end_add_task_and_auto_validate(tmp_path, monkeypatch):
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert all_tasks_validated(spec) == (True, [])
+
+
+def test_restate_creates_spec_when_missing(tmp_path):
+    args = SimpleNamespace(root=str(tmp_path), task_id="K", goal="Validate judge caching under compaction")
+    assert load_spec(str(tmp_path), "K") is None
+    assert _cmd_restate(args) == 0
+    spec = load_spec(str(tmp_path), "K")
+    assert spec is not None
+    assert spec["goal_seeded"] is False
+    assert spec["requires_tasks"] is True
+    assert spec["restated_goal"] == "Validate judge caching under compaction"

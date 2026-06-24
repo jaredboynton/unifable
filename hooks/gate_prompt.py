@@ -18,7 +18,7 @@ from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_l
 from classify_task import operative_prompt, context_for_mode, grade_of
 from evidence_policy import mode_for_grade, resolve_evidence_profile, resolve_grade
 from grade_override import judge_grade_classify, parse_grade_verdict, _task_summary
-from heavy_workflow import clear_stale_heavy_workflow, heavy_workflow_brief
+from heavy_workflow import heavy_workflow_brief
 from plan_mode import (
     mark_plan_mode_prompt_notified,
     plan_mode_context_line,
@@ -26,81 +26,18 @@ from plan_mode import (
     plan_mode_spec_task_guidance,
     resolve_plan_mode,
 )
-from spec import canonical_project_root, load_spec, resolve_session_id, save_spec, spec_path, spec_template
+from spec import (
+    canonical_project_root,
+    ensure_spec_scaffold,
+    load_spec,
+    resolve_session_id,
+)
 
 
 def _prompt_key(prompt: str) -> str:
     """Stable per-task key = sha256(prompt) prefix. Specs are keyed by this, so a
     distinct prompt seeds a distinct spec (multiple specs per session)."""
     return hashlib.sha256(prompt.encode("utf-8", "replace")).hexdigest()[:16]
-
-
-def _seed_goal(prompt: str, limit: int = 280) -> str:
-    """Best-effort restated_goal for the scaffold: the trimmed prompt. The agent
-    refines it; the gate only requires a non-empty string."""
-    g = " ".join((prompt or "").split())
-    return g[:limit]
-
-
-def _ensure_spec_scaffold(
-    cwd: str,
-    key: str,
-    prompt: str,
-    *,
-    heavy: bool = False,
-    evidence_profile: str = "code",
-) -> tuple[str, list[str], bool]:
-    """Auto-create the evidence spec. Returns (spec_path, changes, created)."""
-    changes: list[str] = []
-    created = False
-    try:
-        path = spec_path(cwd, key)
-        if not path.exists():
-            created = True
-            s = spec_template()
-            s["restated_goal"] = _seed_goal(prompt)
-            s["goal_seeded"] = True  # gate blocked until `unifable restate '<goal>'`
-            s["acceptance_criteria"] = []
-            s["repo_context"] = []
-            s["prior_art"] = []
-            s["tasks"] = []
-            s["evidence_profile"] = evidence_profile
-            s["requires_tasks"] = True  # empty spec must gain >=1 requirement to complete
-            if heavy:
-                s["heavy_workflow"] = True
-            save_spec(cwd, key, s)
-        elif heavy:
-            s = load_spec(cwd, key)
-            if isinstance(s, dict):
-                changed = False
-                if not s.get("heavy_workflow"):
-                    s["heavy_workflow"] = True
-                    changed = True
-                    changes.append("set heavy_workflow")
-                old_profile = str(s.get("evidence_profile") or "")
-                if old_profile != evidence_profile:
-                    s["evidence_profile"] = evidence_profile
-                    changed = True
-                    changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
-                if changed:
-                    save_spec(cwd, key, s)
-        else:
-            s = load_spec(cwd, key)
-            if isinstance(s, dict):
-                changed = False
-                if clear_stale_heavy_workflow(s, "STANDARD"):
-                    changed = True
-                    changes.append("cleared stale heavy_workflow/heavy_phase")
-                old_profile = str(s.get("evidence_profile") or "")
-                if old_profile != evidence_profile:
-                    s["evidence_profile"] = evidence_profile
-                    changed = True
-                    changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
-                if changed:
-                    save_spec(cwd, key, s)
-        return str(path), changes, created
-    except Exception:
-        return "", [], False
 
 
 def _format_scaffold_onboarding(
@@ -262,7 +199,7 @@ def main() -> int:
 
     if effective_grade != "LIGHT":
         key = session_key
-        path, scaffold_changes, scaffold_created = _ensure_spec_scaffold(
+        path, scaffold_changes, scaffold_created = ensure_spec_scaffold(
             cwd, key, prompt, heavy=heavy_scaffold, evidence_profile=evidence_profile
         )
         if path and scaffold_created and not ledger.get("prompt_scaffold_notified"):

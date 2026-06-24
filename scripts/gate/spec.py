@@ -42,6 +42,7 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         all_frontiers_terminal,
         all_tasks_validated_heavy,
         any_frontier_accepted,
+        clear_stale_heavy_workflow,
         compute_heavy_phase,
         finalize_heavy_adoption,
         frontier_tasks,
@@ -61,6 +62,7 @@ except ImportError:  # pragma: no cover
         all_frontiers_terminal,
         all_tasks_validated_heavy,
         any_frontier_accepted,
+        clear_stale_heavy_workflow,
         compute_heavy_phase,
         frontier_tasks,
         heavy_declare_complete,
@@ -685,6 +687,78 @@ def save_spec(cwd: str | Path, session_id: str | None, spec: dict[str, Any]) -> 
     root = canonical_project_root(cwd)
     path = spec_path(root, session_id)
     return write_text_atomic(path, json.dumps(spec, indent=2, sort_keys=False))
+
+
+def _seed_goal(prompt: str, limit: int = 280) -> str:
+    """Best-effort restated_goal for the scaffold: the trimmed prompt. The agent
+    refines it; the gate only requires a non-empty string."""
+    g = " ".join((prompt or "").split())
+    return g[:limit]
+
+
+def ensure_spec_scaffold(
+    cwd: str | Path,
+    session_id: str | None,
+    seed_prompt: str,
+    *,
+    heavy: bool = False,
+    evidence_profile: str = "code",
+) -> tuple[str, list[str], bool]:
+    """Auto-create or update the evidence spec. Returns (spec_path, changes, created).
+
+    Called from UserPromptSubmit (gate_prompt.py) and from ``restate`` when the
+    hook did not run or failed open."""
+    changes: list[str] = []
+    created = False
+    try:
+        root = canonical_project_root(cwd)
+        path = spec_path(root, session_id)
+        if not path.exists():
+            created = True
+            s = spec_template()
+            s["restated_goal"] = _seed_goal(seed_prompt)
+            s["goal_seeded"] = True  # gate blocked until `unifable restate '<goal>'`
+            s["acceptance_criteria"] = []
+            s["repo_context"] = []
+            s["prior_art"] = []
+            s["tasks"] = []
+            s["evidence_profile"] = evidence_profile
+            s["requires_tasks"] = True  # empty spec must gain >=1 requirement to complete
+            if heavy:
+                s["heavy_workflow"] = True
+            save_spec(root, session_id, s)
+        elif heavy:
+            s = load_spec(root, session_id)
+            if isinstance(s, dict):
+                changed = False
+                if not s.get("heavy_workflow"):
+                    s["heavy_workflow"] = True
+                    changed = True
+                    changes.append("set heavy_workflow")
+                old_profile = str(s.get("evidence_profile") or "")
+                if old_profile != evidence_profile:
+                    s["evidence_profile"] = evidence_profile
+                    changed = True
+                    changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
+                if changed:
+                    save_spec(root, session_id, s)
+        else:
+            s = load_spec(root, session_id)
+            if isinstance(s, dict):
+                changed = False
+                if clear_stale_heavy_workflow(s, "STANDARD"):
+                    changed = True
+                    changes.append("cleared stale heavy_workflow/heavy_phase")
+                old_profile = str(s.get("evidence_profile") or "")
+                if old_profile != evidence_profile:
+                    s["evidence_profile"] = evidence_profile
+                    changed = True
+                    changes.append(f"evidence_profile {old_profile or '?'}->{evidence_profile}")
+                if changed:
+                    save_spec(root, session_id, s)
+        return str(path), changes, created
+    except Exception:
+        return "", [], False
 
 
 # ---------------------------------------------------------------------------
@@ -2569,18 +2643,31 @@ def _cmd_add_frontier(args: argparse.Namespace) -> int:
 
 def _cmd_restate(args: argparse.Namespace) -> int:
     """Set restated_goal in the agent's own words and clear the goal_seeded marker."""
-    spec = load_spec(args.root, args.task_id)
-    if spec is None:
-        print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
-        return 1
     goal = (args.goal or "").strip()
     if not goal:
         print("restate requires a non-empty goal string.", file=sys.stderr)
         return 1
+    spec = load_spec(args.root, args.task_id)
+    created = False
+    if spec is None:
+        path, _, created = ensure_spec_scaffold(args.root, args.task_id, goal)
+        if not path:
+            print(f"Could not create spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+            return 1
+        spec = load_spec(args.root, args.task_id)
+        if spec is None:
+            print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
+            return 1
     spec["restated_goal"] = goal
     spec["goal_seeded"] = False
     save_spec(args.root, args.task_id, spec)
-    print(f"restated_goal set ({len(goal)} chars); goal_seeded cleared.")
+    if created:
+        print(
+            f"spec created at {spec_path(args.root, args.task_id)}; "
+            f"restated_goal set ({len(goal)} chars); goal_seeded cleared."
+        )
+    else:
+        print(f"restated_goal set ({len(goal)} chars); goal_seeded cleared.")
     notify_spec_update(spec, "Goal restated.")
     return 0
 
