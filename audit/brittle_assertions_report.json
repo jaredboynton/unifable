@@ -1,0 +1,41 @@
+{
+  "brittle_clusters": [
+    {
+      "file": "tests/test_groundedness_breaker.py",
+      "line": 269,
+      "summary": "Shape 1 prompt-wording (~49 asserts): judge system-prompt constants _JUDGE_SYSTEM/_DISARM_SYSTEM/_MONITOR_SYSTEM and schema descriptions checked for English words (e.g. 'settled without backing evidence', 'read, websearch, webfetch, grep, glob', 'deriving', 'drift_level', 'egregious'). Tests prompt vocabulary, not judge behavior; breaks on any rephrase."
+    },
+    {
+      "file": "tests/test_grade_classify_judge.py",
+      "line": 23,
+      "summary": "Shape 1 prompt-wording (~16 asserts, 8 functions): go._GRADE_SYSTEM checked for words like 'normal, not deep', 'prefer normal over deep', 'never deep', 'context only', 'must never drive'. Classifier value is its decision, not its prose."
+    },
+    {
+      "file": "tests/test_classify_ambiguity.py",
+      "line": 22,
+      "summary": "Shape 1 prompt-wording (2 asserts): 'hedging language signals research, not quick' and 'uncertainty' checked for in go._GRADE_SYSTEM."
+    },
+    {
+      "file": "tests/test_spec_model_notify.py",
+      "line": 71,
+      "summary": "Shape 2 message-field string-matching (widespread: 251 asserts across ~33 files; this file has 78). Asserts '\"word\" in stderr/reason/notify/ctx/msg/headline'. Milder/defensible (guards user-visible message content) but breaks on message rewording."
+    }
+  ],
+  "healthy_examples": [
+    {
+      "file": "tests/test_evidence_policy.py",
+      "line": 45,
+      "summary": "Enum/state checks: grade_for_mode('quick')=='LIGHT', status=='validated', decision=='block'. Pins behavior through a small stable vocabulary. Keep."
+    },
+    {
+      "file": "tests/test_groundedness_breaker.py",
+      "line": 706,
+      "summary": "Byte-identity/cache-stability: called_system_prompt[0] == gb._JUDGE_SYSTEM. Real contract (prompt-cache stability), not word-membership. Keep."
+    },
+    {
+      "file": "tests/test_gate_cleared_notify.py",
+      "line": 36,
+      "summary": "Format-prefix: msg.startswith('Gate cleared.'). Guards a machine-emitted format; intentional rewording is acceptable churn. Keep."
+    }
+  ]
+}

@@ -220,6 +220,14 @@ def _spec_action_context_from_spec(
 
 def main() -> int:
     input_data = read_stdin_json()
+
+    try:
+        from judge_transport import bind_session
+
+        bind_session(input_data)
+    except Exception:
+        pass
+
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     kinds = changed_kinds(input_data)
     failure = detect_failure(input_data)

@@ -137,11 +137,12 @@ def compute_heavy_phase(spec: dict[str, Any]) -> str:
 
 def sync_heavy_phase(spec: dict[str, Any]) -> bool:
     """Recompute and cache heavy_phase on spec. Returns True if mutated."""
+    changed = ensure_primary_superseded_on_adoption(spec)
     phase = compute_heavy_phase(spec)
     if spec.get("heavy_phase") != phase:
         spec["heavy_phase"] = phase
         return True
-    return False
+    return changed
 
 
 def clear_stale_heavy_workflow(spec: dict[str, Any], grade: str) -> bool:
@@ -187,6 +188,26 @@ def _task_id_sort_key(task: dict[str, Any]) -> tuple[int, str]:
     return num, tid
 
 
+def ensure_primary_superseded_on_adoption(spec: dict[str, Any]) -> bool:
+    """When a frontier is adopted, primary must be superseded (not validated/pending).
+
+    Self-heals specs where the judge set comparison_winner before primary was
+    auto-superseded. Idempotent when primary is already superseded.
+    """
+    winner = adopted_frontier(spec)
+    if winner is None:
+        return False
+    primary = primary_task(spec)
+    if primary is None:
+        return False
+    if str(primary.get("status") or "") == "superseded":
+        return False
+    winner_id = str(winner.get("id") or "")
+    primary["status"] = "superseded"
+    primary["judge_reason"] = f"Superseded by adopted frontier {winner_id}."
+    return True
+
+
 def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
     """Deterministically select an adopted frontier and supersede primary.
 
@@ -195,7 +216,12 @@ def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
     Returns human-readable headlines (empty when nothing to do).
     """
     if adopted_frontier(spec) is not None:
-        return []
+        headlines: list[str] = []
+        if ensure_primary_superseded_on_adoption(spec):
+            winner = adopted_frontier(spec)
+            wid = str(winner.get("id") or "") if winner else ""
+            headlines.append(f"Primary superseded by adopted frontier {wid}.")
+        return headlines
     if not all_frontiers_terminal(spec) or not any_frontier_accepted(spec):
         return []
 
@@ -231,10 +257,7 @@ def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
             t["comparison_winner"] = False
             headlines.append(f"{tid} not selected in adoption finalization.")
 
-    primary = primary_task(spec)
-    if primary is not None and str(primary.get("status") or "") == "blocked":
-        primary["status"] = "superseded"
-        primary["judge_reason"] = f"Superseded by adopted frontier {winner_id}."
+    if ensure_primary_superseded_on_adoption(spec):
         headlines.append(f"Primary superseded by adopted frontier {winner_id}.")
 
     before = heavy_snapshot(spec)
@@ -274,6 +297,7 @@ def task_is_resolved(task: dict[str, Any]) -> bool:
 
 
 def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:
+    ensure_primary_superseded_on_adoption(spec)
     tasks = spec.get("tasks")
     if not isinstance(tasks, list) or not tasks:
         if spec.get("requires_tasks"):

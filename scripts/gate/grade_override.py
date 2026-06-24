@@ -169,9 +169,11 @@ def judge_grade_classify(
         except Exception:
             return None
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError:  # pragma: no cover
-        from scripts.gate.codex_judge import JudgeError, ask_structured
+        from scripts.gate.codex_judge import JudgeError
+        from scripts.gate.judge_transport import ask_structured
 
     try:
         return ask_structured(

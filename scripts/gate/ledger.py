@@ -115,6 +115,14 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "posttool_last_breaker_status": "",
     "posttool_last_failure_hint_hash": "",
     "posttool_last_discovery_headline": "",
+    # gpt-realtime-2 judge token-usage accounting (judge_usage.record_usage).
+    # Measures prompt-cache effectiveness: judge_cached_tokens / judge_input_tokens
+    # is the realized cache-hit rate the caching rearchitecture optimizes for.
+    "judge_calls": 0,
+    "judge_input_tokens": 0,
+    "judge_cached_tokens": 0,
+    "judge_output_tokens": 0,
+    "judge_last_usage": {},
     "last_updated": "",
 }
 

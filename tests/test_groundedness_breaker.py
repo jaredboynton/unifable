@@ -20,7 +20,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 import groundedness as gb  # noqa: E402
-import research_bash_guidance as rbg  # noqa: E402
 from breaker_state import adjudicated_claims, append_event, default_breaker, render_events  # noqa: E402
 
 
@@ -261,59 +260,6 @@ def test_judge_exception_fails_open(monkeypatch):
     assert blocked is False and steering == ""
 
 
-def test_judge_system_prompt_asks_the_confidence_question():
-    seg = "model said something"
-    judge = FakeJudge([(1, "x")])
-    gb.judge_segment(seg, judge=judge)
-    sysp = judge.systems[0].lower()
-    assert "settled without backing evidence" in sysp or "unproven" in sysp
-    assert "load_bearing" in sysp or "load-bearing" in sysp
-    assert "read-only" in sysp or "read only" in sysp
-    assert "read, websearch, webfetch, grep, glob" in sysp
-    assert "whitelisted" in sysp
-
-
-def test_judge_prompts_forbid_steering_toward_blocked_commands():
-    arm_sysp = gb._JUDGE_SYSTEM.lower()
-    disarm_sysp = gb._DISARM_SYSTEM.lower()
-    steering_desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
-    needed_desc = gb._DISARM_SCHEMA["properties"]["needed"]["description"].lower()
-    assert "never" in steering_desc and ("blocked" in steering_desc or "blocks" in steering_desc)
-    assert "whitelisted" in steering_desc
-    explore_path = rbg.resolve_explore_trace_sh()
-    if explore_path is not None:
-        assert "explore skill" in steering_desc
-        assert "trace.sh" in steering_desc
-    else:
-        assert "explore skill" not in steering_desc
-        assert "trace.sh" not in steering_desc
-    assert "never" in arm_sysp or "never steer" in arm_sysp
-    assert "blocked" in disarm_sysp or "blocked scorer" in disarm_sysp
-    assert "retract" in disarm_sysp or "superseded" in disarm_sysp
-    assert "never" in needed_desc and "blocked" in needed_desc
-
-
-def test_disarm_prompt_accepts_read_derived_scoring_math():
-    sysp = gb._DISARM_SYSTEM.lower()
-    assert "deriving" in sysp or "formulas" in sysp
-    assert "read" in sysp
-    assert "re-running" in sysp or "re-run" in sysp or "blocked scorer" in sysp
-
-
-def test_arm_prompt_does_not_arm_on_retraction_or_aside():
-    sysp = gb._JUDGE_SYSTEM.lower()
-    assert "narration" in sysp or "aside" in sysp
-    assert "load-bearing" in sysp or "load_bearing" in sysp
-    assert "harness" in sysp
-
-
-def test_arm_prompt_skips_host_error_speculation_while_editing_repo():
-    sysp = gb._JUDGE_SYSTEM.lower()
-    assert "harness" in sysp
-    assert "load_bearing" in sysp or "load-bearing" in sysp
-    assert "task board" in sysp or "spec status" in sysp
-
-
 def test_completion_stall_circuit_breaker_backstop_releases():
     """The completion breaker is a bounded circuit breaker: on a stalled
     (no-net-progress) run of blocks it trips and releases Stop instead of
@@ -395,14 +341,6 @@ def test_disarm_judge_releases_harness_self_referential_claim():
         judge=bad_judge,
     )
     assert verdict.grounded is True and verdict.needed == ""
-
-
-def test_arm_prompt_forbids_harness_self_reference():
-    sysp = gb._JUDGE_SYSTEM.lower()
-    assert "harness" in sysp
-    assert "spec status" in sysp or "breaker state" in sysp
-    lb_desc = gb._JUDGE_SCHEMA["properties"]["load_bearing"]["description"].lower()
-    assert "unifable" in lb_desc or "harness" in lb_desc
 
 
 def test_is_harness_self_referential_detects_gate_waiver_claims():
@@ -521,41 +459,6 @@ def test_pre_tool_disarms_when_release_judge_says_not_load_bearing(monkeypatch):
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False and state["breaker_armed"] is False
     assert judge.disarm_calls == 1
-
-
-def test_disarm_prompt_releases_on_retraction_and_bounded_negative():
-    sysp = gb._DISARM_SYSTEM.lower()
-    assert "retract" in sysp
-    assert "load_bearing" in sysp or "load-bearing" in sysp
-    assert "load_bearing=0" in sysp or "not load-bearing" in sysp
-
-
-def test_arm_prompt_external_claims_allow_docs_prior_art_or_empirical_re():
-    sysp = gb._JUDGE_SYSTEM.lower()
-    assert "external" in sysp
-    assert "reverse" in sysp or "empirical" in sysp
-    assert "github" in sysp or "prior art" in sysp or "prior-art" in sysp
-    assert "documentation" in sysp or "webfetch" in sysp
-    desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
-    assert "documentation" in desc
-    assert "github" in desc or "prior art" in desc
-    assert "dig in" in desc or "start empirical" in desc
-
-
-def test_arm_prompt_steers_in_repo_version_conventions_to_agents_md():
-    desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"].lower()
-    assert "agents.md" in desc or "just version" in desc or "bump_version" in desc
-    needed = gb._DISARM_SCHEMA["properties"]["needed"]["description"].lower()
-    assert "agents.md" in needed or "just version" in needed or "bump_version" in needed
-
-
-def test_disarm_prompt_releases_on_prior_art_or_empirical_re():
-    sysp = gb._DISARM_SYSTEM.lower()
-    assert "reverse" in sysp or "empirical" in sysp
-    assert "github" in sysp or "prior" in sysp
-    grounded_desc = gb._DISARM_SCHEMA["properties"]["grounded"]["description"].lower()
-    assert "reverse" in grounded_desc or "empirical" in grounded_desc
-    assert "github" in grounded_desc or "prior" in grounded_desc
 
 
 def test_empty_segment_is_not_a_violation():
@@ -690,9 +593,11 @@ def test_adjudicated_events_prevent_re_arm(monkeypatch):
     append_event(state, "DISARM", claim="my claim", grounded=True)
 
     called_system_prompt = []
+    called_user = []
 
     def recording_judge(system, user, schema):
         called_system_prompt.append(system)
+        called_user.append(user)
         return {
             "verdict": 1,
             "steering": "blocked",
@@ -704,28 +609,11 @@ def test_adjudicated_events_prevent_re_arm(monkeypatch):
     assert blocked is False
     assert state.get("breaker_armed") is False
     assert len(called_system_prompt) == 1
-    assert "Do NOT flag any of the following claims" in called_system_prompt[0]
-    assert "- my claim" in called_system_prompt[0]
-
-
-def test_disarm_prompt_mentions_provisional_release():
-    sysp = gb._DISARM_SYSTEM.lower()
-    assert "provisional" in sysp
-    assert "pursuing" in sysp or "verification" in sysp
-
-
-def test_monitor_prompt_mentions_drift_levels_and_hints():
-    sysp = gb._MONITOR_SYSTEM.lower()
-    assert "drift_level" in sysp
-    assert "user goal" in sysp
-    assert "advisory" in sysp or "hint" in sysp
-    assert "egregious" in sysp
-
-
-def test_disarm_prompt_mentions_empirical_validation():
-    sysp = gb._DISARM_SYSTEM.lower()
-    assert "empirical" in sysp
-    assert "user goal" in sysp
+    # The adjudicated-claims list now rides the END of the USER message (prompt-cache
+    # prefix stability); the system prompt stays a byte-identical cacheable constant.
+    assert called_system_prompt[0] == gb._JUDGE_SYSTEM
+    assert "do NOT flag any of the following claims" in called_user[0]
+    assert "- my claim" in called_user[0]
 
 
 def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):

@@ -78,6 +78,10 @@ Add, so the spec literally *is* the three evidence types (for **code-profile** t
   edits, and the Stop judge validates task check output.
 - `acceptance_criteria[{check, evidence}]` — TOOL-OUTPUT evidence (already present; FAKE_MARKERS enforced).
 - `rejected_alternatives` (legacy HEAVY field, removed) — HEAVY now uses frontier approach tasks.
+- **HEAVY adoption invariant** — once a frontier is adopted (`comparison_winner` set), the primary
+  approach task is always `superseded`. A primary left at `validated` after adoption is harness state
+  to self-heal (`ensure_primary_superseded_on_adoption` in `heavy_workflow.py`), not agent work; Stop
+  hints must not replay the primary's stale `judge_reason` as if more proof is needed.
 Validation extends `validate_spec` (`spec.py:116`) with these; the contract strings
 (`spec.py:216-237`) gain the new fields so the model is told exactly what to fill.
 

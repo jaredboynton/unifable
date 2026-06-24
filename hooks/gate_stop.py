@@ -299,7 +299,7 @@ def _handle_completion_loop_release(
         return spec, ok_tasks, incomplete, val_msgs, validate_ctx, None
 
     save_ledger(input_data, ledger)
-    ok_tasks, _ = all_tasks_validated(spec)
+    ok_tasks, incomplete = all_tasks_validated(spec)
     return spec, ok_tasks, incomplete, val_msgs, validate_ctx, None
 
 
@@ -453,7 +453,7 @@ def _goal_hook_arguments(input_data: dict) -> dict:
 
 
 def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> dict:
-    from codex_judge import ask_structured
+    from judge_transport import ask_structured
     from transcript_tail import fit_judge_user_message
 
     system = (
@@ -592,6 +592,14 @@ def promise_no_act_reason(input_data: dict) -> str:
 
 def main() -> int:
     input_data = read_stdin_json()
+
+    try:
+        from judge_transport import bind_session
+
+        bind_session(input_data)
+    except Exception:
+        pass
+
     if not input_data.get("transcript_path"):
         resolved = locate_transcript(input_data)
         if resolved:

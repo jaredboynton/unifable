@@ -496,6 +496,13 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
 def main() -> int:
     input_data = read_stdin_json()
 
+    try:
+        from judge_transport import bind_session
+
+        bind_session(input_data)
+    except Exception:
+        pass
+
     tool_name = str(input_data.get("tool_name") or "")
     tool_input = input_data.get("tool_input") or {}
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))

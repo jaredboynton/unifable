@@ -554,20 +554,22 @@ def judge_transcript(
     fresh_tool: str | None = None,
     max_tokens: int = _TRANSCRIPT_TOKEN_BUDGET,
 ) -> str:
-    """Merged judge input: breaker events + transcript tail + spec board + fresh tool.
+    """Merged judge input: transcript tail + breaker events + spec board + fresh tool.
 
-    The spec board and fresh tool output are reserved at the end so tail truncation
-    does not drop authoritative task status.
+    Ordered for prompt caching: the big append-only host transcript comes FIRST as
+    the stable, cacheable prefix; the small volatile records (breaker events, spec
+    board, fresh tool output) are reserved at the END so they cannot shift the
+    cached prefix and so tail truncation never drops authoritative task status.
+    The host transcript is bounded with a sticky retention window (not a sliding
+    `[-n:]`) so its prefix stays byte-identical across same-session judge calls.
     """
-    from transcript_tail import MAX_CHARS_PER_TOKEN
+    from transcript_tail import MAX_CHARS_PER_TOKEN, retention_window
 
-    head_parts: list[str] = []
+    tail_parts: list[str] = []
     rendered = render_events(events)
     if rendered:
-        head_parts.append(rendered.rstrip())
-
+        tail_parts.append(rendered.rstrip())
     board = _spec_board_block(input_data)
-    tail_parts: list[str] = []
     if board:
         tail_parts.append(board.rstrip())
     if fresh_tool and fresh_tool.strip():
@@ -580,17 +582,18 @@ def judge_transcript(
     reserve_chars = sum(len(p) + 2 for p in tail_parts)
     host_budget_chars = max(
         2000,
-        (max_tokens * MAX_CHARS_PER_TOKEN) - reserve_chars - sum(len(p) + 2 for p in head_parts),
+        (max_tokens * MAX_CHARS_PER_TOKEN) - reserve_chars,
     )
+    parts: list[str] = []
     host = transcript_segment(input_data, max_tokens=max_tokens)
     if host:
-        if len(host) > host_budget_chars:
-            host = host[-host_budget_chars:]
-        head_parts.append(host.rstrip())
+        host = retention_window(host, host_budget_chars)
+        parts.append(host.rstrip())
+    parts.extend(tail_parts)
 
-    if not head_parts and not tail_parts:
+    if not parts:
         return ""
-    combined = "\n\n".join(head_parts + tail_parts)
+    combined = "\n\n".join(parts)
     return tail_tokens(combined, max_tokens)
 
 
@@ -608,7 +611,7 @@ class ReleaseVerdict:
 
 
 def _default_judge(system: str, user: str, schema: dict) -> dict:
-    from codex_judge import ask_structured
+    from judge_transport import ask_structured
 
     return ask_structured(system, user, schema, schema_name="groundedness")
 
@@ -626,18 +629,23 @@ def arm_judge(
     if not segment.strip():
         return 0, "", ""
     fn = judge or _default_judge
-    system = _JUDGE_SYSTEM
+    # The system prompt MUST stay byte-identical across calls so it forms a stable,
+    # cacheable prefix (gpt-realtime-2 prompt caching is prefix-hash based). The
+    # adjudicated-claims list is volatile (it grows as claims are released), so it
+    # rides the END of the user message -- after the append-only transcript -- where
+    # it cannot shift the cached prefix. See docs/evidence-gate-design.md.
+    user = segment
     done = adjudicated_claims(events or [])
     if done:
         claims_str = "\n".join(f"- {c}" for c in done)
         append = (
-            f"\n\nDo NOT flag any of the following claims as they have already been "
-            f"adjudicated or grounded:\n{claims_str}"
+            f"\n\nALREADY ADJUDICATED -- do NOT flag any of the following claims; they "
+            f"have already been grounded or released:\n{claims_str}"
         )
-        room = JUDGE_EFFECTIVE_MAX_CHARS - len(system)
+        room = JUDGE_EFFECTIVE_MAX_CHARS - len(_JUDGE_SYSTEM) - len(segment)
         if room > 0:
-            system += cap_judge_message(append, room)
-    obj = fn(system, segment, _JUDGE_SCHEMA)
+            user = segment + cap_judge_message(append, room)
+    obj = fn(_JUDGE_SYSTEM, user, _JUDGE_SCHEMA)
     load_bearing = int(obj.get("load_bearing", 0) or 0) == 1
     verdict = 1 if int(obj.get("verdict", 0) or 0) == 1 else 0
     if verdict == 1 and not load_bearing:

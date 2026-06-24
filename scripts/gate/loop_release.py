@@ -252,7 +252,8 @@ def judge_completion_loop_release(
 ) -> LoopReleaseVerdict:
     """Invoke the loop-release judge. Fail-open to lift=none on error."""
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError as exc:  # pragma: no cover
         return LoopReleaseVerdict(False, "none", f"judge unavailable: {exc}", "", [], 0)
 

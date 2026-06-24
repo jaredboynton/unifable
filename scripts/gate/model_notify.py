@@ -564,6 +564,28 @@ def _stop_non_task_notes(headlines: list[str]) -> list[str]:
     return notes
 
 
+def _adopted_primary_structural_hint(spec: dict[str, Any], task: dict[str, Any]) -> str | None:
+    """Hint when primary blocks in adopted phase but judge_reason is stale/misleading."""
+    try:
+        from heavy_workflow import adopted_frontier, approach_kind
+    except ImportError:
+        from scripts.gate.heavy_workflow import adopted_frontier, approach_kind
+    if approach_kind(task) != "primary":
+        return None
+    winner = adopted_frontier(spec)
+    if winner is None:
+        return None
+    status = str(task.get("status") or "")
+    if status == "superseded":
+        return None
+    wid = str(winner.get("id") or "")
+    tid = str(task.get("id") or "")
+    return (
+        f"{tid}: primary must be superseded now that frontier {wid} was adopted "
+        f"(harness auto-heals; do not re-run this check)."
+    )
+
+
 def format_blocking_task_hints(
     spec: dict[str, Any],
     incomplete: list[str],
@@ -588,6 +610,10 @@ def format_blocking_task_hints(
             action = _synthetic_incomplete_action(tid)
             if action:
                 hint_lines.append(f"  {action}")
+            continue
+        structural = _adopted_primary_structural_hint(spec, task)
+        if structural:
+            hint_lines.append(f"  {structural}")
             continue
         hint = str(task.get("judge_hint") or "").strip()
         reason = str(task.get("judge_reason") or "").strip()

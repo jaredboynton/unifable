@@ -14,6 +14,7 @@ from heavy_workflow import (  # noqa: E402
     accepted_frontier,
     all_tasks_validated_heavy,
     compute_heavy_phase,
+    ensure_primary_superseded_on_adoption,
     finalize_heavy_adoption,
 )
 from spec import (  # noqa: E402
@@ -93,6 +94,50 @@ def test_validated_comparison_winner_opens_breaker():
     primary["status"] = "superseded"
     ok, incomplete = all_tasks_validated_heavy(spec)
     assert ok, incomplete
+
+
+def test_validated_primary_after_adopted_frontier_self_heals():
+    """Live-spec shape: adopted frontier + validated primary -> heal + breaker open."""
+    spec = _heavy_spec(Path("/tmp/unused"))
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "accepted_approach"
+    f1["comparison_winner"] = True
+    f1["judge_verdict"] = 1
+    f2["status"] = "retracted"
+    primary = hw.primary_task(spec)
+    assert primary is not None
+    primary["status"] = "validated"
+    primary["judge_verdict"] = 1
+    assert ensure_primary_superseded_on_adoption(spec) is True
+    assert primary["status"] == "superseded"
+    ok, incomplete = all_tasks_validated_heavy(spec)
+    assert ok, incomplete
+
+
+def test_finalize_supersedes_non_blocked_primary():
+    spec = _heavy_spec(Path("/tmp/unused"))
+    frontiers = hw.frontier_tasks(spec)
+    frontiers[0]["status"] = "accepted_approach"
+    frontiers[0]["exit"] = 0
+    frontiers[1]["status"] = "rejected_approach"
+    primary = hw.primary_task(spec)
+    assert primary is not None
+    primary["status"] = "validated"
+    finalize_heavy_adoption(spec)
+    assert primary["status"] == "superseded"
+
+
+def test_finalize_heals_when_winner_already_set():
+    spec = _heavy_spec(Path("/tmp/unused"))
+    f1, _ = hw.frontier_tasks(spec)
+    f1["status"] = "accepted_approach"
+    f1["comparison_winner"] = True
+    primary = hw.primary_task(spec)
+    assert primary is not None
+    primary["status"] = "validated"
+    headlines = finalize_heavy_adoption(spec)
+    assert primary["status"] == "superseded"
+    assert headlines
 
 
 def test_adopted_frontier_not_pending():

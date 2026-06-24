@@ -31,6 +31,61 @@ JUDGE_TRANSCRIPT_CHAR_BUDGET = JUDGE_EFFECTIVE_MAX_CHARS - JUDGE_USER_WRAPPER_RE
 
 _TRUNC_MARKER = "\n...[truncated {n} chars]"
 
+# Retention-ratio truncation (OpenAI Realtime cost guide): when a judge transcript
+# exceeds budget, drop the oldest content in LARGE chunks instead of sliding by one
+# unit per call. The window start is "sticky" -- it only advances when accumulated
+# growth crosses a chunk boundary -- so consecutive same-session judge calls share a
+# byte-identical, append-only prefix that gpt-realtime-2 can cache, instead of busting
+# the cache near the beginning every turn. retention_ratio=1.0 reproduces plain
+# last-N tailing (no extra drop). Override with UNIFABLE_JUDGE_RETENTION_RATIO.
+DEFAULT_RETENTION_RATIO = 0.8
+
+
+def _retention_ratio() -> float:
+    try:
+        ratio = float(os.environ.get("UNIFABLE_JUDGE_RETENTION_RATIO") or DEFAULT_RETENTION_RATIO)
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_RATIO
+    if ratio <= 0.0:
+        return DEFAULT_RETENTION_RATIO
+    return min(ratio, 1.0)
+
+
+def _sticky_start(n: int, budget: int, ratio: float) -> int:
+    """First index of a sticky retention window over `n` units bounded by `budget`."""
+    if budget <= 0:
+        return n
+    if n <= budget:
+        return 0
+    if ratio >= 1.0:
+        return n - budget
+    drop_chunk = max(1, int(round(budget * (1.0 - ratio))))
+    overflow = n - budget
+    steps = (overflow + drop_chunk - 1) // drop_chunk  # ceil
+    start = steps * drop_chunk
+    if start >= n:
+        start = n - budget
+    return start
+
+
+def retention_window(text: str, budget_chars: int, retention_ratio: float | None = None) -> str:
+    """Tail of `text` bounded by `budget_chars`, cut on a sticky chunk boundary.
+
+    Unlike `text[-budget_chars:]` (which shifts the window start by one char per
+    appended char and busts prompt-cache prefixes), the start here only jumps in
+    `(1 - retention_ratio)` chunks, so the retained prefix stays byte-identical
+    across calls until the next chunk drop. Always returns a suffix of `text`.
+    """
+    s = str(text or "")
+    n = len(s)
+    if budget_chars <= 0:
+        return ""
+    if n <= budget_chars:
+        return s
+    ratio = _retention_ratio() if retention_ratio is None else retention_ratio
+    start = _sticky_start(n, budget_chars, ratio)
+    return s[start:]
+
 
 def cap_judge_message(text: str, max_chars: int = JUDGE_EFFECTIVE_MAX_CHARS) -> str:
     """Tail-preserving truncation so judge payloads never exceed the API char limit."""

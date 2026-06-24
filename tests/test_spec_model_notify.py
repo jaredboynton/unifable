@@ -506,6 +506,35 @@ def test_stop_context_prioritizes_hints_in_first_2kb():
     assert T17_HINT in ctx[:2048]
 
 
+def test_format_blocking_task_hints_adopted_primary_structural():
+    """Stale judge_reason on primary must not masquerade as re-proof work."""
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["heavy_workflow"] = True
+    spec["tasks"] = [
+        {
+            "id": "T2",
+            "title": "Frontier",
+            "check": "true",
+            "status": "accepted_approach",
+            "approach_kind": "frontier",
+            "comparison_winner": True,
+        },
+        {
+            "id": "T4",
+            "title": "Primary",
+            "check": "true",
+            "status": "validated",
+            "approach_kind": "primary",
+            "judge_reason": "Dispatch test output includes a passing cache-version deletion scenario",
+        },
+    ]
+    text = mn.format_blocking_task_hints(spec, ["T4"])
+    assert "Action:" in text
+    assert "must be superseded" in text
+    assert "cache-version deletion" not in text
+
+
 def test_format_blocking_task_hints_prioritizes_changed():
     """Action lines cover tasks adjudicated this stop only, not stale siblings."""
     spec = spec_template()

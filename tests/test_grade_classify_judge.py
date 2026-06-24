@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Tests for the single-purpose judge-backed grade classifier (grade_override.py).
 
-Verifies the system prompt instructs the judge correctly, the schema is clean,
-parse_grade_verdict coerces bad input safely, and fail-open returns normal.
+Verifies the schema is clean, parse_grade_verdict coerces bad input safely,
+and fail-open returns normal.
 Run: python3 -m pytest tests/test_grade_classify_judge.py -q
 """
 from __future__ import annotations
@@ -16,53 +16,6 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 import grade_override as go  # noqa: E402
 
 
-# System prompt content ------------------------------------------------------
-
-def test_system_prompt_describes_three_modes():
-    s = go._GRADE_SYSTEM.lower()
-    assert "quick" in s and "light" in s
-    assert "normal" in s and "standard" in s
-    assert "deep" in s and "heavy" in s
-
-
-def test_system_prompt_has_auth_code_is_normal_rule():
-    """The core fix: touching auth/security/production code on a bounded plan is
-    NORMAL, not DEEP."""
-    s = go._GRADE_SYSTEM.lower()
-    assert "auth" in s
-    assert "normal, not deep" in s
-
-
-def test_system_prompt_has_hedging_rule():
-    s = go._GRADE_SYSTEM.lower()
-    assert "hedging" in s or "hedge" in s
-    assert "uncertainty" in s
-
-
-def test_system_prompt_prefers_normal_on_ambiguity():
-    s = go._GRADE_SYSTEM.lower()
-    assert "prefer normal over deep" in s
-
-
-def test_uncertainty_never_escalates_to_deep():
-    """The uncertainty flag must only prevent quick; it must never push toward deep."""
-    s = go._GRADE_SYSTEM.lower()
-    assert "uncertainty" in s
-    assert "never" in s and "deep" in s
-
-
-def test_continuation_words_are_never_deep():
-    s = go._GRADE_SYSTEM.lower()
-    assert "proceed" in s
-    assert "never deep" in s
-
-
-def test_task_board_is_context_only():
-    s = go._GRADE_SYSTEM.lower()
-    assert "context only" in s
-    assert "never drive the mode" in s or "must never drive" in s
-
-
 # Schema ---------------------------------------------------------------------
 
 def test_schema_is_mode_risk_flags_reason():
@@ -74,13 +27,6 @@ def test_schema_is_mode_risk_flags_reason():
 
 
 # parse_grade_verdict --------------------------------------------------------
-
-def test_system_prompt_describes_evidence_profiles():
-    s = go._GRADE_SYSTEM.lower()
-    assert "evidence_profile" in s or "operational" in s
-    assert "operational" in s
-    assert "code" in s
-
 
 def test_parse_valid_verdict():
     mode, flags, reason, profile = go.parse_grade_verdict(

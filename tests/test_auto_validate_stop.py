@@ -13,6 +13,7 @@ sys.path.insert(0, str(REPO / "hooks"))
 
 import spec as spec_mod  # noqa: E402
 from spec import (  # noqa: E402
+    _apply_check_result,
     all_tasks_validated,
     auto_validate_spec,
     load_spec,
@@ -510,3 +511,68 @@ def test_stop_resolves_transcript_without_payload_path(tmp_path, monkeypatch):
 
     _run_stop(gate_stop, {"session_id": session, "cwd": cwd})
     assert captured.get("transcript_path") == str(transcript_file)
+
+
+def test_apply_check_result_supersedes_primary_when_adopted(tmp_path):
+    from spec import append_frontier_task, set_primary_task
+
+    s = spec_template()
+    s["heavy_workflow"] = True
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = []
+    append_frontier_task(s, "Frontier A", "true")
+    append_frontier_task(s, "Frontier B", "true")
+    set_primary_task(s, "Primary", "true")
+    f1, _ = [t for t in s["tasks"] if t.get("approach_kind") == "frontier"]
+    f1["status"] = "accepted_approach"
+    f1["comparison_winner"] = True
+    primary = next(t for t in s["tasks"] if t.get("approach_kind") == "primary")
+    primary["status"] = "pending"
+    _apply_check_result(s, primary, 0, "ok", 1, "passed", [])
+    assert primary["status"] == "superseded"
+    assert "adopted frontier" in primary["judge_reason"]
+
+
+def test_loop_release_returns_recomputed_incomplete(tmp_path, monkeypatch):
+    """_handle_completion_loop_release must not return a stale incomplete list."""
+    import gate_stop
+    from spec import append_frontier_task, set_primary_task
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    s = spec_template()
+    s["heavy_workflow"] = True
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = []
+    append_frontier_task(s, "Frontier A", "true")
+    append_frontier_task(s, "Frontier B", "true")
+    set_primary_task(s, "Primary", "true")
+    f1, f2 = [t for t in s["tasks"] if t.get("approach_kind") == "frontier"]
+    f1["status"] = "accepted_approach"
+    f1["comparison_winner"] = True
+    f2["status"] = "rejected_approach"
+    primary = next(t for t in s["tasks"] if t.get("approach_kind") == "primary")
+    primary["status"] = "validated"
+    save_spec(str(tmp_path), "heal", s)
+    from ledger import load_ledger, save_ledger
+
+    led = load_ledger({"session_id": "heal", "cwd": str(tmp_path)})
+    stale_incomplete = ["T4"]
+    spec, ok_tasks, incomplete, _, _, early = gate_stop._handle_completion_loop_release(
+        {"session_id": "heal", "cwd": str(tmp_path)},
+        str(tmp_path),
+        "heal",
+        load_spec(str(tmp_path), "heal"),
+        led,
+        stale_incomplete,
+        [],
+        "",
+    )
+    assert early is None
+    assert ok_tasks is True
+    assert incomplete == []
+    healed_primary = next(
+        t for t in spec["tasks"] if t.get("approach_kind") == "primary"
+    )
+    assert healed_primary["status"] == "superseded"

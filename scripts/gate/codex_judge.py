@@ -43,7 +43,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 # --- Realtime + codex OAuth constants (mirror crates/cse-realtime/src/*.rs) ---
 REALTIME_HOST = "api.openai.com"
@@ -371,12 +371,17 @@ def ask_structured(
     model: str = MODEL,
     auth_path: str | os.PathLike[str] | None = None,
     timeout: float = READ_TIMEOUT,
+    on_usage: Callable[[dict[str, int]], None] | None = None,
 ) -> dict[str, Any]:
     """Ask gpt-realtime-2 for one structured object via a required function tool.
 
     Returns the parsed object. Raises JudgeError on any failure (so callers fail
     safe). Refreshes the access_token if expired, and retries once on a handshake
-    auth rejection after forcing a refresh (protocol.rs run_session_structured)."""
+    auth rejection after forcing a refresh (protocol.rs run_session_structured).
+
+    When ``on_usage`` is given it is called once with the parsed token-usage record
+    from ``response.done`` (input/output/cached/total tokens) so callers can track
+    prompt-cache effectiveness. Never raises out of the usage path."""
     rendered = render_structured_request(system, user, schema, schema_name=schema_name)
     session_update = rendered["session.update"]
     question = rendered["conversation.item.create"]
@@ -424,6 +429,15 @@ def ask_structured(
                     raise JudgeError(_provider_error(err))
                 elif kind in ("response.done", "response.completed"):
                     args_done = args_done or _function_args_from_done(env)
+                    if on_usage is not None:
+                        try:
+                            from judge_usage import parse_usage
+
+                            usage = parse_usage(env)
+                            if usage is not None:
+                                on_usage(usage)
+                        except Exception:
+                            pass  # usage is best-effort; never fail the judge
                     break
             chosen = args_done or ("".join(args_buf) if args_buf else "") or "".join(text_buf)
             if not chosen.strip():

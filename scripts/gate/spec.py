@@ -37,6 +37,7 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     from atomicio import write_text_atomic
     from heavy_workflow import (
         advance_primary_if_ready,
+        adopted_frontier,
         all_frontiers_rejected,
         all_frontiers_terminal,
         all_tasks_validated_heavy,
@@ -55,6 +56,7 @@ except ImportError:  # pragma: no cover
     from scripts.gate.atomicio import write_text_atomic
     from scripts.gate.heavy_workflow import (
         advance_primary_if_ready,
+        adopted_frontier,
         all_frontiers_rejected,
         all_frontiers_terminal,
         all_tasks_validated_heavy,
@@ -1090,6 +1092,11 @@ def _apply_check_result(
             task["status"] = "accepted_approach"
         else:
             task["status"] = "failed"
+    elif kind == "primary" and adopted_frontier(spec) is not None:
+        winner = adopted_frontier(spec)
+        wid = str(winner.get("id") or "") if winner else ""
+        task["status"] = "superseded"
+        task["judge_reason"] = f"Superseded by adopted frontier {wid}."
     else:
         task["status"] = "validated" if verdict == 1 else "failed"
     advance_primary_if_ready(spec)
@@ -1783,7 +1790,8 @@ def judge_heal_own_requirements(
     if not open_tasks:
         return []
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError:
         return []
     transcript, plan_mode = _judge_context(transcript_path)
@@ -1993,7 +2001,8 @@ def judge_frontier_comparison(spec: dict[str, Any]) -> list[str]:
         ],
     }
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError:
         return []
     try:
@@ -2051,7 +2060,8 @@ def judge_all_tasks(
     if not items:
         return []
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError as exc:  # pragma: no cover
         return [(0, f"judge unavailable: {exc}", [], "") for _ in items]
     try:
@@ -2101,7 +2111,8 @@ def judge_task(
     Returns (verdict, reason, new_requirements, frontier_outcome).
     frontier_outcome is 'rejected_approach' or 'still_viable' for frontier tasks."""
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError as exc:  # pragma: no cover
         return 0, f"judge unavailable: {exc}", [], ""
     try:
@@ -2179,7 +2190,8 @@ def judge_discover_frontiers(
     if len(frontier_tasks(spec)) >= 2:
         return []
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError:
         return []
     user = json.dumps({
@@ -2241,7 +2253,8 @@ def judge_dispute(
     failure returns (0, reason) so an unreachable judge never auto-retracts a
     requirement -- impossibility must be earned, not granted by default."""
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError as exc:  # pragma: no cover
         return 0, f"judge unavailable: {exc}"
     system = (
@@ -2283,7 +2296,8 @@ def judge_hint(spec: dict[str, Any], *, signal: str, recent: str = "") -> str:
     clearly-advisory channel; it can never lift a gate. Any judge failure returns
     "" so a hint never blocks and an unreachable judge is simply silent."""
     try:
-        from codex_judge import JudgeError, ask_structured
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
     except ImportError:  # pragma: no cover
         return ""
     system = (
