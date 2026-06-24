@@ -663,7 +663,9 @@ def main() -> int:
                         pass  # fail open
                     ok, reasons = validate_spec(spec, grade, require_evidence=True)
                     if not ok:
-                        ev_reason = "evidence spec invalid at completion (placeholder/missing evidence): " + "; ".join(reasons)
+                        from spec import format_spec_validation_block
+
+                        ev_reason = format_spec_validation_block(grade, reasons)
                     else:
                         # Citation truth-check: every repo_context / prior_art / acceptance
                         # citation must be backed by real session activity, sourced from

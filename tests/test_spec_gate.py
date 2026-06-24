@@ -30,6 +30,7 @@ sys.path.insert(0, str(SCRIPTS_GATE))
 from spec import (  # noqa: E402
     append_frontier_task,
     check_fake_evidence,
+    format_spec_validation_block,
     is_path_line,
     is_source_url,
     load_spec,
@@ -308,6 +309,39 @@ def test_evidence_standard_requires_prior_art():
     ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
     assert not ok
     assert any("prior_art" in r for r in reasons)
+
+
+def test_format_spec_validation_block_prior_art_actionable():
+    """Missing prior_art should tell the model to fetch, not expose spec paths."""
+    _, reasons = validate_spec(
+        {k: v for k, v in _standard_spec_with_evidence().items() if k != "prior_art"},
+        "STANDARD",
+        require_evidence=True,
+    )
+    msg = format_spec_validation_block("STANDARD", reasons)
+    assert "prior_art" in msg
+    assert "WebFetch" in msg or "fetch" in msg.lower()
+    assert "spec.json" not in msg
+    assert "/.unifable/specs/" not in msg
+
+
+def test_standard_missing_prior_art_block_message():
+    """PreToolUse block omits spec path and includes fetch guidance."""
+    with tempfile.TemporaryDirectory() as cwd:
+        session_id = "missing-prior-art"
+        spec = _standard_spec_with_evidence()
+        spec.pop("prior_art", None)
+        save_spec(cwd, session_id, spec)
+        payload = _edit_payload(
+            os.path.join(cwd, "src", "main.py"),
+            session_id=session_id,
+            cwd=cwd,
+        )
+        rc, _, stderr = run_pre_tool(payload, spec_gate="1", grade="STANDARD")
+        assert rc == 2
+        assert "spec at " not in stderr
+        assert "prior_art" in stderr
+        assert "fetch" in stderr.lower()
 
 
 def test_evidence_light_exempt():

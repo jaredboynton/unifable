@@ -61,10 +61,10 @@ from spec import (
     canonical_project_root,
     contract_string,
     format_spec_location,
+    format_spec_validation_block,
     load_spec,
     resolve_session_id,
     save_spec,
-    spec_path,
     validate_spec,
 )
 
@@ -250,12 +250,7 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
 
     ok, reasons = validate_spec(spec, grade, require_evidence=True)
     if not ok:
-        sp = spec_path(cwd, task_id)
-        detail = "; ".join(reasons)
-        return _block(
-            f"spec at {sp} does not satisfy grade {grade}: {detail}. "
-            "Fix the spec before proceeding with edits."
-        )
+        return _block(format_spec_validation_block(grade, reasons))
 
     cited = _citation_reasons(spec, input_data, cwd, require_commands=False)
     if cited:

@@ -2124,6 +2124,45 @@ def contract_string(grade: str, require_evidence: bool = False) -> str:
     return base
 
 
+def format_spec_validation_block(grade: str, reasons: list[str]) -> str:
+    """Model-facing block text when validate_spec fails.
+
+    Omits filesystem paths (the model drives the spec via CLI and activity sync,
+    not by editing spec.json). Appends concrete fix steps derived from *reasons*.
+    """
+    grade = (grade or "STANDARD").upper()
+    detail = "; ".join(reasons)
+    joined = detail.lower()
+    fixes: list[str] = []
+
+    if "prior_art" in joined:
+        fixes.append(
+            "fetch at least one relevant source URL (WebFetch or curl); "
+            "prior_art entries sync from fetched URLs automatically"
+        )
+    if "repo_context" in joined:
+        fixes.append(
+            "read relevant repo files (Read/Grep); "
+            "repo_context entries sync from reads automatically"
+        )
+    if "restate" in joined or "restated_goal" in joined or "goal_seeded" in joined:
+        fixes.append("run `unifable restate '<goal in your own words>'`")
+    if "no requirements yet" in joined or "requires_tasks" in joined:
+        fixes.append(
+            "run `unifable add-task --title '<requirement>' --check '<runnable check>'`"
+        )
+    if grade == "HEAVY" and ("frontier" in joined or "primary approach" in joined):
+        fixes.append("HEAVY: use `unifable add-frontier` (>=2) and `unifable set-primary`")
+
+    parts = [f"Evidence spec does not satisfy grade {grade}: {detail}."]
+    if fixes:
+        parts.append("To unblock edits: " + "; ".join(fixes) + ".")
+    else:
+        parts.append("Fix the spec via the unifable CLI (never edit spec.json directly).")
+    parts.append(contract_string(grade, True))
+    return " ".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
