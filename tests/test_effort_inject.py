@@ -233,5 +233,59 @@ class TestEffortInject(unittest.TestCase):
                       "injected context should mention unifable")
 
 
+class TestPlaybookDedup(unittest.TestCase):
+    """Tests for playbook paragraph suppression when router packs already fired."""
+
+    def test_no_tags_includes_all_paragraphs(self):
+        import importlib.util
+        hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+        gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
+        for p in (gate_dir, hook_dir):
+            if p not in sys.path:
+                sys.path.insert(0, p)
+        import gate_prompt_effort
+        ctx = gate_prompt_effort._playbook_context()
+        self.assertIn("Investigation:", ctx)
+        self.assertIn("Verification grounding:", ctx)
+
+    def test_investigation_tag_suppresses_investigation_paragraph(self):
+        import importlib.util
+        hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+        gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
+        for p in (gate_dir, hook_dir):
+            if p not in sys.path:
+                sys.path.insert(0, p)
+        import gate_prompt_effort
+        ctx = gate_prompt_effort._playbook_context({"investigation"})
+        self.assertNotIn("Investigation: reproduce first", ctx)
+        self.assertIn("Verification grounding:", ctx)
+
+    def test_grounding_tag_suppresses_grounding_paragraph(self):
+        import importlib.util
+        hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+        gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
+        for p in (gate_dir, hook_dir):
+            if p not in sys.path:
+                sys.path.insert(0, p)
+        import gate_prompt_effort
+        ctx = gate_prompt_effort._playbook_context({"grounding"})
+        self.assertIn("Investigation: reproduce first", ctx)
+        self.assertNotIn("Verification grounding:", ctx)
+
+    def test_both_tags_suppress_both_paragraphs(self):
+        import importlib.util
+        hook_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "hooks")
+        gate_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts", "gate")
+        for p in (gate_dir, hook_dir):
+            if p not in sys.path:
+                sys.path.insert(0, p)
+        import gate_prompt_effort
+        ctx = gate_prompt_effort._playbook_context({"investigation", "grounding"})
+        self.assertNotIn("Investigation: reproduce first", ctx)
+        self.assertNotIn("Verification grounding:", ctx)
+        self.assertIn("Working style:", ctx)
+        self.assertIn("Escalation:", ctx)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

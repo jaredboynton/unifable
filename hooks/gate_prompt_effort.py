@@ -14,35 +14,46 @@ import os
 import re
 import sys
 import tempfile
+from pathlib import Path
 
 HEAVY_EFFORT = {"xhigh", "max", "ultracode"}
 
-_PLAYBOOK = """\
+_PLAYBOOK_CORE = """\
 unifable execution playbook active (effort=heavy). Adopt the discipline below as \
 standing procedure for the rest of this session:
 
 Working style: Lead with the outcome. Stay within the requested scope (no \
 incidental refactors or abstractions). Ground every completion claim in a tool \
-result from this session. Confirm before destructive or hard-to-reverse actions.
+result from this session. Confirm before destructive or hard-to-reverse actions."""
 
+_PLAYBOOK_INVESTIGATION = """\
 Investigation: reproduce first. Form 3+ competing hypotheses before \
 investigating any single one. Gather evidence per hypothesis by reading code \
 paths end to end. Trace the full causal chain. Verify before and after. Report \
-the hypotheses you rejected and the evidence that rejected them.
+the hypotheses you rejected and the evidence that rejected them."""
 
+_PLAYBOOK_GROUNDING = """\
 Verification grounding: for artifacts whose correctness only shows when run \
 (HTML, SVG, games, UI, charts), run it in the real renderer, observe the actual \
 output, fix what the observation reveals, then re-run. A static parse confirms \
-well-formed, not correct.
+well-formed, not correct."""
 
+_PLAYBOOK_MULTI_STORY = """\
 Multi-story loop: for 2+ sequential stories, use goals.py to decompose, \
 complete one at a time, and produce evidence at each checkpoint. The final story \
-must carry --verify-cmd and --verify-evidence.
+must carry --verify-cmd and --verify-evidence."""
 
+_PLAYBOOK_ESCALATION = """\
 Escalation: when stuck on the same problem 2+ times, or when the task requires \
 out-of-spec discovery, escalate: recommend /effort xhigh, delegate the stuck \
 slice via Agent/Workflow with the full evidence package, or hand off with the \
 evidence package. Report the limit honestly."""
+
+# Router pack tags that supersede a playbook paragraph.
+_TAG_SUPERSEDES = {
+    "investigation": _PLAYBOOK_INVESTIGATION,
+    "grounding": _PLAYBOOK_GROUNDING,
+}
 
 
 def _emit(payload: dict) -> None:
@@ -79,8 +90,13 @@ def _marker_path(session_id: str) -> str:
     return os.path.join(_marker_dir(), f"unifable-loaded-{safe_sid}")
 
 
-def _playbook_context() -> str:
-    return _PLAYBOOK
+def _playbook_context(matched_tags: set[str] | None = None) -> str:
+    tags = matched_tags or set()
+    parts = [_PLAYBOOK_CORE, _PLAYBOOK_MULTI_STORY, _PLAYBOOK_ESCALATION]
+    for tag, paragraph in _TAG_SUPERSEDES.items():
+        if tag not in tags:
+            parts.append(paragraph)
+    return "\n\n".join(parts)
 
 
 def main() -> int:
@@ -106,7 +122,16 @@ def main() -> int:
     except OSError:
         pass  # fail open: marker write failure must not block injection
 
-    context = _playbook_context()
+    # Check which router packs already fired this prompt to avoid duplication.
+    matched_tags: set[str] = set()
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
+        from ledger import load_ledger
+        matched_tags = set(load_ledger(data).get("router_matched_tags") or [])
+    except Exception:
+        pass
+
+    context = _playbook_context(matched_tags)
     if not context:
         _emit({})
         return 0

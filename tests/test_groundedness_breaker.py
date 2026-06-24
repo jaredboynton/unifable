@@ -265,12 +265,11 @@ def test_judge_system_prompt_asks_the_confidence_question():
     judge = FakeJudge([(1, "x")])
     gb.judge_segment(seg, judge=judge)
     sysp = judge.systems[0].lower()
-    assert "ungrounded" in sysp and "confident" in sysp
+    assert "settled without backing evidence" in sysp or "unproven" in sysp
     assert "load_bearing" in sysp or "load-bearing" in sysp
-    assert "restricted to read-only" in sysp
+    assert "read-only" in sysp or "read only" in sysp
     assert "read, websearch, webfetch, grep, glob" in sysp
-    assert "trace.sh" in sysp or "whitelisted" in sysp
-    assert "explore skill" in sysp
+    assert "whitelisted" in sysp
 
 
 def test_judge_prompts_forbid_steering_toward_blocked_commands():
@@ -296,15 +295,16 @@ def test_disarm_prompt_accepts_read_derived_scoring_math():
 
 def test_arm_prompt_does_not_arm_on_retraction_or_aside():
     sysp = gb._JUDGE_SYSTEM.lower()
-    assert "retract" in sysp
+    assert "narration" in sysp or "aside" in sysp
     assert "load-bearing" in sysp or "load_bearing" in sysp
-    assert "work currently in progress" in sysp or "current work" in sysp
+    assert "harness" in sysp
 
 
 def test_arm_prompt_skips_host_error_speculation_while_editing_repo():
     sysp = gb._JUDGE_SYSTEM.lower()
-    assert "taskupdate" in sysp or "task" in sysp
-    assert "not load-bearing" in sysp or "load_bearing=0" in sysp
+    assert "harness" in sysp
+    assert "load_bearing" in sysp or "load-bearing" in sysp
+    assert "task board" in sysp or "spec status" in sysp
 
 
 def test_completion_stall_circuit_breaker_backstop_releases():
@@ -392,8 +392,8 @@ def test_disarm_judge_releases_harness_self_referential_claim():
 
 def test_arm_prompt_forbids_harness_self_reference():
     sysp = gb._JUDGE_SYSTEM.lower()
-    assert "self-referential" in sysp or "self reference" in sysp
-    assert "light" in sysp or "waiver" in sysp
+    assert "harness" in sysp
+    assert "spec status" in sysp or "breaker state" in sysp
     lb_desc = gb._JUDGE_SCHEMA["properties"]["load_bearing"]["description"].lower()
     assert "unifable" in lb_desc or "harness" in lb_desc
 

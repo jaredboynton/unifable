@@ -50,7 +50,12 @@ def grade_of(mode: str) -> str:
     return grade_for_mode(mode)
 
 
-def context_for_mode(mode: str, risk_flags: list[str]) -> str:
+def context_for_mode(
+    mode: str,
+    risk_flags: list[str],
+    *,
+    first_prompt: bool = True,
+) -> str:
     lines = [f"unifable gate -- task mode: {mode}."]
     if risk_flags:
         lines.append("Risk flags: " + ", ".join(risk_flags) + ".")
@@ -71,8 +76,9 @@ def context_for_mode(mode: str, risk_flags: list[str]) -> str:
             "confirm with tool calls before answering; do not guess. State what you verified and "
             "what is still unknown."
         )
-    lines.append(
-        "Cite evidence for load-bearing claims: path:line for code, cmd -> output for tool "
-        "results, a URL for research/prior art. Never claim verification not observed in a tool result."
-    )
+    if first_prompt:
+        lines.append(
+            "Cite evidence for load-bearing claims: path:line for code, cmd -> output for tool "
+            "results, a URL for research/prior art. Never claim verification not observed in a tool result."
+        )
     return "\n".join(lines[:10])

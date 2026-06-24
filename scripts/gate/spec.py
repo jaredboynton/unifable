@@ -1332,10 +1332,13 @@ _JUDGE_CORE_GUIDANCE = (
     "-- what outcome the task enforces when satisfied, not just title wording. "
     "Skip if any existing task (especially validated) already obligates the same "
     "outcome; duplicates trap completion. Include supersedes: [ids] when replacing "
-    "broken checks. Prefer adjust_requirements revise over adding a parallel "
+    "broken checks (superseded agent tasks become non-blocking; judge tasks retract). "
+    "Prefer adjust_requirements revise over adding a parallel "
     "requirement. Never add brittle literal-string or version-pinning requirements; "
-    "write checks that read version fields from repo manifests and compare. "
-    "Judge-added tasks with broken checks must be fixed via adjust_requirements "
+    "write checks that read version fields from repo manifests and compare -- a check "
+    "that fails on every version bump traps completion. Reject evidence that only "
+    "grep-matches a frozen version string when the goal needs a structural manifest "
+    "comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements "
     "in THIS response, never by instructing the agent."
 )
 
@@ -1421,7 +1424,9 @@ _JUDGE_SYSTEM = (
 )
 
 _FRONTIER_JUDGE_SYSTEM = (
-    "You are a strict frontier-approach adjudicator. "
+    "You are a strict frontier-approach adjudicator. A frontier is a realistic "
+    "cutting-edge option the agent explores before falling back to the "
+    "evidence-backed primary approach. "
     "Given goal, frontier title, check, exit code, and output, decide:\n"
     "- rejected_approach: evidence disqualifies this frontier.\n"
     "- still_viable: more exploration warranted.\n"

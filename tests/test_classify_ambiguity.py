@@ -47,7 +47,19 @@ def main() -> int:
         if not ok:
             bad += 1
 
-    total = len(checks)
+    # first_prompt controls whether the cite-evidence footer appears.
+    first = context_for_mode("normal", [], first_prompt=True)
+    subsequent = context_for_mode("normal", [], first_prompt=False)
+    footer_checks = [
+        ("Cite evidence" in first, "first_prompt=True includes cite-evidence footer"),
+        ("Cite evidence" not in subsequent, "first_prompt=False omits cite-evidence footer"),
+    ]
+    for ok, label in footer_checks:
+        print(f"[{'PASS' if ok else 'FAIL'}] {label}")
+        if not ok:
+            bad += 1
+
+    total = len(checks) + len(footer_checks)
     print(f"\nRESULT: {total - bad}/{total} passed" + ("" if not bad else f" -- {bad} FAIL"))
     return 1 if bad else 0
 
