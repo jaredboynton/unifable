@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """unifable effort-gated playbook injection — UserPromptSubmit.
 
-Reads the resolved effort level from the hook's JSON payload or env and injects
-the unifable SKILL.md playbook as additionalContext when effort is in
-HEAVY_EFFORT. Suppresses re-injection within the same session via a marker file
-at <tmpdir>/unifable-loaded-<session_id>. Fails open (emits {} exit 0 on any
-error).
+Injects the unifable heavy-effort playbook as additionalContext when effort is
+in HEAVY_EFFORT. Suppresses re-injection within the same session via a marker
+file at <tmpdir>/unifable-loaded-<session_id>. Fails open (emits {} exit 0 on
+any error).
 """
 
 from __future__ import annotations
@@ -15,13 +14,35 @@ import os
 import re
 import sys
 import tempfile
-from pathlib import Path
 
 HEAVY_EFFORT = {"xhigh", "max", "ultracode"}
 
-# Skill file relative to this hook's parent repo root.
-_REPO_ROOT = Path(__file__).resolve().parent.parent
-_SKILL_PATH = _REPO_ROOT / "skills" / "unifable" / "SKILL.md"
+_PLAYBOOK = """\
+unifable execution playbook active (effort=heavy). Adopt the discipline below as \
+standing procedure for the rest of this session:
+
+Working style: Lead with the outcome. Stay within the requested scope (no \
+incidental refactors or abstractions). Ground every completion claim in a tool \
+result from this session. Confirm before destructive or hard-to-reverse actions.
+
+Investigation: reproduce first. Form 3+ competing hypotheses before \
+investigating any single one. Gather evidence per hypothesis by reading code \
+paths end to end. Trace the full causal chain. Verify before and after. Report \
+the hypotheses you rejected and the evidence that rejected them.
+
+Verification grounding: for artifacts whose correctness only shows when run \
+(HTML, SVG, games, UI, charts), run it in the real renderer, observe the actual \
+output, fix what the observation reveals, then re-run. A static parse confirms \
+well-formed, not correct.
+
+Multi-story loop: for 2+ sequential stories, use goals.py to decompose, \
+complete one at a time, and produce evidence at each checkpoint. The final story \
+must carry --verify-cmd and --verify-evidence.
+
+Escalation: when stuck on the same problem 2+ times, or when the task requires \
+out-of-spec discovery, escalate: recommend /effort xhigh, delegate the stuck \
+slice via Agent/Workflow with the full evidence package, or hand off with the \
+evidence package. Report the limit honestly."""
 
 
 def _emit(payload: dict) -> None:
@@ -59,29 +80,7 @@ def _marker_path(session_id: str) -> str:
 
 
 def _playbook_context() -> str:
-    try:
-        body = _SKILL_PATH.read_text(encoding="utf-8")
-    except OSError:
-        return ""
-
-    # Extract the "Working style" section onward as a lighter payload when the
-    # full body is very long (>6 KB). Always include the routing summary
-    # (sections 3-1 onward) so the minimal injection still covers grounding.
-    THRESHOLD = 6144
-    if len(body) > THRESHOLD:
-        # Find "## 3-1. Working style" and emit from there.
-        idx = body.find("## 3-1. Working style")
-        if idx == -1:
-            # Fallback: first 4 KB of the body.
-            body = body[:4096] + "\n...(truncated)"
-        else:
-            body = body[idx:]
-
-    intro = (
-        "unifable execution playbook active (effort=heavy). Adopt the discipline "
-        "below as standing procedure for the rest of this session:\n\n"
-    )
-    return intro + body
+    return _PLAYBOOK
 
 
 def main() -> int:

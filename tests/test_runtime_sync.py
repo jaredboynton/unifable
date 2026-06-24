@@ -155,6 +155,34 @@ def test_sync_noop_when_current_is_latest(tmp_path, monkeypatch):
     assert runtime_sync.sync_runtime() is False  # already current -> no flip
 
 
+def test_sync_from_explicit_source(tmp_path, monkeypatch):
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    # Two versions cached; an explicit older source must win over the latest-cache scan.
+    _seed_cache_version(cache, "2.0.0")
+    older = _seed_cache_version(cache, "1.5.0")
+
+    assert runtime_sync.sync_runtime(source=str(older)) is True
+    assert runtime_sync.current_version(home) == "1.5.0"
+
+
+def test_invalid_source_falls_back_to_latest_cache(tmp_path, monkeypatch):
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    # A non-semver source (e.g. a dev repo root) must not no-op; fall back to latest cache.
+    assert runtime_sync.sync_runtime(source=str(tmp_path / "not-a-version")) is True
+    assert runtime_sync.current_version(home) == "1.0.0"
+
+
 def test_fail_open_when_no_cache(tmp_path, monkeypatch):
     home = tmp_path / "dot-unifable"
     bdir = tmp_path / "local-bin"

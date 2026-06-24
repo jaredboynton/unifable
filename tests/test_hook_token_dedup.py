@@ -23,9 +23,9 @@ from spec import format_spec_validation_block, spec_template  # noqa: E402
 
 
 def _run_prompt(payload: dict, monkeypatch) -> str:
-    import cli_install
+    import runtime_sync
 
-    monkeypatch.setattr(cli_install, "ensure_cli", lambda: None)
+    monkeypatch.setattr(runtime_sync, "sync_runtime", lambda *a, **k: False)
     captured: dict = {}
 
     def fake_judge(*_a, **_k):

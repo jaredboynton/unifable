@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""UserPromptSubmit pack router — match task signals to verified packs.
+"""UserPromptSubmit pack router — match task signals and inject discipline inline.
 
 stdin: JSON {"prompt": "..."}. stdout: hookSpecificOutput JSON when matched.
 Always exits 0 (fail-open on internal errors).
@@ -23,9 +23,9 @@ _MANIFEST_NAME = "router-manifest.json"
 class PackRoute:
     tag: str
     label: str
-    pack: str
     keywords: tuple[str, ...]
     summary: str
+    body: str
 
 
 def _plugin_root() -> Path | None:
@@ -45,17 +45,17 @@ def load_manifest(root: Path) -> list[PackRoute]:
         if not isinstance(item, dict):
             continue
         tag = str(item.get("tag") or "").strip()
-        pack = str(item.get("pack") or "").strip()
-        if not tag or not pack:
+        body = str(item.get("body") or "").strip()
+        if not tag or not body:
             continue
         keywords = tuple(str(k).strip().lower() for k in (item.get("keywords") or []) if str(k).strip())
         routes.append(
             PackRoute(
                 tag=tag,
                 label=str(item.get("label") or tag).strip(),
-                pack=pack,
                 keywords=keywords,
                 summary=str(item.get("summary") or "").strip(),
+                body=body,
             )
         )
     return routes
@@ -73,12 +73,11 @@ def match_routes(prompt: str, routes: list[PackRoute]) -> list[PackRoute]:
 
 
 def format_context(matched: list[PackRoute], *, packs_root: str) -> str:
-    header = f"[unifable:router] Matched task signals — read packs under {packs_root}/packs/:"
-    bullets = [
-        f"- {route.tag} ({route.label}): {route.pack} — {route.summary}"
+    blocks = [
+        f"[unifable:{route.tag}] {route.label} — {route.summary}\n{route.body}"
         for route in matched
     ]
-    return header + "\n" + "\n".join(bullets)
+    return "\n\n".join(blocks)
 
 
 def route_prompt(prompt: str, *, root: Path) -> dict[str, Any] | None:
@@ -86,8 +85,7 @@ def route_prompt(prompt: str, *, root: Path) -> dict[str, Any] | None:
     matched = match_routes(prompt, routes)
     if not matched:
         return None
-    packs_root = str(root)
-    ctx = format_context(matched, packs_root=packs_root)
+    ctx = format_context(matched, packs_root=str(root))
     return {
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",

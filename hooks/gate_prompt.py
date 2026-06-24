@@ -146,9 +146,9 @@ def _format_scaffold_onboarding(
 
 def main() -> int:
     try:
-        from cli_install import ensure_cli
+        from runtime_sync import sync_runtime
 
-        ensure_cli()
+        sync_runtime()
     except Exception:
         pass
 

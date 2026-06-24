@@ -260,14 +260,33 @@ def _gc_versions(home: Path, keep: int = _KEEP_VERSIONS, protect: str | None = N
         shutil.rmtree(entry, ignore_errors=True)
 
 
-def sync_runtime(*, force: bool = False) -> bool:
-    """Seed/refresh ~/.unifable from the latest cache version. Return True if `current` flipped."""
+def _explicit_source(source: str | os.PathLike) -> tuple[str, tuple[int, ...], Path] | None:
+    """Resolve an explicit version dir (e.g. the cache root being installed) to seed from."""
+    try:
+        path = Path(source).expanduser().resolve()
+    except (OSError, RuntimeError):
+        return None
+    ver = parse_version(path.name)
+    if ver is None or not _has_runtime(path):
+        return None
+    return path.name, ver, path
+
+
+def sync_runtime(*, force: bool = False, source: str | os.PathLike | None = None) -> bool:
+    """Seed/refresh ~/.unifable. Return True if `current` flipped.
+
+    `source`, when it names a valid versioned runtime dir, is preferred over the
+    latest-cache scan (used by install-bin.sh to seed the exact version installed). An
+    invalid/non-semver source falls back to the latest cache so install never no-ops.
+    """
     if not _enabled():
         return False
     try:
         home = unifable_home()
         bdir = bindir()
-        latest = latest_cache_version()
+        latest = _explicit_source(source) if source else None
+        if latest is None:
+            latest = latest_cache_version()
         cur = current_version(home)
 
         if latest is None:
@@ -294,7 +313,13 @@ def sync_runtime(*, force: bool = False) -> bool:
 
 
 def main() -> int:
-    changed = sync_runtime(force="--force" in sys.argv[1:])
+    args = sys.argv[1:]
+    source = None
+    if "--source" in args:
+        idx = args.index("--source")
+        if idx + 1 < len(args):
+            source = args[idx + 1]
+    changed = sync_runtime(force="--force" in args, source=source)
     print(json.dumps({"changed": changed, "current": current_version()}))
     return 0
 

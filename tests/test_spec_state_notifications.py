@@ -103,9 +103,9 @@ def _run_prompt(payload):
 
 
 def test_grade_change_surfaces_reason_and_shift(tmp_path, monkeypatch):
-    import cli_install
+    import runtime_sync
 
-    monkeypatch.setattr(cli_install, "ensure_cli", lambda: None)
+    monkeypatch.setattr(runtime_sync, "sync_runtime", lambda *a, **k: False)
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.delenv("UNIFABLE_GRADE", raising=False)
 
@@ -127,9 +127,9 @@ def test_grade_change_surfaces_reason_and_shift(tmp_path, monkeypatch):
 
 
 def test_no_reclassify_line_on_first_prompt(tmp_path, monkeypatch):
-    import cli_install
+    import runtime_sync
 
-    monkeypatch.setattr(cli_install, "ensure_cli", lambda: None)
+    monkeypatch.setattr(runtime_sync, "sync_runtime", lambda *a, **k: False)
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.delenv("UNIFABLE_GRADE", raising=False)
     monkeypatch.setattr(

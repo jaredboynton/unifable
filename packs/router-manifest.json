@@ -3,7 +3,6 @@
     {
       "tag": "investigation",
       "label": "Debugging/root-cause",
-      "pack": "investigation-protocol.txt",
       "keywords": [
         "debug",
         "bug",
@@ -14,12 +13,12 @@
         "failing",
         "not working"
       ],
-      "summary": "reproduce first, form 3+ competing hypotheses, gather evidence per hypothesis, trace the full causal chain, verify before/after, and report the hypotheses you rejected."
+      "summary": "reproduce first, form 3+ competing hypotheses, gather evidence per hypothesis, trace the full causal chain, verify before/after, and report the hypotheses you rejected.",
+      "body": "Investigation protocol:\n1. Reproduce first. Run the failing case and read the actual output before forming any hypothesis.\n2. Form 3+ competing hypotheses before investigating any single one. The most visible signal in the logs is not necessarily the root cause.\n3. For each hypothesis, identify what evidence would confirm or refute it, then gather that evidence by reading the relevant code paths end to end.\n4. Trace the full causal chain. Do not stop at the first plausible cause; removing the symptom is not removing the defect.\n5. Verify before and after. Confirm the root cause with evidence before changing code. After the fix, demonstrate the failure mode itself is gone.\n6. Report the hypotheses you rejected and the evidence that rejected them."
     },
     {
       "tag": "grounding",
       "label": "Render/executable artifact",
-      "pack": "verification-grounding-pack.txt",
       "keywords": [
         "html",
         "svg",
@@ -30,12 +29,12 @@
         "website",
         "webpage"
       ],
-      "summary": "grounding loop: run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static check is not observation."
+      "summary": "grounding loop: run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static check is not observation.",
+      "body": "Verification grounding (render/executable artifacts):\nThis is a verification MODALITY, not extra testing. The point is to see the thing actually behave. A static parse (xmllint, node --check, HTMLParser) confirms well-formed, NOT correct.\n\nGrounding loop before completion:\n1. RUN IT in the real renderer. For web: headless browser or serve and navigate. For SVG: render to PNG. For scripts: execute and capture stdout/stderr.\n2. OBSERVE THE OUTPUT. Read the screenshot. Read the console for errors. Look at what actually rendered. A produced-but-unobserved screenshot is not observation.\n3. FIX what the observation reveals, then re-run.\n\nApply only to artifacts with an observable execution result. Stop when you have actually looked, not after a fixed number of checks. Re-render only after you change something."
     },
     {
       "tag": "decision-trace",
       "label": "Decision/design",
-      "pack": "decision-trace.txt",
       "keywords": [
         "decide",
         "design",
@@ -47,12 +46,12 @@
         "choose",
         "options"
       ],
-      "summary": "Orient, Inspect, Decide, Act, Verify, Report; record what you checked and why at each step."
+      "summary": "Orient, Inspect, Decide, Act, Verify, Report; record what you checked and why at each step.",
+      "body": "Decision trace (OIDAVR loop):\nORIENT: What is the actual question being decided? Name the constraint set that must hold.\nINSPECT: Options considered (minimum two alternatives plus the selected path). For each, the criterion it passes and the criterion that disqualifies it.\nDECIDE: Selected option, the primary criterion that tipped the decision, and at least one alternative explicitly rejected with reason.\nACT: Concrete actions taken (files changed, commands run). Reference accepted criteria from ORIENT.\nVERIFY: Failable check run against each acceptance criterion. Paste actual command and output.\nREPORT: Outcome sentence (pass/fail with evidence), unverified assumptions, and the explicit next step."
     },
     {
       "tag": "domain-verify",
       "label": "Domain verification",
-      "pack": "domain-verification.txt",
       "keywords": [
         "implement",
         "build",
@@ -68,12 +67,12 @@
         "analysis",
         "pipeline"
       ],
-      "summary": "Use the failable-check recipes for this domain (software / research / data): every acceptance criterion needs a check that can fail."
+      "summary": "Failable-check recipes per domain: every acceptance criterion needs a check that can fail.",
+      "body": "Domain verification recipes (every acceptance criterion needs a check that can fail):\n\nSOFTWARE: Write/identify the test for each criterion before marking complete. Trigger every error path. Run the full affected suite. Confirm no pre-existing test was weakened. Exercise behavioral criteria in the real environment, not just a mock.\n\nRESEARCH: Every load-bearing claim traces to a source you actually opened this session. Cross-check quantitative claims against 2+ independent sources. When sources conflict, state the conflict.\n\nDATA: Before any aggregate, check null counts, duplicate rows, and value-range bounds. Confirm row count at each transformation step. Verify join cardinality. Run on a known-small slice first. Spot-check 3+ records back to source."
     },
     {
       "tag": "subagent-brief",
       "label": "Delegating",
-      "pack": "subagent-brief.md",
       "keywords": [
         "subagent",
         "delegate",
@@ -83,7 +82,8 @@
         "in parallel",
         "orchestrate"
       ],
-      "summary": "Use the brief template: objective, context, constraints (incl. 'Do not touch: protected tests'), strict output contract, and the verification the worker must run."
+      "summary": "Brief template: objective, context, constraints, strict output contract, and verification.",
+      "body": "Subagent brief template (fill one per dispatched worker):\n- Objective: one sentence, state the concrete deliverable.\n- Context: relevant files (absolute paths), key prior decisions, dependency state.\n- Constraints: scope limited to listed files. Do not touch: protected tests. Do not change interfaces outside scope without escalating.\n- Output contract: write result with (1) outcome pass/fail, (2) files changed, (3) verification run (exact command + output), (4) residual risks, (5) back-link to dispatching task.\n- Verification: worker must execute and paste output of the check command before reporting complete."
     }
   ]
 }
