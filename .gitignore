@@ -5,3 +5,4 @@ __pycache__/
 .unifable/
 *.unifable-bak.*
 *.fablize-bak.*
+benchmark/results/

@@ -57,7 +57,7 @@ _GATE_POINTER = (
     "validates, it blocks edits, Task/Agent delegation, Bash outside the research "
     "whitelist (cd, ls, glob, rg, read-only git, git workflow status/add/commit/push "
     "(no --force){explore_list}, unifusion scripts, or the append-only spec CLI "
-    "unifable restate|add-task|set-primary|add-frontier|dispute|retry-task), AND "
+    "unifable restate|add-task|set-primary|add-frontier|dispute), AND "
     "completion. The spec is seeded automatically; FIRST run "
     "`unifable restate '<your words>'`, then `unifable add-task --title ... --check ...`. "
     "Citations sync from your reads/fetches automatically (code profile only). "

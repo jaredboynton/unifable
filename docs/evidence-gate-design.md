@@ -45,7 +45,8 @@ agent thrashes through edits first and only "cites" at the end.
   claims (`scripts/gate/spec.py`). Resolved statuses are
   `validated`, `retracted`, and `superseded` (agent tasks replaced by a judge-added requirement
   via `supersedes: [ids]` — non-blocking). Agent-facing CLI: `unifable restate`,
-  `unifable add-task`, `unifable dispute`, and `unifable retry-task`.
+  `unifable add-task`, and `unifable dispute`. A failed task is re-checked
+  automatically on the next Stop (no manual retry); fix the cause and stop again.
 
 ## PreToolUse block stderr (change-only dedup)
 

@@ -155,23 +155,6 @@ def test_revise_applies_verdict_same_stop(tmp_path, monkeypatch):
     assert task["output"] == "ok"
 
 
-def test_cmd_retry_task_clears_stale_snapshot(tmp_path, monkeypatch):
-    from spec import _cmd_retry_task
-
-    s = spec_template()
-    s["requires_tasks"] = True
-    s["tasks"] = [_task("T1", "failed", exit=1, output="stale", judge_reason="old")]
-    save_spec(str(tmp_path), "K", s)
-    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "K")
-    args = SimpleNamespace(root=str(tmp_path), task_id="K", task="T1")
-    assert _cmd_retry_task(args) == 0
-    task = load_spec(str(tmp_path), "K")["tasks"][0]
-    assert task["status"] == "pending"
-    assert task["exit"] is None
-    assert task["output"] == ""
-    assert task["judge_reason"] == ""
-
-
 def test_pending_still_runs_check(tmp_path, monkeypatch):
     s = spec_template()
     s["requires_tasks"] = True

@@ -12,7 +12,7 @@ Provides:
   - canonical_project_root(cwd) -> Path   (git root / project markers; subdirs share one spec)
   - spec_template() -> dict
   - CLI: validate / contract (harness) / restate / add-task / set-primary /
-    add-frontier / dispute / retry-task / where (UNIFABLE_DEV=1)
+    add-frontier / dispute / where (UNIFABLE_DEV=1)
 
 State is one spec.json per (canonical project root, session), so a new session never
 inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
@@ -2697,30 +2697,6 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_retry_task(args: argparse.Namespace) -> int:
-    """Queue a task for a fresh harness check on the next Stop."""
-    spec = load_spec(args.root, args.task_id)
-    task = find_task(spec, args.task) if spec else None
-    if task is None:
-        print(f"Task {args.task} not found.", file=sys.stderr)
-        return 1
-    status = str(task.get("status") or "")
-    if status in ("validated", "retracted", "superseded"):
-        print(f"{args.task} is {status}; nothing to retry.", file=sys.stderr)
-        return 1
-    task["status"] = "pending"
-    task["exit"] = None
-    task["output"] = ""
-    task["judge_verdict"] = None
-    task["judge_reason"] = ""
-    task.pop("replay_failed", None)
-    save_spec(args.root, args.task_id, spec)
-    headline = f"{args.task} queued for fresh check on next stop."
-    print(headline)
-    notify_spec_update(spec, headline, highlight_task=args.task)
-    return 0
-
-
 def _cmd_where(args: argparse.Namespace) -> int:
     if os.environ.get("UNIFABLE_DEV", "").strip().lower() not in ("1", "true", "yes"):
         print("where is dev-only; set UNIFABLE_DEV=1.", file=sys.stderr)
@@ -2812,12 +2788,6 @@ def main(argv: list[str] | None = None) -> int:
     p_dispute.add_argument("--evidence", required=True,
                            help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
 
-    p_retry = sub.add_parser(
-        "retry-task",
-        help="Clear stale check output and queue a fresh harness check on stop.",
-    )
-    p_retry.add_argument("--task", required=True, help="Task id, e.g. T1.")
-
     sub.add_parser("where", help="Dev-only: show canonical spec path (UNIFABLE_DEV=1).")
 
     args = parser.parse_args(argv)
@@ -2831,7 +2801,6 @@ def main(argv: list[str] | None = None) -> int:
         "set-primary": _cmd_set_primary,
         "add-frontier": _cmd_add_frontier,
         "dispute": _cmd_dispute,
-        "retry-task": _cmd_retry_task,
         "where": _cmd_where,
     }
     handler = dispatch.get(args.cmd)

@@ -143,5 +143,5 @@ def allowed_research_bash_detail() -> str:
         f"{explore_clause}, "
         "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
         "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
-        "(unifable restate|add-task|set-primary|add-frontier|dispute|retry-task; legacy unifable-spec alias still accepted)"
+        "(unifable restate|add-task|set-primary|add-frontier|dispute; legacy unifable-spec alias still accepted)"
     )
