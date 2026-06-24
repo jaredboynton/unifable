@@ -1,0 +1,9 @@
+repos:
+  - repo: local
+    hooks:
+      - id: generate-docs
+        name: regenerate generated hook-output and judge-prompt docs
+        entry: bash -c 'python3 scripts/generate_docs.py && python3 scripts/generate_docs.py --check && git add docs/generated/claude-hookoutputs.md docs/generated/codex-hookoutputs.md docs/generated/judgeprompts.md'
+        language: system
+        pass_filenames: false
+        always_run: true
