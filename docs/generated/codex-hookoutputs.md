@@ -19,6 +19,25 @@ Source hook config: `.codex-plugin/hooks.json`.
 
 ## Rendered Model-Visible Outputs
 
+### SessionStart operating-mode context
+
+Event: `SessionStart`
+
+stdout:
+```json
+{
+  "hookSpecificOutput": {
+    "additionalContext": "unifable operating mode (auto-route by task signal; apply what the task signals, baseline only when there is no signal).\n\n- Lead with the outcome. Stay within the requested scope (no incidental refactors). Cite evidence for every load-bearing claim: path:line for code, command -> output for tool results, a source URL for research/prior art; label anything uncited (assumption) -- this is never traded away for brevity. Confirm before destructive or hard-to-reverse actions.\n- Evidence gate (always on, no disable): until the spec for the current task validates, it blocks edits, Task/Agent delegation, Bash outside the research whitelist (cd, ls, glob, rg, read-only git, git workflow status/add/commit/push (no --force), the explore skill's `trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`), unifusion scripts, or the append-only spec CLI unifable restate|add-task|set-primary|add-frontier|dispute|retry-task), AND completion. The spec is seeded automatically; FIRST run `unifable restate '<your words>'`, then `unifable add-task --title ... --check ...`. Citations sync from your reads/fetches automatically (code profile only). quick/LIGHT tasks are waived. Assumptions never satisfy the gate.\n- When a hook blocks a tool, treat the hook message as the current instruction. Do not retry the same blocked tool, wait out a debounce, or use Bash for sleep/echo scaffolding. If the groundedness breaker flags a claim, retract it in one sentence if it is no longer load-bearing, or ground it with a read-only action (Read/Grep/Glob/WebSearch/WebFetch or allowed cd/rg/ls Bash) and cite what you actually read before retrying. If the evidence-spec gate blocks Bash, use the unifable spec CLI; before validation, every Bash segment must start with cd, ls, glob, rg, the explore skill's `trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`), a whitelisted unifusion script, or unifable.\n- Every edit and self-review: anchor find-and-replace on \\bword\\b, then grep for malformed compounds after the pass. Before flagging a problem in self-review, confirm it with a tool call -- absence of evidence is not a finding. Never weaken or delete a test to make it pass. Accumulate minor concerns; halt and surface all at once on the third.\n- Final response shape by depth: quick = 1-3 lines + next step; normal = outcome + brief evidence + next step; deep = outcome + evidence + one-line verification + next step. Lead with the outcome; do not narrate internal reasoning.\n- Orchestrator posture: default to delegating non-trivial work to subagents (in parallel when the work is independent). You plan, hand each worker a distilled brief plus a strict output contract, validate via deterministic gates, and synthesize -- you do not grind heavy work in the main thread. For a simple question, a single-file fix, or a one-step task, answer directly; do not over-orchestrate. Do not trust training data: designs, plans, fixes, and solutions must cite current documentation or research corroborated by a repo or document URL.",
+    "hookEventName": "SessionStart"
+  }
+}
+```
+
+exit code:
+```text
+0
+```
+
 ### UserPromptSubmit router signal pack context
 
 Event: `UserPromptSubmit`

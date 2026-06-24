@@ -135,9 +135,10 @@ is always on (no env disable) and fails open on malformed input, so a bug in the
 session.
 
 The **Fable orchestrator posture** (delegate-first) is delivered as always-on context loaded once
-per session, not re-injected per prompt: on Claude via the **Fable output style**
-(`output-styles/fable.md`, set by `install/claude.sh`), on Codex via an `AGENTS.md` block
-(`setup/orchestrator-block.md`, injected by `install/codex.sh`).
+per session via the **SessionStart hook** (`hooks/session_start.py` -> `scripts/gate/context_block.py`).
+On Claude it is reinforced by the **Fable output style** (`output-styles/fable.md`, set by
+`install/claude.sh`). The posture ships only when the plugin is enabled -- it is not injected into
+host memory files, so it does not pollute context for other CLI tools.
 
 ## Consistent checking
 

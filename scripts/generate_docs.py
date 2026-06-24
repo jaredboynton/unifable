@@ -26,6 +26,7 @@ for path in (str(GATE_DIR), str(HOOKS_DIR)):
         sys.path.insert(0, path)
 
 import classify_task  # noqa: E402
+import context_block  # noqa: E402
 import codex_judge  # noqa: E402
 import gate_prompt_effort  # noqa: E402
 import gate_stop  # noqa: E402
@@ -185,8 +186,19 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
         "command: python3 -m pytest tests/test_generate_docs.py -q"
     )
     breaker_context = "unifable breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
+    session_start_context = context_block.build_session_context()
 
     return [
+        HookScenario(
+            name="SessionStart operating-mode context",
+            event="SessionStart",
+            stdout={
+                "hookSpecificOutput": {
+                    "hookEventName": "SessionStart",
+                    "additionalContext": session_start_context,
+                }
+            },
+        ),
         HookScenario(
             name="UserPromptSubmit router signal pack context",
             event="UserPromptSubmit",

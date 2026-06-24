@@ -253,7 +253,7 @@ def _run_pre_tool_bash_breaker_on(
 
 def test_whitelisted_bash_passes_while_breaker_armed():
     """Research Bash (rg/ls/glob/trace.sh/spec CLI) must stay available when the
-    groundedness breaker is armed -- matches unifable-block.md guidance."""
+    groundedness breaker is armed -- matches context_block.py guidance."""
     rc, stderr = _run_pre_tool_bash_breaker_on("rg --files")
     assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
 

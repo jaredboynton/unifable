@@ -38,6 +38,11 @@ completion gate for load-bearing behavior.
 - `hooks/hooks.json` — the binding. Maps host events to gate scripts via
   `${CLAUDE_PLUGIN_ROOT}`. Adding a hook means adding it here, not just writing
   the script.
+- `hooks/session_start.py` — SessionStart: refreshes the stable `~/.unifable`
+  runtime, then injects the standing operating-mode context via
+  `additionalContext` (`scripts/gate/context_block.py`). This replaced the old
+  static CLAUDE.md/AGENTS.md block injection — the posture now ships only when
+  the plugin is enabled, and setup.sh / install scripts strip stale blocks.
 - `hooks/pre_tool_use.py` — the PreToolUse entrypoint: evidence gate + protected
   paths + the groundedness breaker. Fail-open on malformed input by design.
 - `hooks/gate_post_tool.py` — PostToolUse: logs real activity (read_paths,
@@ -66,7 +71,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.79          # or: just version patch|minor|major
+just version 1.9.80          # or: just version patch|minor|major
 
 # Session env probe: validate that the shell subprocess receives the
 # same session id as the hook/prompt scaffold (see resolve_session_id).

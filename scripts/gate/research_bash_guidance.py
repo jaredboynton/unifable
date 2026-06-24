@@ -88,7 +88,7 @@ def explore_trace_list_item() -> str:
 
 
 def explore_trace_list_item_md() -> str:
-    """Markdown comma-prefixed list item for setup/unifable-block.md."""
+    """Markdown comma-prefixed list item for context_block.py."""
     path = resolve_explore_trace_sh()
     if path is None:
         return ""
@@ -104,7 +104,7 @@ def explore_trace_inline_prefix() -> str:
 
 
 def explore_trace_inline_md() -> str:
-    """Markdown inline prefix for setup/unifable-block.md."""
+    """Markdown inline prefix for context_block.py."""
     path = resolve_explore_trace_sh()
     if path is None:
         return ""
