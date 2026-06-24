@@ -98,6 +98,14 @@ _ORCH_POSTURE = (
     "documentation or research corroborated by a repo or document URL."
 )
 
+_RESEARCH_REFLEXES = (
+    "- Avoid two common research walls. (1) Bash synonyms: use rg (not grep), "
+    "glob/ls (not find), the given cwd (no pwd); python3 -c is not research "
+    "Bash (python3 unlocks post-spec). (2) Read before naming: asserting where "
+    "code or a function lives before you Read it arms the groundedness breaker "
+    "and costs a judge round-trip -- cite the Read first."
+)
+
 _RESEARCH_DELEGATION = (
     "- Research phase = no subagents: Task/Agent delegation is BLOCKED by the evidence "
     "gate until the spec validates (both Claude and Codex). Do NOT spawn subagents to "
@@ -129,6 +137,7 @@ def build_session_context(plugin_root: str | Path | None = None) -> str:
         _EDIT_DISCIPLINE,
         _FINAL_RESPONSE,
         _ORCH_POSTURE,
+        _RESEARCH_REFLEXES,
         _RESEARCH_DELEGATION,
     ]
     return "\n".join(parts)

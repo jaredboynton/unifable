@@ -41,6 +41,21 @@ def test_build_session_context_contains_key_sections() -> None:
     assert "Lead with the outcome" in ctx
 
 
+def test_context_block_preempts_research_walls() -> None:
+    """W2/W3/W5: the standing block must steer agents off the three common
+    research-phase walls before they hit them (see benchmark wall diagnosis)."""
+    ctx = context_block.build_session_context()
+    # W2: Bash synonym reflexes (whitelist is exactly cd/ls/glob/rg).
+    assert "(not grep)" in ctx
+    assert "(not find)" in ctx
+    assert "no pwd" in ctx.lower()
+    # W5: no python3 -c / echo / sleep scaffolding before the spec validates.
+    assert "python3 -c" in ctx
+    # W3: read before naming, to avoid arming the groundedness breaker.
+    assert "before naming" in ctx.lower()
+    assert "judge round-trip" in ctx.lower()
+
+
 def test_build_session_context_under_budget() -> None:
     ctx = context_block.build_session_context()
     # Must be well under the old ~3KB static block. 4KB ceiling gives room for
