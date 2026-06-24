@@ -44,11 +44,14 @@ from typing import Any, Callable
 from breaker_state import (
     adjudicated_claims,
     append_event,
+    breaker_lock,
     claim_already_adjudicated,
     clear_provisional_lift,
     lift_provisional,
+    load_breaker,
     reinstate,
     render_events,
+    save_breaker,
 )
 from transcript_tail import (
     JUDGE_EFFECTIVE_MAX_CHARS,
@@ -74,6 +77,18 @@ RELEASE_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "Not
 
 # Debounce: the ARM judge fires at most once per this many seconds per key.
 JUDGE_WINDOW_SECONDS = 15
+
+# Coalesce window: once any judge has fired for a key, concurrent PreToolUse
+# processes from the same parallel tool-call batch (which all judge the identical
+# transcript and so get the identical verdict) skip their own judge call and
+# reuse the persisted breaker state. Short, so it catches the simultaneous burst
+# without changing steady-state release cadence. Override: UNIFABLE_JUDGE_COALESCE_WINDOW.
+try:
+    JUDGE_COALESCE_WINDOW_SECONDS = float(
+        os.environ.get("UNIFABLE_JUDGE_COALESCE_WINDOW", "2.0") or "2.0"
+    )
+except (TypeError, ValueError):
+    JUDGE_COALESCE_WINDOW_SECONDS = 2.0
 
 # Consecutive blocks on one arm before the breaker fails open (escape hatch).
 BREAKER_MAX_BLOCKS_DEFAULT = 3
@@ -847,6 +862,28 @@ def should_judge(state: dict, key: str, now: float, window: float = JUDGE_WINDOW
         return True
 
 
+def should_coalesce(
+    state: dict, key: str, now: float, window: float = JUDGE_COALESCE_WINDOW_SECONDS
+) -> bool:
+    """True when a judge already fired for this key within the coalesce window.
+
+    Used by the locked wrapper to mark later calls of the same parallel batch so
+    they skip their (redundant) judge call. Requires a key match so a stale arm
+    from a different prompt never suppresses a fresh judge."""
+    if state.get("breaker_key") != key:
+        return False
+    last = state.get("breaker_judge_call_at") or 0.0
+    if not last:
+        return False
+    try:
+        # abs(): sibling processes of one batch capture time.time() independently,
+        # and the first to take the lock may not hold the earliest stamp -- a few-ms
+        # negative delta is still the same batch, so coalesce on proximity either way.
+        return abs(now - float(last)) < window
+    except (TypeError, ValueError):
+        return False
+
+
 def arm(state: dict, key: str, now: float, steering: str, claim: str) -> None:
     state["breaker_key"] = key
     state["breaker_judged_at"] = now
@@ -891,8 +928,15 @@ def evaluate_pre_tool(
     now: float,
     active_task: str,
     judge: JudgeFn | None = None,
+    coalesce: bool = False,
 ) -> tuple[bool, str, str]:
-    """PreToolUse path: arm judge (debounced) and block mutation tools while armed."""
+    """PreToolUse path: arm judge (debounced) and block mutation tools while armed.
+
+    When `coalesce` is True the imminent call belongs to a parallel batch that a
+    sibling process already judged: every judge call is skipped and the block
+    decision falls through to the already-persisted breaker state, so the batch
+    costs one judge call, not N. The locked wrapper (evaluate_pre_tool_locked) is
+    the only caller that sets it; direct callers keep the original behavior."""
     tool = str(input_data.get("tool_name") or "")
     key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
     events = state.get("events") if isinstance(state.get("events"), list) else []
@@ -912,7 +956,8 @@ def evaluate_pre_tool(
             claim = str(state.get("breaker_claim") or "")
             user_goal = _user_goal_block(input_data, active_task)
             segment = judge_transcript(input_data, events)
-            if claim and segment.strip():
+            if claim and segment.strip() and not coalesce:
+                state["breaker_judge_call_at"] = now
                 release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
                 disarmed, lift_msg = _apply_release(state, claim, release_verdict)
                 if disarmed:
@@ -922,7 +967,8 @@ def evaluate_pre_tool(
                     state["breaker_pending_notify"] = lift_msg
             if state.get("breaker_provisional") and is_mutation_tool(tool):
                 scope = str(state.get("breaker_lift_scope") or "")
-                if claim and scope:
+                if claim and scope and not coalesce:
+                    state["breaker_judge_call_at"] = now
                     drift, feedback = monitor_provisional_judge(
                         claim, scope, segment, tool, user_goal=user_goal, judge=judge,
                     )
@@ -942,15 +988,17 @@ def evaluate_pre_tool(
                 state["breaker_pending_notify"] = ""
                 notify_out = pending
             return False, "", notify_out
-        if not armed and should_judge(state, key, now):
+        if not armed and not coalesce and should_judge(state, key, now):
             segment = judge_transcript(input_data, events)
+            state["breaker_judge_call_at"] = now
             verdict, steering, claim = arm_judge(segment, events=events, judge=judge)
             if verdict == 1 and claim and claim_already_adjudicated(claim, events):
                 verdict, steering, claim = 0, "", ""
             record_verdict(state, key, now, verdict, steering, claim)
         elif armed:
             claim = str(state.get("breaker_claim") or "")
-            if claim:
+            if claim and not coalesce:
+                state["breaker_judge_call_at"] = now
                 segment = judge_transcript(input_data, events)
                 user_goal = _user_goal_block(input_data, active_task)
                 release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
@@ -964,14 +1012,15 @@ def evaluate_pre_tool(
     except Exception:
         return False, "", ""
     if is_mutation_tool(tool) and state.get("breaker_armed"):
-        count = int(state.get("breaker_block_count") or 0) + 1
-        state["breaker_block_count"] = count
-        if count >= max_blocks():
-            _release_log(count)
-            claim = str(state.get("breaker_claim") or "")
-            append_event(state, "FAIL_OPEN", claim=claim, block_count=count)
-            disarm(state)
-            return False, "", _fail_open_message(count, claim)
+        if not coalesce:
+            count = int(state.get("breaker_block_count") or 0) + 1
+            state["breaker_block_count"] = count
+            if count >= max_blocks():
+                _release_log(count)
+                claim = str(state.get("breaker_claim") or "")
+                append_event(state, "FAIL_OPEN", claim=claim, block_count=count)
+                disarm(state)
+                return False, "", _fail_open_message(count, claim)
         state["breaker_pending_notify"] = ""
         return True, str(state.get("breaker_steering") or ""), ""
     pending = str(state.get("breaker_pending_notify") or "")
@@ -981,6 +1030,34 @@ def evaluate_pre_tool(
     if stale_notify:
         notify_out = f"{stale_notify}\n{notify_out}".strip() if notify_out else stale_notify
     return False, "", notify_out
+
+
+def evaluate_pre_tool_locked(
+    input_data: dict,
+    now: float,
+    active_task: str,
+    judge: JudgeFn | None = None,
+    timeout: float | None = None,
+) -> tuple[bool, str, str, dict]:
+    """Load -> evaluate -> save the breaker under a cross-process lock.
+
+    This is the hook entrypoint. The lock serializes the concurrent PreToolUse
+    processes of a parallel tool-call batch: the first to acquire it judges and
+    persists its verdict; the rest then load that fresh state, see a judge already
+    fired within the coalesce window, and skip their own (identical) judge call.
+    Result: one judge API call per batch instead of N, with blocking semantics
+    unchanged. Fail-open: breaker_lock runs the body unlocked if it cannot lock,
+    and any error leaves the tool unblocked. Returns the state too so the caller
+    can inspect the event log (e.g. for REINSTATE)."""
+    with breaker_lock(input_data, timeout):
+        state = load_breaker(input_data)
+        key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
+        coalesce = should_coalesce(state, key, now)
+        block, steering, notify = evaluate_pre_tool(
+            input_data, state, now, active_task, judge=judge, coalesce=coalesce
+        )
+        save_breaker(input_data, state)
+    return block, steering, notify, state
 
 
 def evaluate_post_tool_release(

@@ -463,14 +463,15 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
     try:
         import time
 
-        from breaker_state import load_breaker, save_breaker
-        from groundedness import evaluate_pre_tool
+        from groundedness import evaluate_pre_tool_locked
 
         ledger = load_ledger(input_data)
         active = str(ledger.get("active_task") or "")
-        breaker = load_breaker(input_data)
-        block, steering, notify = evaluate_pre_tool(input_data, breaker, time.time(), active)
-        save_breaker(input_data, breaker)
+        # Locked load->judge->save: a parallel tool-call batch coalesces to one
+        # judge API call instead of one per concurrent PreToolUse process.
+        block, steering, notify, breaker = evaluate_pre_tool_locked(
+            input_data, time.time(), active
+        )
         if block:
             events = breaker.get("events") if isinstance(breaker.get("events"), list) else []
             if events and events[-1].get("kind") == "REINSTATE":

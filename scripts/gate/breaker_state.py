@@ -8,8 +8,11 @@ this module is for hook persistence, not judge input beyond event rendering.
 
 from __future__ import annotations
 
+import contextlib
 import copy
 import json
+import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,6 +21,11 @@ try:
     from atomicio import write_text_atomic
 except ImportError:  # pragma: no cover
     from scripts.gate.atomicio import write_text_atomic
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 from ledger import data_root, ledger_key, ledger_path, utc_now
 
@@ -29,6 +37,10 @@ MAX_EVENTS = 50
 DEFAULT_BREAKER: dict[str, Any] = {
     "breaker_key": "",
     "breaker_judged_at": 0.0,
+    # Wall-clock of the last judge API call (any kind), used only to coalesce a
+    # parallel tool-call batch. Separate from breaker_judged_at so the 15s arm
+    # debounce is untouched.
+    "breaker_judge_call_at": 0.0,
     "breaker_armed": False,
     "breaker_steering": "",
     "breaker_claim": "",
@@ -49,6 +61,64 @@ def default_breaker() -> dict[str, Any]:
 
 def breaker_path(input_data: dict[str, Any]) -> Path:
     return data_root() / "breaker" / f"{ledger_key(input_data)}.json"
+
+
+def _lock_timeout() -> float:
+    """Bounded wait for the breaker judge lock.
+
+    The lock is held across the judge API call (which can run up to its own
+    UNIFABLE_JUDGE_TIMEOUT), so a parallel batch serializes on it: the first
+    process judges, the rest wait then reuse the result. Capped well below the
+    judge timeout so a genuinely hung judge never stalls the batch -- on expiry
+    we proceed unlocked (fail-open, degrading to the pre-coalesce stampede)."""
+    try:
+        return max(0.0, float(os.environ.get("UNIFABLE_BREAKER_LOCK_TIMEOUT", "12.0") or "12.0"))
+    except (TypeError, ValueError):
+        return 12.0
+
+
+_LOCK_POLL_SECONDS = 0.02
+
+
+@contextlib.contextmanager
+def breaker_lock(input_data: dict[str, Any], timeout: float | None = None):
+    """Cross-process exclusive lock for the breaker read-modify-(judge)-write.
+
+    Fail-open by construction: if fcntl is unavailable or the lock cannot be
+    acquired within `timeout`, the body still runs (unlocked). A crashed holder
+    releases the flock automatically, so a dead process can never wedge a batch."""
+    if fcntl is None:  # pragma: no cover
+        yield
+        return
+    wait = _lock_timeout() if timeout is None else max(0.0, float(timeout))
+    path = breaker_path(input_data)
+    lock_path = path.parent / f"{path.name}.judge.lock"
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:  # pragma: no cover - filesystem failure: do not block the tool
+        yield
+        return
+    acquired = False
+    try:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    break  # fail-open: proceed unlocked rather than stall
+                time.sleep(_LOCK_POLL_SECONDS)
+        yield
+    finally:
+        if acquired:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
+        os.close(fd)
 
 
 def _event_ts() -> str:
