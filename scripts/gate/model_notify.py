@@ -336,13 +336,24 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
     if ok:
         return "breaker: OPEN (all tasks validated)"
     by_id = _tasks_by_id(spec)
+    try:
+        from heavy_workflow import task_is_resolved
+    except ImportError:
+        from scripts.gate.heavy_workflow import task_is_resolved
+
     seen: set[str] = set()
     ordered = []
     for tid in incomplete:
         stid = str(tid)
-        if stid and stid not in seen:
-            seen.add(stid)
-            ordered.append(stid)
+        if not stid or stid in seen:
+            continue
+        task = by_id.get(stid)
+        if task is not None and task_is_resolved(task):
+            continue
+        seen.add(stid)
+        ordered.append(stid)
+    if not ordered:
+        return "breaker: OPEN (all tasks validated)"
 
     lines = ["Action required:"]
     for tid in ordered:

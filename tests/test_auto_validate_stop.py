@@ -28,6 +28,11 @@ def _task(tid, status, **extra):
     return t
 
 
+def _seed_repo_cite_file(tmp_path: Path) -> None:
+    """repo_context cites must resolve to an existing path after spec hygiene."""
+    (tmp_path / "a.py").write_text("# fixture\n", encoding="utf-8")
+
+
 def test_auto_validate_one_judge_call_for_all_tasks(tmp_path, monkeypatch):
     """Every open task (validate + dispute) goes through a single judge_tasks call."""
     s = spec_template()
@@ -256,6 +261,7 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -283,6 +289,7 @@ def test_stop_passthrough_empty_when_breaker_open(tmp_path, monkeypatch):
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -308,6 +315,7 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -341,6 +349,7 @@ def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -367,6 +376,7 @@ def test_stop_forwards_three_task_validation(tmp_path, monkeypatch):
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -398,6 +408,7 @@ def test_stop_persists_digest_and_reason_hints(tmp_path, monkeypatch):
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -441,6 +452,7 @@ def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeyp
     import gate_stop
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     s = spec_template()
     s["requires_tasks"] = True
@@ -468,6 +480,7 @@ def test_stop_resolves_transcript_without_payload_path(tmp_path, monkeypatch):
     from transcript_locate import _encode_cwd
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _seed_repo_cite_file(tmp_path)
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
     cwd = str(tmp_path)
     session = "sess-transcript"

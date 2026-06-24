@@ -81,6 +81,32 @@ def test_all_tasks_validated_heavy_passes_after_adoption(tmp_path):
     assert ok, incomplete
 
 
+def test_validated_comparison_winner_opens_breaker():
+    spec = _heavy_spec(Path("/tmp/unused"))
+    f1, f2 = hw.frontier_tasks(spec)
+    f1["status"] = "validated"
+    f1["comparison_winner"] = True
+    f1["judge_verdict"] = 1
+    f2["status"] = "rejected_approach"
+    primary = hw.primary_task(spec)
+    assert primary is not None
+    primary["status"] = "superseded"
+    ok, incomplete = all_tasks_validated_heavy(spec)
+    assert ok, incomplete
+
+
+def test_adopted_frontier_not_pending():
+    from spec import _task_is_pending
+
+    task = {
+        "id": "T4",
+        "approach_kind": "frontier",
+        "status": "validated",
+        "comparison_winner": True,
+    }
+    assert _task_is_pending(task) is False
+
+
 def test_finalize_picks_lower_exit_among_accepted():
     spec = _heavy_spec(Path("/tmp/unused"))
     f0, f1 = hw.frontier_tasks(spec)

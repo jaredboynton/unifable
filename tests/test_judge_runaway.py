@@ -327,11 +327,12 @@ def test_normalize_accepts_title_and_check_only():
 
 
 def test_judge_system_requires_purpose_reasoning():
-    assert "PURPOSE" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
-    assert "current_requirements" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
-    assert "supersedes" in spec_mod._JUDGE_NEW_REQ_GUIDANCE
-    assert "version-pinning" in spec_mod._JUDGE_NEW_REQ_GUIDANCE.lower()
-    assert "why_distinct" not in spec_mod._JUDGE_NEW_REQ_GUIDANCE
+    guidance = spec_mod._JUDGE_CORE_GUIDANCE
+    assert "PURPOSE" in guidance
+    assert "current_requirements" in guidance
+    assert "supersedes" in guidance
+    assert "version-pinning" in guidance.lower()
+    assert "why_distinct" not in guidance
 
 
 def test_brittle_version_pin_detector():

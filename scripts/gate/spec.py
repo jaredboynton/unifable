@@ -798,8 +798,11 @@ def _task_is_pending(task: dict[str, Any]) -> bool:
         return False
     if status == "blocked":
         return False
-    if str(task.get("approach_kind") or "") == "frontier" and status == "rejected_approach":
-        return False
+    if str(task.get("approach_kind") or "") == "frontier":
+        if status in ("rejected_approach", "accepted_approach", "validated"):
+            return False
+        if task.get("comparison_winner"):
+            return False
     return True
 
 
@@ -1324,39 +1327,26 @@ _HINT_SCHEMA = {
     "additionalProperties": False,
 }
 
-_JUDGE_AGENT_OWNERSHIP = (
-    "The main agent CANNOT retract, revise, or hand-edit judge-added requirements "
-    "(append-only spec). When a judge-added task has a broken, non-portable, or "
-    "brittle check, YOU must fix it via adjust_requirements (revise with a runnable "
-    "shell check, or retract if redundant) in THIS response — never instruct the "
-    "agent to replace the check, dispute it, or reset the spec."
+_JUDGE_CORE_GUIDANCE = (
+    "Before adding new_requirements, compare PURPOSE against current_requirements "
+    "-- what outcome the task enforces when satisfied, not just title wording. "
+    "Skip if any existing task (especially validated) already obligates the same "
+    "outcome; duplicates trap completion. Include supersedes: [ids] when replacing "
+    "broken checks. Prefer adjust_requirements revise over adding a parallel "
+    "requirement. Never add brittle literal-string or version-pinning requirements; "
+    "write checks that read version fields from repo manifests and compare. "
+    "Judge-added tasks with broken checks must be fixed via adjust_requirements "
+    "in THIS response, never by instructing the agent."
 )
 
 _JUDGE_FEEDBACK_GUIDANCE = (
-    "The `reason` field is the ONLY feedback surfaced to the agent for this verdict. "
-    "When verdict=0 on an agent-authored task, reason must explain WHY the evidence "
-    "fails AND include one concrete next step (read a specific file, fix code, run a "
-    "verification). When verdict=0 on a judge-added task you are not revising/retracting "
-    "via adjust_requirements, reason must still avoid telling the agent to fix "
-    "judge-owned checks — use adjust_requirements instead. When verdict=1, reason may "
-    "be a brief confirmation only."
+    "reason is the only agent-visible feedback. On verdict=0 for agent tasks: "
+    "explain why + one concrete next step (read a file, fix code, run a check). "
+    "On verdict=1: brief confirmation. Never instruct the agent to fix "
+    "judge-owned checks."
 )
 
 _JUDGE_HEAL_REASON_BRITTLE = "harness auto-retracted brittle version pin"
-
-_JUDGE_BRITTLE_CHECK_GUIDANCE = (
-    "NEVER add brittle literal-string or version-pinning requirements. Do NOT embed "
-    "a specific semver (e.g. 1.9.32) in a title or check unless the restated goal "
-    "explicitly requires that exact version as the deliverable. For obligations like "
-    "'active plugin version verified' or 'installed tree matches repo', write checks "
-    "that read version fields from THIS repo's manifests (plugin.json, marketplace.json, "
-    "setup/setup.sh) and compare runtime or CLI output to those files — never hardcode "
-    "the current release number. A task that fails on every version bump traps "
-    "completion. If an open task already pins a stale semver, prefer "
-    "adjust_requirements revise to a manifest-relative check; do not add another "
-    "pinned duplicate. Reject evidence that only grep-matches a frozen version string "
-    "when a structural manifest comparison is what the goal needs."
-)
 
 _JUDGE_HEAL_SYSTEM = (
     "You self-correct judge-added requirements the coding agent CANNOT fix. "
@@ -1364,9 +1354,8 @@ _JUDGE_HEAL_SYSTEM = (
     "Review judge_owned_open and return adjust_requirements ONLY (no "
     "new_requirements): action 'revise' with a runnable shell check when the check "
     "is broken, non-portable, prose, or environment-specific; action 'retract' when "
-    "redundant with a validated requirement or unsatisfiable. Never tell the agent "
-    "to fix judge-owned checks. "
-    + _JUDGE_BRITTLE_CHECK_GUIDANCE
+    "redundant with a validated requirement or unsatisfiable. "
+    + _JUDGE_CORE_GUIDANCE
 )
 _JUDGE_HEAL_SCHEMA = {
     "type": "object",
@@ -1377,22 +1366,6 @@ _JUDGE_HEAL_SCHEMA = {
     "required": ["adjust_requirements"],
     "additionalProperties": False,
 }
-
-_JUDGE_NEW_REQ_GUIDANCE = (
-    "Before adding ANY new_requirement you MUST reason against current_requirements "
-    "(every prior task: id, title, check, status, added_by). Compare PURPOSE -- "
-    "what outcome or obligation the task enforces when satisfied -- not just title "
-    "wording or check syntax. If any existing task (especially validated) already "
-    "obligates the same outcome, do NOT add it: a different title or check that "
-    "proves the same thing is a duplicate and traps completion. Only add genuinely "
-    "new coverage. When a failed task has a broken or wrong-path check and you must "
-    "add a replacement, include supersedes: [ids] listing every open task the new "
-    "requirement replaces (agent tasks become non-blocking superseded; judge tasks "
-    "retract). Prefer adjust_requirements revise on an agent task with a broken "
-    "check over adding a parallel requirement. new_requirements entries are "
-    "{title, check, supersedes?}. If nothing is genuinely missing, return an empty list. "
-    + _JUDGE_BRITTLE_CHECK_GUIDANCE
-)
 
 # Placeholder tokens that disqualify a hint -- a hint must be concrete, not a
 # hedge. Mirrors the assumption-rejection the spec gate applies elsewhere.
@@ -1435,49 +1408,27 @@ def _normalize_new_requirements(raw: Any) -> list[dict[str, Any]]:
 
 
 _JUDGE_SYSTEM = (
-    "You are a strict, adversarial validator for a software task. You are given "
-    "the overall goal, one task with its check command, the command's exit code, "
-    "and its captured output. Decide whether the output is real evidence that the "
-    "task is genuinely complete and correct -- not merely that a command ran. "
-    "Return verdict 1 only if convinced; otherwise 0. Be skeptical of empty "
-    "output, errors, skipped or zero tests, and output that does not match the task. "
-    "If, while judging, you find the goal needs further requirements not yet "
-    "covered by a task, list them in new_requirements as {title, check, supersedes?} "
-    "with a runnable check; otherwise return an empty list. "
-    + _JUDGE_NEW_REQ_GUIDANCE
-    + " "
-    "You may also ADJUST requirements via adjust_requirements: action 'retract' "
-    "only for requirements YOU added (judge-added); action 'revise' may fix ANY "
-    "requirement whose check is unsatisfiable as written (wrong path, non-executable "
-    "prose, brittle literal version pin) by supplying a corrected title and/or check -- "
-    "prefer revise over adding "
-    "a parallel new_requirement. Never retract agent-authored requirements (use "
-    "supersedes on a replacement new_requirement instead). You may retract the "
-    "current task if you added it and its purpose is already satisfied by a validated "
-    "requirement in current_requirements. Every adjustment is reported to the main "
-    "model. "
-    + _JUDGE_AGENT_OWNERSHIP
+    "You are a strict, adversarial validator for a software task. "
+    "Given the goal, one task with its check, exit code, and output: "
+    "verdict 1 only if the output proves genuine completion. "
+    "Be skeptical of empty output, errors, skipped tests, and mismatches. "
+    "You may ADJUST requirements: 'retract' only for judge-added tasks; "
+    "'revise' to fix any broken check; 'supersedes' on new_requirements to replace "
+    "agent tasks. Every adjustment is reported to the agent. "
+    + _JUDGE_CORE_GUIDANCE
     + " "
     + _JUDGE_FEEDBACK_GUIDANCE
 )
 
 _FRONTIER_JUDGE_SYSTEM = (
-    "You are a strict frontier-approach adjudicator. A frontier approach is a "
-    "realistic cutting-edge option the agent was required to explore before falling "
-    "back to the evidence-backed primary approach. Given the goal, frontier title, "
-    "check command, exit code, and output, decide:\n"
-    "  - 'rejected_approach': evidence convincingly disqualifies this frontier "
-    "(broken boundary found, failed experiment, or proven infeasible).\n"
-    "  - 'still_viable': more exploration is warranted before deciding.\n"
-    "  - 'accepted_approach': the check PASSED and the approach is a viable "
-    "implementation path that could be adopted as the best approach. Return this "
-    "when the frontier works.\n"
-    "Set verdict to 1 when the check genuinely passed, 0 otherwise. The outcome "
-    "field drives frontier resolution, not verdict. When ALL frontiers are explored, "
-    "a separate comparison round selects the single best accepted frontier.\n"
-    + _JUDGE_NEW_REQ_GUIDANCE
-    + " "
-    + _JUDGE_AGENT_OWNERSHIP
+    "You are a strict frontier-approach adjudicator. "
+    "Given goal, frontier title, check, exit code, and output, decide:\n"
+    "- rejected_approach: evidence disqualifies this frontier.\n"
+    "- still_viable: more exploration warranted.\n"
+    "- accepted_approach: check passed, viable implementation path.\n"
+    "Set verdict 1 when the check passed, 0 otherwise. "
+    "outcome drives resolution, not verdict.\n"
+    + _JUDGE_CORE_GUIDANCE
     + " "
     + _JUDGE_FEEDBACK_GUIDANCE
 )
@@ -1568,28 +1519,16 @@ _VALIDATE_ALL_SCHEMA = {
 }
 
 _VALIDATE_ALL_SYSTEM = (
-    "You are a strict adversarial validator for a software session. You receive "
-    "ALL open requirements to adjudicate in ONE pass, plus optional session "
-    "transcript context. For each entry in tasks_to_adjudicate:\n"
-    "- kind=validate: decide whether check output proves the task is genuinely "
-    "complete (same skepticism as a single-task validator).\n"
-    "- kind=dispute: adjudicate an agent impossibility claim. Accept (verdict 1) "
-    "ONLY if dispute_evidence proves the task cannot be done; reject weak excuses "
-    "(verdict 0).\n"
-    "- approach_kind=frontier: evaluate exploration. Return outcome "
-    "'rejected_approach' (ruled out), 'still_viable' (needs more exploration), or "
-    "'accepted_approach' (check passed, viable implementation path). Set verdict to "
-    "1 when the check passed, 0 otherwise. outcome drives resolution, not verdict. "
-    "When ALL frontiers are explored (terminal status), a separate comparison round "
-    "selects the best accepted frontier.\n"
+    "You are a strict adversarial validator. Adjudicate ALL open requirements in "
+    "ONE pass, plus optional session transcript context. For each entry in "
+    "tasks_to_adjudicate:\n"
+    "- kind=validate: does check output prove genuine completion? (standard skepticism)\n"
+    "- kind=dispute: accept (verdict 1) ONLY if dispute_evidence proves impossibility.\n"
+    "- approach_kind=frontier: return outcome rejected_approach, still_viable, or "
+    "accepted_approach. Verdict 1 when check passed.\n"
     "- approach_kind=primary: validate primary delivery after frontiers ruled out.\n"
-    "Return task_verdicts with one object per input id (same fields as single-task "
-    "validation: verdict, reason, optional new_requirements, adjust_requirements, "
-    "and outcome for frontiers). Compare ALL tasks against current_requirements "
-    "before adding anything new. "
-    + _JUDGE_NEW_REQ_GUIDANCE
-    + " "
-    + _JUDGE_AGENT_OWNERSHIP
+    "Return task_verdicts (same fields as single-task validation). "
+    + _JUDGE_CORE_GUIDANCE
     + " "
     "You may ADJUST requirements via adjust_requirements on any task verdict. "
     + _JUDGE_FEEDBACK_GUIDANCE

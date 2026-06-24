@@ -56,8 +56,22 @@ def all_frontiers_rejected(spec: dict[str, Any]) -> bool:
     )
 
 
+def adopted_frontier(spec: dict[str, Any]) -> dict[str, Any] | None:
+    """Frontier selected as the adopted implementation (comparison_winner set)."""
+    return next(
+        (t for t in frontier_tasks(spec) if t.get("comparison_winner") is True),
+        None,
+    )
+
+
 def accepted_frontier(spec: dict[str, Any]) -> dict[str, Any] | None:
     """The single frontier selected as best by the comparison round."""
+    adopted = adopted_frontier(spec)
+    if adopted is not None:
+        status = str(adopted.get("status") or "")
+        if status in ("accepted_approach", "validated"):
+            return adopted
+        return None
     return next(
         (t for t in frontier_tasks(spec)
          if str(t.get("status") or "") == "accepted_approach"
@@ -66,8 +80,20 @@ def accepted_frontier(spec: dict[str, Any]) -> dict[str, Any] | None:
     )
 
 
+def frontier_is_resolved(task: dict[str, Any]) -> bool:
+    """Whether a frontier task no longer blocks HEAVY completion."""
+    status = str(task.get("status") or "")
+    if task.get("comparison_winner") is True:
+        return True
+    if status == "validated":
+        return True
+    return status in FRONTIER_RESOLVED
+
+
 def any_frontier_accepted(spec: dict[str, Any]) -> bool:
-    """True when at least one frontier has accepted_approach status."""
+    """True when at least one frontier is accepted or adoption has completed."""
+    if adopted_frontier(spec) is not None:
+        return True
     return any(
         str(t.get("status") or "") == "accepted_approach"
         for t in frontier_tasks(spec)
@@ -75,11 +101,11 @@ def any_frontier_accepted(spec: dict[str, Any]) -> bool:
 
 
 def all_frontiers_terminal(spec: dict[str, Any]) -> bool:
-    """True when every frontier has a status in FRONTIER_RESOLVED."""
+    """True when every frontier has a terminal exploration/adoption status."""
     frontiers = frontier_tasks(spec)
     if len(frontiers) < 2:
         return False
-    return all(str(t.get("status") or "") in FRONTIER_RESOLVED for t in frontiers)
+    return all(frontier_is_resolved(t) for t in frontiers)
 
 
 def heavy_declare_complete(spec: dict[str, Any]) -> bool:
@@ -102,7 +128,7 @@ def heavy_declare_complete(spec: dict[str, Any]) -> bool:
 def compute_heavy_phase(spec: dict[str, Any]) -> str:
     if not heavy_declare_complete(spec):
         return "declare"
-    if accepted_frontier(spec) is not None:
+    if adopted_frontier(spec) is not None:
         return "adopted"
     if all_frontiers_rejected(spec):
         return "primary"
@@ -168,7 +194,7 @@ def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
     No LLM — ranks accepted frontiers by check exit code, then task id.
     Returns human-readable headlines (empty when nothing to do).
     """
-    if accepted_frontier(spec) is not None:
+    if adopted_frontier(spec) is not None:
         return []
     if not all_frontiers_terminal(spec) or not any_frontier_accepted(spec):
         return []
@@ -193,7 +219,7 @@ def finalize_heavy_adoption(spec: dict[str, Any]) -> list[str]:
     headlines: list[str] = []
     for t in frontier_tasks(spec):
         tid = str(t.get("id") or "")
-        if t is winner:
+        if tid == winner_id:
             if not t.get("comparison_winner"):
                 t["comparison_winner"] = True
                 exit_code = t.get("exit")
@@ -241,9 +267,9 @@ def task_is_resolved(task: dict[str, Any]) -> bool:
     status = str(task.get("status") or "")
     kind = approach_kind(task)
     if kind == "frontier":
-        return status in FRONTIER_RESOLVED
+        return frontier_is_resolved(task)
     if kind == "primary":
-        return status == "validated"
+        return status in ("validated", "superseded")
     return status in ("validated", "retracted", "superseded")
 
 
@@ -258,10 +284,9 @@ def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:
         return False, ["<need >=2 frontier approach tasks>"]
     if primary_task(spec) is None:
         return False, ["<need primary approach task>"]
-    winner = accepted_frontier(spec)
+    winner = adopted_frontier(spec)
     if winner is not None:
-        # Adoption path: winner must be accepted_approach (prior verdict=1),
-        # all other frontiers resolved, primary superseded.
+        winner_id = str(winner.get("id") or "")
         incomplete: list[str] = []
         for t in tasks:
             if not isinstance(t, dict):
@@ -269,11 +294,11 @@ def all_tasks_validated_heavy(spec: dict[str, Any]) -> tuple[bool, list[str]]:
             kind = approach_kind(t)
             status = str(t.get("status") or "")
             tid = str(t.get("id"))
-            if kind == "frontier" and t is winner:
-                if status != "accepted_approach":
+            if kind == "frontier" and tid == winner_id:
+                if status not in ("accepted_approach", "validated"):
                     incomplete.append(tid)
             elif kind == "frontier":
-                if status not in FRONTIER_RESOLVED:
+                if not frontier_is_resolved(t):
                     incomplete.append(tid)
             elif kind == "primary":
                 if status != "superseded":

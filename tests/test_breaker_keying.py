@@ -163,6 +163,10 @@ def test_impl_edit_allowed_after_appendonly_spec():
         assert r0.returncode == 0, r0.stderr
         r1 = _spec("add-task", "--title", "parser handles empty input", "--check", "true")
         assert r1.returncode == 0, r1.stderr
+        parser_path = os.path.join(cwd, "src", "parser.py")
+        os.makedirs(os.path.dirname(parser_path), exist_ok=True)
+        with open(parser_path, "w", encoding="utf-8") as fh:
+            fh.write("# parser fixture\n")
         # Citations sync from activity; seed spec evidence for unlock in this test.
         from spec import load_spec, save_spec
         old = os.environ.get("UNIFABLE_DATA")
