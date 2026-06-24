@@ -1,5 +1,12 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" session_start.py", "statusMessage": "unifable: syncing stable runtime", "timeout": 30 }
+        ]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "hooks": [

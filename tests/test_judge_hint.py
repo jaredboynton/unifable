@@ -49,7 +49,7 @@ def test_auto_validate_pass_stores_merged_reason(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="": [(1, "ok — evidence accepted", [], "") for _ in items],
+        lambda sp, items, *, transcript="", **kw: [(1, "ok — evidence accepted", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     t = spec["tasks"][0]
@@ -63,7 +63,7 @@ def test_failing_verdict_reason_includes_actionable_feedback(tmp_path, monkeypat
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="": [(
+        lambda sp, items, *, transcript="", **kw: [(
             0,
             "no real evidence — run the actual suite and capture output",
             [],
@@ -114,7 +114,7 @@ def test_stop_loop_appends_hint_at_threshold_without_lifting_gate(tmp_path, monk
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="": [(0, "no", [], "") for _ in items],
+        lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items],
     )
     monkeypatch.setattr(
         spec_mod, "judge_hint",

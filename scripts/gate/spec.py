@@ -1207,9 +1207,13 @@ def auto_validate_spec(
             if it.get("kind") == "dispute":
                 messages.extend(_apply_dispute_verdict(spec, task, verdict, reason))
             else:
+                revised = task.pop("_revise_this_stop", None)
                 exit_code, output = it["exit_code"], it["output"]
                 if task.pop("_check_stale", None):
                     exit_code, output = _check_inputs_for_task(task, cwd, deadline)
+                if revised and verdict != 1:
+                    task["status"] = "pending"
+                    continue
                 messages.extend(
                     _apply_check_result(
                         spec, task, exit_code, output,
@@ -1754,6 +1758,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["judge_verdict"] = None
             t["judge_reason"] = reason
             t["_check_stale"] = True
+            t["_revise_this_stop"] = True
             who = "Judge" if t.get("added_by") == "judge" else "Agent req"
             headline = f"{who} requirement {tid} revised: {reason[:80]}"
         notify_spec_update(spec, headline, highlight_task=tid)

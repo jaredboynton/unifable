@@ -78,16 +78,17 @@ def _armed_breaker(data_dir: str, sess: str, cwd: str, claim: str = "unproven ro
 def _run_post_tool(payload: dict, judge: ScriptedReleaseJudge | None = None):
     import gate_post_tool
     import groundedness
+    import posttool_notify
 
     if judge is not None:
         with patch.object(groundedness, "_default_judge", judge):
             with patch.object(gate_post_tool, "read_stdin_json", lambda: payload):
-                with patch.object(gate_post_tool, "emit_json") as emit:
+                with patch.object(posttool_notify, "emit_json") as emit:
                     rc = gate_post_tool.main()
                     assert emit.call_count == 1
                     return rc, emit.call_args[0][0]
     with patch.object(gate_post_tool, "read_stdin_json", lambda: payload):
-        with patch.object(gate_post_tool, "emit_json") as emit:
+        with patch.object(posttool_notify, "emit_json") as emit:
             rc = gate_post_tool.main()
             if emit.call_count:
                 return rc, emit.call_args[0][0]

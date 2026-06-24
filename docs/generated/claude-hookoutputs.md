@@ -24,12 +24,7 @@ Event: `UserPromptSubmit`
 
 stdout:
 ```json
-{
-  "hookSpecificOutput": {
-    "additionalContext": "[unifable:investigation] Debugging/root-cause signal — follow ${CLAUDE_PLUGIN_ROOT}/packs/investigation-protocol.txt: reproduce first, form 3+ competing hypotheses, gather evidence per hypothesis, trace the full causal chain, verify before/after, and report the hypotheses you rejected.\n[unifable:grounding] Render/executable artifact signal — follow ${CLAUDE_PLUGIN_ROOT}/packs/verification-grounding-pack.txt grounding loop: run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static check is not observation.\n[unifable:decision-trace] Decision/design signal — follow ${CLAUDE_PLUGIN_ROOT}/packs/decision-trace.txt: Orient, Inspect, Decide, Act, Verify, Report; record what you checked and why at each step.\n[unifable:domain-verify] Use the failable-check recipes in ${CLAUDE_PLUGIN_ROOT}/packs/domain-verification.txt for this domain (software / research / data): every acceptance criterion needs a check that can fail.\n[unifable:subagent-brief] Delegating — use the brief template in ${CLAUDE_PLUGIN_ROOT}/packs/subagent-brief.md: objective, context, constraints (incl. 'Do not touch: protected tests'), strict output contract, and the verification the worker must run.",
-    "hookEventName": "UserPromptSubmit"
-  }
-}
+{}
 ```
 
 exit code:

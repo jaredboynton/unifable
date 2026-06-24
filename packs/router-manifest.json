@@ -1,0 +1,89 @@
+{
+  "routes": [
+    {
+      "tag": "investigation",
+      "label": "Debugging/root-cause",
+      "pack": "investigation-protocol.txt",
+      "keywords": [
+        "debug",
+        "bug",
+        "error",
+        "traceback",
+        "stack trace",
+        "crash",
+        "failing",
+        "not working"
+      ],
+      "summary": "reproduce first, form 3+ competing hypotheses, gather evidence per hypothesis, trace the full causal chain, verify before/after, and report the hypotheses you rejected."
+    },
+    {
+      "tag": "grounding",
+      "label": "Render/executable artifact",
+      "pack": "verification-grounding-pack.txt",
+      "keywords": [
+        "html",
+        "svg",
+        "game",
+        "canvas",
+        "chart",
+        "render",
+        "website",
+        "webpage"
+      ],
+      "summary": "grounding loop: run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static check is not observation."
+    },
+    {
+      "tag": "decision-trace",
+      "label": "Decision/design",
+      "pack": "decision-trace.txt",
+      "keywords": [
+        "decide",
+        "design",
+        "architecture",
+        "trade-off",
+        "tradeoff",
+        "approach",
+        "which option",
+        "choose",
+        "options"
+      ],
+      "summary": "Orient, Inspect, Decide, Act, Verify, Report; record what you checked and why at each step."
+    },
+    {
+      "tag": "domain-verify",
+      "label": "Domain verification",
+      "pack": "domain-verification.txt",
+      "keywords": [
+        "implement",
+        "build",
+        "feature",
+        "refactor",
+        "research",
+        "summarize",
+        "claims",
+        "sources",
+        "data",
+        "sql",
+        "dataset",
+        "analysis",
+        "pipeline"
+      ],
+      "summary": "Use the failable-check recipes for this domain (software / research / data): every acceptance criterion needs a check that can fail."
+    },
+    {
+      "tag": "subagent-brief",
+      "label": "Delegating",
+      "pack": "subagent-brief.md",
+      "keywords": [
+        "subagent",
+        "delegate",
+        "spawn",
+        "dispatch",
+        "parallelize",
+        "in parallel",
+        "orchestrate"
+      ],
+      "summary": "Use the brief template: objective, context, constraints (incl. 'Do not touch: protected tests'), strict output contract, and the verification the worker must run."
+    }
+  ]
+}

@@ -66,9 +66,9 @@ def main() -> int:
             try:
                 obj = json.loads(proc.stdout.strip())
                 hso = obj.get("hookSpecificOutput", {})
-                ok = ok and hso.get("hookEventName") == "UserPromptSubmit" and bool(
-                    hso.get("additionalContext")
-                )
+                ctx = hso.get("additionalContext") or ""
+                ok = ok and hso.get("hookEventName") == "UserPromptSubmit" and bool(ctx)
+                ok = ok and ctx.startswith("[unifable:router]")
             except json.JSONDecodeError:
                 ok = False
         if not ok:
