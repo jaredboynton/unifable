@@ -284,6 +284,37 @@ def _is_content_tool(tool: str) -> bool:
     return tool in CONTENT_TOOLS or _is_fetch_tool(tool)
 
 
+# MCP tool results (Slack/Jira/GitHub/Salesforce/etc.) ARE the evidence corpus for
+# research tasks, so the gate captures them as first-class evidence rather than the
+# 180-char observed snippet. Claude surfaces MCP tools as "mcp__<server>__<tool>";
+# Codex surfaces them as "<server>.<tool>". Core host tools (Read, Bash, apply_patch,
+# Edit, ...) carry neither shape, so this stays precise.
+MCP_EVIDENCE_CHARS = 700
+
+
+def is_mcp_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    if name.startswith("mcp__"):
+        return True
+    return "." in name and "/" not in name and " " not in name and not name.endswith(".")
+
+
+def mcp_evidence(input_data: dict[str, Any], limit: int = MCP_EVIDENCE_CHARS) -> str | None:
+    """A compact "<tool>: <result>" evidence line for an MCP tool call, else None.
+
+    Captured into ledger['tool_evidence'] and surfaced to the Stop validation
+    judge so a research requirement can be adjudicated against the actual
+    retrieval (e.g. the Slack message / PR metadata the model saw)."""
+    tool = str(input_data.get("tool_name") or "")
+    if not is_mcp_tool(tool):
+        return None
+    body = response_text(input_data.get("tool_response", input_data), limit)
+    body = redact(body, limit).strip()
+    if not body:
+        return None
+    return f"{tool}: {body}"
+
+
 def read_targets(input_data: dict[str, Any]) -> list[str]:
     """Files this tool call actually read: Read.file_path, Grep/Glob.path,
     NotebookRead.notebook_path, and command-position read-style Bash."""

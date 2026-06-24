@@ -54,7 +54,7 @@ def _spec_with_pending(tmp_path, key):
 
 def test_zero_budget_does_no_work(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items])
     spec, _ = auto_validate_spec(_spec_with_pending(tmp_path, "Z"), str(tmp_path), time_budget=0.0)
     assert spec["tasks"][0]["status"] == "pending"  # deadline already passed -> untouched
 
@@ -63,7 +63,7 @@ def test_budget_bounds_check_timeout(tmp_path, monkeypatch):
     seen = {}
     monkeypatch.setattr(spec_mod, "run_check",
                         lambda check, cwd=".", timeout=None: seen.__setitem__("t", timeout) or (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items])
     spec, _ = auto_validate_spec(_spec_with_pending(tmp_path, "B"), str(tmp_path), time_budget=30.0)
     assert spec["tasks"][0]["status"] == "validated"
     assert seen["t"] is not None and seen["t"] <= 30  # check bounded by remaining budget

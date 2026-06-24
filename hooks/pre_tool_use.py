@@ -44,6 +44,8 @@ interrupted by gate errors.
 from __future__ import annotations
 
 import os
+import re
+import shlex
 import sys
 from pathlib import Path
 
@@ -112,7 +114,7 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
     state) stays protected as before.
     """
     try:
-        resolved = Path(target).resolve()
+        resolved = Path(target).expanduser().resolve()
     except (ValueError, OSError):
         return False
     for root in (_unifable_dir(cwd), data_root() / "specs"):
@@ -149,6 +151,123 @@ def _target_path(tool_name: str, tool_input: dict) -> str | None:
         # Return a sentinel that will trigger the protected-path check.
         return ".unifable/_patch"
     return None
+
+
+# apply_patch envelopes carry their target paths in the patch text, not in a
+# stable key. Codex uses "*** Update File: <path>" header lines (and Add/Delete/
+# Move); git-style patches use "--- a/<path>" / "+++ b/<path>". The patch text
+# itself can live under different keys per host, so we concatenate EVERY string
+# value found in tool_input (host-shape-robust) and scan that.
+# Two header families: Codex "*** Update/Add/Delete File: <path>" plus the
+# "*** Move to:/Move from: <path>" rename lines (which carry no "File:" token),
+# and git-unified "--- a/<path>" / "+++ b/<path>".
+_APPLY_PATCH_PATH_RE = re.compile(
+    r"^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$"
+    r"|^\*\*\*\s+Move\s+(?:to|from):\s*(.+?)\s*$"
+    r"|^(?:---|\+\+\+)\s+(?:[ab]/)?(.+?)\s*$",
+    re.MULTILINE,
+)
+
+
+def _apply_patch_targets(tool_input) -> list[str]:
+    """Best-effort extraction of every file path an apply_patch envelope touches.
+
+    Host-shape-robust: gathers candidate patch text from EVERY string value in
+    tool_input (and tool_input itself when it is a str), then matches both the
+    Codex "*** Update/Add/Delete/Move ... File:" header form and the git-style
+    "--- a/" / "+++ b/" form. Fails open: returns [] on any error."""
+    try:
+        chunks: list[str] = []
+        if isinstance(tool_input, str):
+            chunks.append(tool_input)
+        elif isinstance(tool_input, dict):
+            for v in tool_input.values():
+                if isinstance(v, str):
+                    chunks.append(v)
+        text = "\n".join(chunks)
+        if not text:
+            return []
+        targets: list[str] = []
+        for m in _APPLY_PATCH_PATH_RE.finditer(text):
+            path = m.group(1) or m.group(2) or m.group(3)
+            if not path:
+                continue
+            path = path.strip()
+            if not path or path == "/dev/null":
+                continue
+            targets.append(path)
+        return targets
+    except Exception:
+        return []
+
+
+def _write_targets(tool_name: str, tool_input) -> list[str]:
+    """All file paths a write tool would mutate. apply_patch can touch several
+    files in one envelope; the Claude write tools touch exactly one (or none)."""
+    try:
+        if tool_name == "apply_patch":
+            return _apply_patch_targets(tool_input)
+        t = _target_path(tool_name, tool_input)
+        return [t] if t is not None else []
+    except Exception:
+        return []
+
+
+# Shell mutations MUTATING_BASH_RE misses: output redirects (`>`, `>>`), in-place
+# editors (`sed -i`, `perl -i`), and `tee`. Used only to decide whether to scan a
+# command's tokens for protected targets — conservative by design.
+_BASH_EXTRA_MUTATE_RE = re.compile(
+    r"(?i)(?:>>?|"            # output redirect
+    r"\btee\b|"               # tee writes its file args
+    r"\bsed\b[^|;&]*\s-[A-Za-z]*i|"   # sed -i / -Ei in-place
+    r"\bperl\b[^|;&]*\s-[A-Za-z]*i)"  # perl -i in-place
+)
+
+
+def _bash_protected_write(command: str, cwd: str | Path) -> str | None:
+    """Return a protected path a Bash *command* would mutate, else None.
+
+    Specs and ledger live under protected roots and are CLI-only, but the action
+    phase allows all shell — so `echo x > spec.json`, `sed -i ... spec.json`,
+    `rm spec.json`, `tee spec.json`, or an apply_patch heredoc would otherwise
+    slip past the write-tool guard entirely. This runs unconditionally on Bash.
+
+    Conservative by design: only fires when the command looks mutating
+    (MUTATING_BASH_RE — apply_patch|chmod|mkdir|mv|cp|rm|touch|redirects|...) and
+    then any token (or embedded apply_patch path) that resolves into a protected
+    root blocks it. A mutating command that merely references a protected path is
+    blocked; that is acceptable and safe. Fails open: returns None on any error."""
+    try:
+        if not isinstance(command, str) or not command:
+            return None
+        try:
+            from parse_tool_result import MUTATING_BASH_RE
+        except Exception:
+            return None
+        # MUTATING_BASH_RE covers apply_patch|chmod|mkdir|mv|cp|rm|touch|builds but
+        # NOT shell write-redirects (`>`, `>>`), in-place editors (`sed -i`,
+        # `perl -i`), or `tee` — the very ways `echo x > spec.json` / `sed -i ...
+        # spec.json` mutate gate state. Treat those as mutating too so the guard
+        # fires before the action phase opens all shell.
+        is_mutating = bool(MUTATING_BASH_RE.search(command)) or bool(
+            _BASH_EXTRA_MUTATE_RE.search(command)
+        )
+        if not is_mutating:
+            return None
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            tokens = re.split(r"[\s;|&<>()\"']+", command)
+        # apply_patch heredocs embed their target paths in the command body.
+        candidates = list(tokens) + _apply_patch_targets({"command": command})
+        for token in candidates:
+            if not token:
+                continue
+            if _is_protected(token, cwd):
+                return token
+        return None
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -535,17 +654,20 @@ def main() -> int:
     # --- Write tools: protected paths + evidence gate (unconditional) ---
     if tool_name in WRITE_TOOLS:
         hygiene_headlines = _run_spec_hygiene(input_data, cwd)
-        target = _target_path(tool_name, tool_input)
+        targets = _write_targets(tool_name, tool_input)
+        target = targets[0] if targets else None
 
-        # Guard 1: PROTECTED_PATHS (includes .unifable/spec/* — specs are CLI-only)
-        if target and _is_protected(target, cwd):
+        # Guard 1: PROTECTED_PATHS (includes .unifable/spec/* — specs are CLI-only).
+        # apply_patch can touch several files in one envelope, so check them all.
+        protected_hit = next((t for t in targets if _is_protected(t, cwd)), None)
+        if protected_hit:
             return _gate_block(
                 _block(
                     input_data,
                     kind="protected",
                     detail="write",
                     message=(
-                        f"write to protected unifable state file '{target}' is not allowed. "
+                        f"write to protected unifable state file '{protected_hit}' is not allowed. "
                         "Specs are CLI-only: create and mutate them via "
                         "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
                         "never by hand-editing the JSON. ledger, goals, findings, and state are off-limits too."
@@ -561,6 +683,29 @@ def main() -> int:
 
     # --- Bash: research whitelist (unconditional) ---
     if tool_name == "Bash":
+        command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+
+        # Guard 0: PROTECTED_PATHS for shell mutation, BEFORE grade/validation
+        # checks. After a spec validates the action phase allows all shell, so a
+        # `> spec.json` / `sed -i ... spec.json` / `rm spec.json` / apply_patch
+        # heredoc would otherwise mutate gate state. Runs unconditionally.
+        protected_hit = _bash_protected_write(command, cwd)
+        if protected_hit:
+            return _gate_block(
+                _block(
+                    input_data,
+                    kind="protected",
+                    detail="bash",
+                    message=(
+                        f"shell mutation of protected unifable state file '{protected_hit}' is not allowed. "
+                        "The specs/ and ledger state are CLI-only: create and mutate specs via "
+                        "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
+                        "never with a shell redirect, sed, rm, tee, or apply_patch heredoc."
+                    ),
+                ),
+                breaker_notify,
+            )
+
         hygiene_headlines = _run_spec_hygiene(input_data, cwd)
         rc = _enforce_bash(input_data, tool_input, cwd)
         if rc == 0:

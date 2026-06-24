@@ -27,6 +27,8 @@ import hashlib
 import json
 import os
 import re
+import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -1231,6 +1233,7 @@ def auto_validate_spec(
     *,
     time_budget: float | None = None,
     transcript_path: str | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate every open task on stop. Mutates spec in place.
 
@@ -1272,6 +1275,17 @@ def auto_validate_spec(
         if task.get("status") == "disputed":
             items.append({"task": task, "kind": "dispute"})
             continue
+        check = str(task.get("check") or "")
+        # Non-runnable (prose / natural-language evidence) check: never shell-exec
+        # it -- that is what produced the exit-127 "command not found" doom loop on
+        # research tasks. Route it to evidence_only judging against captured tool
+        # activity (reads, fetches, MCP results) + the transcript instead.
+        if not is_runnable_check(check):
+            items.append({
+                "task": task, "kind": "validate", "exit_code": None,
+                "output": "", "evidence_only": True, "prior_exit": None,
+            })
+            continue
         prior_exit: int | None = None
         if str(task.get("status") or "") == "failed" and not _should_replay_failed_check(task):
             raw_exit = task.get("exit")
@@ -1281,6 +1295,15 @@ def auto_validate_spec(
                 except (TypeError, ValueError):
                     prior_exit = 1
         exit_code, output = _check_inputs_for_task(task, cwd, deadline)
+        # Backstop: classified runnable but the shell could not find a command to
+        # run (exit 127 + command-not-found) -> it is prose too; adjudicate on
+        # evidence rather than recording a spurious failure.
+        if exit_code == 127 and "not found" in (output or "").lower():
+            items.append({
+                "task": task, "kind": "validate", "exit_code": None,
+                "output": "", "evidence_only": True, "prior_exit": None,
+            })
+            continue
         items.append({
             "task": task,
             "kind": "validate",
@@ -1291,7 +1314,7 @@ def auto_validate_spec(
 
     if items:
         spec.pop("_stop_adjust_headlines", None)
-        verdicts = judge_tasks(spec, items, transcript=transcript, plan_mode=plan_mode)
+        verdicts = judge_tasks(spec, items, transcript=transcript, plan_mode=plan_mode, evidence=evidence)
         for h in spec.pop("_stop_adjust_headlines", []):
             if h not in messages:
                 messages.append(h)
@@ -1325,6 +1348,82 @@ def auto_validate_spec(
                 notify_spec_update(spec, adopt_headlines[0])
 
     return spec, messages
+
+
+# Command names a check may legitimately start with (shell builtins + tools that
+# are not always on PATH inside the hook subprocess). A check whose first word is
+# none of these AND is not resolvable via shutil.which is treated as a prose /
+# evidence description, not a runnable command -- so it is adjudicated against the
+# captured evidence instead of being executed and failing with exit 127. This is
+# what breaks the prose-check-as-shell doom loop for research tasks.
+_CHECK_BUILTINS = frozenset({
+    "test", "[", "[[", "cd", ":", "true", "false", "echo", "printf",
+    "cat", "ls", "grep", "egrep", "fgrep", "rg", "sed", "awk", "find",
+    "head", "tail", "wc", "diff", "cmp", "sort", "uniq", "tr", "cut",
+    "jq", "yq", "xargs", "stat", "file", "touch", "cp", "mv", "rm", "mkdir",
+    "python", "python3", "python2", "pip", "pip3", "pytest", "git", "bash",
+    "sh", "zsh", "node", "npm", "npx", "pnpm", "yarn", "bun", "deno",
+    "go", "cargo", "rustc", "make", "just", "ruff", "mypy", "pyright",
+    "tsc", "eslint", "curl", "wget", "ln", "tee", "env",
+})
+_ENV_ASSIGN_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
+_STRUCTURE_OPS = ("&&", "||", "|", ";", ">", "<", "$(", "`", "$((")
+_FILE_EXT_RE = re.compile(r"\.[A-Za-z0-9]{1,6}$")
+
+
+def _has_shell_structure(text: str, tail_tokens: list[str]) -> bool:
+    """Command-line structure that a natural-language sentence does not have:
+    a shell operator anywhere, or a flag / path / file-extension token."""
+    if any(op in text for op in _STRUCTURE_OPS):
+        return True
+    for t in tail_tokens:
+        if t.startswith("-") or "/" in t or _FILE_EXT_RE.search(t):
+            return True
+    return False
+
+
+def is_runnable_check(check: str) -> bool:
+    """True when *check* is an executable shell command, False when it is prose / a
+    natural-language evidence description (e.g. "Slack search returned a relevant
+    direct message", "Pull request metadata shows open draft state"). Non-runnable
+    checks are routed to evidence_only judging instead of being shell-executed
+    (the exit-127 loop).
+
+    A long sentence whose first word merely happens to BE a real command (`pr`,
+    "PR"/"Slack") is still prose: it carries no command-line structure."""
+    s = (check or "").strip()
+    if not s:
+        return False
+    try:
+        toks = shlex.split(s)
+    except ValueError:
+        toks = s.split()
+    # Skip leading `VAR=value` env assignments to find the real command word.
+    idx = 0
+    while idx < len(toks) and _ENV_ASSIGN_RE.match(toks[idx]):
+        idx += 1
+    cmd_toks = toks[idx:]
+    if not cmd_toks:
+        return False
+    first = cmd_toks[0]
+    base = os.path.basename(first)
+    first_is_command = (
+        base in _CHECK_BUILTINS
+        or first in _CHECK_BUILTINS
+        or first.startswith(("./", "/", "~", "$", "("))
+        or shutil.which(first) is not None
+    )
+    if not first_is_command:
+        return False
+    if first.startswith(("./", "/", "~", "$", "(")):
+        return True
+    if len(cmd_toks) == 1:
+        return True
+    if _has_shell_structure(s, cmd_toks[1:]):
+        return True
+    # Flagless multi-word command with no structure: runnable only when short
+    # (`git status`, `npm test`, `make check`); a longer wordy string is prose.
+    return len(cmd_toks) <= 3
 
 
 def run_check(check: str, cwd: str | Path = ".", timeout: int = _CHECK_TIMEOUT) -> tuple[int, str]:
@@ -1609,6 +1708,14 @@ _VALIDATE_ALL_SYSTEM = (
     "ONE pass, plus optional session transcript context. For each entry in "
     "tasks_to_adjudicate:\n"
     "- kind=validate: does check output prove genuine completion? (standard skepticism)\n"
+    "- evidence_only=true (a validate entry): the requirement has NO runnable shell "
+    "check; its exit_code/output are null BY DESIGN, not a failure. Decide "
+    "satisfaction SOLELY from the top-level `evidence` corpus (file reads, URL "
+    "fetches, ran commands, MCP tool results) and the session transcript. Return "
+    "verdict 1 when that captured evidence shows the requirement met; verdict 0 only "
+    "when the evidence is absent or contradicts it. Do NOT tell the agent to convert "
+    "the check into a shell command or to write a repo file -- a research "
+    "requirement is proven by its retrievals, not by a grep.\n"
     "- kind=dispute: accept (verdict 1) ONLY if dispute_evidence proves impossibility.\n"
     "- approach_kind=frontier: return outcome rejected_approach, still_viable, or "
     "accepted_approach. Verdict 1 when check passed.\n"
@@ -1669,7 +1776,9 @@ _JUDGE_TRANSCRIPT_SECTION = (
     "conversation. Use it to understand what the model did and to avoid "
     "re-deriving requirements already satisfied in current_requirements or "
     "evidenced here. Return verdict 1 only when the check output proves the "
-    "task; transcript context alone is never sufficient proof.\n\n"
+    "task; transcript context alone is never sufficient proof -- EXCEPT for "
+    "evidence_only requirements, which have no runnable check and ARE adjudicated "
+    "from the top-level evidence corpus plus this transcript.\n\n"
 )
 
 
@@ -1968,10 +2077,28 @@ def _judge_result(res: Any, task: dict[str, Any] | None = None) -> tuple[int, st
     return verdict, reason, new_reqs, frontier_outcome
 
 
+def _evidence_payload(evidence: dict[str, Any] | None) -> dict[str, list[str]] | None:
+    """Bounded captured-activity corpus for the judge: file reads, URL fetches,
+    Bash commands, and MCP tool results. This is the proof an evidence_only
+    (research) requirement is adjudicated against."""
+    if not isinstance(evidence, dict):
+        return None
+    def _take(key: str, n: int) -> list[str]:
+        return [str(x) for x in (evidence.get(key) or []) if str(x)][-n:]
+    out = {
+        "read_paths": _take("read_paths", 30),
+        "fetched_urls": _take("fetched_urls", 20),
+        "ran_commands": _take("ran_commands", 20),
+        "tool_results": _take("tool_evidence", 30),
+    }
+    return out if any(out.values()) else None
+
+
 def _build_validate_all_user(
     spec: dict[str, Any],
     items: list[dict[str, Any]],
     plan_mode: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> str:
     """Build the unified validation payload for all open tasks."""
     tasks_payload: list[dict[str, Any]] = []
@@ -1990,8 +2117,15 @@ def _build_validate_all_user(
         if it.get("kind") == "dispute":
             entry["dispute_evidence"] = str(task.get("dispute_evidence") or "")
         else:
-            entry["exit_code"] = it.get("exit_code")
-            entry["output"] = str(it.get("output") or "")
+            # evidence_only: the check is prose / not a runnable command, so there
+            # is no exit code to weigh. Adjudicate from the evidence corpus below.
+            if it.get("evidence_only"):
+                entry["evidence_only"] = True
+                entry["exit_code"] = None
+                entry["output"] = ""
+            else:
+                entry["exit_code"] = it.get("exit_code")
+                entry["output"] = str(it.get("output") or "")
         tasks_payload.append(entry)
     payload: dict[str, Any] = {
         "goal": spec.get("restated_goal", ""),
@@ -1999,6 +2133,9 @@ def _build_validate_all_user(
         "tasks_to_adjudicate": tasks_payload,
         "session_context": _session_context_payload(plan_mode),
     }
+    ev = _evidence_payload(evidence)
+    if ev:
+        payload["evidence"] = ev
     adjustable = [
         {"id": str(t.get("id")), "title": str(t.get("title") or ""),
          "check": str(t.get("check") or ""), "status": str(t.get("status") or "")}
@@ -2126,6 +2263,7 @@ def judge_all_tasks(
     *,
     transcript: str = "",
     plan_mode: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge every open task in ONE structured call from shared session context.
 
@@ -2144,7 +2282,7 @@ def judge_all_tasks(
     try:
         res = ask_structured(
             _validate_all_system(transcript, plan_mode),
-            _build_validate_all_user(spec, items, plan_mode),
+            _build_validate_all_user(spec, items, plan_mode, evidence),
             _VALIDATE_ALL_SCHEMA,
             schema_name="validate_all",
         )
@@ -2211,9 +2349,12 @@ def judge_tasks(
     *,
     transcript: str = "",
     plan_mode: dict[str, Any] | None = None,
+    evidence: dict[str, Any] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
     """Judge all items in one unified structured call (validate + dispute)."""
-    return judge_all_tasks(spec, items, transcript=transcript, plan_mode=plan_mode)
+    return judge_all_tasks(
+        spec, items, transcript=transcript, plan_mode=plan_mode, evidence=evidence
+    )
 
 
 def _normalize_scope_paths(raw: Any) -> list[str]:

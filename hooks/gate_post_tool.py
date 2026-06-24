@@ -36,6 +36,7 @@ from parse_tool_result import (
     command_from_input,
     detect_failure,
     fetched_url_targets,
+    mcp_evidence,
     ran_command,
     read_targets,
     repeated_failure,
@@ -237,6 +238,7 @@ def main() -> int:
     reads = [_abs(p, cwd) for p in read_targets(input_data)] if executed_ok else []
     fetched = fetched_url_targets(input_data) if executed_ok else []
     ran = ran_command(input_data) if executed_ok else None
+    mcp_ev = mcp_evidence(input_data) if executed_ok else None
     tool_name = str(input_data.get("tool_name") or "unknown")
     observed = (
         f"{tool_name}: {response_text(input_data.get('tool_response', input_data), 180)}"
@@ -259,6 +261,9 @@ def main() -> int:
             add_unique(ledger, "fetched_urls", fetched)
         if ran:
             add_unique(ledger, "ran_commands", [ran])
+        if mcp_ev:
+            add_unique(ledger, "tool_evidence", [mcp_ev])
+            ledger["tool_evidence"] = ledger["tool_evidence"][-60:]
         if observed:
             ledger["observed_tool_results"].append(observed)
 

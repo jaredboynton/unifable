@@ -179,7 +179,7 @@ def test_auto_validate_passes_plan_mode_to_judge_tasks(tmp_path, monkeypatch):
 
     captured: dict = {}
 
-    def fake_judge_tasks(sp, items, *, transcript="", plan_mode=None):
+    def fake_judge_tasks(sp, items, *, transcript="", plan_mode=None, **_kw):
         captured["transcript"] = transcript
         captured["plan_mode"] = plan_mode
         return [(1, "ok", [], "") for _ in items]

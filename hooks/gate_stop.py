@@ -650,7 +650,8 @@ def main() -> int:
                     from spec import auto_validate_spec, save_spec
                     from spec_hygiene import apply_spec_hygiene
 
-                    ledger_activity = activity_from_ledger(load_ledger(input_data))
+                    _stop_ledger = load_ledger(input_data)
+                    ledger_activity = activity_from_ledger(_stop_ledger)
                     transcript_activity = scan_transcript(input_data.get("transcript_path"))
                     activity = merge_activity(ledger_activity, transcript_activity)
                     heavy_before = heavy_snapshot(spec)  # gap 2: phase/primary pre-state
@@ -659,11 +660,16 @@ def main() -> int:
                         save_spec(cwd, task_key, spec)
                     if clear_stale_heavy_workflow(spec, grade):
                         save_spec(cwd, task_key, spec)
+                    stop_evidence = dict(activity)
+                    stop_evidence["tool_evidence"] = [
+                        str(x) for x in (_stop_ledger.get("tool_evidence") or [])
+                    ][-60:]
                     spec, val_msgs = auto_validate_spec(
                         spec,
                         cwd,
                         time_budget=STOP_JUDGE_BUDGET,
                         transcript_path=input_data.get("transcript_path"),
+                        evidence=stop_evidence,
                     )
                     save_spec(cwd, task_key, spec)
                     # Gap 2 + 7: enrich the Stop digest with HEAVY phase/primary

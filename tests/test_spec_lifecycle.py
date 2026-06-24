@@ -71,7 +71,7 @@ def test_auto_validate_accepts_dispute_and_retracts(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (1, "genuinely impossible"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None: [(1, "genuinely impossible", [], "") for _ in items],
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "genuinely impossible", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "retracted"
@@ -84,7 +84,7 @@ def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None: (
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: (
             [(1, "ok", [{"title": "also handle errors", "check": "true"}], "")]
             if items else []
         ),
@@ -139,7 +139,7 @@ def test_end_to_end_add_task_and_auto_validate(tmp_path, monkeypatch):
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None: [(1, "ok", [], "") for _ in items],
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert all_tasks_validated(spec) == (True, [])

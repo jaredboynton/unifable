@@ -67,7 +67,7 @@ def _single_pending(tmp_path, monkeypatch, new_reqs, base_check="pytest -k base"
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None: [
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [
             (1, "ok", [dict(r) for r in new_reqs], "") for _ in items
         ],
     )
@@ -453,7 +453,7 @@ def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "K", s)
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
 
-    def judge_via_payload(sp, items, *, transcript="", plan_mode=None):
+    def judge_via_payload(sp, items, *, transcript="", plan_mode=None, **_kw):
         payload = json.loads(spec_mod._build_validate_all_user(sp, items))
         titles = {str(r.get("title") or "").strip().lower()
                   for r in payload.get("current_requirements") or []}

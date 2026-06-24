@@ -65,7 +65,7 @@ def test_new_requirement_with_supersedes_drops_breaker_count(tmp_path, monkeypat
     monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(
         spec_mod, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None: [(
+        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(
             0, "still failing",
             [{"title": "replacement", "check": "test -f x", "supersedes": ["T1", "T2", "T3"]}],
             "",
@@ -87,7 +87,7 @@ def test_agent_revise_skips_verdict_this_stop(tmp_path, monkeypatch):
     s["tasks"] = [_task("T1", "failed", check="bad prose check")]
     save_spec(str(tmp_path), "K", s)
 
-    def fake_judge(sp, items, *, transcript="", plan_mode=None):
+    def fake_judge(sp, items, *, transcript="", plan_mode=None, **_kw):
         for it in items:
             hl = _apply_adjustments(sp, {
                 "adjust_requirements": [{

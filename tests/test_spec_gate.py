@@ -61,6 +61,7 @@ def _heavy_spec_with_approaches(**overrides) -> dict:
 
 sys.path.insert(0, str(HOOKS))
 import gate_stop  # noqa: E402
+import pre_tool_use  # noqa: E402
 
 
 # ---------------------------------------------------------------------------
@@ -672,6 +673,181 @@ def test_path_traversal_blocked():
         assert rc == 2
 
 
+# --- apply_patch protected-path guard (all hosts, not just Claude file_path) ---
+
+
+def _apply_patch_payload(patch: str, session_id: str = "sess-abc123", cwd: str = "/work") -> dict:
+    return {
+        "tool_name": "apply_patch",
+        "tool_input": {"patch": patch},
+        "tool_response": {"success": True},
+        "session_id": session_id,
+        "cwd": cwd,
+    }
+
+
+def test_apply_patch_global_spec_blocked():
+    """A Codex-shape apply_patch rewriting the global keyed spec.json is blocked.
+
+    This matches how an agent can hand-edit the spec to fake validated statuses: the patch target lived in the envelope text, not in a
+    `file_path` key, so the old _target_path substring check missed it."""
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        session_id = "apply-patch-spec"
+        with _data_env(dd):
+            abs_spec = str(spec_path(cwd, session_id))
+        patch = (
+            "*** Begin Patch\n"
+            f"*** Update File: {abs_spec}\n"
+            "@@\n"
+            "-  \"status\": \"pending\"\n"
+            "+  \"status\": \"validated\"\n"
+            "*** End Patch\n"
+        )
+        payload = _apply_patch_payload(patch, session_id=session_id, cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, spec_gate="0", tmp_root=dd)
+        assert rc == 2
+        low = stderr.lower()
+        assert "protected" in low or "spec" in low or "cli-only" in low or "cli only" in low
+
+
+def test_apply_patch_repo_local_spec_blocked():
+    """apply_patch targeting a repo-local .unifable/spec/<session>.json is blocked."""
+    with tempfile.TemporaryDirectory() as cwd:
+        abs_spec = os.path.join(cwd, ".unifable", "spec", "sess-abc123.json")
+        patch = (
+            "*** Begin Patch\n"
+            f"*** Update File: {abs_spec}\n"
+            "@@\n"
+            "-old\n"
+            "+new\n"
+            "*** End Patch\n"
+        )
+        payload = _apply_patch_payload(patch, cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, spec_gate="0")
+        assert rc == 2
+        low = stderr.lower()
+        assert "protected" in low or "spec" in low or "cli-only" in low or "cli only" in low
+
+
+def test_apply_patch_normal_source_file_allowed():
+    """apply_patch to a normal repo source file is NOT blocked by the protected guard.
+
+    LIGHT waives the spec requirement, so a non-protected target reaches allow."""
+    with tempfile.TemporaryDirectory() as cwd:
+        abs_src = os.path.join(cwd, "lib", "foo.py")
+        patch = (
+            "*** Begin Patch\n"
+            f"*** Update File: {abs_src}\n"
+            "@@\n"
+            "-x = 1\n"
+            "+x = 2\n"
+            "*** End Patch\n"
+        )
+        payload = _apply_patch_payload(patch, cwd=cwd)
+        rc, _, _ = run_pre_tool(payload, grade="LIGHT")
+        assert rc == 0
+
+
+def test_apply_patch_targets_unit_codex_and_git_shapes():
+    """_apply_patch_targets extracts paths from both envelope shapes and across keys."""
+    codex = (
+        "*** Begin Patch\n"
+        "*** Update File: a/spec.json\n"
+        "*** Add File: b/new.py\n"
+        "*** Delete File: c/old.py\n"
+        "*** Move to: d/moved.py\n"
+        "*** End Patch\n"
+    )
+    assert pre_tool_use._apply_patch_targets({"patch": codex}) == [
+        "a/spec.json",
+        "b/new.py",
+        "c/old.py",
+        "d/moved.py",
+    ]
+    git = "--- a/src/old.py\n+++ b/src/new.py\n@@\n-1\n+2\n"
+    git_targets = pre_tool_use._apply_patch_targets({"content": git})
+    assert "src/old.py" in git_targets and "src/new.py" in git_targets
+    # /dev/null is dropped (git add/delete sentinel)
+    devnull = "--- /dev/null\n+++ b/created.py\n"
+    assert pre_tool_use._apply_patch_targets({"x": devnull}) == ["created.py"]
+    # Unknown key still works: every string value is scanned.
+    assert pre_tool_use._apply_patch_targets({"weird_key": codex})[0] == "a/spec.json"
+    # tool_input itself a string is handled.
+    assert pre_tool_use._apply_patch_targets("*** Update File: z.py\n") == ["z.py"]
+    # Junk never raises.
+    assert pre_tool_use._apply_patch_targets({"n": 5, "ok": None}) == []
+
+
+# --- Bash protected-write guard (action phase allows all shell otherwise) ---
+
+
+def test_bash_redirect_into_spec_blocked():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        session_id = "bash-redirect-spec"
+        with _data_env(dd):
+            abs_spec = str(spec_path(cwd, session_id))
+        payload = _bash_payload(f"echo zzz > {abs_spec}", session_id=session_id, cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, grade="STANDARD", tmp_root=dd)
+        assert rc == 2
+        low = stderr.lower()
+        assert "protected" in low or "cli-only" in low or "cli only" in low
+
+
+def test_bash_rm_spec_blocked():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        session_id = "bash-rm-spec"
+        with _data_env(dd):
+            abs_spec = str(spec_path(cwd, session_id))
+        payload = _bash_payload(f"rm {abs_spec}", session_id=session_id, cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, grade="STANDARD", tmp_root=dd)
+        assert rc == 2
+        low = stderr.lower()
+        assert "protected" in low or "cli-only" in low or "cli only" in low
+
+
+def test_bash_sed_inplace_spec_blocked():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        session_id = "bash-sed-spec"
+        with _data_env(dd):
+            abs_spec = str(spec_path(cwd, session_id))
+        payload = _bash_payload(f"sed -i s/a/b/ {abs_spec}", session_id=session_id, cwd=cwd)
+        rc, _, stderr = run_pre_tool(payload, grade="STANDARD", tmp_root=dd)
+        assert rc == 2
+        low = stderr.lower()
+        assert "protected" in low or "cli-only" in low or "cli only" in low
+
+
+def test_bash_read_of_spec_not_blocked_by_protected_guard():
+    """A non-mutating read of a protected path returns None from the dedicated
+    guard. (The full hook may still block it via the research whitelist, so we
+    unit-test the guard directly rather than driving the subprocess.)"""
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        with _data_env(dd):
+            abs_spec = str(spec_path(cwd, "bash-read-spec"))
+            assert pre_tool_use._bash_protected_write(f"cat {abs_spec}", cwd) is None
+            assert pre_tool_use._bash_protected_write(f"rg foo {abs_spec}", cwd) is None
+            # A mutating command targeting the spec IS caught.
+            assert pre_tool_use._bash_protected_write(f"rm {abs_spec}", cwd) == abs_spec
+            # A non-protected mutation is not caught.
+            assert pre_tool_use._bash_protected_write(
+                f"rm {os.path.join(cwd, 'lib', 'foo.py')}", cwd
+            ) is None
+
+
+def test_bash_protected_write_tilde_path():
+    """Guard (a): a literal ~/.unifable/specs/... mutation resolves and is caught."""
+    # data_root defaults to ~/.unifable when UNIFABLE_DATA is unset, so a literal
+    # ~/.unifable/specs/... path expands into the protected store.
+    old = os.environ.pop("UNIFABLE_DATA", None)
+    try:
+        token = "~/.unifable/specs/abc/sess/spec.json"
+        hit = pre_tool_use._bash_protected_write(f"rm {token}", "/work")
+        assert hit == token
+    finally:
+        if old is not None:
+            os.environ["UNIFABLE_DATA"] = old
+
+
 # --- Spec gate: LIGHT waives spec requirement ---
 
 def test_light_grade_waives_spec():
@@ -1057,45 +1233,106 @@ def test_stop_loop_guard_allows_soft_gate():
         assert not _blocks(out)
 
 
-def test_stop_blocks_promise_no_act():
-    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as td:
-        transcript = Path(td) / "session.jsonl"
-        _write_transcript(transcript, [{"type": "text", "text": "I'll now implement the fix and run tests."}])
-        out = run_stop(
-            {"session_id": "st5c", "cwd": cwd, "transcript_path": str(transcript), "stop_hook_active": False},
-            grade="LIGHT",
-        )
-        assert _blocks(out)
-        assert "intent to do work" in out.get("reason", "")
+def test_stop_handoff_blocks_deferred_work(monkeypatch, tmp_path):
+    """Completion handoff judge blocks when the agent defers autonomous work."""
+    import completion_handoff as ch
+
+    transcript = tmp_path / "session.jsonl"
+    _write_transcript(
+        transcript,
+        [{"type": "text", "text": "I'll now implement the fix and run tests."}],
+    )
+
+    def fake_judge(*_a, **_k):
+        return {
+            "ok_to_stop": False,
+            "reason": "Promised work without acting.",
+            "steering": "Implement the fix now.",
+        }
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("UNIFABLE_DATA", str(data_dir))
+    monkeypatch.setattr(ch, "judge_completion_handoff", fake_judge)
+    out = ch.completion_handoff_decision(
+        {
+            "session_id": "st5c",
+            "cwd": str(tmp_path),
+            "transcript_path": str(transcript),
+            "stop_hook_active": False,
+        },
+        tmp_path,
+    )
+    assert out and out.get("decision") == "block"
+    assert "unresolved handoff" in out.get("reason", "")
 
 
-def test_stop_promise_no_act_allows_user_question():
-    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as td:
-        transcript = Path(td) / "session.jsonl"
-        _write_transcript(transcript, [{"type": "text", "text": "I'll implement that next. Would you like option A or B?"}])
-        out = run_stop(
-            {"session_id": "st5d", "cwd": cwd, "transcript_path": str(transcript), "stop_hook_active": False},
-            grade="LIGHT",
-        )
-        assert not _blocks(out)
+def test_stop_handoff_allows_genuine_user_choice(monkeypatch, tmp_path):
+    import completion_handoff as ch
+
+    transcript = tmp_path / "session.jsonl"
+    _write_transcript(
+        transcript,
+        [{"type": "text", "text": "I'll implement that next. Would you like option A or B?"}],
+    )
+
+    def fake_judge(*_a, **_k):
+        return {"ok_to_stop": True, "reason": "User-owned choice.", "blocked_on_user_only": True}
+
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("UNIFABLE_DATA", str(data_dir))
+    monkeypatch.setattr(ch, "judge_completion_handoff", fake_judge)
+    out = ch.completion_handoff_decision(
+        {
+            "session_id": "st5d",
+            "cwd": str(tmp_path),
+            "transcript_path": str(transcript),
+            "stop_hook_active": False,
+        },
+        tmp_path,
+    )
+    assert out is None
 
 
-def test_stop_promise_no_act_allows_tool_use_and_loop_guard():
-    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as td:
-        transcript = Path(td) / "session.jsonl"
-        _write_transcript(
-            transcript,
-            [
-                {"type": "text", "text": "I'll now run the check."},
-                {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "pytest -q"}},
-            ],
-        )
-        payload = {"session_id": "st5e", "cwd": cwd, "transcript_path": str(transcript), "stop_hook_active": False}
-        assert not _blocks(run_stop(payload, grade="LIGHT"))
+def test_stop_handoff_allows_tool_use_and_blocks_despite_loop_guard(monkeypatch, tmp_path):
+    import completion_handoff as ch
 
-        _write_transcript(transcript, [{"type": "text", "text": "I'll now implement the fix and run tests."}])
-        payload["stop_hook_active"] = True
-        assert not _blocks(run_stop(payload, grade="LIGHT"))
+    transcript = tmp_path / "session.jsonl"
+    _write_transcript(
+        transcript,
+        [
+            {"type": "text", "text": "I'll now run the check."},
+            {"type": "tool_use", "id": "t1", "name": "Bash", "input": {"command": "pytest -q"}},
+        ],
+    )
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    monkeypatch.setenv("UNIFABLE_DATA", str(data_dir))
+    payload = {
+        "session_id": "st5e",
+        "cwd": str(tmp_path),
+        "transcript_path": str(transcript),
+        "stop_hook_active": False,
+    }
+    assert ch.completion_handoff_decision(payload, tmp_path) is None
+
+    _write_transcript(
+        transcript,
+        [{"type": "text", "text": "I'll now implement the fix and run tests."}],
+    )
+    payload["stop_hook_active"] = True
+
+    def fake_judge(*_a, **_k):
+        return {
+            "ok_to_stop": False,
+            "reason": "Deferred work.",
+            "steering": "Implement now.",
+        }
+
+    monkeypatch.setattr(ch, "judge_completion_handoff", fake_judge)
+    out = ch.completion_handoff_decision(payload, tmp_path)
+    assert out and out.get("decision") == "block"
 
 
 def test_stop_no_spec_blocks_infinitely():

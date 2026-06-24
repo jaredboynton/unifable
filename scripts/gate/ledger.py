@@ -91,6 +91,11 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "fetched_urls": [],
     "ran_commands": [],
     "observed_tool_results": [],
+    # tool_evidence: richer "<tool>: <summary>" entries for MCP tool calls
+    # (Slack/Jira/GitHub/etc.). MCP results are the real evidence corpus for
+    # research tasks, so they are captured with a larger cap than the 180-char
+    # observed_tool_results snippet and surfaced to the Stop validation judge.
+    "tool_evidence": [],
     # PreToolUse block dedup (pretool_block.py): one full stderr message per
     # (epoch, signature) when parallel hooks fire on the same turn.
     "pretool_block_epoch": "",
@@ -201,7 +206,7 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         ledger.update({key: data.get(key, value) for key, value in ledger.items()})
     for key in ("risk_flags", "change_kinds", "verification_commands", "verification_results",
                 "failures", "warnings", "read_paths", "fetched_urls", "ran_commands",
-                "observed_tool_results", "loop_lift_retracted", "loop_events",
+                "observed_tool_results", "tool_evidence", "loop_lift_retracted", "loop_events",
                 "router_matched_tags", "router_fired_tags"):
         if not isinstance(ledger.get(key), list):
             ledger[key] = []
