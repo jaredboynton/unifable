@@ -334,7 +334,7 @@ def _run_post_tool(payload: dict) -> dict:
     import gate_post_tool
 
     with patch.object(gate_post_tool, "read_stdin_json", lambda: payload):
-        with patch.object(gate_post_tool, "emit_json") as emit:
+        with patch("posttool_notify.emit_json") as emit:
             gate_post_tool.main()
             if emit.call_count:
                 return emit.call_args[0][0]

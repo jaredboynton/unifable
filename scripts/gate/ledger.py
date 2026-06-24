@@ -98,6 +98,11 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # Host Plan Mode (plan_mode.py), set at UserPromptSubmit, read at PreToolUse.
     "plan_mode_enabled": False,
     "plan_mode_host": "",
+    # PostToolUse additionalContext dedup (posttool_notify.py / model_notify.py).
+    "posttool_context_epoch": "",
+    "posttool_last_body_hash": "",
+    "posttool_task_guidance": {},
+    "posttool_last_cite_headline": "",
     "last_updated": "",
 }
 

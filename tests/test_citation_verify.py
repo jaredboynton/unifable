@@ -59,6 +59,17 @@ def test_real_reads_and_fetches_do_register():
     assert fetched_url_targets(_bash("curl -s https://d.io/p")) == ["https://d.io/p"]
 
 
+def test_redirections_do_not_register_as_reads():
+    # Joined and separated redirect targets must not be mistaken for read files.
+    assert read_targets(_bash("rg -n pat src/x.py 2>/dev/null")) == ["src/x.py"]
+    assert read_targets(_bash("cat a/b.py 2> /dev/null")) == ["a/b.py"]
+    assert read_targets(_bash("rg foo src/m.py > out.txt")) == ["src/m.py"]
+    assert read_targets(_bash("grep -n pat file.py 2>&1")) == ["file.py"]  # fd-dup, no target
+    assert read_targets(_bash("cat x.py >> /tmp/log.txt")) == ["x.py"]
+    # Fetch extraction is likewise redirect-clean.
+    assert fetched_url_targets(_bash("curl https://x.io/a 2>/dev/null")) == ["https://x.io/a"]
+
+
 def test_exa_web_search_registers_response_urls():
     payload = {
         "tool_name": "exa.web_search_exa",

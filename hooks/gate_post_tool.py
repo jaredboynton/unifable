@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import sys
 from pathlib import Path
+from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
@@ -20,13 +21,16 @@ from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_l
 from spec import canonical_project_root
 from model_notify import (
     bash_output_text,
+    build_citation_sync_context,
     build_spec_context_from_output,
     build_spec_context_from_spec,
+    format_spec_action_digest_delta,
     format_spec_status,
     is_mutating_spec_cli,
     is_spec_cli_command,
     parse_spec_cli_invocation,
 )
+from posttool_notify import emit_posttool_context, should_suppress_cite_only
 from parse_tool_result import (
     changed_kinds,
     command_from_input,
@@ -172,19 +176,30 @@ def _breaker_status_context(input_data: dict) -> str:
     return ""
 
 
-def _emit_context(parts: list[str]) -> None:
+def _emit_context(input_data: dict, parts: list[str], *, guidance_map=None) -> None:
     body = "\n".join(p for p in parts if p and p.strip())
-    if not body:
-        emit_json({})
-        return
-    emit_json(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "PostToolUse",
-                "additionalContext": body,
-            }
-        }
-    )
+    emit_posttool_context(input_data, body, guidance_map=guidance_map)
+
+
+def _spec_action_context_from_spec(
+    input_data: dict,
+    spec: dict[str, Any],
+    *,
+    highlight_task: str | None = None,
+    force: bool = False,
+) -> tuple[str, dict[str, dict[str, str]] | None]:
+    """Delta action digest using ledger guidance cache."""
+    try:
+        ledger = load_ledger(input_data)
+        action, guidance_map = format_spec_action_digest_delta(
+            spec,
+            ledger,
+            highlight_task=highlight_task,
+            force=force,
+        )
+        return action, guidance_map
+    except Exception:
+        return "", None
 
 
 def main() -> int:
@@ -244,7 +259,14 @@ def main() -> int:
                 save_spec(cwd, task_id, spec)
                 _cite_headline = _citation_sync_headline(citation_added)
                 if _cite_headline:
-                    citation_context = build_spec_context_from_spec(spec, headlines=[_cite_headline])
+                    try:
+                        _led = load_ledger(input_data)
+                        if should_suppress_cite_only(spec, _led, _cite_headline):
+                            _cite_headline = ""
+                    except Exception:
+                        pass
+                    if _cite_headline:
+                        citation_context = build_citation_sync_context(_cite_headline)
             if (
                 spec
                 and grade == "HEAVY"
@@ -282,12 +304,23 @@ def main() -> int:
     breaker_context = _breaker_release_context(input_data, tool_name, executed_ok)
     breaker_status_context = _breaker_status_context(input_data)
 
+    guidance_map = None
+    if spec_context:
+        try:
+            from spec import load_spec, resolve_session_id
+
+            _tid = resolve_session_id(input_data, default=None)
+            _sp = load_spec(cwd, _tid) if _tid else None
+            if isinstance(_sp, dict):
+                _, guidance_map = _spec_action_context_from_spec(
+                    input_data, _sp, force=True,
+                )
+        except Exception:
+            pass
+
     repeat = repeated_failure(ledger.get("failures", [])) if failure else None
     if repeat:
         _sig, count = repeat
-        # Repeated failure is the deterministic TRIGGER; the guidance itself is
-        # reasoned by the judge, never a canned string. If the judge is silent or
-        # unreachable, we simply do not nudge (fail open to no hint).
         hint = _repeated_failure_hint(input_data, ledger, cwd, count)
         parts: list[str] = []
         if hint:
@@ -298,7 +331,7 @@ def main() -> int:
             parts.append(spec_context)
         if breaker_status_context:
             parts.append(breaker_status_context)
-        _emit_context(parts)
+        _emit_context(input_data, parts, guidance_map=guidance_map)
     elif failure and not spec_context:
         parts = [
             "unifable gate observed a tool failure. Do not report completion until "
@@ -308,7 +341,7 @@ def main() -> int:
             parts.append(citation_context)
         if breaker_status_context:
             parts.append(breaker_status_context)
-        _emit_context(parts)
+        _emit_context(input_data, parts, guidance_map=guidance_map)
     else:
         parts: list[str] = []
         if failure and not spec_context:
@@ -326,7 +359,7 @@ def main() -> int:
             parts.append(breaker_status_context)
         if breaker_context:
             parts.append(breaker_context)
-        _emit_context(parts)
+        _emit_context(input_data, parts, guidance_map=guidance_map)
     return 0
 
 

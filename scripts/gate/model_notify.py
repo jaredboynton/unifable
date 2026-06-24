@@ -7,6 +7,7 @@ spec from disk) and forwards the headline plus one compact next action.
 
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from typing import Any
@@ -369,6 +370,125 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
     return "\n".join(lines)
 
 
+def _hash_field(value: Any) -> str:
+    text = str(value or "")
+    return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
+
+
+def task_guidance_fingerprint(spec: dict[str, Any], tid: str) -> dict[str, str]:
+    """Stable fingerprint of fields that appear in PostToolUse action digests."""
+    task = _tasks_by_id(spec).get(str(tid))
+    if not task:
+        return {}
+    return {
+        "status": str(task.get("status") or ""),
+        "check": _hash_field(task.get("check")),
+        "reason": _hash_field(task.get("judge_reason")),
+        "hint": _hash_field(task.get("judge_hint")),
+        "title": _hash_field(task.get("title")),
+    }
+
+
+def _action_line_for_task(spec: dict[str, Any], tid: str) -> str:
+    """One compact action line for *tid* (same shape as format_spec_action_digest)."""
+    by_id = _tasks_by_id(spec)
+    task = by_id.get(tid)
+    if not task:
+        action = _synthetic_incomplete_action(tid)
+        if action:
+            return action
+        label = _synthetic_incomplete_label(tid) or tid
+        return f"Next: {label}."
+    hint = str(task.get("judge_hint") or "").strip()
+    reason = str(task.get("judge_reason") or "").strip()
+    title = str(task.get("title") or "").strip()
+    detail = hint or reason or title
+    if detail:
+        return f"{tid}: {detail}"
+    return f"{tid}: needs evidence."
+
+
+def format_spec_action_digest_delta(
+    spec: dict[str, Any],
+    ledger: dict[str, Any],
+    *,
+    highlight_task: str | None = None,
+    max_items: int = 1,
+    force: bool = False,
+) -> tuple[str, dict[str, dict[str, str]]]:
+    """Return action digest lines only for tasks whose guidance changed since last emit.
+
+    ``force=True`` skips delta filtering (fresh spec-CLI stderr path).
+    """
+    ok, incomplete = _all_tasks_validated(spec)
+    cached_raw = ledger.get("posttool_task_guidance")
+    cached: dict[str, dict[str, str]] = (
+        cached_raw if isinstance(cached_raw, dict) else {}
+    )
+    if ok:
+        line = "breaker: OPEN (all tasks validated)"
+        return line, dict(cached)
+
+    highlight = str(highlight_task or "").strip()
+    ordered: list[str] = []
+    if highlight and highlight in incomplete:
+        ordered.append(highlight)
+    for raw in incomplete:
+        tid = str(raw)
+        if tid and tid not in ordered:
+            ordered.append(tid)
+
+    lines: list[str] = []
+    new_cache = dict(cached)
+    for tid in ordered:
+        fp = task_guidance_fingerprint(spec, tid)
+        prev = cached.get(tid) if isinstance(cached.get(tid), dict) else {}
+        changed = force or highlight == tid or fp != prev
+        if not changed:
+            continue
+        lines.append(_action_line_for_task(spec, tid))
+        new_cache[tid] = fp
+        if len(lines) >= max_items:
+            break
+    return "\n".join(lines), new_cache
+
+
+def guidance_covers_incomplete(spec: dict[str, Any], ledger: dict[str, Any]) -> bool:
+    """True when every incomplete task has a cached guidance fingerprint."""
+    _ok, incomplete = _all_tasks_validated(spec)
+    if not incomplete:
+        return True
+    cached_raw = ledger.get("posttool_task_guidance")
+    cached: dict[str, dict[str, str]] = (
+        cached_raw if isinstance(cached_raw, dict) else {}
+    )
+    for tid in incomplete:
+        stid = str(tid)
+        if stid.startswith("<"):
+            continue
+        if stid not in cached:
+            return False
+        if task_guidance_fingerprint(spec, stid) != cached.get(stid):
+            return False
+    return True
+
+
+def build_citation_sync_context(headline: str) -> str:
+    """Cite-sync only — never bundle task action digest."""
+    return " ".join(str(headline or "").split())
+
+
+def build_spec_action_context(
+    spec: dict[str, Any],
+    *,
+    highlight_task: str | None = None,
+    max_items: int = 1,
+) -> str:
+    return format_spec_action_digest(
+        spec, highlight_task=highlight_task, max_items=max_items,
+    )
+
+
 def format_spec_action_digest(
     spec: dict[str, Any],
     *,
@@ -612,11 +732,13 @@ def build_spec_context_from_spec(
     *,
     headlines: list[str] | None = None,
     highlight_task: str | None = None,
+    include_action: bool = True,
 ) -> str:
     parts = [str(h).strip() for h in (headlines or []) if str(h).strip()]
-    action = format_spec_action_digest(spec, highlight_task=highlight_task)
-    if action:
-        parts.append(action)
+    if include_action:
+        action = format_spec_action_digest(spec, highlight_task=highlight_task)
+        if action:
+            parts.append(action)
     if not parts:
         return ""
     if len(parts) == 2 and "\n" not in parts[0] and "\n" not in parts[1]:

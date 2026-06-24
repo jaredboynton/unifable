@@ -1144,7 +1144,7 @@ def auto_validate_spec(
     time_budget is set, check runs stop at the deadline; remaining tasks stay
     open and are picked up on the next stop."""
     messages: list[str] = []
-    messages.extend(heal_judge_owned_requirements(spec))
+    messages.extend(heal_judge_owned_requirements(spec, transcript_path=transcript_path))
     deadline = (time.monotonic() + time_budget) if time_budget is not None else None
 
     pending: list[tuple[int, dict[str, Any]]] = []
@@ -1779,7 +1779,11 @@ def deterministic_heal_judge_requirements(spec: dict[str, Any]) -> list[str]:
     return _apply_adjustments(spec, {"adjust_requirements": adjustments})
 
 
-def judge_heal_own_requirements(spec: dict[str, Any]) -> list[str]:
+def judge_heal_own_requirements(
+    spec: dict[str, Any],
+    *,
+    transcript_path: str | None = None,
+) -> list[str]:
     """Judge-only pass: revise or retract open judge-added tasks. Fail-open."""
     open_tasks = _judge_owned_open_tasks(spec)
     if not open_tasks:
@@ -1788,9 +1792,11 @@ def judge_heal_own_requirements(spec: dict[str, Any]) -> list[str]:
         from codex_judge import JudgeError, ask_structured
     except ImportError:
         return []
+    transcript, plan_mode = _judge_context(transcript_path)
     payload = {
         "goal": spec.get("restated_goal", ""),
         "current_requirements": _current_requirements_payload(spec),
+        "session_context": _session_context_payload(plan_mode),
         "judge_owned_open": [
             {
                 "id": str(t.get("id") or ""),
@@ -1808,7 +1814,7 @@ def judge_heal_own_requirements(spec: dict[str, Any]) -> list[str]:
     }
     try:
         res = ask_structured(
-            _JUDGE_HEAL_SYSTEM,
+            _judge_system_with_transcript(_JUDGE_HEAL_SYSTEM, transcript, plan_mode),
             json.dumps(payload, ensure_ascii=False),
             _JUDGE_HEAL_SCHEMA,
             schema_name="judge_heal",
@@ -1818,7 +1824,11 @@ def judge_heal_own_requirements(spec: dict[str, Any]) -> list[str]:
     return _apply_adjustments(spec, res)
 
 
-def heal_judge_owned_requirements(spec: dict[str, Any]) -> list[str]:
+def heal_judge_owned_requirements(
+    spec: dict[str, Any],
+    *,
+    transcript_path: str | None = None,
+) -> list[str]:
     """Self-heal judge-owned requirements before Stop validation."""
     headlines = deterministic_heal_judge_requirements(spec)
     try:
@@ -1830,7 +1840,9 @@ def heal_judge_owned_requirements(spec: dict[str, Any]) -> list[str]:
     except Exception:
         pass
     if _judge_owned_open_tasks(spec):
-        headlines.extend(judge_heal_own_requirements(spec))
+        headlines.extend(
+            judge_heal_own_requirements(spec, transcript_path=transcript_path)
+        )
         try:
             from heavy_workflow import advance_primary_if_ready, sync_heavy_phase
 

@@ -136,13 +136,45 @@ def _tokens(cmd: str) -> list[str]:
 
 _SEG_SPLIT_RE = re.compile(r"[\n\r]|&&|\|\||;|\||&")
 
+# Leading redirection operator on a token: optional leading fd, the >/>>/</<<
+# operator, and an optional fd-dup (&N) or trailing fd. Matches `>`, `2>`, `2>>`,
+# `<`, `2>&1`, `>&2`, `&>`. A non-empty remainder after the match is an attached
+# target (e.g. `2>/dev/null`); an empty remainder on a non-fd-dup operator means
+# the filename target is the next token.
+_REDIRECT_OP_RE = re.compile(r"^(&?\d*(?:>>?|<<?)&?\d*)")
+
+
+def _drop_redirections(toks: list[str]) -> list[str]:
+    """Remove shell redirections and bare control operators so a redirect target
+    (`2>/dev/null`, `>out.txt`, or a separated `2> /dev/null`) is never mistaken
+    for a read file or fetch URL. Fd-dups (`2>&1`, `>&2`) carry no filename target."""
+    out: list[str] = []
+    expect_target = False
+    for t in toks:
+        if expect_target:
+            expect_target = False  # this token is the redirect's filename target
+            continue
+        m = _REDIRECT_OP_RE.match(t)
+        if m:
+            op = m.group(1)
+            rest = t[m.end():]
+            is_fd_dup = bool(re.search(r"[<>]&", op))
+            if rest == "" and not is_fd_dup:
+                expect_target = True  # bare `>` / `2>` -> next token is the target
+            continue
+        if t in _SHELL_OPERATORS:
+            continue
+        out.append(t)
+    return out
+
 
 def _command_segments(cmd: str) -> list[list[str]]:
     """Split a shell command into program-led segments. Splits on NEWLINES and
     shell operators (&&, ||, ;, |, &) -- so a read/fetch on its own line in a
     multi-line script is still seen in command position -- then tokenizes each
     segment with `# ...` comments stripped (so a comment can never inject a
-    phantom read/fetch)."""
+    phantom read/fetch) and redirections dropped (so `2>/dev/null` is never read
+    as a file)."""
     segments: list[list[str]] = []
     for raw in _SEG_SPLIT_RE.split(cmd):
         raw = raw.strip()
@@ -152,7 +184,7 @@ def _command_segments(cmd: str) -> list[list[str]]:
             toks = shlex.split(raw, comments=True)
         except ValueError:
             toks = [t for t in raw.split() if not t.startswith("#")]
-        toks = [t for t in toks if t not in _SHELL_OPERATORS]
+        toks = _drop_redirections(toks)
         if toks:
             segments.append(toks)
     return segments
