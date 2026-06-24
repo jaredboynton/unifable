@@ -1690,10 +1690,13 @@ def _judge_context(transcript_path: str | None) -> tuple[str, dict[str, Any]]:
     if not transcript_path:
         return "", plan_mode
     try:
-        from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
+        from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_retained
     except ImportError:
         return "", plan_mode
-    return stripped_transcript_tail(transcript_path, TRANSCRIPT_TOKEN_BUDGET), plan_mode
+    # Sticky retention (not a sliding tail): keeps a byte-identical, append-only
+    # prefix across consecutive same-session Stop validations so the judge prompt
+    # caches instead of busting the prefix every turn (the hottest judge path).
+    return stripped_transcript_retained(transcript_path, TRANSCRIPT_TOKEN_BUDGET), plan_mode
 
 
 def _judge_system_with_transcript(

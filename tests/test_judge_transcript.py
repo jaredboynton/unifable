@@ -11,7 +11,9 @@ GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
 import spec as spec_mod  # noqa: E402
+import transcript_tail  # noqa: E402
 from spec import (  # noqa: E402
+    _judge_context,
     _judge_system_for_task,
     _judge_system_with_transcript,
     _judge_user,
@@ -136,3 +138,63 @@ def test_auto_validate_transcript_reaches_judge_system(tmp_path, monkeypatch):
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path), transcript_path=str(tx))
     assert marker in captured.get("system", "")
     assert marker not in captured.get("user", "")
+
+
+def _record_line(text: str) -> str:
+    return json.dumps(
+        {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+    )
+
+
+def _prefix_changes(render, tmp_path, *, appends=60) -> int:
+    """Count how many times a renderer's window prefix changes over a sequence of
+    single-record appends. A sliding tail shifts on (nearly) every append; a sticky
+    retention window only shifts when a chunk boundary is crossed."""
+    tx = tmp_path / "session.jsonl"
+    records = [_record_line("REC-%04d-PAYLOAD" % i) for i in range(400)]
+    tx.write_text("\n".join(records) + "\n", encoding="utf-8")
+    changes = 0
+    prev = None
+    for k in range(appends):
+        head = render(str(tx))[:200]
+        if prev is not None and head != prev:
+            changes += 1
+        prev = head
+        records.append(_record_line("APP-%04d-PAYLOAD" % k))
+        tx.write_text("\n".join(records) + "\n", encoding="utf-8")
+    return changes
+
+
+def test_retained_renderer_is_sticky_unlike_sliding_tail(tmp_path):
+    """The retained renderer holds a byte-identical prompt-cache prefix across most
+    appends (only stepping on ~800-char chunk boundaries), whereas the old sliding
+    `stripped_transcript_tail` shifts its prefix on essentially every append and so
+    busts gpt-realtime-2's prompt cache every turn."""
+    from transcript_tail import (
+        MAX_CHARS_PER_TOKEN,
+        stripped_transcript_retained,
+        stripped_transcript_tail,
+    )
+
+    retained = _prefix_changes(lambda p: stripped_transcript_retained(p, max_tokens=1000), tmp_path)
+    sliding = _prefix_changes(lambda p: stripped_transcript_tail(p, max_tokens=1000), tmp_path)
+
+    # 60 appends * ~70 chars / 800-char chunk -> ~5 boundary crossings for retention,
+    # vs a prefix shift on (nearly) every append for the sliding tail.
+    assert sliding >= 55
+    assert retained <= 15
+    assert retained < sliding
+
+    # Always a bounded suffix of the full stripped transcript.
+    out = stripped_transcript_retained(str(tmp_path / "session.jsonl"), max_tokens=1000)
+    assert 0 < len(out) <= 1000 * MAX_CHARS_PER_TOKEN
+
+
+def test_judge_context_transcript_prefix_is_sticky(tmp_path, monkeypatch):
+    """End-to-end at the spec fix point: _judge_context feeds the requirement-
+    validation judge a sticky transcript, so consecutive Stop validations share a
+    cacheable prefix. With the prior sliding-tail renderer the prefix shifted every
+    turn (this count would be ~60 instead of a handful)."""
+    monkeypatch.setattr(transcript_tail, "TRANSCRIPT_TOKEN_BUDGET", 1000)
+    changes = _prefix_changes(lambda p: _judge_context(p)[0], tmp_path)
+    assert changes <= 15

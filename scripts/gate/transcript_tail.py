@@ -275,3 +275,34 @@ def stripped_transcript_tail(path: str | os.PathLike[str] | None, max_tokens: in
     except OSError:
         return ""
     return tail_tokens(stripped_transcript(raw), max_tokens)
+
+
+def stripped_transcript_retained(
+    path: str | os.PathLike[str] | None,
+    max_tokens: int = TRANSCRIPT_TOKEN_BUDGET,
+    retention_ratio: float | None = None,
+) -> str:
+    """Read a transcript file, strip JSONL framing, and bound it with a sticky
+    retention window instead of a sliding `tail_tokens` tail.
+
+    `tail_tokens` keeps the last `max_tokens*MAX_CHARS_PER_TOKEN` chars (a suffix
+    that slides one char per appended char), so a transcript fed to a same-session
+    judge over consecutive turns has a different prefix every turn and busts
+    gpt-realtime-2's prompt cache. `retention_window` runs over the FULL
+    append-only transcript and only advances its window start in chunks, so the
+    retained prefix stays byte-identical across appends until the next chunk drop
+    -- the cache-stable variant for the requirement-validation judge path. The
+    char budget matches `tail_tokens` so payloads can never exceed the model's
+    input-char limit.
+    """
+    if not path:
+        return ""
+    p = Path(path)
+    if not p.is_file():
+        return ""
+    try:
+        raw = p.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    char_budget = min(max(max_tokens, 0) * MAX_CHARS_PER_TOKEN, JUDGE_TRANSCRIPT_CHAR_BUDGET)
+    return retention_window(stripped_transcript(raw), char_budget, retention_ratio)
