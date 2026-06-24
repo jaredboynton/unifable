@@ -98,7 +98,7 @@ def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert rbg.explore_trace_list_item() == ""
     detail = rbg.allowed_research_bash_detail()
     assert ", ," not in detail
-    assert "after those, the unifusion" in detail
+    assert ", the unifusion skill scripts" in detail
 
     _write_explore_skill(tmp_path / ".agents" / "skills" / "explore")
     _clear_cache()
@@ -107,7 +107,7 @@ def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert " and websearch.sh (" in item
     detail = rbg.allowed_research_bash_detail()
     assert ", ," not in detail
-    assert "after those, the explore skill's trace.sh" in detail
+    assert ", the explore skill's trace.sh" in detail
     assert "websearch.sh" in detail
 
 
