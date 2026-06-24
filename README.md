@@ -159,9 +159,9 @@ Checking is continuous, not a one-shot at the end:
 
 ## Groundedness breaker
 
-Separate from the evidence spec: an overconfidence breaker (`scripts/gate/groundedness.py`) arms
-when the worker makes an unproven, load-bearing, confident claim, and blocks mutating tools until the
-claim is grounded. Release paths: **full disarm** (the judge finds the claim grounded, retracted, or
+Separate from the evidence spec: an overconfidence breaker (`scripts/gate/groundedness.py`) is
+always on (no env disable). It arms when the worker makes an unproven, load-bearing, confident
+claim, and blocks mutating tools until the claim is grounded. Release paths: **full disarm** (the judge finds the claim grounded, retracted, or
 no longer load-bearing — including grounding by empirical tool output), **provisional lift** (the
 worker is actively pursuing the verification the breaker asked for; mutations are allowed within a
 goal-scoped `lift_scope` while a monitor judge watches for drift), and **fail-open** after a bounded

@@ -73,9 +73,9 @@ def run_pre_tool_bash(
     """Drive hooks/pre_tool_use.py with a Bash payload and return (rc, stderr).
 
     Runs against a fresh tempdir cwd/data so no spec exists (research phase) and
-    no prior ledger state leaks in. The breaker and citation truth-check are
-    disabled so the test is offline and deterministic; this exercises the
-    research-whitelist branch only.
+    no prior ledger state leaks in. Citation truth-check is disabled so the test
+    is offline and deterministic; this exercises the research-whitelist branch
+    only (no transcript -> groundedness arm judge does not fire).
     """
     with tempfile.TemporaryDirectory() as tmp:
         payload = {
@@ -87,7 +87,6 @@ def run_pre_tool_bash(
         }
         env = dict(os.environ)
         env["UNIFABLE_GRADE"] = grade
-        env["UNIFABLE_BREAKER"] = "0"
         env["UNIFABLE_VERIFY_CITATIONS"] = "0"
         env["UNIFABLE_DATA"] = tmp
         proc = subprocess.run(
@@ -221,7 +220,6 @@ def _run_pre_tool_bash_breaker_on(
         }
         env = dict(os.environ)
         env["UNIFABLE_GRADE"] = "STANDARD"
-        env["UNIFABLE_BREAKER"] = "1"
         env["UNIFABLE_VERIFY_CITATIONS"] = "0"
         env["UNIFABLE_DATA"] = tmp
         proc = subprocess.run(

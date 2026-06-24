@@ -2,9 +2,8 @@
 """Prompt-hash keying (locked-until-complete), CLI-only spec protection, and the
 Stop breaker (block until all tasks validated), exercised through the real hooks.
 
-The judge is not called here: the breaker reads task `status` from the spec, so we
-write spec states directly (the spec protection is tool-level, not filesystem) and
-assert the gate's block/allow behavior. The live judge path is covered separately.
+The judge is not mocked here: Stop runs auto_validate_spec, so pending tasks must
+use a failing check that stays unvalidated; validated tasks use a passing check.
 
 Runs under pytest or standalone (python3 tests/test_breaker_keying.py).
 """
@@ -58,12 +57,16 @@ def _ledger_active(session: str, cwd: str, data_dir: str) -> str | None:
 
 def _write_spec(cwd: str, key: str, task_status: str, data_dir: str) -> None:
     """Seed a session spec at the keyed global path (key = the session id)."""
+    check = "false" if task_status == "pending" else "true"
     spec = {
         "restated_goal": "do the thing",
         "goal_seeded": False,
         "acceptance_criteria": [],
-        "tasks": [{"id": "T1", "title": "t1", "check": "true", "status": task_status,
-                   "exit": 0, "output": "ok", "judge_verdict": 1, "judge_reason": "ok"}],
+        "tasks": [{"id": "T1", "title": "t1", "check": check, "status": task_status,
+                   "exit": 1 if task_status == "pending" else 0,
+                   "output": "fail" if task_status == "pending" else "ok",
+                   "judge_verdict": 0 if task_status == "pending" else 1,
+                   "judge_reason": "pending" if task_status == "pending" else "ok"}],
         "repo_context": [{"cite": "a.py:1", "why": "why it matters"}],
         "prior_art": [{"cite": "http://example.com/doc", "why": "fixture source"}],
     }

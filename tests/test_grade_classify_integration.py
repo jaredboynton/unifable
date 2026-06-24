@@ -45,7 +45,6 @@ def _payload(cwd, prompt="fix the auth bug in gate_prompt.py", session="test-cla
 
 def _setup(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
-    monkeypatch.setenv("UNIFABLE_BREAKER", "0")
     return str(tmp_path)
 
 

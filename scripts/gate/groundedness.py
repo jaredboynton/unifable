@@ -28,7 +28,7 @@ SAFETY CAP. After BREAKER_MAX_BLOCKS consecutive blocks on one arm the breaker
 fails open (disarms, logs) so a misfiring judge can never hard-lock a session.
 
 Fails open: any judge or transcript error leaves tools unblocked.
-Disable with UNIFABLE_BREAKER=0. Cap override: UNIFABLE_BREAKER_MAX_BLOCKS.
+Always on (no env disable). Cap override: UNIFABLE_BREAKER_MAX_BLOCKS.
 """
 
 from __future__ import annotations
@@ -544,10 +544,6 @@ _MONITOR_SYSTEM = (
 _SCOPE_HINT_PREFIX = "Hint: "
 
 
-def enabled() -> bool:
-    return os.environ.get("UNIFABLE_BREAKER", "1").strip().lower() not in ("0", "false", "no", "off")
-
-
 def max_blocks() -> int:
     try:
         return max(1, int(os.environ.get("UNIFABLE_BREAKER_MAX_BLOCKS", BREAKER_MAX_BLOCKS_DEFAULT)))
@@ -925,8 +921,6 @@ def evaluate_pre_tool(
     judge: JudgeFn | None = None,
 ) -> tuple[bool, str, str]:
     """PreToolUse path: arm judge (debounced) and block mutation tools while armed."""
-    if not enabled():
-        return False, "", ""
     tool = str(input_data.get("tool_name") or "")
     key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
     events = state.get("events") if isinstance(state.get("events"), list) else []
@@ -1025,8 +1019,6 @@ def evaluate_post_tool_release(
     judge: JudgeFn | None = None,
 ) -> tuple[bool, str, str]:
     """PostToolUse release path. Returns (fully_disarmed, needed, context_message)."""
-    if not enabled():
-        return False, "", ""
     armed = bool(state.get("breaker_armed"))
     provisional = bool(state.get("breaker_provisional"))
     if not armed and not provisional:

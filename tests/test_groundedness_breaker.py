@@ -260,14 +260,6 @@ def test_judge_exception_fails_open(monkeypatch):
     assert blocked is False and steering == ""
 
 
-def test_disabled_env_fails_open(monkeypatch):
-    monkeypatch.setenv("UNIFABLE_BREAKER", "0")
-    judge = FakeJudge([(1, "blocked")])
-    state = _state()
-    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
-    assert blocked is False and judge.calls == 0
-
-
 def test_judge_system_prompt_asks_the_confidence_question():
     seg = "model said something"
     judge = FakeJudge([(1, "x")])

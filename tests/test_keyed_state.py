@@ -101,7 +101,6 @@ def test_edit_to_global_spec_path_is_blocked():
         env["UNIFABLE_DATA"] = data
         env["UNIFABLE_GRADE"] = "STANDARD"
         env["UNIFABLE_VERIFY_CITATIONS"] = "0"
-        env["UNIFABLE_BREAKER"] = "0"
         p = subprocess.run([sys.executable, str(REPO / "hooks" / "pre_tool_use.py")],
                            input=json.dumps(payload), capture_output=True, text=True, env=env)
         assert p.returncode == 2, f"global spec edit should be blocked; stderr={p.stderr}"
