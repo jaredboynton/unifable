@@ -88,18 +88,20 @@ problem on the other.
 (Cost column re-computed from the saved `raw/*/usage.json` with the new
 summarizer; the raw-token column is the old headline.)
 
-### Claude: unifable helped, and the old metric hid it
+### Claude: the single run looked like a win — but it did not replicate
 
-`claude:unifable` finished in **160s versus the baseline's 406s** and made
-**34 assistant turns versus 72** (counted from
-`raw/claude-unifable/cli.stdout.jsonl` and `raw/claude-baseline/cli.stdout.jsonl`).
-It used fewer tool calls (15: 8 Bash, 3 Read, 2 Edit, 1 WebFetch, 1 ToolSearch)
-than baseline (38: 18 Bash, 15 Read, 3 Agent, 2 Edit) and emitted **fewer
-output tokens** (9,811 vs 12,344). The only thing higher was cache-read volume,
-from re-reading the injected context each turn — which is why raw `total_tokens`
-showed 2.6x while cache-weighted cost is only ~1.4x. Net: grounding made Claude
-converge faster and leaner; the old metric inverted that into an apparent
-regression.
+In this one run `claude:unifable` finished in **160s versus the baseline's 406s**
+and made **34 assistant turns versus 72** (counted from
+`raw/claude-unifable/cli.stdout.jsonl` and `raw/claude-baseline/cli.stdout.jsonl`),
+with **fewer output tokens** (9,811 vs 12,344). Read alone, that says grounding
+made Claude converge faster and leaner, and that raw `total_tokens` (2.6x) inverted
+a real ~1.4x cost win into an apparent regression.
+
+That conclusion was an **n=1 artifact**. The 3-repeat replication below shows
+`claude:unifable` is normally ~2.7x *slower* and ~6x costlier than baseline; the
+160s cell was a lucky low-variance path where Claude edited directly instead of
+delegating. The cache-inflation point stands; the "unifable made Claude faster"
+point does not.
 
 ### Codex: a real ~8x overhead, caused by gate-wrestling
 
@@ -122,15 +124,58 @@ aggressively than Claude, and the benchmark task is **self-referential** (it ask
 the agent to add a regression test about the harness's own four-cell rule), which
 pulls a gate-aware agent straight into the gate machinery.
 
+## Replication: run 20260624T133303Z (3 repeats/cell)
+
+Re-running with `--repeats 3` and completed-only means (a transient API 529 took
+out one `claude:unifable` cell, which is excluded) gives the authoritative picture:
+
+| Condition | ok/total | Mean elapsed | Est. cost (USD) | Output tok | Fresh input | Cached input | Files changed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| claude:baseline | 3/3 | 382s | $0.47 | 8,104 | 99 | 133,873 | 1 |
+| claude:unifable | 2/3 | 1017s | $2.86 | 57,145 | 6,654 | 1,242,809 | 1 |
+| codex:baseline | 3/3 | 90s | $0.68 | 4,059 | 81,854 | 190,421 | 1 |
+| codex:unifable | 3/3 | 653s | $5.43 | 25,785 | 456,749 | 3,836,885 | 1 |
+
+Every cell produced the one-file deliverable (`files_changed == 1`), so this is
+overhead to reach the *same* output, not failed work. unifable costs ~2.7x latency
+/ ~6x dollars on Claude and ~7.3x / ~8x on Codex.
+
+Two findings from the transcripts explain it:
+
+- **Claude delegates under the orchestrator posture.** Both completed
+  `claude:unifable` cells made **zero main-thread edits** yet wrote the test file:
+  they spawned subagents/workflows (one cell: 9 `Agent` + 3 `Workflow` calls) and
+  the deliverable landed via a delegated worker after ~17 min. This is why the
+  stream-based file counter (now replaced by a worktree snapshot — see below) read
+  0; the worktree confirms the file and its tests pass.
+- **Both hosts pay for gate machinery.** The cost is dominated by output and fresh
+  input (Claude output 57k vs 8k baseline; Codex fresh input 457k vs 82k), i.e.
+  real generation and re-reading, not cache.
+
+**Measurement note (file changes).** The original counter parsed the agent's event
+stream, which misses edits made by delegated subagents — it under-counted the
+Claude cells as 0. `files_changed` is now measured by diffing a before/after
+snapshot of the worktree filesystem (`bench.py` `_snapshot_worktree` /
+`_files_changed_between`), which is delegation-proof. The published table above was
+reconciled against the worktrees (deliverable present, tests pass).
+
 ## Known limitations
 
 - **Self-referential task.** The default task
   (`benchmark/tasks/evidence_gate_regression.md`) is about the harness's own
-  acceptance rule, which amplifies Codex's gate-wrestling. A neutral,
+  acceptance rule, which pulls gate-aware agents straight into the gate machinery —
+  Codex into the spec CLI, Claude into orchestration/delegation. A neutral,
   self-contained coding task would measure grounding overhead on more
-  representative work; that is the next candidate improvement.
+  representative work; that is the next candidate improvement, and it would likely
+  shrink the overhead multiples reported here.
+- **Cost ≠ quality.** This benchmark measures latency, tokens, and dollars to reach
+  the deliverable. It does not score correctness, grounding, or how often the
+  baseline would have shipped a wrong answer — which is the thing unifable trades
+  cost for. A complete evaluation needs a quality axis this harness does not have.
 - **`est_cost_usd` is a list-price proxy**, not the actual cost of the
   subscription/quota the CLIs run under. Prices are pinned with a date
   (`PRICING_AS_OF` in `summarize.py`) and will drift.
-- **Small N.** Even with `--repeats`, these are local runs on one machine and
-  carry real variance, especially for the nondeterministic Codex loop.
+- **Small N and real variance.** Even with `--repeats 3`, these are local runs on
+  one machine; one `claude:unifable` repeat failed on a transient API 529, and the
+  earlier single-run headline was an outlier. Treat the multiples as order-of-
+  magnitude, not precise.

@@ -6,12 +6,28 @@ two hosts:** Claude Code and Codex, each as a **native plugin** (own manifest + 
 
 ## Live Benchmark
 
-> **2026-06-24:** On the saved-summary regression task,
-> Claude Code with unifable completed in **160s / 456,671 tokens** versus
-> **406s / 174,971 tokens** with hooks disabled. Codex CLI with unifable completed in
-> **821s / 3,176,778 tokens** versus **98s / 334,748 tokens** with user config ignored.
-> This is one local four-cell run; raw artifacts and the table are in
-> [benchmark/results/20260624T073500Z/summary.md](benchmark/results/20260624T073500Z/summary.md).
+> **2026-06-24 (3 repeats/cell, cache-weighted cost, completed-only means):** On the
+> saved-summary regression task, unifable adds real overhead on both hosts, and every
+> cell still produced the one-file deliverable:
+>
+> | Condition | ok/total | Mean elapsed | Est. cost (USD) | Output tok |
+> |---|---:|---:|---:|---:|
+> | claude:baseline | 3/3 | 382s | $0.47 | 8,104 |
+> | claude:unifable | 2/3 | 1017s | $2.86 | 57,145 |
+> | codex:baseline | 3/3 | 90s | $0.68 | 4,059 |
+> | codex:unifable | 3/3 | 653s | $5.43 | 25,785 |
+>
+> So unifable runs ~2.7x slower / ~6x costlier on Claude and ~7.3x slower / ~8x costlier
+> on Codex here — the price of forced grounding, gate machinery, and (on Claude) the
+> orchestrator posture delegating to subagents. Two corrections to the earlier headline:
+> the prior single run that showed unifable *faster* on Claude (160s) was an n=1 outlier
+> that did not replicate, and it reported raw `total_tokens`, which is 80-90% near-free
+> cache reads (billed at 0.1x input) and badly overstates cost. **This benchmark measures
+> cost and latency, not the grounding/verification quality unifable trades them for.**
+> Method, pricing sources, and the self-referential-task caveat are in
+> [docs/benchmark-methodology.md](docs/benchmark-methodology.md); raw artifacts and the
+> full table are in
+> [benchmark/results/20260624T133303Z/summary.md](benchmark/results/20260624T133303Z/summary.md).
 
 The premise: a harness cannot raise a model's ceiling, but it can make the model reach its own
 ceiling by turning verification, completion, and investigation into procedure the model cannot
@@ -131,14 +147,14 @@ host-agnostic; host wiring lives in `hooks/` and `install/`.
 
 On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delegate with
 `Task`/`Agent`, run Bash outside the research whitelist (`cd`, `ls`, `glob`, `rg`, the explore skill's
-`trace.sh` when that skill is installed — hook messages show the resolved path — or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
+`trace.sh` and `websearch.sh` when that skill is installed — hook messages show the resolved paths — or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
 `resolve_session.sh`), or finish until the session's evidence spec
 (`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec
 must carry (for **code-profile** tasks): `repo_context` (`{cite: path:line, why}` the worker actually
 read), `acceptance_criteria` (a runnable `check` plus its live `evidence` output -- placeholders are
 rejected), and `prior_art` (a source URL fetched via WebFetch/curl, required at STANDARD+). **Operational-profile**
 tasks (account research, draft replies, internal-tool synthesis) waive repo_context and prior_art;
-restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, explore-skill `trace.sh` (when installed), and unifusion panel
+restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, explore-skill `trace.sh` and `websearch.sh` (when installed), and unifusion panel
 research stay available so the worker can gather that evidence; a valid spec unlocks the action phase. Quick/LIGHT tasks are waived.
 
 The spec is **append-only and CLI-only** — never hand-edited. The worker drives it with
