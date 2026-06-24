@@ -19,30 +19,26 @@ def _load_summarize():
     return _load_module("summarize.py", "benchmark_summarize")
 
 
-def test_files_changed_counts_distinct_paths():
+def test_files_changed_from_worktree_snapshot(tmp_path):
     bench = _load_module("bench.py", "benchmark_bench")
-    # Two edits to the same file count once; a second file counts again.
-    claude_stream = "\n".join(
-        [
-            json.dumps({"type": "assistant", "message": {"content": [
-                {"type": "tool_use", "name": "Edit", "input": {"file_path": "a.py"}}]}}),
-            json.dumps({"type": "assistant", "message": {"content": [
-                {"type": "tool_use", "name": "Edit", "input": {"file_path": "a.py"}}]}}),
-            json.dumps({"type": "assistant", "message": {"content": [
-                {"type": "tool_use", "name": "Write", "input": {"file_path": "b.py"}}]}}),
-            json.dumps({"type": "assistant", "message": {"content": [
-                {"type": "tool_use", "name": "Bash", "input": {"command": "ls"}}]}}),
-        ]
-    )
-    assert bench._files_changed_from_text(claude_stream, "claude") == 2
+    wt = tmp_path / "worktree"
+    (wt / "tests").mkdir(parents=True)
+    (wt / "keep.py").write_text("x = 1\n", encoding="utf-8")
+    (wt / "tests" / "a.py").write_text("orig\n", encoding="utf-8")
+    before = bench._snapshot_worktree(wt)
 
-    codex_stream = "\n".join(
-        [
-            json.dumps({"type": "item.completed", "item": {"item_type": "file_change", "path": "a.py"}}),
-            json.dumps({"type": "item.completed", "item": {"item_type": "command_execution", "command": "ls"}}),
-        ]
-    )
-    assert bench._files_changed_from_text(codex_stream, "codex") == 1
+    # Agent (or a delegated subagent) adds a new file and modifies an existing one.
+    (wt / "tests" / "test_new.py").write_text("def test(): pass\n", encoding="utf-8")
+    (wt / "tests" / "a.py").write_text("modified\n", encoding="utf-8")
+    after = bench._snapshot_worktree(wt)
+
+    assert bench._files_changed_between(before, after) == 2  # one added, one modified
+    # Unchanged file is not counted.
+    assert before["keep.py"] == after["keep.py"]
+    # Ignored dirs do not register as changes.
+    (wt / "__pycache__").mkdir()
+    (wt / "__pycache__" / "junk.pyc").write_text("noise", encoding="utf-8")
+    assert bench._files_changed_between(before, bench._snapshot_worktree(wt)) == 2
 
 
 def _write_session(raw_dir, name, host, unifable, elapsed, tokens):

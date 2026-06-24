@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -208,45 +209,38 @@ def _json_events(text: str) -> list[dict[str, object]]:
     return events
 
 
-EDIT_TOOLS = {"Edit", "Write", "MultiEdit", "NotebookEdit"}
+SNAPSHOT_IGNORE_DIRS = {".git", ".mypy_cache", ".pytest_cache", "__pycache__", "results", "node_modules", ".unifable"}
 
 
-def _files_changed_from_text(text: str, host: str) -> int:
-    """Count distinct files the agent actually edited.
+def _snapshot_worktree(worktree: Path) -> dict[str, str]:
+    """Map every repo-relative file to a content hash.
 
-    A proxy for productive work: a cell that runs dozens of commands but changes
-    one file (or none) was churning, not building.
+    Used to detect what the agent changed by diffing a before/after snapshot of
+    the worktree filesystem. This is robust to delegation: edits made by a
+    spawned subagent or background workflow land on disk and are counted, whereas
+    parsing the main event stream misses them entirely.
     """
-    paths: set[str] = set()
-    for event in _json_events(text):
-        etype = event.get("type")
-        if host == "claude" and etype == "assistant":
-            message = event.get("message")
-            content = message.get("content") if isinstance(message, dict) else None
-            for block in content or []:
-                if not isinstance(block, dict) or block.get("type") != "tool_use":
-                    continue
-                if block.get("name") not in EDIT_TOOLS:
-                    continue
-                tool_input = block.get("input")
-                if isinstance(tool_input, dict):
-                    path = tool_input.get("file_path") or tool_input.get("path") or tool_input.get("notebook_path")
-                    if path:
-                        paths.add(str(path))
-        elif host == "codex" and etype == "item.completed":
-            item = event.get("item")
-            if not isinstance(item, dict):
-                continue
-            if (item.get("item_type") or item.get("type")) != "file_change":
-                continue
-            if item.get("path"):
-                paths.add(str(item["path"]))
-            for change in item.get("changes") or []:
-                if isinstance(change, dict) and change.get("path"):
-                    paths.add(str(change["path"]))
-            for fname in item.get("files") or []:
-                paths.add(str(fname))
-    return len(paths)
+    manifest: dict[str, str] = {}
+    for path in worktree.rglob("*"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        rel = path.relative_to(worktree)
+        if any(part in SNAPSHOT_IGNORE_DIRS for part in rel.parts):
+            continue
+        if rel.name == ".unifable-benchmark-condition.json":
+            continue
+        try:
+            manifest[str(rel)] = hashlib.sha1(path.read_bytes()).hexdigest()
+        except OSError:
+            continue
+    return manifest
+
+
+def _files_changed_between(before: dict[str, str], after: dict[str, str]) -> int:
+    """Count files added, modified, or deleted between two worktree snapshots."""
+    changed = sum(1 for rel, digest in after.items() if before.get(rel) != digest)
+    changed += sum(1 for rel in before if rel not in after)
+    return changed
 
 
 def _usage_from_text(text: str) -> dict[str, int]:
@@ -308,10 +302,9 @@ def _wait_for_pattern(driver: str, session: str, pattern: str, *, cwd: Path, env
     return out, err, False
 
 
-def _write_session_files(run_dir: Path, condition: Condition, status: str, elapsed: float, stdout: str, stderr: str) -> None:
+def _write_session_files(run_dir: Path, condition: Condition, status: str, elapsed: float, stdout: str, stderr: str, files_changed: int = 0) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     usage = _usage_from_text(stdout + "\n" + stderr)
-    files_changed = _files_changed_from_text(stdout, condition.host)
     if status == "completed" and not usage:
         status = "failed-no-usage"
     (run_dir / "stdout.txt").write_text(stdout, encoding="utf-8")
@@ -342,6 +335,7 @@ def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, time
     run_dir = raw_dir / cell_id
     run_dir.mkdir(parents=True, exist_ok=True)
     worktree = _prepare_worktree(run_dir, condition)
+    before_files = _snapshot_worktree(worktree)
     session = f"unifable-bench-{cell_id}-{int(time.time())}"
     record = run_dir / "session.cast"
     launch = [driver, "launch", "pending", "-s", session, "--cols", "140", "--rows", "42"]
@@ -406,7 +400,8 @@ def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, time
         (run_dir / "terminal.txt").write_text(out + "\n" + err, encoding="utf-8")
         stdout = _read_text(cli_stdout) or out
         stderr = _read_text(cli_stderr) or err
-        _write_session_files(run_dir, condition, status, elapsed, stdout, stderr)
+        files_changed = _files_changed_between(before_files, _snapshot_worktree(worktree))
+        _write_session_files(run_dir, condition, status, elapsed, stdout, stderr, files_changed)
     return run_dir
 
 

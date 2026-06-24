@@ -1,0 +1,4 @@
+# Dev/test dependencies for unifable. Install: pip install -r requirements-dev.txt
+pytest>=9.0
+pytest-xdist>=3.5
+pytest-random-order>=1.1

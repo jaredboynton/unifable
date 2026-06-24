@@ -14,3 +14,15 @@ version VERSION:
 # Regenerate rendered hook-output and judge-prompt reference docs.
 generated-docs:
     python3 scripts/generate_docs.py
+
+# Run the full Python test suite serially.
+test:
+    uv run --no-project --with-requirements requirements-dev.txt python -m pytest -n 0 tests -q
+
+# Run the full Python test suite across available CPU cores.
+test-parallel:
+    uv run --no-project --with-requirements requirements-dev.txt python -m pytest -n auto --dist=worksteal tests -q
+
+# Show the slowest tests in a serial run.
+test-profile:
+    uv run --no-project --with-requirements requirements-dev.txt python -m pytest -n 0 tests -q --durations=20 --durations-min=0
