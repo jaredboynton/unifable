@@ -124,10 +124,12 @@ aggressively than Claude, and the benchmark task is **self-referential** (it ask
 the agent to add a regression test about the harness's own four-cell rule), which
 pulls a gate-aware agent straight into the gate machinery.
 
-## Replication: run 20260624T133303Z (3 repeats/cell)
+## Inherited-config run: run 20260624T133303Z (3 repeats/cell)
 
 Re-running with `--repeats 3` and completed-only means (a transient API 529 took
-out one `claude:unifable` cell, which is excluded) gives the authoritative picture:
+out one `claude:unifable` cell, which is excluded), still in the operator's inherited
+environment, first overturned the single-run story — and then exposed the
+environmental confound that motivated the hermetic run below:
 
 | Condition | ok/total | Mean elapsed | Est. cost (USD) | Output tok | Fresh input | Cached input | Files changed |
 |---|---:|---:|---:|---:|---:|---:|---:|
@@ -156,18 +158,67 @@ Two findings from the transcripts explain it:
 stream, which misses edits made by delegated subagents — it under-counted the
 Claude cells as 0. `files_changed` is now measured by diffing a before/after
 snapshot of the worktree filesystem (`bench.py` `_snapshot_worktree` /
-`_files_changed_between`), which is delegation-proof. The published table above was
-reconciled against the worktrees (deliverable present, tests pass).
+`_files_changed_between`), which is delegation-proof.
+
+The run above used the operator's **inherited** environment (real `$HOME`), so the
+Claude cells inherited non-unifable user hooks — notably an explore hard-gate that
+blocks Read/Grep/Glob until a `trace.sh` that did not exist there, leaving the agent
+believing it had no file tools and routing everything through delegation. That is an
+environmental confound, not a property of unifable, which the hermetic run isolates.
+
+## Hermetic run: run 20260624T175715Z (the authoritative measurement)
+
+To measure unifable rather than the operator's environment, each cell now runs in an
+isolated home (`bench.py` `_prepare_claude_home` / `_prepare_codex_home`):
+
+- **Claude** gets a fresh `CLAUDE_CONFIG_DIR` containing only a minimal
+  `settings.json` — `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1`
+  (<https://code.claude.com/docs/en/authentication> covers the related token flow;
+  the disable-builtin-agents flag is documented at
+  <https://code.claude.com/docs/en/sub-agents>), REPL mode, cold compact, 1h prompt
+  caching, native file search, tool search, autocompact tuning — plus only the
+  unifable plugin via `--plugin-dir` (baseline: none), loaded with
+  `--setting-sources user` so no project/user hooks leak. Auth is a setup-token in
+  `CLAUDE_CODE_OAUTH_TOKEN`, so the keychain is not needed.
+- **Codex** gets a clean tuned `config.toml` (never-approve, full access, fast
+  service tier, no multi-agent/subagent hint scaffolding) in an isolated
+  `CODEX_HOME`, with the unifable plugin added only for the unifable cell.
+
+| Condition | ok/total | Mean elapsed | Est. cost (USD) | Output tok | Fresh input | Cached input | Files changed |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| claude:baseline | 3/3 | 113s | $0.66 | 7,912 | 2,186 | 495,721 | 1 |
+| claude:unifable | 3/3 | 636s | $2.86 | 35,526 | 5,758 | 2,810,890 | 1 |
+| codex:baseline | 3/3 | 84s | $0.73 | 5,271 | 69,363 | 290,304 | 1 |
+| codex:unifable | 3/3 | 444s | $4.19 | 20,648 | 322,755 | 3,230,848 | 1 |
+
+What changed versus the inherited-config run, and what it means:
+
+- **The delegation deadlock is gone.** With builtin subagents disabled, every
+  `claude:unifable` cell did the task directly: 3/3 completed (was 2/3), 636s (was
+  1017s), `files_changed == 1` measured live by the worktree snapshot. unifable was
+  genuinely active (25+ gate/spec markers in the transcript; 35k output vs the
+  baseline's 8k), so this is real grounding overhead, not the prior confound.
+- **The clean environment is much faster for everyone.** Baseline dropped 382s → 113s
+  once the user hooks were gone, which is why the unifable/baseline *ratio* rose even
+  as absolute unifable latency fell.
+- **Honest overhead:** unifable is ~5.6x slower / ~4.3x costlier on Claude and ~5.3x
+  slower / ~5.7x costlier on Codex — the price of forced restate/add-task/citation/
+  judge work to reach the *same* one-file deliverable.
 
 ## Known limitations
 
 - **Self-referential task.** The default task
   (`benchmark/tasks/evidence_gate_regression.md`) is about the harness's own
-  acceptance rule, which pulls gate-aware agents straight into the gate machinery —
-  Codex into the spec CLI, Claude into orchestration/delegation. A neutral,
-  self-contained coding task would measure grounding overhead on more
+  acceptance rule, which pulls gate-aware agents toward the gate machinery — Codex
+  into the spec CLI, Claude (before builtin agents were disabled) into delegation. A
+  neutral, self-contained coding task would measure grounding overhead on more
   representative work; that is the next candidate improvement, and it would likely
   shrink the overhead multiples reported here.
+- **No quality axis yet.** The hermetic run confirms each cell produces the same
+  one-file deliverable and its tests pass, but the harness still does not *score*
+  correctness or grounding. A per-cell quality gate (run the cell's deliverable test
+  and a mutation check that it actually enforces the four-cell rule) is the next
+  measurement to add.
 - **Cost ≠ quality.** This benchmark measures latency, tokens, and dollars to reach
   the deliverable. It does not score correctness, grounding, or how often the
   baseline would have shipped a wrong answer — which is the thing unifable trades
@@ -176,6 +227,7 @@ reconciled against the worktrees (deliverable present, tests pass).
   subscription/quota the CLIs run under. Prices are pinned with a date
   (`PRICING_AS_OF` in `summarize.py`) and will drift.
 - **Small N and real variance.** Even with `--repeats 3`, these are local runs on
-  one machine; one `claude:unifable` repeat failed on a transient API 529, and the
-  earlier single-run headline was an outlier. Treat the multiples as order-of-
-  magnitude, not precise.
+  one machine; the inherited-config run lost one `claude:unifable` repeat to a
+  transient API 529 (the hermetic run had 3/3), and `claude:unifable` latency still
+  ranged 367-1048s across repeats. Treat the multiples as order-of-magnitude, not
+  precise.

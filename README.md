@@ -6,28 +6,32 @@ two hosts:** Claude Code and Codex, each as a **native plugin** (own manifest + 
 
 ## Live Benchmark
 
-> **2026-06-24 (3 repeats/cell, cache-weighted cost, completed-only means):** On the
-> saved-summary regression task, unifable adds real overhead on both hosts, and every
-> cell still produced the one-file deliverable:
+> **2026-06-24 (hermetic, 3 repeats/cell, cache-weighted cost, completed-only means):**
+> On the saved-summary regression task, in an isolated per-cell environment (only the
+> unifable plugin varies — builtin subagents disabled, no leaked user hooks/skills,
+> token auth; Codex on a clean fast-tier config), unifable adds real overhead and every
+> cell produced the one-file deliverable directly:
 >
 > | Condition | ok/total | Mean elapsed | Est. cost (USD) | Output tok |
 > |---|---:|---:|---:|---:|
-> | claude:baseline | 3/3 | 382s | $0.47 | 8,104 |
-> | claude:unifable | 2/3 | 1017s | $2.86 | 57,145 |
-> | codex:baseline | 3/3 | 90s | $0.68 | 4,059 |
-> | codex:unifable | 3/3 | 653s | $5.43 | 25,785 |
+> | claude:baseline | 3/3 | 113s | $0.66 | 7,912 |
+> | claude:unifable | 3/3 | 636s | $2.86 | 35,526 |
+> | codex:baseline | 3/3 | 84s | $0.73 | 5,271 |
+> | codex:unifable | 3/3 | 444s | $4.19 | 20,648 |
 >
-> So unifable runs ~2.7x slower / ~6x costlier on Claude and ~7.3x slower / ~8x costlier
-> on Codex here — the price of forced grounding, gate machinery, and (on Claude) the
-> orchestrator posture delegating to subagents. Two corrections to the earlier headline:
-> the prior single run that showed unifable *faster* on Claude (160s) was an n=1 outlier
-> that did not replicate, and it reported raw `total_tokens`, which is 80-90% near-free
-> cache reads (billed at 0.1x input) and badly overstates cost. **This benchmark measures
-> cost and latency, not the grounding/verification quality unifable trades them for.**
-> Method, pricing sources, and the self-referential-task caveat are in
-> [docs/benchmark-methodology.md](docs/benchmark-methodology.md); raw artifacts and the
-> full table are in
-> [benchmark/results/20260624T133303Z/summary.md](benchmark/results/20260624T133303Z/summary.md).
+> So unifable runs ~5.6x slower / ~4.3x costlier on Claude and ~5.3x slower / ~5.7x
+> costlier on Codex — the genuine price of forced grounding and gate machinery, now
+> isolated from confounds. Disabling builtin subagents removed a prior delegation
+> deadlock (claude:unifable went 2/3 → 3/3 completed and 1017s → 636s), and the clean
+> environment also sped the baseline up (382s → 113s). The earlier single run that showed
+> unifable *faster* on Claude (160s) was an n=1 outlier; raw `total_tokens` is 80-90%
+> near-free cache reads (billed at 0.1x input) and overstates cost. **This benchmark
+> measures cost and latency, not the grounding/verification quality unifable trades them
+> for.** Method, hermetic setup, pricing sources, and the self-referential-task caveat are
+> in [docs/benchmark-methodology.md](docs/benchmark-methodology.md); raw artifacts are in
+> [benchmark/results/20260624T175715Z/summary.md](benchmark/results/20260624T175715Z/summary.md)
+> (the prior inherited-config run, showing the delegation deadlock, is in
+> `benchmark/results/20260624T133303Z/`).
 
 The premise: a harness cannot raise a model's ceiling, but it can make the model reach its own
 ceiling by turning verification, completion, and investigation into procedure the model cannot

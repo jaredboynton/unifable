@@ -44,6 +44,48 @@ CONDITIONS = (
     Condition("codex", "gpt-5.5", "xhigh", False),
 )
 
+# Hermetic Claude config dir contents. The only difference between the two Claude
+# cells is the unifable plugin (added via --plugin-dir for the unifable cell); the
+# environment below is held constant so the benchmark measures unifable, not a
+# tangle of user hooks/skills/plugins. Builtin subagents are disabled so a cell
+# cannot rabbit-hole into delegation; the rest mirrors the useful perf flags from
+# the operator's real ~/.claude/settings.json (cold compact, 1h caching, native
+# file search, tool search, autocompact tuning) plus REPL mode.
+CLAUDE_SETTINGS: dict[str, object] = {
+    "env": {
+        "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS": "1",
+        "CLAUDE_CODE_REPL": "1",
+        "CLAUDE_CODE_COLD_COMPACT": "1",
+        "ENABLE_PROMPT_CACHING_1H": "1",
+        "CLAUDE_CODE_USE_NATIVE_FILE_SEARCH": "1",
+        "ENABLE_TOOL_SEARCH": "auto",
+        "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE": "100",
+        "CLAUDE_CODE_AUTO_COMPACT_WINDOW": "500000",
+        "CLAUDE_CODE_SKIP_FAST_MODE_ORG_CHECK": "1",
+        "CLAUDE_CODE_EMIT_TOOL_USE_SUMMARIES": "1",
+        "CLAUDE_CODE_DISABLE_PRECOMPACT_SKIP": "1",
+    },
+    "permissions": {"defaultMode": "bypassPermissions"},
+    "includeCoAuthoredBy": False,
+    "model": "opus",
+    "alwaysThinkingEnabled": True,
+    "autoCompactEnabled": True,
+}
+
+# Clean, fast Codex config: never prompt, full access, fast tier, no apps
+# instructions, no multi-agent/subagent hint scaffolding (so Codex stays
+# single-agent). The unifable plugin block is appended only for the unifable cell.
+CODEX_CONFIG_BASE = """approval_policy = "never"
+model = "gpt-5.5"
+model_context_window = 1000000
+sandbox_mode = "danger-full-access"
+suppress_unstable_features_warning = true
+service_tier = "fast"
+include_apps_instructions = false
+model_reasoning_effort = "high"
+personality = "none"
+"""
+
 
 def _run(cmd: list[str], *, cwd: Path, env: dict[str, str] | None = None, timeout: int | None = None) -> subprocess.CompletedProcess[str]:
     return subprocess.run(cmd, cwd=cwd, env=env, timeout=timeout, text=True, capture_output=True, check=False)
@@ -72,6 +114,24 @@ def _copy_auth(src_home: Path, dst_home: Path, filename: str) -> None:
         shutil.copy2(src, dst)
 
 
+def _prepare_claude_home(run_dir: Path, condition: Condition) -> Path:
+    """Build a hermetic CLAUDE_CONFIG_DIR holding only our minimal settings.json.
+
+    No user hooks, skills, plugins, or marketplaces leak in: with this as
+    CLAUDE_CONFIG_DIR and ``--setting-sources user`` only this settings.json is
+    read. Auth is supplied out of band via CLAUDE_CODE_OAUTH_TOKEN (see
+    _env_for), so the keychain is not needed.
+    """
+    run_id = run_dir.parent.parent.name
+    claude_home = WORKSPACE_ROOT / run_id / run_dir.name / "claude-home"
+    if claude_home.exists():
+        shutil.rmtree(claude_home)
+    claude_home.mkdir(parents=True)
+    (claude_home / "settings.json").write_text(json.dumps(CLAUDE_SETTINGS, indent=2) + "\n", encoding="utf-8")
+    (run_dir / "claude-config-dir.txt").write_text(str(claude_home) + "\n", encoding="utf-8")
+    return claude_home
+
+
 def _prepare_codex_home(run_dir: Path, condition: Condition) -> Path:
     run_id = run_dir.parent.parent.name
     cell_id = run_dir.name
@@ -81,6 +141,8 @@ def _prepare_codex_home(run_dir: Path, condition: Condition) -> Path:
     codex_home.mkdir(parents=True)
     (run_dir / "codex-home-path.txt").write_text(str(codex_home) + "\n", encoding="utf-8")
     _copy_auth(Path.home() / ".codex", codex_home, "auth.json")
+    config = codex_home / "config.toml"
+    config.write_text(CODEX_CONFIG_BASE, encoding="utf-8")
     if condition.unifable:
         plugin_source = WORKSPACE_ROOT / run_id / cell_id / "plugin-source"
         if plugin_source.exists():
@@ -93,8 +155,7 @@ def _prepare_codex_home(run_dir: Path, condition: Condition) -> Path:
         setup_log.write_text(added.stdout + added.stderr + installed.stdout + installed.stderr, encoding="utf-8")
         if added.returncode != 0 or installed.returncode != 0:
             raise SystemExit(f"failed to prepare Codex plugin home; see {setup_log}")
-        config = codex_home / "config.toml"
-        text = config.read_text(encoding="utf-8") if config.exists() else ""
+        text = config.read_text(encoding="utf-8")
         if '[plugins."unifable@unifable"]' not in text:
             with config.open("a", encoding="utf-8") as fh:
                 fh.write('\n[plugins."unifable@unifable"]\nenabled = true\n')
@@ -107,6 +168,17 @@ def _env_for(condition: Condition, worktree: Path, run_dir: Path) -> dict[str, s
     env["UNIFABLE_BENCHMARK_WORKTREE"] = str(worktree)
     if condition.host == "codex":
         env["CODEX_HOME"] = str(_prepare_codex_home(run_dir, condition))
+    if condition.host == "claude":
+        env["CLAUDE_CONFIG_DIR"] = str(_prepare_claude_home(run_dir, condition))
+        # Shell env wins over settings.json, so builtin subagents stay disabled
+        # regardless of how settings load.
+        env["CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"] = "1"
+        # Auth without the keychain: a setup-token from the launching environment
+        # (https://code.claude.com/docs/en/authentication). Absent it, the hermetic
+        # config dir reports "Not logged in".
+        token = os.environ.get("CLAUDE_CODE_OAUTH_TOKEN")
+        if token:
+            env["CLAUDE_CODE_OAUTH_TOKEN"] = token
     return env
 
 
@@ -139,12 +211,15 @@ def _command_for(condition: Condition, task_path: Path, worktree: Path) -> str:
             "--permission-mode",
             "bypassPermissions",
             "--dangerously-skip-permissions",
+            # Load only the hermetic CLAUDE_CONFIG_DIR settings.json (not the
+            # worktree's project settings), so the environment is held constant.
+            "--setting-sources",
+            "user",
         ]
         if condition.unifable:
-            flags.extend(["--setting-sources", "project"])
             flags.extend(["--plugin-dir", str(REPO_ROOT)])
-        else:
-            flags.append("--safe-mode")
+        # Baseline: same hermetic home, no unifable plugin (no --safe-mode, so the
+        # constant perf settings still apply).
         return " ".join(shlex.quote(part) for part in flags) + f" {prompt_arg}"
     if condition.host == "codex":
         flags = [
@@ -161,8 +236,8 @@ def _command_for(condition: Condition, task_path: Path, worktree: Path) -> str:
         ]
         if condition.unifable:
             flags.append("--dangerously-bypass-hook-trust")
-        else:
-            flags.append("--ignore-user-config")
+        # Both cells use the isolated, tuned CODEX_HOME config; the baseline simply
+        # has no unifable plugin block, so unifable is off without --ignore-user-config.
         return " ".join(shlex.quote(part) for part in flags) + f" {prompt_arg}"
     raise ValueError(condition.host)
 
