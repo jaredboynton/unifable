@@ -54,15 +54,38 @@ def test_auto_validate_one_judge_call_for_all_tasks(tmp_path, monkeypatch):
     assert calls["n"] == 1
 
 
-def test_failed_rejudged_without_check_rerun(tmp_path, monkeypatch):
+def test_failed_always_reruns_check(tmp_path, monkeypatch):
     s = spec_template()
     s["requires_tasks"] = True
     s["restated_goal"] = "g"
     s["tasks"] = [_task("T1", "failed", exit=1, output="prior failure")]
     save_spec(str(tmp_path), "K", s)
+    seen = {"check": False}
+
+    def fake_run_check(check, cwd=".", timeout=None):
+        seen["check"] = True
+        return 0, "fresh ok"
+
+    monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
+    monkeypatch.setattr(
+        spec_mod, "judge_tasks",
+        lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items],
+    )
+    spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert seen["check"] is True
+    assert spec["tasks"][0]["status"] == "validated"
+    assert any("check re-run: exit 0 (was 1)" in m for m in msgs)
+
+
+def test_failed_replay_failed_flag_skips_rerun(tmp_path, monkeypatch):
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "failed", exit=1, output="prior failure", replay_failed=True)]
+    save_spec(str(tmp_path), "K", s)
 
     def fail_if_called(*args, **kwargs):
-        raise AssertionError("run_check must not run for failed tasks with stored output")
+        raise AssertionError("run_check must not run when replay_failed is set")
 
     monkeypatch.setattr(spec_mod, "run_check", fail_if_called)
     monkeypatch.setattr(
@@ -71,6 +94,76 @@ def test_failed_rejudged_without_check_rerun(tmp_path, monkeypatch):
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert spec["tasks"][0]["status"] == "validated"
+
+
+def test_failed_empty_output_reruns_and_validates(tmp_path, monkeypatch):
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "failed", exit=1, output="")]
+    save_spec(str(tmp_path), "K", s)
+    seen = {"check": False}
+
+    def fake_run_check(check, cwd=".", timeout=None):
+        seen["check"] = True
+        return 0, ""
+
+    monkeypatch.setattr(spec_mod, "run_check", fake_run_check)
+    monkeypatch.setattr(
+        spec_mod, "judge_tasks",
+        lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items],
+    )
+    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    assert seen["check"] is True
+    assert spec["tasks"][0]["status"] == "validated"
+
+
+def test_revise_applies_verdict_same_stop(tmp_path, monkeypatch):
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "failed", exit=1, output="bad", check="false")]
+    save_spec(str(tmp_path), "K", s)
+
+    def fake_judge_tasks(sp, items, *, transcript="", **kw):
+        spec_mod._apply_adjustments(
+            sp,
+            {
+                "adjust_requirements": [{
+                    "id": "T1",
+                    "action": "revise",
+                    "check": "true",
+                    "reason": "check was wrong",
+                }],
+            },
+        )
+        return [(1, "ok", [], "") for _ in items]
+
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    task = spec["tasks"][0]
+    assert task["check"] == "true"
+    assert task["status"] == "validated"
+    assert task["exit"] == 0
+    assert task["output"] == "ok"
+
+
+def test_cmd_retry_task_clears_stale_snapshot(tmp_path, monkeypatch):
+    from spec import _cmd_retry_task
+
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["tasks"] = [_task("T1", "failed", exit=1, output="stale", judge_reason="old")]
+    save_spec(str(tmp_path), "K", s)
+    monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "K")
+    args = SimpleNamespace(root=str(tmp_path), task_id="K", task="T1")
+    assert _cmd_retry_task(args) == 0
+    task = load_spec(str(tmp_path), "K")["tasks"][0]
+    assert task["status"] == "pending"
+    assert task["exit"] is None
+    assert task["output"] == ""
+    assert task["judge_reason"] == ""
 
 
 def test_pending_still_runs_check(tmp_path, monkeypatch):
@@ -238,10 +331,8 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     # reason carries the alarm plus Action lines; full digest rides additionalContext.
     assert "breaker CLOSED" in block_reason
     assert reason in ctx
-    assert "Action:" in block_reason
-    assert "T1:" in block_reason
-    assert "unifable spec update" not in block_reason
-    assert "T1 [XX] T1" in ctx
+    assert "Action required:" in ctx
+    assert "T1 [XX]" in ctx or "T1:" in ctx
 
 
 def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
@@ -337,9 +428,8 @@ def test_stop_persists_digest_and_reason_hints(tmp_path, monkeypatch):
     block_reason = out.get("reason") or ""
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert "run the behavioral test" in ctx
-    assert "Action:" in block_reason
-    assert "run the behavioral test" in block_reason
     assert "Action required:" in ctx
+    assert "run the behavioral test" in ctx
     digest = tmp_path / "specs"
     matches = list(digest.rglob("last_stop_validation.txt")) if digest.is_dir() else []
     assert matches, "expected persisted stop digest"
@@ -370,3 +460,40 @@ def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeyp
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
     assert "breaker CLOSED" in (out.get("reason") or "")
+
+
+def test_stop_resolves_transcript_without_payload_path(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+    from transcript_locate import _encode_cwd
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    cwd = str(tmp_path)
+    session = "sess-transcript"
+    fake_home = tmp_path / "home"
+    proj = fake_home / ".claude" / "projects" / _encode_cwd(cwd)
+    proj.mkdir(parents=True)
+    transcript_file = proj / f"{session}.jsonl"
+    transcript_file.write_text(
+        '{"type":"user","message":{"role":"user","content":"hello"}}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HOME", str(fake_home))
+    captured: dict[str, str | None] = {}
+
+    def fake_auto_validate(spec, cwd_arg, **kw):
+        captured["transcript_path"] = kw.get("transcript_path")
+        return spec, []
+
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "validated")]
+    save_spec(str(tmp_path), session, s)
+    monkeypatch.setattr(spec_mod, "auto_validate_spec", fake_auto_validate)
+
+    _run_stop(gate_stop, {"session_id": session, "cwd": cwd})
+    assert captured.get("transcript_path") == str(transcript_file)

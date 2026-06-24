@@ -568,16 +568,11 @@ def _encode_cwd(cwd: str) -> str:
 
 
 def locate_transcript(input_data: dict) -> str | None:
-    tp = input_data.get("transcript_path")
-    if tp and Path(str(tp)).is_file():
-        return str(tp)
-    sid = input_data.get("session_id")
-    cwd = input_data.get("cwd") or os.getcwd()
-    if sid:
-        cand = Path.home() / ".claude" / "projects" / _encode_cwd(str(cwd)) / f"{sid}.jsonl"
-        if cand.is_file():
-            return str(cand)
-    return None
+    try:
+        from transcript_locate import locate_transcript as _locate
+    except ImportError:
+        from scripts.gate.transcript_locate import locate_transcript as _locate  # pragma: no cover
+    return _locate(input_data)
 
 
 def transcript_segment(input_data: dict, max_tokens: int = _TRANSCRIPT_TOKEN_BUDGET) -> str:

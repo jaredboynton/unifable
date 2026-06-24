@@ -22,7 +22,7 @@ ALLOWED_RESEARCH_BASH = (
     "the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh), "
     "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
     "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
-    "(unifable restate|add-task|set-primary|add-frontier|dispute; legacy unifable-spec alias still accepted)"
+    "(unifable restate|add-task|set-primary|add-frontier|dispute|retry-task; legacy unifable-spec alias still accepted)"
 )
 
 _ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg"})
@@ -39,7 +39,7 @@ _PY_INTERPRETERS = frozenset({"python", "python3"})
 # Creation is automatic (the gate_prompt hook), and removal is judge-only, so
 # `create`/`init` and any `--force` are NOT here -- they would let the agent
 # overwrite or wipe a spec. dispute records an impossibility claim (judge-adjudicated).
-_SPEC_APPEND_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
+_SPEC_APPEND_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute", "retry-task"})
 _SPEC_CLI_NAMES = frozenset({"unifable", "unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")

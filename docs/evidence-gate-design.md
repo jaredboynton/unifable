@@ -40,11 +40,12 @@ agent thrashes through edits first and only "cites" at the end.
 - ACTION phase (unlocked) — once the evidence artifact validates, all tools allowed (the existing spec
   gate's pass condition, now richer). Citations sync from ledger activity automatically
   (`sync_citations_from_activity` in `scripts/gate/citations.py`); on Stop, `auto_validate_spec`
-  runs fresh checks for pending/delivered tasks, re-judges failed tasks on stored output, and
-  adjudicates disputed impossibility claims (`scripts/gate/spec.py`). Resolved statuses are
+  runs fresh checks for every open task (including failed; set ``replay_failed`` on
+  a task to replay stored output instead), and adjudicates disputed impossibility
+  claims (`scripts/gate/spec.py`). Resolved statuses are
   `validated`, `retracted`, and `superseded` (agent tasks replaced by a judge-added requirement
   via `supersedes: [ids]` — non-blocking). Agent-facing CLI: `unifable restate`,
-  `unifable add-task`, and `unifable dispute`.
+  `unifable add-task`, `unifable dispute`, and `unifable retry-task`.
 
 ## Delta 1 — broaden the locked surface (pre_tool_use.py)
 

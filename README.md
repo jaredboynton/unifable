@@ -148,7 +148,7 @@ Checking is continuous, not a one-shot at the end:
 - Citations **sync continuously** from real activity, so the evidence the spec is judged against is
   what the worker actually did, kept current in the background on every tool call.
 - On **Stop**, `auto_validate_spec` in `scripts/gate/spec.py` validates open requirements:
-  pending/delivered tasks get fresh checks; failed tasks are re-judged on stored output;
+  every open task gets a fresh harness check (failed tasks re-run unless `replay_failed` is set);
   disputed impossibility claims are adjudicated. When Stop **blocks**, feedback is packaged as a
   **priority digest** (`build_stop_validate_context` in `scripts/gate/model_notify.py`):
   **Action required** first (full judge reasoning for tasks adjudicated this stop), then a collapsed

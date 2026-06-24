@@ -34,6 +34,7 @@ from atomicio import write_text_atomic
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
+from transcript_locate import locate_transcript
 from verify_state import (MAX_STOP_BLOCKS, completion_runaway_warning,
                           note_completion_block, reset_completion_stall,
                           should_block_stop, warning_after_max_blocks)
@@ -591,6 +592,10 @@ def promise_no_act_reason(input_data: dict) -> str:
 
 def main() -> int:
     input_data = read_stdin_json()
+    if not input_data.get("transcript_path"):
+        resolved = locate_transcript(input_data)
+        if resolved:
+            input_data["transcript_path"] = resolved
     from spec import canonical_project_root
 
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))

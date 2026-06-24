@@ -12,7 +12,7 @@ Provides:
   - canonical_project_root(cwd) -> Path   (git root / project markers; subdirs share one spec)
   - spec_template() -> dict
   - CLI: validate / contract (harness) / restate / add-task / set-primary /
-    add-frontier / dispute / where (UNIFABLE_DEV=1)
+    add-frontier / dispute / retry-task / where (UNIFABLE_DEV=1)
 
 State is one spec.json per (canonical project root, session), so a new session never
 inherits a prior one's spec and two repos sharing a session id do not collide. Subdirs
@@ -972,6 +972,13 @@ def _current_requirements_payload(spec: dict[str, Any]) -> list[dict[str, str]]:
     return out
 
 
+def _should_replay_failed_check(task: dict[str, Any]) -> bool:
+    """True when a failed task should replay stored exit/output instead of re-running."""
+    if str(task.get("status") or "") != "failed":
+        return False
+    return task.get("replay_failed") is True
+
+
 def _check_inputs_for_task(
     task: dict[str, Any],
     cwd: str | Path,
@@ -979,10 +986,11 @@ def _check_inputs_for_task(
 ) -> tuple[int, str]:
     """Return (exit_code, output) for judge validation.
 
-    Failed tasks with stored output are re-judged on prior evidence; pending and
-    delivered tasks get a fresh check run (bounded by the Stop wall-clock budget).
+    Open tasks get a fresh check run (bounded by the Stop wall-clock budget).
+    Failed tasks replay stored output only when ``replay_failed`` is true on
+    the task (escape hatch for expensive checks).
     """
-    if str(task.get("status") or "") == "failed" and task.get("output") is not None:
+    if _should_replay_failed_check(task):
         exit_code = task.get("exit")
         return (
             int(exit_code if exit_code is not None else 1),
@@ -999,16 +1007,13 @@ def _apply_check_result(
     verdict: int, reason: str, new_reqs: list[dict[str, str]],
     *,
     frontier_outcome: str = "",
+    prior_exit: int | None = None,
 ) -> list[str]:
     """Record a check+judge outcome on the task and notify. Mutates spec in place."""
     tid = str(task.get("id") or "")
-    if task.pop("_revised_this_cycle", None):
-        headline = f"{tid} check revised by judge; re-validate on next stop."
-        notify_spec_update(
-            spec, headline,
-            highlight_task=tid,
-        )
-        return [headline]
+    prefix: list[str] = []
+    if prior_exit is not None and prior_exit != exit_code:
+        prefix.append(f"{tid} check re-run: exit {exit_code} (was {prior_exit}).")
     task["exit"] = exit_code
     task["output"] = output
     task["judge_verdict"] = verdict
@@ -1097,7 +1102,7 @@ def _apply_check_result(
         spec, headline,
         highlight_task=tid,
     )
-    return [headline] + extra_headlines
+    return prefix + [headline] + extra_headlines
 
 
 def _validate_one_task(
@@ -1136,9 +1141,9 @@ def auto_validate_spec(
 ) -> tuple[dict[str, Any], list[str]]:
     """Validate every open task on stop. Mutates spec in place.
 
-    Failed tasks with stored output are re-judged (no check re-run).
-    Pending/delivered tasks get fresh checks bounded by the remaining wall-clock
-    budget. Disputed tasks are adjudicated in the same unified judge call as
+    Open tasks (including failed) get fresh checks bounded by the remaining
+    wall-clock budget unless ``replay_failed`` is set on the task. Disputed
+    tasks are adjudicated in the same unified judge call as
     validation tasks. One ask_structured round-trip judges all tasks together
     from shared context (goal, board, transcript, check outputs). When
     time_budget is set, check runs stop at the deadline; remaining tasks stay
@@ -1174,12 +1179,21 @@ def auto_validate_spec(
         if task.get("status") == "disputed":
             items.append({"task": task, "kind": "dispute"})
             continue
+        prior_exit: int | None = None
+        if str(task.get("status") or "") == "failed" and not _should_replay_failed_check(task):
+            raw_exit = task.get("exit")
+            if raw_exit is not None:
+                try:
+                    prior_exit = int(raw_exit)
+                except (TypeError, ValueError):
+                    prior_exit = 1
         exit_code, output = _check_inputs_for_task(task, cwd, deadline)
         items.append({
             "task": task,
             "kind": "validate",
             "exit_code": exit_code,
             "output": output,
+            "prior_exit": prior_exit,
         })
 
     if items:
@@ -1193,11 +1207,15 @@ def auto_validate_spec(
             if it.get("kind") == "dispute":
                 messages.extend(_apply_dispute_verdict(spec, task, verdict, reason))
             else:
+                exit_code, output = it["exit_code"], it["output"]
+                if task.pop("_check_stale", None):
+                    exit_code, output = _check_inputs_for_task(task, cwd, deadline)
                 messages.extend(
                     _apply_check_result(
-                        spec, task, it["exit_code"], it["output"],
+                        spec, task, exit_code, output,
                         verdict, reason, new_reqs,
                         frontier_outcome=frontier_outcome,
+                        prior_exit=it.get("prior_exit"),
                     )
                 )
     return spec, messages
@@ -1735,7 +1753,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["output"] = ""
             t["judge_verdict"] = None
             t["judge_reason"] = reason
-            t["_revised_this_cycle"] = True
+            t["_check_stale"] = True
             who = "Judge" if t.get("added_by") == "judge" else "Agent req"
             headline = f"{who} requirement {tid} revised: {reason[:80]}"
         notify_spec_update(spec, headline, highlight_task=tid)
@@ -2496,6 +2514,30 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_retry_task(args: argparse.Namespace) -> int:
+    """Queue a task for a fresh harness check on the next Stop."""
+    spec = load_spec(args.root, args.task_id)
+    task = find_task(spec, args.task) if spec else None
+    if task is None:
+        print(f"Task {args.task} not found.", file=sys.stderr)
+        return 1
+    status = str(task.get("status") or "")
+    if status in ("validated", "retracted", "superseded"):
+        print(f"{args.task} is {status}; nothing to retry.", file=sys.stderr)
+        return 1
+    task["status"] = "pending"
+    task["exit"] = None
+    task["output"] = ""
+    task["judge_verdict"] = None
+    task["judge_reason"] = ""
+    task.pop("replay_failed", None)
+    save_spec(args.root, args.task_id, spec)
+    headline = f"{args.task} queued for fresh check on next stop."
+    print(headline)
+    notify_spec_update(spec, headline, highlight_task=args.task)
+    return 0
+
+
 def _cmd_where(args: argparse.Namespace) -> int:
     if os.environ.get("UNIFABLE_DEV", "").strip().lower() not in ("1", "true", "yes"):
         print("where is dev-only; set UNIFABLE_DEV=1.", file=sys.stderr)
@@ -2587,6 +2629,12 @@ def main(argv: list[str] | None = None) -> int:
     p_dispute.add_argument("--evidence", required=True,
                            help="Proof the requirement cannot be satisfied (the judge adjudicates it).")
 
+    p_retry = sub.add_parser(
+        "retry-task",
+        help="Clear stale check output and queue a fresh harness check on stop.",
+    )
+    p_retry.add_argument("--task", required=True, help="Task id, e.g. T1.")
+
     sub.add_parser("where", help="Dev-only: show canonical spec path (UNIFABLE_DEV=1).")
 
     args = parser.parse_args(argv)
@@ -2600,6 +2648,7 @@ def main(argv: list[str] | None = None) -> int:
         "set-primary": _cmd_set_primary,
         "add-frontier": _cmd_add_frontier,
         "dispute": _cmd_dispute,
+        "retry-task": _cmd_retry_task,
         "where": _cmd_where,
     }
     handler = dispatch.get(args.cmd)

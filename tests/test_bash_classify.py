@@ -39,6 +39,7 @@ ALLOWED = [
     "unifable-spec restate 'do the thing well'",
     "python3 scripts/gate/spec.py restate 'do the thing well'",
     "unifable dispute --task T1 --evidence proof",
+    "unifable retry-task --task T1",
     "unifable-spec add-task --title t --check true",
     "unifable-spec dispute --task T1 --evidence proof",
     "python3 scripts/gate/spec.py add-task --title t --check true",
