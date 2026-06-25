@@ -852,7 +852,7 @@ def _apply_dispute_verdict(
         )
         headlines.append(f"{tid}: dispute rejected")
     else:
-        headline = f"{tid} retracted — judge accepted impossibility."
+        headline = f"{tid} retracted: judge accepted impossibility/obsolescence."
         if all_tasks_validated(spec)[0]:
             headline += " Completion breaker open."
         notify_spec_update(
@@ -1857,7 +1857,9 @@ _VALIDATE_ALL_SYSTEM = (
     "when the evidence is absent or contradicts it. Do NOT tell the agent to convert "
     "the check into a shell command or to write a repo file -- a research "
     "requirement is proven by its retrievals, not by a grep.\n"
-    "- kind=dispute: accept (verdict 1) ONLY if dispute_evidence proves impossibility.\n"
+    "- kind=dispute: accept (verdict 1) only on the dispute-adjudication grounds "
+    "below -- proven impossibility OR proven obsolescence (the constrained subject "
+    "was removed by a pivot); reject mere difficulty.\n"
     "- approach_kind=frontier: return outcome rejected_approach, still_viable, or "
     "accepted_approach. Verdict 1 when check passed.\n"
     "- approach_kind=primary: validate primary delivery after frontiers ruled out.\n"
@@ -1866,11 +1868,28 @@ _VALIDATE_ALL_SYSTEM = (
 )
 
 _DISPUTE_ADJUDICATION = (
-    "For kind=dispute: accept (verdict 1) ONLY if dispute_evidence genuinely "
-    "proves impossibility; reject (verdict 0) if merely hard or inconvenient. "
+    "For kind=dispute: accept (verdict 1) if dispute_evidence genuinely proves "
+    "impossibility OR proven obsolescence (see OBSOLESCENCE below); reject "
+    "(verdict 0) if merely hard or inconvenient. "
     "When session_context.plan_mode_enabled is true, accept disputes where "
     "evidence shows the check requires repo-tracked mutation that host Plan Mode "
     "forbade for this turn."
+)
+
+# A requirement can also be retired when the implementation legitimately pivoted
+# and the specific behavior/route/file it constrains was REMOVED -- the check is
+# then inapplicable, not merely hard. This is adjudicated (never agent fiat) and
+# demands a failable absence proof, so it cannot be used to dodge live work.
+_DISPUTE_OBSOLETE_RULE = (
+    "OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a "
+    "specific behavior, route, file, or code path that was REMOVED because the "
+    "implementation pivoted, AND the dispute_evidence contains a failable check "
+    "(e.g. a repo grep) whose captured output proves that subject is now ABSENT "
+    "(zero matches, or the file is gone). A requirement whose subject no longer "
+    "exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. "
+    "Still reject (verdict 0) when the subject still exists in the repo, when the "
+    "agent merely preferred a different approach without removing the old one, or "
+    "when no captured absence proof is provided."
 )
 
 
@@ -2290,7 +2309,7 @@ def _build_validate_all_user(
 
 
 def _validate_all_system(transcript: str, plan_mode: dict[str, Any] | None = None) -> str:
-    base = _VALIDATE_ALL_SYSTEM + " " + _DISPUTE_ADJUDICATION
+    base = _VALIDATE_ALL_SYSTEM + " " + _DISPUTE_ADJUDICATION + " " + _DISPUTE_OBSOLETE_RULE
     return _judge_system_with_transcript(base, transcript, plan_mode=plan_mode)
 
 
@@ -2614,13 +2633,14 @@ def judge_dispute(
         return 0, f"judge unavailable: {exc}"
     system = (
         "You are a strict adjudicator. An agent claims a REQUIRED task is impossible "
-        "and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely "
+        "or obsolete and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely "
         "proves the task cannot be done -- a real, demonstrated blocker, not a "
         "preference, a difficulty, or an excuse. Reject (verdict 0) if the evidence "
         "is weak, the task is merely hard or inconvenient, or the agent is dodging "
         "work; in reason, tell the agent bluntly what real proof would be required. "
         "Do not accept a claim that work is 'complete' here -- this is only about "
-        "whether the requirement is genuinely impossible. " + _JUDGE_FEEDBACK_GUIDANCE
+        "whether the requirement is genuinely impossible or obsolete. "
+        + _JUDGE_FEEDBACK_GUIDANCE + " " + _DISPUTE_OBSOLETE_RULE
     )
     system += _plan_mode_judge_section(plan_mode)
     user = json.dumps(
@@ -2939,8 +2959,9 @@ def _cmd_restate(args: argparse.Namespace) -> int:
 
 
 def _cmd_dispute(args: argparse.Namespace) -> int:
-    """Agent submits evidence that a requirement is impossible. This only records
-    the claim (status -> disputed); the harness adjudicates on stop."""
+    """Agent submits evidence that a requirement is impossible or obsolete (its
+    constrained subject was removed by a pivot). This only records the claim
+    (status -> disputed); the harness adjudicates on stop."""
     spec = load_spec(args.root, args.task_id)
     task = find_task(spec, args.task) if spec else None
     if task is None:
@@ -2955,8 +2976,8 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     task["status"] = "disputed"
     task["dispute_evidence"] = args.evidence
     save_spec(args.root, args.task_id, spec)
-    print(f"{args.task} -> disputed. The harness adjudicates impossibility claims on stop.")
-    notify_spec_update(spec, f"{args.task} disputed as impossible.", highlight_task=args.task)
+    print(f"{args.task} -> disputed. The harness adjudicates impossibility/obsolescence claims on stop.")
+    notify_spec_update(spec, f"{args.task} disputed as impossible/obsolete.", highlight_task=args.task)
     return 0
 
 
@@ -3047,11 +3068,11 @@ def main(argv: list[str] | None = None) -> int:
 
     p_dispute = sub.add_parser(
         "dispute",
-        help="Submit evidence a requirement is impossible; harness adjudicates on stop.",
+        help="Submit evidence a requirement is impossible or obsolete (its subject was removed); harness adjudicates on stop.",
     )
     p_dispute.add_argument("--task", required=True, help="Task id, e.g. T1.")
     p_dispute.add_argument(
-        "--evidence", required=True, help="Proof the requirement cannot be satisfied (the judge adjudicates it)."
+        "--evidence", required=True, help="Proof the requirement cannot be satisfied: impossibility, or for obsolescence a failable check whose captured output shows the removed subject is absent (the judge adjudicates it)."
     )
 
     p_doctor = sub.add_parser("doctor", help="Operator diagnostics.")
