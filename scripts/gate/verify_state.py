@@ -17,6 +17,7 @@ direct callers), it is derived from the ledger's task_mode for back-compat.
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 try:  # bare import on sys.path (hooks + tests); package import otherwise
@@ -27,29 +28,44 @@ except ImportError:  # pragma: no cover
 
 MAX_STOP_BLOCKS = 2
 
+
+def _stop_cap(env_name: str, default: int = 0) -> int:
+    """Resolve a completion-breaker Stop-block cap from the environment.
+
+    0 (the default) disables the cap: the breaker never auto-releases Stop on
+    that counter alone, so Stop stays blocked until every requirement validates.
+    A positive value bounds the counter; negative or malformed input falls back
+    to the default."""
+    raw = os.environ.get(env_name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except (TypeError, ValueError):
+        return default
+    return value if value >= 0 else default
+
+
 # Host-agnostic safety cap for the COMPLETION breaker (the evidence-spec gate in
-# gate_stop). Unlike the observation gate above, the completion breaker is meant
-# to block every Stop until every requirement validates -- but with no bound it
-# can be trapped forever by a runaway judge that appends requirements faster than
-# they validate (see tests/test_judge_runaway.py). This is the circuit-breaker
-# "bounded open state": after this many consecutive Stop blocks that make no net
-# progress, the breaker releases Stop with a loud escalation instead of trapping
-# the session. Kept below the host's own generic Stop-block cap (Claude Code's
-# CLAUDE_CODE_STOP_HOOK_BLOCK_CAP defaults to 9) so it fires first AND so Codex /
-# other hosts -- which have no such backstop -- are protected too.
-# Prior art: martinfowler.com/bliki/CircuitBreaker.html (open state is bounded;
-# the breaker resets after a threshold rather than staying open indefinitely).
-COMPLETION_MAX_STALLED_BLOCKS = 6
+# gate_stop). The completion breaker blocks every Stop until every requirement
+# validates. When this cap is positive it acts as the circuit-breaker "bounded
+# open state": after this many consecutive Stop blocks that make no net progress,
+# the breaker releases Stop with a loud escalation instead of trapping a runaway
+# judge that appends requirements faster than they validate
+# (see tests/test_judge_runaway.py). DEFAULT 0 == no cap: the breaker never
+# auto-releases on the streak, so the session loops until the work is genuinely
+# complete. Override via UNIFABLE_COMPLETION_MAX_STALLED_BLOCKS to restore a
+# finite bound. Prior art: martinfowler.com/bliki/CircuitBreaker.html.
+COMPLETION_MAX_STALLED_BLOCKS = _stop_cap("UNIFABLE_COMPLETION_MAX_STALLED_BLOCKS")
 
 # Hard cap on the RAW completion-block count, independent of the count-based
 # streak. The streak (completion_stall_blocks) resets when the incomplete count
 # drops by even one (8 -> 7 from task rotation), so a fluctuating runaway can
-# trap Stop forever with the streak bouncing 0/1. This raw counter never resets
-# except on a genuine full-open, so it is the termination guarantee: no matter
-# how much the incomplete set fluctuates, Stop is released after this many
-# blocked stops. Kept above the streak cap so the surgical streak path fires
-# first when it can; this is the blunt backstop.
-COMPLETION_MAX_STOP_BLOCKS = 12
+# trap Stop forever with the streak bouncing 0/1. When positive, this raw counter
+# never resets except on a genuine full-open, so it is the termination guarantee.
+# DEFAULT 0 == no cap (loop until complete); override via
+# UNIFABLE_COMPLETION_MAX_STOP_BLOCKS to restore a finite backstop.
+COMPLETION_MAX_STOP_BLOCKS = _stop_cap("UNIFABLE_COMPLETION_MAX_STOP_BLOCKS")
 
 
 def note_completion_block(ledger: dict[str, Any], incomplete_count: int) -> bool:
@@ -87,9 +103,11 @@ def note_completion_block(ledger: dict[str, Any], incomplete_count: int) -> bool
         ledger["completion_best_incomplete"] = incomplete_count
     stop_blocks += 1
     ledger["completion_stop_blocks"] = stop_blocks
-    if streak >= COMPLETION_MAX_STALLED_BLOCKS:
+    # A cap of 0 disables that release path (loop until genuinely complete);
+    # only a positive cap can auto-release Stop.
+    if COMPLETION_MAX_STALLED_BLOCKS > 0 and streak >= COMPLETION_MAX_STALLED_BLOCKS:
         return True
-    if stop_blocks >= COMPLETION_MAX_STOP_BLOCKS:
+    if COMPLETION_MAX_STOP_BLOCKS > 0 and stop_blocks >= COMPLETION_MAX_STOP_BLOCKS:
         return True
     return False
 

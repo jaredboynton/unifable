@@ -227,15 +227,20 @@ def test_judge_added_current_task_can_self_retract(monkeypatch):
 # --- layer 4: breaker release ----------------------------------------------
 
 
-def test_completion_breaker_releases_after_stalled_blocks():
+def test_completion_breaker_releases_after_stalled_blocks(monkeypatch):
     """Non-decreasing incomplete count (the runaway signature) trips the
-    host-agnostic safety cap, releasing Stop instead of trapping the session."""
+    host-agnostic safety cap, releasing Stop instead of trapping the session.
+    The shipped default cap is 0 (infinite); pin a finite cap so this release
+    path is exercised."""
+    import verify_state as vs
+
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STALLED_BLOCKS", 6)
     led: dict = {}
     released = False
-    for n in range(5, 5 + COMPLETION_MAX_STALLED_BLOCKS + 1):  # grows: 5,6,7,...
+    for n in range(5, 5 + vs.COMPLETION_MAX_STALLED_BLOCKS + 1):  # grows: 5,6,7,...
         released = note_completion_block(led, n)
     assert released is True
-    assert int(led["completion_stall_blocks"]) >= COMPLETION_MAX_STALLED_BLOCKS
+    assert int(led["completion_stall_blocks"]) >= vs.COMPLETION_MAX_STALLED_BLOCKS
 
 
 def test_completion_breaker_does_not_release_on_progress():
@@ -258,9 +263,10 @@ def test_breaker_runaway_fails_before_fix(monkeypatch):
 
     Before the fix the completion breaker had NO stop-block cap, so a
     non-decreasing incomplete count (the runaway signature) blocked Stop forever.
-    'before-fix' is reproduced by lifting both caps out of reach: across many
-    stalled blocks the breaker NEVER releases (the bug). With the real shipped
-    caps the same stalled signature releases (the fix). Marker: fails-before-fix.
+    'before-fix' is reproduced by lifting both caps out of reach (also the shipped
+    default of 0 == infinite): across many stalled blocks the breaker NEVER
+    releases. With a FINITE cap configured the same stalled signature releases.
+    Marker: fails-before-fix.
     """
     import verify_state as vs
 
@@ -271,8 +277,9 @@ def test_breaker_runaway_fails_before_fix(monkeypatch):
     released_before = any(vs.note_completion_block(trapped, 7) for _ in range(50))
     assert released_before is False  # trapped forever -> the original runaway
 
-    # after-fix: the real bounded caps release on the same stalled signature
-    monkeypatch.undo()
+    # after-fix: a finite configured cap releases on the same stalled signature
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STALLED_BLOCKS", 6)
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STOP_BLOCKS", 12)
     bounded: dict = {}
     released_after = any(vs.note_completion_block(bounded, 7) for _ in range(vs.COMPLETION_MAX_STALLED_BLOCKS + 1))
     assert released_after is True  # bounded release -> the fix
@@ -284,6 +291,9 @@ def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
     counter resets to 0 every stop and the stall-release backstop never accumulates
     to its cap (the backstop would be silently dead). Round-trip proves persistence."""
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    # Shipped default cap is 0 (infinite); pin a finite cap so the final
+    # release-at-cap assertion is meaningful.
+    monkeypatch.setattr("verify_state.COMPLETION_MAX_STALLED_BLOCKS", 6)
     from ledger import DEFAULT_LEDGER, load_ledger, save_ledger
 
     assert "completion_stall_blocks" in DEFAULT_LEDGER
@@ -298,7 +308,9 @@ def test_stall_counters_survive_ledger_roundtrip(tmp_path, monkeypatch):
     assert reloaded["completion_stall_blocks"] == 2  # survived the round-trip
     assert reloaded["completion_prev_incomplete"] == 6
     # And a third no-progress block keeps accumulating (it would reset to 1 if dropped).
-    assert note_completion_block(reloaded, 6) is (3 >= COMPLETION_MAX_STALLED_BLOCKS)
+    import verify_state as vs
+
+    assert note_completion_block(reloaded, 6) is (3 >= vs.COMPLETION_MAX_STALLED_BLOCKS)
     assert reloaded["completion_stall_blocks"] == 3
 
 

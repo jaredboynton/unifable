@@ -23,17 +23,30 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
 import loop_release as lr  # noqa: E402
+import verify_state as vs  # noqa: E402
 from verify_state import (  # noqa: E402
-    COMPLETION_MAX_STALLED_BLOCKS,
-    COMPLETION_MAX_STOP_BLOCKS,
     note_completion_block,
     reset_completion_stall,
 )
+
+# The shipped default caps are now 0 (infinite). This whole suite proves the
+# hard-cap RELEASE behavior, which only exists when the caps are finite, so pin
+# the historical finite values for every test here.
+COMPLETION_MAX_STALLED_BLOCKS = 6
+COMPLETION_MAX_STOP_BLOCKS = 12
+
+
+@pytest.fixture(autouse=True)
+def _finite_completion_caps(monkeypatch):
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STALLED_BLOCKS", COMPLETION_MAX_STALLED_BLOCKS)
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STOP_BLOCKS", COMPLETION_MAX_STOP_BLOCKS)
 
 
 # H1 -------------------------------------------------------------------------

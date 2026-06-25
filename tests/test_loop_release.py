@@ -146,10 +146,15 @@ def test_judge_error_fail_open():
     assert verdict.lift == "none"
 
 
-def test_stall_cap_still_releases_without_loop_judge():
+def test_stall_cap_still_releases_without_loop_judge(monkeypatch):
+    # Shipped default cap is 0 (infinite); pin a finite cap so the stall-release
+    # backstop is exercised.
+    import verify_state as vs
+
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STALLED_BLOCKS", 6)
     led = {}
     released = False
-    for n in range(5, 5 + COMPLETION_MAX_STALLED_BLOCKS + 1):
+    for n in range(5, 5 + vs.COMPLETION_MAX_STALLED_BLOCKS + 1):
         released = note_completion_block(led, n)
     assert released is True
 

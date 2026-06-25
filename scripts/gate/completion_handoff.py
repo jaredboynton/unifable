@@ -22,10 +22,13 @@ from transcript_tail import (
     stripped_transcript_tail,
 )
 
+# 0 (the default) disables the cap: the handoff judge never force-allows Stop on
+# block count alone. Override via UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP for a
+# finite bound.
 try:
-    COMPLETION_HANDOFF_BLOCK_CAP = int(os.environ.get("UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP", "6"))
+    COMPLETION_HANDOFF_BLOCK_CAP = int(os.environ.get("UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP", "0"))
 except ValueError:
-    COMPLETION_HANDOFF_BLOCK_CAP = 6
+    COMPLETION_HANDOFF_BLOCK_CAP = 0
 
 COMPLETION_HANDOFF_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -199,7 +202,7 @@ def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> 
         return None
 
     ledger = load_ledger(input_data)
-    if int(ledger.get("completion_handoff_blocks") or 0) >= COMPLETION_HANDOFF_BLOCK_CAP:
+    if COMPLETION_HANDOFF_BLOCK_CAP > 0 and int(ledger.get("completion_handoff_blocks") or 0) >= COMPLETION_HANDOFF_BLOCK_CAP:
         return {
             "systemMessage": ("unifable completion handoff block cap reached; allowing stop with a possibly unresolved handoff.")
         }

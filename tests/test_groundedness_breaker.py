@@ -385,13 +385,15 @@ def test_judge_exception_fails_open(monkeypatch):
     assert blocked is False and steering == ""
 
 
-def test_completion_stall_circuit_breaker_backstop_releases():
+def test_completion_stall_circuit_breaker_backstop_releases(monkeypatch):
     """The completion breaker is a bounded circuit breaker: on a stalled
     (no-net-progress) run of blocks it trips and releases Stop instead of
     trapping the session. Covers the unsat-budget stall-release backstop
-    (stall / backstop / circuit)."""
+    (stall / backstop / circuit). The shipped default cap is 0 (infinite); pin a
+    finite cap here so the release-at-cap contract is exercised."""
     import verify_state as vs
 
+    monkeypatch.setattr(vs, "COMPLETION_MAX_STALLED_BLOCKS", 6)
     led: dict = {}
     released = any(
         vs.note_completion_block(led, 8)  # constant incomplete count -> stalled

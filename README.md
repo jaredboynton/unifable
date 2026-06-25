@@ -205,6 +205,16 @@ Checking is continuous, not a one-shot at the end:
   the worker cannot declare done with open requirements. Only the judge can retract one
   (by accepting a dispute) or supersede agent-authored tasks via a replacement bundle.
 
+By default the completion loop runs until the work is genuinely complete: the Stop-block safety
+caps **default to `0` (infinite)**, so the breaker never auto-releases Stop on block count alone.
+This is intentional — for long-horizon work (iterating on a benchmark for days, grinding a
+refactor to green) you want the session to keep going until the criteria pass. If you prefer a
+finite escape hatch, set any of these environment variables to a positive integer in your Claude
+settings (global `~/.claude/settings.json` or a project `.claude/settings.json`, under `env`):
+`UNIFABLE_COMPLETION_MAX_STALLED_BLOCKS`, `UNIFABLE_COMPLETION_MAX_STOP_BLOCKS`,
+`UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP`, `UNIFABLE_GOAL_STOP_BLOCK_CAP`. A positive value caps the
+consecutive blocked stops before that release path fires; `0` disables it.
+
 ## Groundedness breaker
 
 Separate from the evidence spec: an overconfidence breaker (`scripts/gate/groundedness.py`) is

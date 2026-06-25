@@ -49,9 +49,9 @@ from verify_state import (
 
 GOAL_TRANSCRIPT_TOKENS = TRANSCRIPT_TOKEN_BUDGET
 try:
-    GOAL_STOP_BLOCK_CAP = int(os.environ.get("UNIFABLE_GOAL_STOP_BLOCK_CAP", "8"))
+    GOAL_STOP_BLOCK_CAP = int(os.environ.get("UNIFABLE_GOAL_STOP_BLOCK_CAP", "0"))
 except ValueError:
-    GOAL_STOP_BLOCK_CAP = 8
+    GOAL_STOP_BLOCK_CAP = 0
 # Wall-clock budget for the judge/check work this Stop hook does, kept under the
 # host Stop-hook timeout (hooks.json wires gate_stop at 120s). auto_validate_spec
 # stops launching work past this deadline so the hook always returns cleanly
@@ -514,7 +514,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
         return None
 
     ledger = load_ledger(input_data)
-    if int(ledger.get("goal_stop_blocks") or 0) >= GOAL_STOP_BLOCK_CAP:
+    if GOAL_STOP_BLOCK_CAP > 0 and int(ledger.get("goal_stop_blocks") or 0) >= GOAL_STOP_BLOCK_CAP:
         return {"systemMessage": ("unifable goal stop hook block cap reached; allowing stop with an incomplete goals.py plan.")}
 
     condition = _goal_condition(plan, goal)

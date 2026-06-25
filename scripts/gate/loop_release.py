@@ -267,7 +267,7 @@ def judge_completion_loop_release(
             "goal": spec.get("restated_goal", ""),
             "signal": signal,
             "completion_stop_blocks": stop_blocks,
-            "hard_cap": COMPLETION_MAX_STOP_BLOCKS,
+            "hard_cap": COMPLETION_MAX_STOP_BLOCKS or None,
             "completion_stall_blocks": ledger.get("completion_stall_blocks"),
             "loop_same_set_streak": ledger.get("loop_same_set_streak"),
             "incomplete_episode": ledger.get("loop_episode_id"),

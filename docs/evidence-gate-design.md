@@ -180,8 +180,14 @@ passthrough. Regression: `tests/test_spec_model_notify.py`,
 When the completion breaker traps a session in a suicide loop (Stop re-blocked with no net
 progress — same failing tasks, judge-added runaway, repeated rejections), a **separate**
 loop-release judge may lift the gate. This is distinct from advisory hints (which never lift)
-and from the deterministic stall cap (`COMPLETION_MAX_STALLED_BLOCKS = 6` in
-`scripts/gate/verify_state.py`), which remains the hard backstop.
+and from the deterministic stall caps (`COMPLETION_MAX_STALLED_BLOCKS` /
+`COMPLETION_MAX_STOP_BLOCKS` in `scripts/gate/verify_state.py`). Those caps **default to 0 ==
+no cap** — the breaker never auto-releases on block count alone, so a session loops until the
+work is genuinely complete. A positive value (via `UNIFABLE_COMPLETION_MAX_STALLED_BLOCKS` /
+`UNIFABLE_COMPLETION_MAX_STOP_BLOCKS`) restores a finite deterministic backstop; the same 0 ==
+infinite convention applies to `UNIFABLE_COMPLETION_HANDOFF_BLOCK_CAP` and
+`UNIFABLE_GOAL_STOP_BLOCK_CAP`. With the default infinite caps the loop-release judge is the
+sole path that can lift a trapped Stop.
 
 **Trigger** (observable from ledger + spec, in `scripts/gate/loop_release.py`):
 
