@@ -57,7 +57,9 @@ completion gate for load-bearing behavior.
   escalations); inject the spec digest via `additionalContext` only when `decision: block`
   — Stop `additionalContext` re-engages the session on Claude Code.
 - `scripts/gate/` — host-agnostic core, no host imports:
-  `spec.py` (evidence spec validate), `ledger.py` (per-session state),
+  `db.py` (the single WAL SQLite store backing ledger/breaker/spec/findings;
+  fail-open, BEGIN IMMEDIATE writes, lazy one-time JSON import), `spec.py`
+  (evidence spec validate), `ledger.py` (per-session state, shimmed over `db.py`),
   `citations.py` (cite-vs-activity check), `groundedness.py` (arm/disarm judge),
   `codex_judge.py` (gpt-realtime-2 client), `classify_task.py`,
   `bash_classify.py`, `parse_tool_result.py`, `verify_state.py`.
@@ -76,7 +78,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.111          # or: just version patch|minor|major
+just version 1.9.112          # or: just version patch|minor|major
 
 ```
 

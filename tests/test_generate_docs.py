@@ -39,7 +39,6 @@ def test_judge_prompt_capture_covers_known_schema_names():
         "hint",
         "groundedness",
         "loop_release",
-        "goal_stop",
         "completion_handoff",
         "frontier_comparison",
     } <= schema_names

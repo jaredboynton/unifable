@@ -449,9 +449,8 @@ def test_post_tool_records_generic_tool_result_activity():
         assert rc == 0, err
         os.environ["UNIFABLE_DATA"] = dd
         ledger = load_ledger({"session_id": sess, "cwd": cwd})
-        observed = ledger.get("observed_tool_results", [])
-        assert any("mcp__octocode__githubGetFileContent" in item for item in observed)
-        assert len(observed) == 1
+        evidence = ledger.get("tool_evidence", [])
+        assert any("mcp__octocode__githubGetFileContent" in item for item in evidence)
 
 
 def _seed_spec(cwd, task_id, repo_context, prior_art, data_dir):

@@ -122,7 +122,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "Working style: Lead with the outcome. Stay within the requested scope (no incidental refactors or abstractions). Ground every completion claim in a tool result from this session. Confirm before destructive or hard-to-reverse actions.\n\nMulti-story loop: for 2+ sequential stories, use goals.py to decompose, complete one at a time, and produce evidence at each checkpoint. The final story must carry --verify-cmd and --verify-evidence.\n\nEscalation: when stuck on the same problem 2+ times, or when the task requires out-of-spec discovery, escalate: recommend /effort xhigh, delegate the stuck slice via Agent/Workflow with the full evidence package, or hand off with the evidence package. Report the limit honestly.\n\nInvestigation: reproduce first. Form 3+ competing hypotheses before investigating any single one. Gather evidence per hypothesis by reading code paths end to end. Trace the full causal chain. Verify before and after. Report the hypotheses you rejected and the evidence that rejected them.\n\nVerification grounding: for artifacts whose correctness only shows when run (HTML, SVG, games, UI, charts), run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static parse confirms well-formed, not correct.",
+    "additionalContext": "Working style: Lead with the outcome. Stay within the requested scope (no incidental refactors or abstractions). Ground every completion claim in a tool result from this session. Confirm before destructive or hard-to-reverse actions.\n\nMulti-story loop: for 2+ sequential stories, decompose them into spec tasks (one requirement per story), validate one at a time, and produce evidence at each step. The final task must carry a runnable check and its observed output.\n\nEscalation: when stuck on the same problem 2+ times, or when the task requires out-of-spec discovery, escalate: recommend /effort xhigh, delegate the stuck slice via Agent/Workflow with the full evidence package, or hand off with the evidence package. Report the limit honestly.\n\nInvestigation: reproduce first. Form 3+ competing hypotheses before investigating any single one. Gather evidence per hypothesis by reading code paths end to end. Trace the full causal chain. Verify before and after. Report the hypotheses you rejected and the evidence that rejected them.\n\nVerification grounding: for artifacts whose correctness only shows when run (HTML, SVG, games, UI, charts), run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static parse confirms well-formed, not correct.",
     "hookEventName": "UserPromptSubmit"
   }
 }
@@ -156,7 +156,7 @@ stderr:
 ```text
 npm is not in the Bash research whitelist.
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
-Allowed now: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI.
+Allowed now: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:
@@ -171,7 +171,7 @@ Event: `PreToolUse`
 stderr:
 ```text
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
-Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI.
+Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:

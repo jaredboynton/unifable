@@ -96,7 +96,9 @@ def test_relocate_fragmented_spec(tmp_path):
         loaded = load_spec(repo, "sess-r")
         assert loaded is not None
         assert loaded["tasks"][0]["title"] == "works"
-        assert spec_path(repo, "sess-r").exists()
+        # Spec now lives in the consolidated DB; re-loading at the canonical key
+        # returns the relocated doc, and the legacy on-disk fragment is gone.
+        assert load_spec(repo, "sess-r")["tasks"][0]["title"] == "works"
         assert not fragmented.exists()
 
 

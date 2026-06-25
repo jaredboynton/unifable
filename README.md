@@ -79,7 +79,7 @@ flowchart TB
   UPS["UserPromptSubmit<br/>grade the task: quick / normal / deep"] --> PTU
   PTU["PreToolUse — every tool<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
   POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; suggest approaches on a deep task"] --> STOP
-  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>judge active goals (goal_stop_decision)<br/>completion handoff judge (completion_handoff_decision)"]
+  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>completion handoff judge (completion_handoff_decision)"]
   UPS -.-> CJ
   PTU -.-> CJ
   POST -.-> CJ
@@ -106,8 +106,7 @@ What happens at each stage:
    yet laid out enough candidate approaches triggers `judge_discover_frontiers`.
 4. **On Stop — completion gate.** `auto_validate_spec` (`scripts/gate/spec.py`) runs each open
    requirement's check and the judge renders a verdict (`judge_task` / `judge_tasks`), adjudicates
-   impossibility disputes (`judge_dispute`), then `goal_stop_decision` (`hooks/gate_stop.py`) judges
-   any active multi-step goal from the transcript, and `completion_handoff_decision`
+   impossibility disputes (`judge_dispute`), and `completion_handoff_decision`
    (`scripts/gate/completion_handoff.py`) blocks when the agent ends by deferring autonomous work.
    Stop stays blocked until every requirement is validated, retracted, or superseded, and the agent
    is not dangling permission-seeking follow-ups. A "turn" here is one tool call, so Stop is rare; when
@@ -122,7 +121,6 @@ Where the judge decides, and what it falls back to:
 | PreToolUse | `arm_judge` / `disarm_judge` | arm or release the groundedness breaker | fail-open: tool allowed |
 | PostToolUse | `judge_hint`, `judge_discover_frontiers` | advisory nudge; suggest approaches for a deep task | fail-open: no hint |
 | Stop | `judge_task` / `judge_tasks`, `judge_dispute` | validate or reject each requirement; accept or deny disputes | fail-open allow; dispute defaults to reject |
-| Stop | `goal_stop_decision` | active goal complete or impossible, from transcript | fail-open allow after cap |
 | Stop | `completion_handoff_decision` | agent may end turn vs deferring autonomous work | fail-open allow after cap |
 
 What the judge catches:
@@ -159,7 +157,7 @@ On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delega
 `Task`/`Agent`, run Bash outside the research whitelist (`cd`, `ls`, `glob`, `rg`, the explore skill's
 `trace.sh` and `websearch.sh` when that skill is installed — hook messages show the resolved paths — or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
 `resolve_session.sh`), or finish until the session's evidence spec
-(`~/.unifable/specs/<dirhash>/<session>/spec.json`, one per directory+session) validates. The spec
+(stored in the consolidated `~/.unifable/unifable.db`, keyed one per directory+session) validates. The spec
 must carry (for **code-profile** tasks): `repo_context` (`{cite: path:line, why}` the worker actually
 read), `acceptance_criteria` (a runnable `check` plus its live `evidence` output -- placeholders are
 rejected), and `prior_art` (a source URL fetched via WebFetch/curl, required at STANDARD+). **Operational-profile**
@@ -304,7 +302,7 @@ Beyond the gate, unifable ships: a debounced test-runner (`UNIFABLE_TEST_AFTER_E
 a findings ledger and warning-threshold accumulation; per-task **grade tiers** and a
 depth-shaped final response; inline routing packs for domain verification, decision traces,
 subagent briefs, and investigation (all in `packs/router-manifest.json`, injected by the hooks);
-multi-story goal tracking (`scripts/goals.py`, state under `./.unifable/`); and a behavioral eval
+multi-story tracking via the spec task board (one requirement per story); and a behavioral eval
 suite (`docs/evals/`, `tests/eval_rubric.md`).
 
 ## Tests

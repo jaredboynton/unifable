@@ -20,12 +20,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
-    from atomicio import write_text_atomic
-except ImportError:  # pragma: no cover
-    from scripts.gate.atomicio import write_text_atomic
-
-
 DEFAULT_LEDGER: dict[str, Any] = {
     "task_mode": "quick",
     "grade": "",
@@ -87,18 +81,18 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "frontier_research_tools": 0,
     # Citation-verification activity log: what the session ACTUALLY did, so the
     # gate can cross-check that a spec's citations are real (see citations.py).
+    # These lists are now backed by the `activity` table in db.py (one
+    # deduplicated row per value, indexed) rather than capped JSON arrays;
+    # load_ledger rehydrates them and save_ledger appends them idempotently.
     # read_paths: absolute paths actually read (Read/Grep/Glob + read-style Bash).
     # fetched_urls: URLs actually fetched (WebFetch + curl/wget Bash).
     # ran_commands: Bash commands actually executed.
-    # observed_tool_results: successful PostToolUse events not otherwise captured.
     "read_paths": [],
     "fetched_urls": [],
     "ran_commands": [],
-    "observed_tool_results": [],
     # tool_evidence: richer "<tool>: <summary>" entries for MCP tool calls
     # (Slack/Jira/GitHub/etc.). MCP results are the real evidence corpus for
-    # research tasks, so they are captured with a larger cap than the 180-char
-    # observed_tool_results snippet and surfaced to the Stop validation judge.
+    # research tasks, so they are surfaced to the Stop validation judge.
     "tool_evidence": [],
     # PreToolUse block dedup (pretool_block.py): one full stderr message per
     # (epoch, signature) when parallel hooks fire on the same turn.
@@ -212,16 +206,46 @@ def default_ledger() -> dict[str, Any]:
     return copy.deepcopy(DEFAULT_LEDGER)
 
 
-def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
+def _import_legacy_ledger(input_data: dict[str, Any], skey: str) -> dict[str, Any] | None:
+    """One-time import of a legacy ``ledgers/{key}.json`` into the DB when no DB
+    row exists yet. Returns the imported dict, or None when no legacy file."""
     path = ledger_path(input_data)
     if not path.exists():
-        return default_ledger()
+        return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        data = default_ledger()
-        data["failures"].append({"kind": "ledger", "summary": "Ledger could not be read; continuing fresh."})
-        return data
+        return None
+    if not isinstance(data, dict):
+        return None
+    try:
+        import db
+
+        db.session_save(
+            skey,
+            data,
+            session_id=str(input_data.get("session_id") or ""),
+            project_root=str(input_data.get("cwd") or ""),
+        )
+    except Exception:
+        pass
+    return data
+
+
+def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
+    # Storage is the consolidated SQLite DB (db.sessions + db.activity); the
+    # legacy per-session JSON file is imported once on first miss. Any DB error
+    # fails open to a fresh default ledger -- the gate never hard-locks on its own
+    # storage bug.
+    try:
+        import db
+
+        skey = ledger_key(input_data)
+        data = db.session_load(skey)
+        if data is None:
+            data = _import_legacy_ledger(input_data, skey)
+    except Exception:
+        data = None
 
     ledger = default_ledger()
     if isinstance(data, dict):
@@ -236,7 +260,6 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         "read_paths",
         "fetched_urls",
         "ran_commands",
-        "observed_tool_results",
         "tool_evidence",
         "loop_lift_retracted",
         "loop_events",
@@ -251,16 +274,25 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_ledger(input_data: dict[str, Any], ledger: dict[str, Any]) -> Path:
-    # Concurrent gate hooks load-modify-save this file last-writer-wins. That is
-    # intentional and unlocked: the ledger is advisory, self-healing (regenerated
-    # from fresh tool input each turn), dedup'd, and trimmed, so a lost update at
-    # worst skips one nag this turn. Locking the per-tool-call hot path would cost
-    # more than it saves. The write itself is atomic (no torn reads). Correctness-
-    # critical state that accumulates (findings) is serialized instead — see
-    # findings._findings_lock.
-    path = ledger_path(input_data)
+    # Storage is the consolidated SQLite DB. The scalar "soup" is last-writer-wins
+    # on sessions.data (the historically-accepted semantics for this advisory,
+    # self-healing state); the activity lists are appended idempotently to the
+    # `activity` table (one deduplicated row per value). WAL serializes writers for
+    # microseconds, so the per-tool-call hot path stays cheap. Returns the legacy
+    # path purely for signature compatibility with existing callers.
     ledger["last_updated"] = utc_now()
-    return write_text_atomic(path, json.dumps(ledger, indent=2, sort_keys=True))
+    try:
+        import db
+
+        db.session_save(
+            ledger_key(input_data),
+            ledger,
+            session_id=str(input_data.get("session_id") or ""),
+            project_root=str(input_data.get("cwd") or ""),
+        )
+    except Exception:
+        pass
+    return ledger_path(input_data)
 
 
 def update_ledger(input_data: dict[str, Any], updater: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
@@ -280,10 +312,11 @@ def trim_ledger(ledger: dict[str, Any]) -> None:
         ledger[key] = values[:20]
     for key in ("verification_commands", "verification_results", "failures", "warnings"):
         ledger[key] = ledger.get(key, [])[-40:]
-    # Activity log: keep many more (citation cross-check needs the full session's
-    # reads/fetches/commands), but still bound it. Newest-last, dedup'd at write.
-    for key in ("read_paths", "fetched_urls", "ran_commands", "observed_tool_results"):
-        ledger[key] = ledger.get(key, [])[-500:]
+    # Activity log lists are backed by the db.activity table (deduplicated rows,
+    # no array to cap). Keep an in-memory bound only so a single load-modify-save
+    # cycle does not balloon the dict; the DB itself holds the full session set.
+    for key in ("read_paths", "fetched_urls", "ran_commands", "tool_evidence"):
+        ledger[key] = ledger.get(key, [])[-2000:]
 
 
 def add_unique(ledger: dict[str, Any], key: str, values: list[str]) -> None:

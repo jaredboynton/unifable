@@ -90,13 +90,5 @@ def test_handoff_cap_defaults_infinite(monkeypatch):
         importlib.reload(completion_handoff)
 
 
-def test_goal_stop_cap_defaults_infinite():
-    # GOAL_STOP_BLOCK_CAP is read at import; the test environment sets no
-    # override, so the shipped default must be 0 (infinite).
-    import gate_stop
-
-    assert gate_stop.GOAL_STOP_BLOCK_CAP == 0
-
-
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-q"]))

@@ -7,7 +7,7 @@ four cases:
 
   1. PROTECTED_PATHS: the target path resolves inside <cwd>/.unifable/ or under
      the global keyed spec store (<data_root>/specs/). Specs are CLI-only, so this
-     prevents the model from modifying the spec, ledger state, goals, findings, or
+     prevents the model from modifying the spec, ledger state, findings, or
      any other gate-internal artifact with Edit/Write.
 
   2. EVIDENCE GATE — writes (unconditional): unless the effective grade is LIGHT,

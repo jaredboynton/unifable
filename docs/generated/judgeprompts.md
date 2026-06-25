@@ -1830,8 +1830,12 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
       ],
       "type": "integer"
     },
+    "resolve_query": {
+      "description": "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a single literal substring `verify` can express): a natural-language search whose results would settle it -- enumeration/absence claims ('are there other live files referencing X'), completeness over a TRUNCATED tool output, 'is Y still used anywhere'. The breaker runs it READ-ONLY via explore search and DE-ESCALATES (does NOT arm) if the gathered evidence grounds the claim, so you need not arm and force the model to re-read what you could check here. Empty when verdict=0, when `verify` already covers it, or when the claim is not settleable by searching this repo (external/API facts, judgement, runtime behavior).",
+      "type": "string"
+    },
     "steering": {
-      "description": "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI, the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh) and websearch.sh (~/.agents/skills/explore/scripts/websearch.sh), unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER steer the model to run a command that the breaker blocks (node, npm test, edits); prefer reading source files, result fields, and fixture thresholds already in the repo. For a claim about THIS repo's code/config, say what files to read. For in-repo conventions already documented (version bump via just version, AGENTS.md release rules), steer to those repo files -- not SemVer.org or external docs. For EXTERNAL or platform/API behavior, steer in order: (1) authoritative documentation (web search / WebFetch) when it exists; (2) community prior art where others have reverse-engineered the same behavior (GitHub repos, gists, issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy is found, tell the model to dig in and start empirical reverse-engineering (capture/read an actual response: HTTP body fields, status, sample payload). Prior art is a starting point, not a substitute for verifying behavior that matters to the user goal. NEVER steer toward verifying unifable/fablize harness gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those claims are self-referential and must not arm. Do NOT insist on official docs alone when community RE or fresh probing is the correct path. NEVER steer toward blocked shell commands. Name a specific path only if it already appears in the transcript. Empty when verdict=0.",
+      "description": "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI, the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh) and websearch.sh (~/.agents/skills/explore/scripts/websearch.sh) and search.sh (~/.agents/skills/explore/scripts/search.sh), unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER steer the model to run a command that the breaker blocks (node, npm test, edits); prefer reading source files, result fields, and fixture thresholds already in the repo. For a claim about THIS repo's code/config, say what files to read. For in-repo conventions already documented (version bump via just version, AGENTS.md release rules), steer to those repo files -- not SemVer.org or external docs. For EXTERNAL or platform/API behavior, steer in order: (1) authoritative documentation (web search / WebFetch) when it exists; (2) community prior art where others have reverse-engineered the same behavior (GitHub repos, gists, issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy is found, tell the model to dig in and start empirical reverse-engineering (capture/read an actual response: HTTP body fields, status, sample payload). Prior art is a starting point, not a substitute for verifying behavior that matters to the user goal. NEVER steer toward verifying unifable/fablize harness gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those claims are self-referential and must not arm. Do NOT insist on official docs alone when community RE or fresh probing is the correct path. NEVER steer toward blocked shell commands. Name a specific path only if it already appears in the transcript. Empty when verdict=0.",
       "type": "string"
     },
     "tool_scope": {
@@ -1927,6 +1931,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
     "claim",
     "load_bearing",
     "verify",
+    "resolve_query",
     "directive",
     "tool_scope"
   ],
@@ -1992,8 +1997,12 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
                 ],
                 "type": "integer"
               },
+              "resolve_query": {
+                "description": "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a single literal substring `verify` can express): a natural-language search whose results would settle it -- enumeration/absence claims ('are there other live files referencing X'), completeness over a TRUNCATED tool output, 'is Y still used anywhere'. The breaker runs it READ-ONLY via explore search and DE-ESCALATES (does NOT arm) if the gathered evidence grounds the claim, so you need not arm and force the model to re-read what you could check here. Empty when verdict=0, when `verify` already covers it, or when the claim is not settleable by searching this repo (external/API facts, judgement, runtime behavior).",
+                "type": "string"
+              },
               "steering": {
-                "description": "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI, the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh) and websearch.sh (~/.agents/skills/explore/scripts/websearch.sh), unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER steer the model to run a command that the breaker blocks (node, npm test, edits); prefer reading source files, result fields, and fixture thresholds already in the repo. For a claim about THIS repo's code/config, say what files to read. For in-repo conventions already documented (version bump via just version, AGENTS.md release rules), steer to those repo files -- not SemVer.org or external docs. For EXTERNAL or platform/API behavior, steer in order: (1) authoritative documentation (web search / WebFetch) when it exists; (2) community prior art where others have reverse-engineered the same behavior (GitHub repos, gists, issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy is found, tell the model to dig in and start empirical reverse-engineering (capture/read an actual response: HTTP body fields, status, sample payload). Prior art is a starting point, not a substitute for verifying behavior that matters to the user goal. NEVER steer toward verifying unifable/fablize harness gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those claims are self-referential and must not arm. Do NOT insist on official docs alone when community RE or fresh probing is the correct path. NEVER steer toward blocked shell commands. Name a specific path only if it already appears in the transcript. Empty when verdict=0.",
+                "description": "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI, the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh) and websearch.sh (~/.agents/skills/explore/scripts/websearch.sh) and search.sh (~/.agents/skills/explore/scripts/search.sh), unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER steer the model to run a command that the breaker blocks (node, npm test, edits); prefer reading source files, result fields, and fixture thresholds already in the repo. For a claim about THIS repo's code/config, say what files to read. For in-repo conventions already documented (version bump via just version, AGENTS.md release rules), steer to those repo files -- not SemVer.org or external docs. For EXTERNAL or platform/API behavior, steer in order: (1) authoritative documentation (web search / WebFetch) when it exists; (2) community prior art where others have reverse-engineered the same behavior (GitHub repos, gists, issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy is found, tell the model to dig in and start empirical reverse-engineering (capture/read an actual response: HTTP body fields, status, sample payload). Prior art is a starting point, not a substitute for verifying behavior that matters to the user goal. NEVER steer toward verifying unifable/fablize harness gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those claims are self-referential and must not arm. Do NOT insist on official docs alone when community RE or fresh probing is the correct path. NEVER steer toward blocked shell commands. Name a specific path only if it already appears in the transcript. Empty when verdict=0.",
                 "type": "string"
               },
               "tool_scope": {
@@ -2089,6 +2098,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
               "claim",
               "load_bearing",
               "verify",
+              "resolve_query",
               "directive",
               "tool_scope"
             ],
@@ -2546,126 +2556,6 @@ You adjudicate whether an autonomous coding agent is trapped in a COMPLETION sui
             "required": [
               "suicide_loop",
               "lift",
-              "reason"
-            ],
-            "type": "object"
-          },
-          "type": "function"
-        }
-      ],
-      "type": "realtime"
-    },
-    "type": "session.update"
-  }
-}
-```
-
-## Goal stop condition
-
-Source: `hooks/gate_stop.py`
-
-Schema name: `goal_stop`
-
-### System
-
-```text
-You are evaluating a stop-condition hook in unifable. Read the conversation transcript carefully, then judge whether the user-provided condition is satisfied. Your response must be a JSON object with one of these shapes:
-- {"ok": true, "reason": "<quote evidence from the transcript that satisfies the condition>"}
-- {"ok": false, "reason": "<quote what is missing or what blocks the condition>"}
-- {"ok": false, "impossible": true, "reason": "<explain why the condition can never be satisfied>"}
-Always include a "reason" field, quoting specific text from the transcript whenever possible. If the transcript does not contain clear evidence that the condition is satisfied, return {"ok": false, "reason": "insufficient evidence in transcript"}. Only use {"ok": false, "impossible": true} when the condition is genuinely unachievable in this session.
-```
-
-### User
-
-```text
-Conversation transcript:
-<record line="000001" role="assistant">Ran python3 scripts/generate_docs.py --check.</record>
-
-Based on the conversation transcript above, has the following stopping condition been satisfied? Answer based on transcript evidence only.
-Condition: Generated docs are current.
-
-ARGUMENTS: {"cwd": "${REPO_ROOT}", "session_id": "sample-session"}
-```
-
-### Function Schema
-
-```json
-{
-  "additionalProperties": false,
-  "properties": {
-    "impossible": {
-      "type": "boolean"
-    },
-    "ok": {
-      "type": "boolean"
-    },
-    "reason": {
-      "type": "string"
-    }
-  },
-  "required": [
-    "ok",
-    "reason"
-  ],
-  "type": "object"
-}
-```
-
-### Realtime Request Shape
-
-```json
-{
-  "conversation.item.create": {
-    "item": {
-      "content": [
-        {
-          "text": "QUESTION: Conversation transcript:\n<record line=\"000001\" role=\"assistant\">Ran python3 scripts/generate_docs.py --check.</record>\n\nBased on the conversation transcript above, has the following stopping condition been satisfied? Answer based on transcript evidence only.\nCondition: Generated docs are current.\n\nARGUMENTS: {\"cwd\": \"${REPO_ROOT}\", \"session_id\": \"sample-session\"}",
-          "type": "input_text"
-        }
-      ],
-      "role": "user",
-      "type": "message"
-    },
-    "type": "conversation.item.create"
-  },
-  "response.create": {
-    "response": {
-      "output_modalities": [
-        "text"
-      ]
-    },
-    "type": "response.create"
-  },
-  "session.update": {
-    "session": {
-      "instructions": "You are evaluating a stop-condition hook in unifable. Read the conversation transcript carefully, then judge whether the user-provided condition is satisfied. Your response must be a JSON object with one of these shapes:\n- {\"ok\": true, \"reason\": \"<quote evidence from the transcript that satisfies the condition>\"}\n- {\"ok\": false, \"reason\": \"<quote what is missing or what blocks the condition>\"}\n- {\"ok\": false, \"impossible\": true, \"reason\": \"<explain why the condition can never be satisfied>\"}\nAlways include a \"reason\" field, quoting specific text from the transcript whenever possible. If the transcript does not contain clear evidence that the condition is satisfied, return {\"ok\": false, \"reason\": \"insufficient evidence in transcript\"}. Only use {\"ok\": false, \"impossible\": true} when the condition is genuinely unachievable in this session.",
-      "output_modalities": [
-        "text"
-      ],
-      "reasoning": {
-        "effort": "low"
-      },
-      "tool_choice": "required",
-      "tools": [
-        {
-          "description": "Return the structured result. Call exactly once with the complete object.",
-          "name": "goal_stop",
-          "parameters": {
-            "additionalProperties": false,
-            "properties": {
-              "impossible": {
-                "type": "boolean"
-              },
-              "ok": {
-                "type": "boolean"
-              },
-              "reason": {
-                "type": "string"
-              }
-            },
-            "required": [
-              "ok",
               "reason"
             ],
             "type": "object"

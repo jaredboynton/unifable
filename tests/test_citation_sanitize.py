@@ -154,4 +154,4 @@ def test_pretool_sanitizes_phantom_and_allows_edit(tmp_path):
     cites = [c["cite"] for c in updated.get("repo_context", [])]
     assert "phantom/missing.py:1" not in cites
     assert f"{real.name}:1" in cites
-    assert spec_path(tmp_path, sess).is_file()
+    assert load_spec(tmp_path, sess) is not None

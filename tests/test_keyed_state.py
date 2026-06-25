@@ -75,28 +75,6 @@ def test_same_session_resumes_same_spec():
         assert again is not None and again["restated_goal"] == "do the thing well"
 
 
-def test_goals_plan_keyed_by_session_no_bleed():
-    """goals.py writes the plan under the session dir; gate_stop reads the same for
-    that session and finds NOTHING for a different session (the bleed regression)."""
-    with tempfile.TemporaryDirectory() as data, tempfile.TemporaryDirectory() as cwd:
-        env = dict(os.environ)
-        env["UNIFABLE_DATA"] = data
-        env["CLAUDE_CODE_SESSION_ID"] = "PLAN_A"
-        r = subprocess.run(
-            [sys.executable, str(REPO / "scripts" / "goals.py"), "create", "--brief", "b", "--goal", "t::o"],
-            cwd=cwd,
-            capture_output=True,
-            text=True,
-            env=env,
-        )
-        assert r.returncode == 0, r.stderr
-        _with_data(data)
-        import gate_stop
-
-        assert gate_stop._load_goal_plan(cwd, "PLAN_A") is not None
-        assert gate_stop._load_goal_plan(cwd, "PLAN_B") is None  # different session -> no bleed
-
-
 def test_edit_to_global_spec_path_is_blocked():
     """The spec lives globally now; a direct Edit to it must still be blocked
     (specs are CLI-only)."""

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """Per-project findings store for the unifable observation gate.
 
-State lives at <root>/.unifable/findings.json (repo-local, one file per project).
-This is distinct from the per-session ledger under ~/.unifable/ledgers/.
+State lives in the consolidated SQLite DB (db.findings + db.projects), keyed by a
+stable hash of the project root, so it is distinct from the per-session ledger
+and survives concurrent writers without a userspace lock. A legacy
+``<root>/.unifable/findings.json`` is imported once on first access.
 
 Severity tiers: low | medium | high | critical
 Status lifecycle: open -> resolved | rejected
@@ -15,56 +17,19 @@ The Stop gate imports this function and blocks completion while the list is non-
 from __future__ import annotations
 
 import argparse
-import contextlib
+import hashlib
 import json
-import os
 import re
 import sys
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
-    from atomicio import write_text_atomic
+    import db
 except ImportError:  # pragma: no cover
-    from scripts.gate.atomicio import write_text_atomic
-
-try:  # POSIX advisory locking; absent on some platforms (e.g. Windows)
-    import fcntl
-except ImportError:  # pragma: no cover
-    fcntl = None  # type: ignore[assignment]
+    from scripts.gate import db
 
 SEVERITIES = ("low", "medium", "high", "critical")
-
-
-@contextlib.contextmanager
-def _findings_lock(root: str | Path):
-    """Serialize load-modify-save on the findings store.
-
-    findings.json gates Stop completion (blocking_findings); a counter-keyed id
-    plus last-writer-wins means two concurrent add_finding calls can mint the same
-    id and clobber a finding that should block. This exclusive lock on a sibling
-    ``.lock`` file makes the read-modify-write a critical section. Writes here are
-    infrequent (CLI/agent driven, not the per-tool-call hot path), so the lock is
-    free in practice. No-op where fcntl is unavailable.
-    """
-    if fcntl is None:  # pragma: no cover
-        yield
-        return
-    lock_path = Path(str(_findings_path(root)) + ".lock")
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-    fd = os.open(lock_path, os.O_CREAT | os.O_RDWR, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        yield
-    finally:
-        try:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-        except OSError:
-            pass
-        os.close(fd)
-
-
 STATUSES = ("open", "blocked", "resolved", "rejected")
 BLOCKING_SEVERITIES = {"high", "critical"}
 BLOCKING_STATUSES = {"open", "blocked"}
@@ -72,36 +37,45 @@ BLOCKING_STATUSES = {"open", "blocked"}
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
-def _utc_now() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
-
-
 def _findings_path(root: str | Path) -> Path:
+    """Legacy on-disk location, retained for messages and one-time import."""
     return Path(root).resolve() / ".unifable" / "findings.json"
+
+
+def _root_hash(root: str | Path) -> str:
+    return hashlib.sha256(str(Path(root).resolve()).encode("utf-8", "replace")).hexdigest()[:16]
 
 
 def _slug(title: str) -> str:
     return _SLUG_RE.sub("-", title.lower().strip())[:24].strip("-")
 
 
-def load_findings(root: str | Path) -> dict[str, Any]:
+def _import_legacy_findings(root: str | Path, root_hash: str) -> None:
+    """One-time import of a legacy findings.json into the DB on first miss."""
     path = _findings_path(root)
     if not path.exists():
-        return {"findings": {}, "counter": 0}
+        return
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
-        return {"findings": {}, "counter": 0}
-    if not isinstance(data, dict):
-        return {"findings": {}, "counter": 0}
-    data.setdefault("findings", {})
-    data.setdefault("counter", 0)
+        return
+    if not isinstance(data, dict) or not data.get("findings"):
+        return
+    db.findings_replace(root_hash, str(Path(root).resolve()), data)
+
+
+def load_findings(root: str | Path) -> dict[str, Any]:
+    root_hash = _root_hash(root)
+    data = db.findings_load(root_hash)
+    if not data.get("findings") and not data.get("counter"):
+        _import_legacy_findings(root, root_hash)
+        data = db.findings_load(root_hash)
     return data
 
 
 def save_findings(root: str | Path, data: dict[str, Any]) -> Path:
-    path = _findings_path(root)
-    return write_text_atomic(path, json.dumps(data, indent=2, sort_keys=True))
+    db.findings_replace(_root_hash(root), str(Path(root).resolve()), data)
+    return _findings_path(root)
 
 
 def add_finding(
@@ -115,24 +89,20 @@ def add_finding(
 ) -> str:
     if severity not in SEVERITIES:
         raise ValueError(f"severity must be one of {SEVERITIES}")
-    with _findings_lock(root):
-        data = load_findings(root)
-        data["counter"] = data.get("counter", 0) + 1
-        fid = f"{_slug(title)}-{data['counter']}"
-        data["findings"][fid] = {
-            "id": fid,
-            "title": title,
-            "severity": severity,
-            "source": source,
-            "location": location,
-            "evidence": evidence,
-            "status": "open",
-            "resolution": "",
-            "verify_cmd": "",
-            "verify_evidence": "",
-            "created": _utc_now(),
-        }
-        save_findings(root, data)
+    # Ensure any legacy file is imported so the per-project counter continues.
+    load_findings(root)
+    fid = db.finding_add(
+        _root_hash(root),
+        str(Path(root).resolve()),
+        _slug(title),
+        title,
+        severity,
+        source=source,
+        location=location,
+        evidence=evidence,
+    )
+    if fid is None:  # DB unavailable: fail open rather than crash an explicit action
+        raise RuntimeError("findings store unavailable")
     return fid
 
 
@@ -147,19 +117,17 @@ def set_status(
 ) -> dict[str, Any]:
     if status not in STATUSES:
         raise ValueError(f"status must be one of {STATUSES}")
-    with _findings_lock(root):
-        data = load_findings(root)
-        finding = data["findings"].get(fid)
-        if finding is None:
-            raise KeyError(f"finding {fid!r} not found")
-        finding["status"] = status
-        if resolution is not None:
-            finding["resolution"] = resolution
-        if verify_cmd is not None:
-            finding["verify_cmd"] = verify_cmd
-        if verify_evidence is not None:
-            finding["verify_evidence"] = verify_evidence
-        save_findings(root, data)
+    load_findings(root)  # import legacy rows so set_status can find them
+    finding = db.finding_set_status(
+        _root_hash(root),
+        fid,
+        status,
+        resolution=resolution,
+        verify_cmd=verify_cmd,
+        verify_evidence=verify_evidence,
+    )
+    if finding is None:  # DB unavailable
+        raise RuntimeError("findings store unavailable")
     return finding
 
 
@@ -248,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--root",
         default=".",
-        help="Project root (default: cwd). findings.json lives at <root>/.unifable/findings.json",
+        help="Project root (default: cwd). Findings are stored in the consolidated unifable DB, keyed by project root.",
     )
     sub = parser.add_subparsers(dest="cmd", required=True)
 

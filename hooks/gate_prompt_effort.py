@@ -36,9 +36,9 @@ output, fix what the observation reveals, then re-run. A static parse confirms \
 well-formed, not correct."""
 
 _PLAYBOOK_MULTI_STORY = """\
-Multi-story loop: for 2+ sequential stories, use goals.py to decompose, \
-complete one at a time, and produce evidence at each checkpoint. The final story \
-must carry --verify-cmd and --verify-evidence."""
+Multi-story loop: for 2+ sequential stories, decompose them into spec tasks (one \
+requirement per story), validate one at a time, and produce evidence at each step. \
+The final task must carry a runnable check and its observed output."""
 
 _PLAYBOOK_ESCALATION = """\
 Escalation: when stuck on the same problem 2+ times, or when the task requires \

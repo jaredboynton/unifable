@@ -17,11 +17,9 @@ from pathlib import Path
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
-    from atomicio import write_text_atomic
     from heavy_workflow import clear_stale_heavy_workflow
     from ledger import data_root
 except ImportError:  # pragma: no cover
-    from scripts.gate.atomicio import write_text_atomic
     from scripts.gate.heavy_workflow import clear_stale_heavy_workflow
     from scripts.gate.ledger import data_root
 
@@ -158,7 +156,8 @@ def _safe_session(session_id: str | None) -> str:
 def session_dir(cwd: str | Path, session_id: str | None) -> Path:
     """Per-(directory, session) state directory:
     <data_root>/specs/<dir_hash(cwd)>/<session>/  (data_root honors $UNIFABLE_DATA,
-    same global root as the gate ledger). Holds spec.json plus the goals plan."""
+    same global root as the gate ledger). Legacy on-disk home of the spec, now
+    stored in the consolidated DB; retained for one-time import and labels."""
     return data_root() / "specs" / dir_hash(cwd) / _safe_session(session_id)
 
 
@@ -200,68 +199,152 @@ def _spec_file_substantive(path: Path) -> bool:
     return False
 
 
-def _find_fragmented_specs(session_id: str | None, canonical_root: Path) -> list[Path]:
-    """Other dirhash buckets holding a substantive spec for the same session."""
+def _spec_key(canonical_root: Path, session_id: str | None) -> str:
+    """DB key for a session's spec: '<dirhash>/<safe_session>' (mirrors the legacy
+    on-disk path segments specs/<dirhash>/<session>/spec.json)."""
+    return f"{dir_hash(canonical_root)}/{_safe_session(session_id)}"
+
+
+def _spec_doc_substantive(data: dict[str, Any] | None) -> bool:
+    if not data:
+        return False
+    tasks = data.get("tasks")
+    if isinstance(tasks, list) and tasks:
+        return True
+    if data.get("repo_context") or data.get("prior_art"):
+        return True
+    if data.get("restated_goal") and not data.get("goal_seeded", True):
+        return True
+    return False
+
+
+def _find_fragmented_specs(session_id: str | None, canonical_root: Path) -> list[str]:
+    """Spec keys in OTHER dirhash buckets holding a substantive spec for the same
+    session. Scans the DB and, for migration, legacy on-disk spec.json fragments
+    (importing each into the DB). Returns DB keys ('<dirhash>/<safe_session>');
+    empty on any error."""
     safe = _safe_session(session_id)
-    specs_root = data_root() / "specs"
     canonical = dir_hash(canonical_root)
-    if not specs_root.is_dir():
+    found: list[str] = []
+    seen: set[str] = set()
+    try:
+        import db
+
+        for key in db.spec_keys():
+            if "/" not in key:
+                continue
+            bucket, sess = key.split("/", 1)
+            if sess != safe or bucket == canonical:
+                continue
+            if _spec_doc_substantive(db.spec_load(key)) and key not in seen:
+                found.append(key)
+                seen.add(key)
+        specs_root = data_root() / "specs"
+        if specs_root.is_dir():
+            for entry in specs_root.iterdir():
+                if not entry.is_dir() or entry.name == canonical:
+                    continue
+                candidate = entry / safe / "spec.json"
+                if not candidate.is_file():
+                    continue
+                doc = _read_spec_file(candidate)
+                if not _spec_doc_substantive(doc):
+                    continue
+                key = f"{entry.name}/{safe}"
+                try:
+                    db.spec_save(key, doc)
+                except Exception:
+                    pass
+                if key not in seen:
+                    found.append(key)
+                    seen.add(key)
+    except Exception:
         return []
-    found: list[Path] = []
-    for entry in specs_root.iterdir():
-        if not entry.is_dir() or entry.name == canonical:
-            continue
-        candidate = entry / safe / "spec.json"
-        if candidate.is_file() and _spec_file_substantive(candidate):
-            found.append(candidate)
     return found
 
 
-def _relocate_spec(from_path: Path, canonical_root: Path, session_id: str | None) -> Path | None:
-    data = _read_spec_file(from_path)
-    if not data:
-        return None
-    dest = spec_path(canonical_root, session_id)
-    write_text_atomic(dest, json.dumps(data, indent=2, sort_keys=False))
-    old_dir = from_path.parent
+def _relocate_spec(from_key: str, canonical_root: Path, session_id: str | None) -> dict[str, Any] | None:
+    """Move a stranded spec doc from a fragmented dirhash bucket to the canonical
+    key, removing the legacy on-disk fragment. Returns the doc, or None on error."""
     try:
-        from_path.unlink(missing_ok=True)
-        if old_dir.exists() and not any(old_dir.iterdir()):
-            old_dir.rmdir()
-        grand = old_dir.parent
-        if grand.name != dir_hash(canonical_root) and grand.exists() and not any(grand.iterdir()):
-            grand.rmdir()
+        import db
+
+        doc = db.spec_load(from_key)
+        if not isinstance(doc, dict):
+            return None
+        db.spec_save(_spec_key(canonical_root, session_id), doc)
+        db.spec_delete(from_key)
+    except Exception:
+        return None
+    # Best-effort cleanup of the legacy on-disk fragment (from migration).
+    try:
+        bucket, safe = from_key.split("/", 1)
+        legacy = data_root() / "specs" / bucket / safe / "spec.json"
+        legacy.unlink(missing_ok=True)
+        parent = legacy.parent
+        if parent.is_dir() and not any(parent.iterdir()):
+            parent.rmdir()
+            grand = parent.parent
+            if grand.is_dir() and not any(grand.iterdir()):
+                grand.rmdir()
     except OSError:
         pass
     print(
-        f"Relocated spec from fragmented dirhash to canonical project root ({dest}).",
+        f"Relocated spec from fragmented dirhash to canonical project root ({spec_path(canonical_root, session_id)}).",
         file=sys.stderr,
     )
-    return dest
+    return doc
+
+
+def _import_legacy_spec(canonical_root: Path, session_id: str | None, key: str) -> dict[str, Any] | None:
+    """One-time import of a legacy spec.json file into the DB on first miss."""
+    data = _read_spec_file(spec_path(canonical_root, session_id))
+    if data is None:
+        return None
+    try:
+        import db
+
+        db.spec_save(key, data)
+    except Exception:
+        pass
+    return data
 
 
 def load_spec(cwd: str | Path, session_id: str | None) -> dict[str, Any] | None:
-    """Load and parse the session's spec artifact, returning None on any error.
-
-    When missing at the canonical path, searches other dirhash buckets for the same
-    session and relocates a lone substantive match."""
+    """Load the session's spec doc from the consolidated DB, returning None on
+    absence or any error. Falls back to importing a legacy spec.json, then to
+    relocating a lone substantive spec stranded in another dirhash bucket."""
     root = canonical_project_root(cwd)
-    path = spec_path(root, session_id)
-    if path.exists():
-        return _read_spec_file(path)
+    key = _spec_key(root, session_id)
+    try:
+        import db
+
+        doc = db.spec_load(key)
+    except Exception:
+        doc = None
+    if doc is None:
+        doc = _import_legacy_spec(root, session_id, key)
+    if doc is not None:
+        return doc
     fragmented = _find_fragmented_specs(session_id, root)
     if len(fragmented) == 1 and _git_toplevel(root) is not None:
         relocated = _relocate_spec(fragmented[0], root, session_id)
-        if relocated:
-            return _read_spec_file(relocated)
+        if relocated is not None:
+            return relocated
     return None
 
 
 def save_spec(cwd: str | Path, session_id: str | None, spec: dict[str, Any]) -> Path:
-    """Write *spec* to the session's canonical path, creating parents as needed."""
+    """Persist *spec* as one JSON doc in the consolidated DB. Returns the legacy
+    spec path purely as a stable identity/label for callers and block messages."""
     root = canonical_project_root(cwd)
-    path = spec_path(root, session_id)
-    return write_text_atomic(path, json.dumps(spec, indent=2, sort_keys=False))
+    try:
+        import db
+
+        db.spec_save(_spec_key(root, session_id), spec)
+    except Exception:
+        pass
+    return spec_path(root, session_id)
 
 
 def _seed_goal(prompt: str, limit: int = 280) -> str:
@@ -288,7 +371,8 @@ def ensure_spec_scaffold(
     try:
         root = canonical_project_root(cwd)
         path = spec_path(root, session_id)
-        if not path.exists():
+        existing = load_spec(root, session_id)
+        if existing is None:
             created = True
             s = spec_template()
             s["restated_goal"] = _seed_goal(seed_prompt)
@@ -303,7 +387,7 @@ def ensure_spec_scaffold(
                 s["heavy_workflow"] = True
             save_spec(root, session_id, s)
         elif heavy:
-            s = load_spec(root, session_id)
+            s = existing
             if isinstance(s, dict):
                 changed = False
                 if not s.get("heavy_workflow"):
@@ -318,7 +402,7 @@ def ensure_spec_scaffold(
                 if changed:
                     save_spec(root, session_id, s)
         else:
-            s = load_spec(root, session_id)
+            s = existing
             if isinstance(s, dict):
                 changed = False
                 if clear_stale_heavy_workflow(s, "STANDARD"):

@@ -133,7 +133,10 @@ class TestFindingsConcurrency(unittest.TestCase):
     def test_concurrent_add_finding_loses_nothing(self) -> None:
         """The Stop-blocking findings store must not drop findings under concurrent
         adds (the counter-collision + last-writer-wins lost-finding bug)."""
-        with tempfile.TemporaryDirectory() as root:
+        import os
+
+        with tempfile.TemporaryDirectory() as root, tempfile.TemporaryDirectory() as data:
+            os.environ["UNIFABLE_DATA"] = data
             errors: list[str] = []
 
             def adder(i: int) -> None:

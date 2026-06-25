@@ -22,7 +22,7 @@ except ImportError:  # pragma: no cover
     from scripts.gate.ledger import data_root
 
 
-_GATE_PREFIXES = ("ledger", "goals.json", "findings.json", "state")
+_GATE_PREFIXES = ("ledger", "findings.json", "state")
 
 
 def _unifable_dir(cwd: str | Path) -> Path:

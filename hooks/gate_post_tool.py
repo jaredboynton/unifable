@@ -214,7 +214,6 @@ def main() -> int:
     mcp_ev = mcp_evidence(input_data) if executed_ok else None
     research_ev = research_bash_evidence(input_data) if executed_ok else None
     tool_name = str(input_data.get("tool_name") or "unknown")
-    observed = f"{tool_name}: {response_text(input_data.get('tool_response', input_data), 180)}" if executed_ok else ""
 
     def apply(ledger):
         if kinds:
@@ -238,8 +237,6 @@ def main() -> int:
             add_unique(ledger, "tool_evidence", [research_ev])
         if mcp_ev or research_ev:
             ledger["tool_evidence"] = ledger["tool_evidence"][-60:]
-        if observed:
-            ledger["observed_tool_results"].append(observed)
 
     ledger = update_ledger(input_data, apply)
 

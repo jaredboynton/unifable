@@ -471,8 +471,6 @@ def _fake_response(schema_name: str, schema: dict[str, Any], user: str) -> dict[
         return {"hint": "Run the generated-docs check and inspect the first diff."}
     if schema_name == "loop_release":
         return {"suicide_loop": False, "lift": "none", "reason": "sample"}
-    if schema_name == "goal_stop":
-        return {"ok": False, "reason": "insufficient evidence in transcript"}
     if schema_name == "completion_handoff":
         return {
             "ok_to_stop": False,
@@ -695,15 +693,6 @@ def collect_judge_prompts() -> list[JudgePrompt]:
             },
             signal="same requirement keeps failing",
             recent="python3 scripts/generate_docs.py --check",
-        ),
-    )
-    cases += _capture_call(
-        "Goal stop condition",
-        "hooks/gate_stop.py",
-        lambda: gate_stop._judge_goal_condition(
-            "Generated docs are current.",
-            '<record line="000001" role="assistant">Ran python3 scripts/generate_docs.py --check.</record>',
-            {"session_id": "sample-session", "cwd": str(ROOT)},
         ),
     )
     cases += _capture_call(

@@ -20,13 +20,26 @@ import findings as F
 
 class FindingsBase(unittest.TestCase):
     def setUp(self):
+        import os
+
         self._tmp = tempfile.mkdtemp(prefix="unifable_findings_test_")
         self.root = self._tmp
+        # Isolate the consolidated DB to a per-test data root so findings rows
+        # never touch the real ~/.unifable or bleed across tests.
+        self._data = tempfile.mkdtemp(prefix="unifable_findings_data_")
+        self._prev_data = os.environ.get("UNIFABLE_DATA")
+        os.environ["UNIFABLE_DATA"] = self._data
 
     def tearDown(self):
+        import os
         import shutil
 
+        if self._prev_data is None:
+            os.environ.pop("UNIFABLE_DATA", None)
+        else:
+            os.environ["UNIFABLE_DATA"] = self._prev_data
         shutil.rmtree(self._tmp, ignore_errors=True)
+        shutil.rmtree(self._data, ignore_errors=True)
 
 
 class TestLoadSaveEmpty(FindingsBase):
@@ -35,11 +48,13 @@ class TestLoadSaveEmpty(FindingsBase):
         self.assertEqual(data["findings"], {})
         self.assertEqual(data["counter"], 0)
 
-    def test_save_creates_file(self):
-        data = F.load_findings(self.root)
-        F.save_findings(self.root, data)
-        p = Path(self.root) / ".unifable" / "findings.json"
-        self.assertTrue(p.exists())
+    def test_save_persists_to_db(self):
+        # Findings now live in the consolidated SQLite DB, not a JSON file.
+        F.add_finding(self.root, "Persisted via db", "high")
+        reloaded = F.load_findings(self.root)
+        self.assertEqual(len(reloaded["findings"]), 1)
+        db_file = Path(self._data) / "unifable.db"
+        self.assertTrue(db_file.exists())
 
 
 class TestAdd(FindingsBase):
@@ -192,6 +207,8 @@ class TestGetFinding(FindingsBase):
 
 class TestAtomicSave(FindingsBase):
     def test_no_tmp_file_left_after_save(self):
+        # SQLite WAL handles durability; no sidecar temp file is created in the
+        # project tree (the legacy atomicio .tmp path must never appear).
         F.add_finding(self.root, "Atomic test", "low")
         tmp = Path(self.root) / ".unifable" / "findings.tmp"
         self.assertFalse(tmp.exists())

@@ -104,15 +104,16 @@ def test_epoch_reset_allows_full_message_again():
         assert rc1 == 2
         assert "nl is not in the Bash research whitelist" in err1 or "Unlock:" in err1
 
-        from ledger import ledger_path  # noqa: E402
+        from ledger import load_ledger, save_ledger  # noqa: E402
 
         os.environ["UNIFABLE_DATA"] = tmp
-        path = ledger_path(payload)
-        ledger = json.loads(path.read_text(encoding="utf-8"))
+        # Storage moved to the consolidated DB; reset the dedup epoch via the
+        # ledger accessors rather than editing a JSON file.
+        ledger = load_ledger(payload)
         ledger["pretool_block_epoch"] = ""
         ledger["pretool_block_counts"] = {}
         ledger["pretool_unlock_footer_epoch"] = ""
-        path.write_text(json.dumps(ledger, indent=2), encoding="utf-8")
+        save_ledger(payload, ledger)
 
         rc2, err2 = _run_pre_tool(payload, data_root=tmp)
         assert rc2 == 2

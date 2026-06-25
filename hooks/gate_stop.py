@@ -11,14 +11,13 @@ Blocks completion in priority order; fails open on malformed input:
      The agent is unconditionally required to write its evidence back. Releases
      only on a valid spec, LIGHT grade, no session_id (fail open), the holdout
      'off' arm, or a gate exception (fail open).
-  2. Goal stop judge: active goals.py goal must be evidenced complete.
-  3. Completion handoff judge: gpt-realtime-2 blocks when the last text-only turn
+  2. Completion handoff judge: gpt-realtime-2 blocks when the last text-only turn
      defers autonomous work (permission-seeking, "say the word and I'll…", dangling
      follow-ups). Bypasses stop_hook_active; capped at COMPLETION_HANDOFF_BLOCK_CAP.
-  4. Loop guard for softer gates below (findings + observation): never block twice
+  3. Loop guard for softer gates below (findings + observation): never block twice
      in a row on the same stop.
-  5. Findings cross-link (opt-in).
-  6. Observation gate: changed-but-unverified on HEAVY tasks. Capped at MAX_STOP_BLOCKS,
+  4. Findings cross-link (opt-in).
+  5. Observation gate: changed-but-unverified on HEAVY tasks. Capped at MAX_STOP_BLOCKS,
      behind stop_hook_active, so it never traps.
 """
 
@@ -37,7 +36,6 @@ from atomicio import write_text_atomic
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from transcript_locate import locate_transcript
-from transcript_tail import TRANSCRIPT_TOKEN_BUDGET, stripped_transcript_tail
 from verify_state import (
     MAX_STOP_BLOCKS,
     completion_runaway_warning,
@@ -47,11 +45,6 @@ from verify_state import (
     warning_after_max_blocks,
 )
 
-GOAL_TRANSCRIPT_TOKENS = TRANSCRIPT_TOKEN_BUDGET
-try:
-    GOAL_STOP_BLOCK_CAP = int(os.environ.get("UNIFABLE_GOAL_STOP_BLOCK_CAP", "0"))
-except ValueError:
-    GOAL_STOP_BLOCK_CAP = 0
 # Wall-clock budget for the judge/check work this Stop hook does, kept under the
 # host Stop-hook timeout (hooks.json wires gate_stop at 120s). auto_validate_spec
 # stops launching work past this deadline so the hook always returns cleanly
@@ -60,17 +53,6 @@ try:
     STOP_JUDGE_BUDGET = float(os.environ.get("UNIFABLE_STOP_BUDGET", "100"))
 except ValueError:
     STOP_JUDGE_BUDGET = 100.0
-GOAL_JUDGE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "ok": {"type": "boolean"},
-        "impossible": {"type": "boolean"},
-        "reason": {"type": "string"},
-    },
-    "required": ["ok", "reason"],
-    "additionalProperties": False,
-}
-
 # Advisory-hint loop for the completion breaker. After the agent has re-blocked
 # Stop this many times it is plausibly stuck, so the judge offers ONE concrete
 # next step. The hint never lifts the gate -- it rides alongside the block reason.
@@ -377,182 +359,6 @@ def ledger_grade(input_data: dict) -> str:
         return "STANDARD"
 
 
-def _transcript_for_goal_judge(transcript_path: str | None, input_data: dict) -> str:
-    text = stripped_transcript_tail(transcript_path, GOAL_TRANSCRIPT_TOKENS)
-    if text.strip():
-        return text
-    if input_data.get("last_assistant_message"):
-        return f"assistant: {input_data.get('last_assistant_message')}"
-    return "(no transcript available)"
-
-
-def _goals_path(cwd: str | Path, session_id: str | None) -> Path:
-    # The goals plan lives beside the spec in the per-(directory, session) dir, so a
-    # new session never inherits a prior session's plan (the stale-plan bleed fix).
-    from spec_io import session_dir
-
-    return session_dir(cwd, session_id) / "goals.json"
-
-
-def _load_goal_plan(cwd: str | Path, session_id: str | None) -> dict | None:
-    path = _goals_path(cwd, session_id)
-    if not path.is_file():
-        return None
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return None
-    return data if isinstance(data, dict) else None
-
-
-def _current_goal(plan: dict) -> dict | None:
-    goals = plan.get("goals")
-    if not isinstance(goals, list):
-        return None
-    for goal in goals:
-        if isinstance(goal, dict) and goal.get("status") == "in_progress":
-            return goal
-    for goal in goals:
-        if isinstance(goal, dict) and goal.get("status") == "pending":
-            return goal
-    return None
-
-
-def _remaining_goals(plan: dict) -> list[dict]:
-    goals = plan.get("goals")
-    if not isinstance(goals, list):
-        return []
-    return [goal for goal in goals if isinstance(goal, dict) and goal.get("status") in {"pending", "in_progress"}]
-
-
-def _goal_condition(plan: dict, goal: dict) -> str:
-    brief = str(plan.get("brief") or "").strip()
-    title = str(goal.get("title") or "").strip()
-    objective = str(goal.get("objective") or "").strip()
-    gid = str(goal.get("id") or "?").strip()
-    return (
-        f"Plan brief: {brief or '(none)'}\n"
-        f"Current goal {gid} {title}: {objective}\n"
-        "The condition is satisfied only if the transcript contains clear evidence "
-        "that this current goal is complete."
-    )
-
-
-def _goal_hook_arguments(input_data: dict) -> dict:
-    keys = (
-        "session_id",
-        "transcript_path",
-        "cwd",
-        "permission_mode",
-        "effort",
-        "hook_event_name",
-        "stop_hook_active",
-        "last_assistant_message",
-        "background_tasks",
-        "session_crons",
-    )
-    return {key: input_data.get(key) for key in keys if key in input_data}
-
-
-def _judge_goal_condition(condition: str, transcript: str, input_data: dict) -> dict:
-    from judge_transport import ask_structured
-    from transcript_tail import fit_judge_user_message
-
-    system = (
-        "You are evaluating a stop-condition hook in unifable. Read the conversation "
-        "transcript carefully, then judge whether the user-provided condition is satisfied. "
-        "Your response must be a JSON object with one of these shapes:\n"
-        '- {"ok": true, "reason": "<quote evidence from the transcript that satisfies the condition>"}\n'
-        '- {"ok": false, "reason": "<quote what is missing or what blocks the condition>"}\n'
-        '- {"ok": false, "impossible": true, "reason": "<explain why the condition can never be satisfied>"}\n'
-        'Always include a "reason" field, quoting specific text from the transcript whenever possible. '
-        "If the transcript does not contain clear evidence that the condition is satisfied, return "
-        '{"ok": false, "reason": "insufficient evidence in transcript"}. Only use '
-        '{"ok": false, "impossible": true} when the condition is genuinely unachievable in this session.'
-    )
-    args = json.dumps(_goal_hook_arguments(input_data), ensure_ascii=False, sort_keys=True)
-    user = fit_judge_user_message(
-        "Conversation transcript:\n",
-        transcript,
-        suffix=(
-            "\n\nBased on the conversation transcript above, has the following stopping condition been "
-            "satisfied? Answer based on transcript evidence only.\n"
-            f"Condition: {condition}\n\n"
-            f"ARGUMENTS: {args}"
-        ),
-    )
-    return ask_structured(system, user, GOAL_JUDGE_SCHEMA, schema_name="goal_stop")
-
-
-def _mark_goal(cwd: str | Path, session_id: str | None, plan: dict, goal_id: str, status: str, reason: str) -> None:
-    changed = False
-    for goal in plan.get("goals", []):
-        if isinstance(goal, dict) and str(goal.get("id")) == goal_id:
-            goal["status"] = status
-            goal["evidence"] = reason
-            goal["stop_judge_reason"] = reason
-            changed = True
-            break
-    if changed:
-        write_text_atomic(_goals_path(cwd, session_id), json.dumps(plan, ensure_ascii=False, indent=1))
-
-
-def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
-    """Evaluate the active goals.py goal like Cursor's prompt Stop hook, using
-    gpt-realtime-2 through codex_judge. Returns a Stop payload or None to allow."""
-    if not input_data or input_data.get("_parse_error"):
-        return None
-    if not (input_data.get("session_id") or input_data.get("transcript_path") or input_data.get("last_assistant_message")):
-        return None
-    from spec_io import resolve_session_id
-
-    session_id = resolve_session_id(input_data, default=None)
-    plan = _load_goal_plan(cwd, session_id)
-    if not plan:
-        return None
-    goal = _current_goal(plan)
-    if not goal:
-        return None
-
-    ledger = load_ledger(input_data)
-    if GOAL_STOP_BLOCK_CAP > 0 and int(ledger.get("goal_stop_blocks") or 0) >= GOAL_STOP_BLOCK_CAP:
-        return {"systemMessage": ("Goal stop hook block cap reached; allowing stop with an incomplete goals.py plan.")}
-
-    condition = _goal_condition(plan, goal)
-    transcript = _transcript_for_goal_judge(input_data.get("transcript_path"), input_data)
-    gid = str(goal.get("id") or "?")
-    try:
-        verdict = _judge_goal_condition(condition, transcript, input_data)
-    except Exception as exc:  # noqa: BLE001
-        verdict = {"ok": False, "reason": f"goal judge unavailable: {exc}"}
-
-    reason = str(verdict.get("reason") or "insufficient evidence in transcript")
-    if verdict.get("ok") is True:
-        _mark_goal(cwd, session_id, plan, gid, "complete", reason)
-        ledger["goal_stop_blocks"] = 0
-        save_ledger(input_data, ledger)
-        if _remaining_goals(plan):
-            return {
-                "decision": "block",
-                "reason": (
-                    f"Stop hook feedback:\n[{gid}] {reason}\n"
-                    "The current goal is complete, but the goals.py plan still has "
-                    "remaining goals. Continue with `python3 scripts/goals.py next`."
-                ),
-            }
-        return None
-
-    if verdict.get("impossible") is True:
-        _mark_goal(cwd, session_id, plan, gid, "failed", reason)
-        ledger["goal_stop_blocks"] = 0
-        save_ledger(input_data, ledger)
-        return {"systemMessage": f"Goal failed and was cleared from Stop blocking: [{gid}] {reason}"}
-
-    ledger["goal_stop_blocks"] = int(ledger.get("goal_stop_blocks") or 0) + 1
-    save_ledger(input_data, ledger)
-    return {"decision": "block", "reason": f"Stop hook feedback:\n[{gid}] {reason}"}
-
-
 def main() -> int:
     input_data = read_stdin_json()
 
@@ -816,24 +622,7 @@ def main() -> int:
         except Exception:
             pass  # fail open — a gate bug never interrupts the host
 
-    # 2. Goal-mode prompt Stop hook. mirrors Cursor's prompt hook shape, but uses
-    #    gpt-realtime-2 through codex_judge instead of Haiku.
-    try:
-        goal_payload = goal_stop_decision(input_data, cwd)
-        if goal_payload:
-            # Board rides only the evidence-gate block (see the handoff note below);
-            # a goals.py block is a different concern and must not carry it.
-            _emit_stop_payload(
-                goal_payload,
-                input_data,
-                validate_ctx="",
-                digest_path=stop_digest_path,
-            )
-            return 0
-    except Exception:
-        pass  # fail open
-
-    # 3. Completion handoff judge — blocks text-only turns that defer autonomous
+    # 2. Completion handoff judge — blocks text-only turns that defer autonomous
     #    work. Bypasses stop_hook_active; capped in completion_handoff.py.
     try:
         from completion_handoff import completion_handoff_decision
@@ -857,14 +646,14 @@ def main() -> int:
     except Exception:
         pass  # fail open
 
-    # 4. Loop guard for the softer gates below (findings + observation): never
+    # 3. Loop guard for the softer gates below (findings + observation): never
     #    block twice in a row on the same stop.
     if input_data.get("stop_hook_active") is True:
         emit_json({})
         return 0
 
-    # 5. Findings cross-link (opt-in: empty unless .unifable/findings.json exists):
-    #    open high/critical findings block completion. Fails open.
+    # 4. Findings cross-link (opt-in): open high/critical findings block
+    #    completion. Fails open.
     try:
         from findings import blocking_findings
 
@@ -881,7 +670,7 @@ def main() -> int:
         )
         return 0
 
-    # 6. Observation gate — should_block_stop (deep changed-but-unverified). This
+    # 5. Observation gate — should_block_stop (deep changed-but-unverified). This
     #    softer nudge keeps the MAX_STOP_BLOCKS cap + holdout, so it never traps.
     ledger = load_ledger(input_data)
     block, obs_reason = should_block_stop(ledger, grade)

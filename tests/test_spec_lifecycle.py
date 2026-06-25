@@ -101,8 +101,9 @@ def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):
 
 def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
     path, _changes, _created = ensure_spec_scaffold(str(tmp_path), "K", "Refactor the auth module please")
-    assert path and Path(path).exists()
+    assert path  # legacy path label; the spec itself lives in the consolidated DB
     s = load_spec(str(tmp_path), "K")
+    assert s is not None
     assert s["requires_tasks"] is True
     assert s["tasks"] == []
     assert "auth module" in s["restated_goal"]

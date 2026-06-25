@@ -18,11 +18,6 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from atomicio import write_text_atomic
-except ImportError:  # pragma: no cover
-    from scripts.gate.atomicio import write_text_atomic
-
-try:
     import fcntl
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
@@ -281,17 +276,49 @@ def _migrate_from_ledger(input_data: dict[str, Any]) -> dict[str, Any] | None:
     return state
 
 
-def load_breaker(input_data: dict[str, Any]) -> dict[str, Any]:
+def _import_legacy_breaker(input_data: dict[str, Any]) -> dict[str, Any] | None:
+    """One-time import of legacy breaker state into the DB: prefer the standalone
+    ``breaker/{key}.json`` file, else copy the even-older inline ledger breaker
+    fields. Returns a normalized breaker dict, or None when nothing to import."""
+    data: dict[str, Any] | None = None
     path = breaker_path(input_data)
-    if not path.is_file():
-        migrated = _migrate_from_ledger(input_data)
-        if migrated is not None:
-            save_breaker(input_data, migrated)
-            return migrated
-        return default_breaker()
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                data = raw
+        except (OSError, json.JSONDecodeError):
+            data = None
+    if data is None:
+        data = _migrate_from_ledger(input_data)
+    if data is None:
+        return None
+    state = default_breaker()
+    state.update({key: data.get(key, value) for key, value in state.items()})
+    if not isinstance(state.get("events"), list):
+        state["events"] = []
     try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        import db
+
+        db.breaker_save(ledger_key(input_data), state)
+    except Exception:
+        pass
+    return state
+
+
+def load_breaker(input_data: dict[str, Any]) -> dict[str, Any]:
+    # Storage is the consolidated SQLite DB (db.breaker + db.breaker_events). The
+    # legacy breaker/{key}.json (or older inline ledger fields) is imported once on
+    # first miss. Any DB error fails open to a fresh default breaker.
+    try:
+        import db
+
+        data = db.breaker_load(ledger_key(input_data))
+    except Exception:
+        data = None
+    if data is None:
+        data = _import_legacy_breaker(input_data)
+    if data is None:
         return default_breaker()
     state = default_breaker()
     if isinstance(data, dict):
@@ -303,7 +330,17 @@ def load_breaker(input_data: dict[str, Any]) -> dict[str, Any]:
 
 
 def save_breaker(input_data: dict[str, Any], state: dict[str, Any]) -> Path:
-    path = breaker_path(input_data)
+    # Storage is the consolidated SQLite DB. The breaker read-modify-(judge)-write
+    # is still serialized by the POSIX flock in breaker_lock() -- that lock guards
+    # the expensive judge API CALL (coalescing parallel hooks into one), a concern
+    # orthogonal to storage that WAL does not and must not replace. Returns the
+    # legacy path for signature compatibility.
     trim_breaker(state)
     state["last_updated"] = utc_now()
-    return write_text_atomic(path, json.dumps(state, indent=2, sort_keys=True))
+    try:
+        import db
+
+        db.breaker_save(ledger_key(input_data), state)
+    except Exception:
+        pass
+    return breaker_path(input_data)
