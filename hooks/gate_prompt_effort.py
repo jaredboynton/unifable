@@ -19,9 +19,6 @@ from pathlib import Path
 HEAVY_EFFORT = {"xhigh", "max", "ultracode"}
 
 _PLAYBOOK_CORE = """\
-Execution playbook active (effort=heavy). Adopt the discipline below as \
-standing procedure for the rest of this session:
-
 Working style: Lead with the outcome. Stay within the requested scope (no \
 incidental refactors or abstractions). Ground every completion claim in a tool \
 result from this session. Confirm before destructive or hard-to-reverse actions."""
@@ -128,7 +125,7 @@ def main() -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
         from ledger import load_ledger
 
-        matched_tags = set(load_ledger(data).get("router_matched_tags") or [])
+        matched_tags = set(load_ledger(data).get("router_fired_tags") or [])
     except Exception:
         pass
 

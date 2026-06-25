@@ -8,11 +8,9 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from loop_release import stall_signature  # noqa: E402
 from spec import (  # noqa: E402
-    _apply_adjustments,
-    _apply_supersedes_bundle,
     all_tasks_validated,
     auto_validate_spec,
     detect_requirement_fragmentation,
@@ -20,6 +18,8 @@ from spec import (  # noqa: E402
     save_spec,
     spec_template,
 )
+from spec_judge import _apply_adjustments  # noqa: E402
+from spec_tasks import _apply_supersedes_bundle
 
 
 def _task(tid, status, *, added_by="agent", check="true", title=None):
@@ -71,10 +71,8 @@ def test_new_requirement_with_supersedes_drops_breaker_count(tmp_path, monkeypat
     s["restated_goal"] = "g"
     s["tasks"] = [_task(f"T{i}", "failed") for i in range(1, 4)]
     save_spec(str(tmp_path), "K", s)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", plan_mode=None, **_kw: [
             (
                 0,
@@ -120,8 +118,8 @@ def test_agent_revise_skips_verdict_this_stop(tmp_path, monkeypatch):
                 sp.setdefault("_stop_adjust_headlines", []).extend(hl)
         return [(0, "still failing old output", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (1, "fail"))
     spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     t = spec["tasks"][0]
     assert t["status"] == "pending"

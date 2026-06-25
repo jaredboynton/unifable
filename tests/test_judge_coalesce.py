@@ -80,7 +80,7 @@ def _payload(session="batch", cwd="/repo"):
 
 
 def test_coalesce_true_skips_judge_but_still_blocks_when_armed(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     state = default_breaker()
     state["breaker_armed"] = True
     state["breaker_claim"] = "claim X"
@@ -96,7 +96,7 @@ def test_coalesce_true_skips_judge_but_still_blocks_when_armed(monkeypatch):
 
 
 def test_coalesce_true_does_not_increment_block_count(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     state = default_breaker()
     state["breaker_armed"] = True
     state["breaker_claim"] = "claim X"
@@ -119,7 +119,7 @@ def test_coalesce_true_does_not_increment_block_count(monkeypatch):
 
 def test_parallel_batch_makes_one_judge_call(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: definitely the cause is Y")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: definitely the cause is Y")
     judge = CountingJudge(hold=False)
     payload = _payload(session="parallel-1", cwd=str(tmp_path))
 
@@ -152,7 +152,7 @@ def test_parallel_batch_makes_one_judge_call(monkeypatch, tmp_path):
 
 def test_sequential_beyond_window_each_judges(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = CountingJudge(hold=False)
     payload = _payload(session="seq", cwd=str(tmp_path))
 
@@ -168,7 +168,7 @@ def test_sequential_beyond_window_each_judges(monkeypatch, tmp_path):
 
 def test_locked_path_arms_when_fcntl_missing(monkeypatch, tmp_path):
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     monkeypatch.setattr(bs, "fcntl", None)
     judge = CountingJudge(hold=False)
     payload = _payload(session="no-fcntl", cwd=str(tmp_path))

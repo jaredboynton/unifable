@@ -26,12 +26,7 @@ from plan_mode import (
     plan_mode_spec_task_guidance,
     resolve_plan_mode,
 )
-from spec import (
-    canonical_project_root,
-    ensure_spec_scaffold,
-    load_spec,
-    resolve_session_id,
-)
+from spec_io import canonical_project_root, ensure_spec_scaffold, load_spec, resolve_session_id
 from task_context import self_referential_harness_context_line
 
 
@@ -47,6 +42,7 @@ def _format_scaffold_onboarding(
     evidence_profile: str,
     heavy_scaffold: bool,
     plan_mode: dict,
+    skip_cli_tutorial: bool = False,
 ) -> str:
     """Full spec CLI tutorial — emit only on first scaffold create."""
     profile_note = (
@@ -54,6 +50,8 @@ def _format_scaffold_onboarding(
         if evidence_profile == "operational"
         else ""
     )
+    if skip_cli_tutorial:
+        return f"\n\nEvidence spec auto-created at {path}.{profile_note}"
     task_guidance = ""
     try:
         task_guidance = plan_mode_spec_task_guidance(plan_mode)
@@ -162,7 +160,21 @@ def main() -> int:
     effective_grade = resolve_grade(ledger)
     heavy_scaffold = effective_grade == "HEAVY"
 
-    context = context_for_mode(mode, risks)
+    context = context_for_mode(
+        mode,
+        risks,
+        first_prompt=not prior_ledger.get("citation_footer_notified"),
+    )
+
+    if not prior_ledger.get("citation_footer_notified") and "Cite evidence" in context:
+        try:
+
+            def _mark_cite_footer(_led):
+                _led["citation_footer_notified"] = True
+
+            update_ledger(input_data, _mark_cite_footer)
+        except Exception:
+            pass
 
     try:
         sr_line = self_referential_harness_context_line(operative)
@@ -185,14 +197,15 @@ def main() -> int:
     # evidence profile, surface the judge's reason and the move -- the generic mode
     # line above does not tell the model the gate's requirements just changed.
     if prior_active and (effective_grade != prior_grade or evidence_profile != prior_profile):
-        detail = (reason or "").strip() or "reclassified"
+        detail = (reason or "").strip() or "requirements changed"
         line = f"\n\nReclassified: {detail}"
         if effective_grade != prior_grade:
-            line += f" Grade now {effective_grade} (was {prior_grade})."
+            line += f" Enforcement is now {effective_grade} (was {prior_grade})."
         if evidence_profile != prior_profile:
-            line += f" evidence_profile now {evidence_profile} (was {prior_profile})."
             if evidence_profile == "operational":
-                line += " repo_context/prior_art not required."
+                line += " Repo citations not required before edits."
+            else:
+                line += " Repo and prior-art citations required before edits."
         context += line
 
     if effective_grade != "LIGHT":
@@ -206,6 +219,7 @@ def main() -> int:
                 evidence_profile=evidence_profile,
                 heavy_scaffold=heavy_scaffold,
                 plan_mode=plan_mode if isinstance(plan_mode, dict) else {},
+                skip_cli_tutorial=bool(ledger.get("inject_heavy_brief")),
             )
 
             def _mark_scaffold(_led):

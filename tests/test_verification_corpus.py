@@ -13,7 +13,7 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
 from parse_tool_result import format_verifications  # noqa: E402
-from spec import _evidence_payload  # noqa: E402
+from spec_judge import _evidence_payload  # noqa: E402
 
 
 def test_format_verifications_maps_status_and_summary():

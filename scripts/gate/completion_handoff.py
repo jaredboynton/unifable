@@ -209,7 +209,7 @@ def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> 
 
     user_goal = ""
     try:
-        from spec import load_spec, resolve_session_id
+        from spec_io import load_spec, resolve_session_id
 
         session_id = resolve_session_id(input_data, default=None)
         spec = load_spec(cwd, session_id)

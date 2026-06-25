@@ -11,15 +11,14 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
-import pytest  # noqa: E402
-
 import gate_prompt  # noqa: E402
 import pre_tool_use  # noqa: E402
+import pytest  # noqa: E402
 from ledger import update_ledger  # noqa: E402
 from model_notify import build_stop_validate_context  # noqa: E402
 from plan_mode import mark_plan_mode_prompt_notified  # noqa: E402
 from posttool_notify import filter_breaker_status, prepare_posttool_parts  # noqa: E402
-from pretool_block import format_bash_research_block, format_delegation_block  # noqa: E402
+from pretool_block import BlockContext, format_bash_research_block, format_delegation_block  # noqa: E402
 from spec import format_spec_validation_block, spec_template  # noqa: E402
 
 
@@ -104,6 +103,13 @@ def test_pretool_blocks_share_unlock_footer_wording():
     delegate = format_delegation_block("Task", "s1")
     assert "Unlock: unifable restate" in bash
     assert "Unlock: unifable restate" in delegate
+
+
+def test_pretool_bash_after_scaffold_omits_unlock():
+    ctx = BlockContext(scaffold_notified=True, unlock_footer_sent=True, allowlist_sent=True)
+    msg = format_bash_research_block("cat is not in the Bash research whitelist", ctx=ctx)
+    assert "Unlock:" not in msg
+    assert "cat is not in the Bash research whitelist." in msg
 
 
 def test_format_spec_validation_block_compact_multiline():

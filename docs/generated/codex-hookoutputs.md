@@ -139,8 +139,8 @@ Event: `PreToolUse`
 
 stderr:
 ```text
-no evidence spec for session 'sample-session' (grade=STANDARD). Build via: unifable restate / unifable add-task (HEAVY: set-primary, add-frontier). Spec contract — STANDARD grade. Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' and 'acceptance_criteria' (>=1 {check: <runnable command>, evidence: <live output>}). Evidence must be observed tool output, not assumed. Evidence gate: also include 'repo_context' (>=1 {cite:'path:line', why:'why it's relevant'}) and 'prior_art' (>=1 {cite:'http(s)://...', why:'why it backs the approach'}).
-session-id: sample-session
+Evidence spec required (grade=STANDARD).
+Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
 ```
 
 exit code:
@@ -154,10 +154,9 @@ Event: `PreToolUse`
 
 stderr:
 ```text
-Bash blocked (research phase): npm is not in the Bash research whitelist.
+npm is not in the Bash research whitelist.
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
 Allowed now: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI.
-session-id: sample-session
 ```
 
 exit code:
@@ -171,10 +170,8 @@ Event: `PreToolUse`
 
 stderr:
 ```text
-Task blocked before evidence spec validation (delegation bypass guard).
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
 Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI.
-session-id: sample-session
 ```
 
 exit code:

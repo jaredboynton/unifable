@@ -54,11 +54,23 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name) or default)
+    except (TypeError, ValueError):
+        return default
+
+
 IDLE_TTL = _env_float("UNIFABLE_JUDGE_DAEMON_IDLE", 120.0)
 REQUEST_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_REQUEST", 90.0)
 FRAME_READ_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_FRAME_TIMEOUT", 30.0)
 SELECT_POLL = 0.2
 MAX_INFLIGHT = cj.BATCH_MAX_INFLIGHT
+# Pool size: number of independent warm sockets. Default 1 keeps the judge path
+# byte-identical (one io-thread, one ws); the search profile spawns with a larger
+# pool so callers can fan out concurrent requests that actually run in parallel
+# (one Realtime session serializes responses; independent sessions do not).
+POOL_SIZE = max(1, _env_int("UNIFABLE_DAEMON_POOL", 1))
 
 
 class _Holder:
@@ -73,47 +85,38 @@ class _Holder:
         self.error: str | None = None
 
 
-class JudgeDaemon:
-    def __init__(self, session_key: str, sock_path: str) -> None:
-        self.session_key = session_key
-        self.sock_path = Path(sock_path)
-        self._stop = threading.Event()
+class _Worker:
+    """One independent warm Realtime socket with its own io-thread, outbox, and
+    holders map. The pool runs N of these; the daemon dispatches each request to
+    the least-busy worker. A single Realtime session serializes responses, so
+    true parallelism comes from spreading requests across workers (each its own
+    session)."""
+
+    def __init__(self, idx: int, stop: threading.Event) -> None:
+        self.idx = idx
+        self._stop = stop
         self._ws: ssl.SSLSocket | None = None
         self._state_lock = threading.Lock()
         self._holders: dict[int, _Holder] = {}
         self._rid_to_cid: dict[Any, int] = {}
-        self._cid_counter = 0
         self._outbox: queue.Queue[tuple[int, dict, _Holder]] = queue.Queue()
-        self._last_activity = time.monotonic()
-        self._srv: socket.socket | None = None
-        self._lock_fh: Any = None
+        self._thread: threading.Thread | None = None
 
-    # --- single instance ----------------------------------------------------
-    def _acquire_singleton(self) -> bool:
-        import fcntl
+    def start(self) -> None:
+        self._thread = threading.Thread(target=self._io_loop, name=f"rt-io-{self.idx}", daemon=True)
+        self._thread.start()
 
-        self.sock_path.parent.mkdir(parents=True, exist_ok=True)
-        lock_path = self.sock_path.with_suffix(".lock")
-        try:
-            self._lock_fh = open(lock_path, "w")
-            fcntl.flock(self._lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError:
-            return False
-        return True
+    def inflight(self) -> int:
+        with self._state_lock:
+            return len(self._holders)
 
-    def _bind(self) -> None:
-        try:
-            if self.sock_path.exists():
-                self.sock_path.unlink()  # stale socket from a dead instance (we hold the lock)
-        except OSError:
-            pass
-        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-        srv.bind(str(self.sock_path))
-        srv.listen(64)
-        srv.settimeout(1.0)
-        self._srv = srv
+    def idle(self) -> bool:
+        return self.inflight() == 0 and self._outbox.empty()
 
-    # --- WS lifecycle (I/O thread only) -------------------------------------
+    def enqueue(self, cid: int, req: dict[str, Any], holder: _Holder) -> None:
+        self._outbox.put((cid, req, holder))
+
+    # --- WS lifecycle (io-thread only) --------------------------------------
     def _ensure_ws(self) -> ssl.SSLSocket:
         if self._ws is not None:
             return self._ws
@@ -151,7 +154,6 @@ class JudgeDaemon:
                 h.error = reason
                 h.event.set()
 
-    # --- I/O thread: interleave queued writes and frame reads ---------------
     def _io_loop(self) -> None:
         while not self._stop.is_set():
             try:
@@ -177,7 +179,6 @@ class JudgeDaemon:
                 except Exception:
                     self._mark_ws_dead()
                     continue
-            self._maybe_idle_shutdown()
 
     def _drain_outbox(self, ws: ssl.SSLSocket) -> None:
         while True:
@@ -188,7 +189,6 @@ class JudgeDaemon:
             with self._state_lock:
                 self._holders[cid] = holder
             cj._send_text(ws, cj._response_create(req, cid))
-            self._last_activity = time.monotonic()
 
     def _read_available(self, ws: ssl.SSLSocket) -> None:
         first = True
@@ -274,21 +274,84 @@ class JudgeDaemon:
             h.error = error
         h.event.set()
 
-    # --- submit (client-handler threads) ------------------------------------
-    def submit(self, req: dict[str, Any], timeout: float) -> tuple[dict[str, Any], dict[str, int] | None]:
+    def discard(self, cid: int) -> None:
         with self._state_lock:
-            if len(self._holders) >= MAX_INFLIGHT:
+            self._holders.pop(cid, None)
+
+    def close_ws(self) -> None:
+        if self._ws is not None:
+            try:
+                self._ws.sendall(cj._encode_frame(b"", opcode=0x8))
+                self._ws.close()
+            except OSError:
+                pass
+            self._ws = None
+
+
+class JudgeDaemon:
+    def __init__(self, session_key: str, sock_path: str, pool_size: int = POOL_SIZE) -> None:
+        self.session_key = session_key
+        self.sock_path = Path(sock_path)
+        self._stop = threading.Event()
+        self._pool_size = max(1, pool_size)
+        self._workers: list[_Worker] = []
+        self._dispatch_lock = threading.Lock()
+        self._cid_counter = 0
+        self._cid_to_worker: dict[int, _Worker] = {}
+        self._last_activity = time.monotonic()
+        self._srv: socket.socket | None = None
+        self._lock_fh: Any = None
+
+    # --- single instance ----------------------------------------------------
+    def _acquire_singleton(self) -> bool:
+        import fcntl
+
+        self.sock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path = self.sock_path.with_suffix(".lock")
+        try:
+            self._lock_fh = open(lock_path, "w")
+            fcntl.flock(self._lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            return False
+        return True
+
+    def _bind(self) -> None:
+        try:
+            if self.sock_path.exists():
+                self.sock_path.unlink()  # stale socket from a dead instance (we hold the lock)
+        except OSError:
+            pass
+        srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv.bind(str(self.sock_path))
+        srv.listen(64)
+        srv.settimeout(1.0)
+        self._srv = srv
+
+    def _pick_worker(self) -> _Worker:
+        # Least-busy by in-flight count; ties break by lowest index for stable
+        # round-robin under light load.
+        return min(self._workers, key=lambda w: (w.inflight(), w.idx))
+
+    def submit(self, req: dict[str, Any], timeout: float) -> tuple[dict[str, Any], dict[str, int] | None]:
+        with self._dispatch_lock:
+            total_inflight = sum(w.inflight() for w in self._workers)
+            if total_inflight >= MAX_INFLIGHT * self._pool_size:
                 raise RuntimeError("judge daemon overloaded")
             self._cid_counter += 1
             cid = self._cid_counter
+            worker = self._pick_worker()
+            self._cid_to_worker[cid] = worker
         holder = _Holder()
-        self._outbox.put((cid, req, holder))
-        if not holder.event.wait(timeout):
-            with self._state_lock:
-                self._holders.pop(cid, None)
-            raise TimeoutError("judge daemon request timed out")
-        with self._state_lock:
-            self._holders.pop(cid, None)
+        self._last_activity = time.monotonic()
+        worker.enqueue(cid, req, holder)
+        try:
+            if not holder.event.wait(timeout):
+                worker.discard(cid)
+                raise TimeoutError("judge daemon request timed out")
+        finally:
+            worker.discard(cid)
+            with self._dispatch_lock:
+                self._cid_to_worker.pop(cid, None)
         self._last_activity = time.monotonic()
         if holder.error:
             raise RuntimeError(holder.error)
@@ -328,10 +391,14 @@ class JudgeDaemon:
                 pass
 
     def _maybe_idle_shutdown(self) -> None:
-        with self._state_lock:
-            inflight = len(self._holders)
-        if inflight == 0 and self._outbox.empty() and (time.monotonic() - self._last_activity) > IDLE_TTL:
+        if all(w.idle() for w in self._workers) and (time.monotonic() - self._last_activity) > IDLE_TTL:
             self._stop.set()
+
+    def _idle_monitor(self) -> None:
+        while not self._stop.is_set():
+            if self._stop.wait(SELECT_POLL):
+                break
+            self._maybe_idle_shutdown()
 
     # --- lifecycle ----------------------------------------------------------
     def serve(self) -> int:
@@ -341,8 +408,10 @@ class JudgeDaemon:
             self._bind()
         except OSError:
             return 0
-        io_thread = threading.Thread(target=self._io_loop, name="judge-io", daemon=True)
-        io_thread.start()
+        self._workers = [_Worker(i, self._stop) for i in range(self._pool_size)]
+        for w in self._workers:
+            w.start()
+        threading.Thread(target=self._idle_monitor, name="rt-idle", daemon=True).start()
         try:
             while not self._stop.is_set():
                 try:
@@ -363,13 +432,8 @@ class JudgeDaemon:
                 self._srv.close()
         except OSError:
             pass
-        if self._ws is not None:
-            try:
-                self._ws.sendall(cj._encode_frame(b"", opcode=0x8))
-                self._ws.close()
-            except OSError:
-                pass
-            self._ws = None
+        for w in self._workers:
+            w.close_ws()
         try:
             if self.sock_path.exists():
                 self.sock_path.unlink()
@@ -381,9 +445,10 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--session-key", required=True)
     parser.add_argument("--sock", required=True)
+    parser.add_argument("--pool", type=int, default=POOL_SIZE)
     args = parser.parse_args(argv)
     try:
-        return JudgeDaemon(args.session_key, args.sock).serve()
+        return JudgeDaemon(args.session_key, args.sock, pool_size=args.pool).serve()
     except Exception:
         return 0  # never crash loudly; the client fails open to a direct call
 

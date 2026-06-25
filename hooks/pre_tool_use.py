@@ -45,8 +45,6 @@ interrupted by gate errors.
 from __future__ import annotations
 
 import os
-import re
-import shlex
 import sys
 from pathlib import Path
 
@@ -61,9 +59,11 @@ from heavy_workflow import (
     edit_targets_primary_scope,
     heavy_declare_complete,
     heavy_workflow_brief,
+    heavy_workflow_phase_hint,
 )
-from ledger import data_root, emit_json, load_ledger, read_stdin_json, update_ledger
+from ledger import emit_json, load_ledger, read_stdin_json, update_ledger
 from pretool_block import (
+    block_context,
     block_epoch,
     consume_gate_cleared_notify,
     emit_pretool_block,
@@ -71,18 +71,19 @@ from pretool_block import (
     format_bash_research_block,
     format_delegation_block,
     format_spec_missing_block,
+    is_redundant_with_notify,
     normalize_bash_detail,
 )
-from research_bash_guidance import bash_allowed_summary
-from spec import (
-    canonical_project_root,
-    contract_string,
-    format_spec_validation_block,
-    load_spec,
-    resolve_session_id,
-    save_spec,
-    validate_spec,
+from protected_paths import (
+    _BASH_EXTRA_MUTATE_RE,
+    _bash_protected_write,
+    _is_protected,
+    _write_targets,
 )
+from research_bash_guidance import bash_allowed_summary
+from spec_contracts import contract_string, format_spec_validation_block
+from spec_io import canonical_project_root, load_spec, resolve_session_id, save_spec
+from spec_validation import validate_spec
 
 # ---------------------------------------------------------------------------
 # Tool names across both hosts (Claude Code and Codex)
@@ -91,40 +92,38 @@ from spec import (
 WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
 DELEGATION_TOOLS = frozenset({"Task", "Agent"})
 
+_PROTECTED_CLI = (
+    "Specs/ledger are CLI-only via `unifable` "
+    "(restate / add-task / set-primary / add-frontier / dispute); "
+    "never hand-edit the JSON."
+)
+
+
+def _protected_path_message(path: str, *, shell: bool = False) -> str:
+    base = f"Protected unifable state '{path}' — {_PROTECTED_CLI}"
+    if shell:
+        return base + " Shell redirects, sed, rm, tee, and apply_patch heredocs are not allowed."
+    return base
+
+
+def _heavy_block_suffix(input_data: dict, spec: dict, phase: str) -> str:
+    try:
+        ledger = load_ledger(input_data)
+        if ledger.get("heavy_brief_injected"):
+            return "\n" + heavy_workflow_phase_hint(spec, phase)
+    except Exception:
+        pass
+    return "\n" + heavy_workflow_brief(spec, phase)
+
 # ---------------------------------------------------------------------------
 # Protected paths: the repo-local <cwd>/.unifable/ AND the global keyed spec store
 # (<data_root>/specs/). Specs are CLI-only (spec.py) -- never model-writable.
 # ---------------------------------------------------------------------------
 
-_GATE_PREFIXES = ("ledger", "goals.json", "findings.json", "state")
 
 
-def _unifable_dir(cwd: str | Path) -> Path:
-    return Path(cwd).resolve() / ".unifable"
 
 
-def _is_protected(target: str | Path, cwd: str | Path) -> bool:
-    """Return True when *target* is under the repo-local <cwd>/.unifable/ OR under
-    the global keyed spec store (<data_root>/specs/).
-
-    Specs are CLI-only: the model mutates them via unifable (restate / add-task /
-    set-primary / add-frontier / dispute), never with Edit/Write. Hand-editing
-    the spec JSON is blocked so an agent cannot delete tasks or fake a validated
-    status. The spec now lives globally under <data_root>/specs/<dir>/<session>/,
-    so that root is protected too; the repo-local .unifable/ (findings, residual
-    state) stays protected as before.
-    """
-    try:
-        resolved = Path(target).expanduser().resolve()
-    except (ValueError, OSError):
-        return False
-    for root in (_unifable_dir(cwd), data_root() / "specs"):
-        try:
-            resolved.relative_to(root)
-            return True
-        except (ValueError, OSError):
-            continue
-    return False
 
 
 # ---------------------------------------------------------------------------
@@ -132,27 +131,6 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
 # ---------------------------------------------------------------------------
 
 
-def _target_path(tool_name: str, tool_input: dict) -> str | None:
-    if not isinstance(tool_input, dict):
-        return None
-    # Claude Code: Edit / Write / NotebookEdit carry file_path
-    fp = tool_input.get("file_path")
-    if fp:
-        return str(fp)
-    # MultiEdit carries edits[0].file_path or a top-level path
-    edits = tool_input.get("edits")
-    if isinstance(edits, list) and edits:
-        fp = edits[0].get("file_path") if isinstance(edits[0], dict) else None
-        if fp:
-            return str(fp)
-    # apply_patch: path is embedded in the patch text — use cwd as a fallback
-    # so the PROTECTED_PATHS guard still fires for in-.unifable patches.
-    # (The spec gate uses cwd-level reasoning anyway.)
-    patch = tool_input.get("patch") or tool_input.get("content") or ""
-    if isinstance(patch, str) and ".unifable" in patch:
-        # Return a sentinel that will trigger the protected-path check.
-        return ".unifable/_patch"
-    return None
 
 
 # apply_patch envelopes carry their target paths in the patch text, not in a
@@ -163,111 +141,17 @@ def _target_path(tool_name: str, tool_input: dict) -> str | None:
 # Two header families: Codex "*** Update/Add/Delete File: <path>" plus the
 # "*** Move to:/Move from: <path>" rename lines (which carry no "File:" token),
 # and git-unified "--- a/<path>" / "+++ b/<path>".
-_APPLY_PATCH_PATH_RE = re.compile(
-    r"^\*\*\*\s+(?:Update|Add|Delete)\s+File:\s*(.+?)\s*$"
-    r"|^\*\*\*\s+Move\s+(?:to|from):\s*(.+?)\s*$"
-    r"|^(?:---|\+\+\+)\s+(?:[ab]/)?(.+?)\s*$",
-    re.MULTILINE,
-)
 
 
-def _apply_patch_targets(tool_input) -> list[str]:
-    """Best-effort extraction of every file path an apply_patch envelope touches.
-
-    Host-shape-robust: gathers candidate patch text from EVERY string value in
-    tool_input (and tool_input itself when it is a str), then matches both the
-    Codex "*** Update/Add/Delete/Move ... File:" header form and the git-style
-    "--- a/" / "+++ b/" form. Fails open: returns [] on any error."""
-    try:
-        chunks: list[str] = []
-        if isinstance(tool_input, str):
-            chunks.append(tool_input)
-        elif isinstance(tool_input, dict):
-            for v in tool_input.values():
-                if isinstance(v, str):
-                    chunks.append(v)
-        text = "\n".join(chunks)
-        if not text:
-            return []
-        targets: list[str] = []
-        for m in _APPLY_PATCH_PATH_RE.finditer(text):
-            path = m.group(1) or m.group(2) or m.group(3)
-            if not path:
-                continue
-            path = path.strip()
-            if not path or path == "/dev/null":
-                continue
-            targets.append(path)
-        return targets
-    except Exception:
-        return []
 
 
-def _write_targets(tool_name: str, tool_input) -> list[str]:
-    """All file paths a write tool would mutate. apply_patch can touch several
-    files in one envelope; the Claude write tools touch exactly one (or none)."""
-    try:
-        if tool_name == "apply_patch":
-            return _apply_patch_targets(tool_input)
-        t = _target_path(tool_name, tool_input)
-        return [t] if t is not None else []
-    except Exception:
-        return []
 
 
 # Shell mutations MUTATING_BASH_RE misses: output redirects (`>`, `>>`), in-place
 # editors (`sed -i`, `perl -i`), and `tee`. Used only to decide whether to scan a
 # command's tokens for protected targets — conservative by design.
-_BASH_EXTRA_MUTATE_RE = re.compile(
-    r"(?i)(?:>>?|"  # output redirect
-    r"\btee\b|"  # tee writes its file args
-    r"\bsed\b[^|;&]*\s-[A-Za-z]*i|"  # sed -i / -Ei in-place
-    r"\bperl\b[^|;&]*\s-[A-Za-z]*i)"  # perl -i in-place
-)
 
 
-def _bash_protected_write(command: str, cwd: str | Path) -> str | None:
-    """Return a protected path a Bash *command* would mutate, else None.
-
-    Specs and ledger live under protected roots and are CLI-only, but the action
-    phase allows all shell — so `echo x > spec.json`, `sed -i ... spec.json`,
-    `rm spec.json`, `tee spec.json`, or an apply_patch heredoc would otherwise
-    slip past the write-tool guard entirely. This runs unconditionally on Bash.
-
-    Conservative by design: only fires when the command looks mutating
-    (MUTATING_BASH_RE — apply_patch|chmod|mkdir|mv|cp|rm|touch|redirects|...) and
-    then any token (or embedded apply_patch path) that resolves into a protected
-    root blocks it. A mutating command that merely references a protected path is
-    blocked; that is acceptable and safe. Fails open: returns None on any error."""
-    try:
-        if not isinstance(command, str) or not command:
-            return None
-        try:
-            from parse_tool_result import MUTATING_BASH_RE
-        except Exception:
-            return None
-        # MUTATING_BASH_RE covers apply_patch|chmod|mkdir|mv|cp|rm|touch|builds but
-        # NOT shell write-redirects (`>`, `>>`), in-place editors (`sed -i`,
-        # `perl -i`), or `tee` — the very ways `echo x > spec.json` / `sed -i ...
-        # spec.json` mutate gate state. Treat those as mutating too so the guard
-        # fires before the action phase opens all shell.
-        is_mutating = bool(MUTATING_BASH_RE.search(command)) or bool(_BASH_EXTRA_MUTATE_RE.search(command))
-        if not is_mutating:
-            return None
-        try:
-            tokens = shlex.split(command)
-        except ValueError:
-            tokens = re.split(r"[\s;|&<>()\"']+", command)
-        # apply_patch heredocs embed their target paths in the command body.
-        candidates = list(tokens) + _apply_patch_targets({"command": command})
-        for token in candidates:
-            if not token:
-                continue
-            if _is_protected(token, cwd):
-                return token
-        return None
-    except Exception:
-        return None
 
 
 # ---------------------------------------------------------------------------
@@ -303,16 +187,23 @@ def _block(
     kind: str,
     detail: str,
     message: str,
+    breaker_notify: str = "",
 ) -> int:
+    msg = str(message or "").strip()
+    if is_redundant_with_notify(msg, breaker_notify):
+        msg = ""
     try:
         from plan_mode import append_plan_mode_note, pretool_should_append_plan_note
 
         plan = _plan_mode_state(input_data)
         if pretool_should_append_plan_note(input_data, plan):
-            message = append_plan_mode_note(message, plan)
+            msg = append_plan_mode_note(msg, plan)
     except Exception:
         pass
-    return emit_pretool_block(input_data, kind=kind, detail=detail, full_message=message)
+    rc = emit_pretool_block(input_data, kind=kind, detail=detail, full_message=msg)
+    if breaker_notify and breaker_notify.strip():
+        print(breaker_notify.strip(), file=sys.stderr)
+    return rc
 
 
 def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: bool) -> list[str]:
@@ -411,7 +302,8 @@ def _enforce_heavy_writes(input_data: dict, spec: dict, cwd: str, target: str | 
             detail="declare",
             message=(
                 "HEAVY declare phase: research only — no edits until restated goal, "
-                "citation evidence, >=2 frontier tasks, and 1 primary task exist.\n" + heavy_workflow_brief(spec, phase)
+                "citation evidence, >=2 frontier tasks, and 1 primary task exist."
+                + _heavy_block_suffix(input_data, spec, phase)
             ),
         )
     if phase == "frontier" and target and edit_targets_primary_scope(spec, target, cwd):
@@ -423,13 +315,20 @@ def _enforce_heavy_writes(input_data: dict, spec: dict, cwd: str, target: str | 
                 "HEAVY frontier phase: primary approach is blocked. Explore and implement "
                 "ALL frontier approaches first -- the judge adjudicates each on Stop "
                 "(rejected/still_viable/accepted). When all are explored, the judge "
-                "compares evidence and may adopt the best frontier over primary.\n" + heavy_workflow_brief(spec, phase)
+                "compares evidence and may adopt the best frontier over primary."
+                + _heavy_block_suffix(input_data, spec, phase)
             ),
         )
     return 0
 
 
-def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None) -> int:
+def _enforce_spec(
+    input_data: dict,
+    cwd: str,
+    *,
+    write_target: str | None = None,
+    breaker_notify: str = "",
+) -> int:
     """Block a write tool unless a valid evidence spec exists for the task.
 
     The evidence gate is unconditional — there is no env disable. A valid spec
@@ -441,13 +340,15 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
 
     task_id = _task_id(input_data)
     spec = load_spec(cwd, task_id)
+    ctx = block_context(input_data)
     if spec is None:
         contract = contract_string(grade, True, _evidence_profile(input_data, None))
         return _block(
             input_data,
             kind="spec",
             detail=f"missing:{grade}",
-            message=format_spec_missing_block(grade, task_id, contract),
+            message=format_spec_missing_block(grade, task_id, contract, ctx=ctx),
+            breaker_notify=breaker_notify,
         )
 
     profile = _evidence_profile(input_data, spec)
@@ -458,14 +359,18 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
             _led = load_ledger(input_data)
             _epoch = block_epoch(input_data, _led)
             _include_contract = _led.get("spec_contract_notified_epoch") != _epoch
+            _scaffold_notified = bool(_led.get("prompt_scaffold_notified"))
         except Exception:
             _include_contract = True
+            _scaffold_notified = False
         message = format_spec_validation_block(
             grade,
             reasons,
             profile,
             spec,
             include_contract=_include_contract,
+            scaffold_notified=_scaffold_notified or ctx.scaffold_notified,
+            contract_notified=ctx.contract_notified,
         )
         if _include_contract:
             try:
@@ -481,6 +386,7 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
             kind="spec",
             detail=detail,
             message=message,
+            breaker_notify=breaker_notify,
         )
 
     cited = _citation_reasons(spec, input_data, cwd, require_commands=False)
@@ -490,7 +396,11 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
             input_data,
             kind="spec",
             detail=f"citations:{detail}",
-            message=format_citation_verify_message(cited),
+            message=format_citation_verify_message(
+                cited,
+                include_footnotes=not ctx.scaffold_notified,
+            ),
+            breaker_notify=breaker_notify,
         )
 
     if grade == "HEAVY":
@@ -595,7 +505,14 @@ def _evidence_lift_allows(
         return False
 
 
-def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: str = "Bash") -> int:
+def _enforce_bash(
+    input_data: dict,
+    tool_input: dict,
+    cwd: str,
+    *,
+    tool_name: str = "Bash",
+    breaker_notify: str = "",
+) -> int:
     """Research-phase whitelist for shell tools (Bash, exec_command, REPL).
 
     Research phase (no valid spec): allow only cd, ls, glob, rg, trace.sh, websearch.sh,
@@ -621,6 +538,8 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
             repl_shell_cmds_from_code,
         )
 
+    ctx = block_context(input_data)
+
     if is_repl_tool(tool_name):
         code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
         bash_cmds = repl_shell_cmds_from_code(code)
@@ -632,14 +551,18 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
                         input_data,
                         kind="bash",
                         detail=normalize_bash_detail(blocked_env),
-                        message=format_bash_policy_block(blocked_env, _task_id(input_data)),
+                        message=format_bash_policy_block(blocked_env, _task_id(input_data), ctx=ctx),
                     )
         elif not (_REPL_READ_PATH_RE.search(code) or _REPL_CAT_RE.search(code)):
             return _block(
                 input_data,
                 kind="bash",
                 detail="repl-not-research",
-                message=format_bash_research_block("REPL code is not a whitelisted research read", _task_id(input_data)),
+                message=format_bash_research_block(
+                    "REPL code is not a whitelisted research read",
+                    _task_id(input_data),
+                    ctx=ctx,
+                ),
             )
         command = bash_cmds[0] if bash_cmds else ""
     else:
@@ -650,7 +573,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
                 input_data,
                 kind="bash",
                 detail=normalize_bash_detail(blocked_env),
-                message=format_bash_policy_block(blocked_env, _task_id(input_data)),
+                message=format_bash_policy_block(blocked_env, _task_id(input_data), ctx=ctx),
             )
 
     grade = _effective_grade(input_data)
@@ -675,7 +598,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
                     input_data,
                     kind="bash",
                     detail=normalize_bash_detail(why),
-                    message=format_bash_research_block(why, task_id),
+                    message=format_bash_research_block(why, task_id, ctx=ctx),
                 )
         return 0
 
@@ -687,7 +610,7 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
             input_data,
             kind="bash",
             detail=normalize_bash_detail(why),
-            message=format_bash_research_block(why, task_id),
+            message=format_bash_research_block(why, task_id, ctx=ctx),
         )
 
     return 0
@@ -728,7 +651,7 @@ def _shell_research_passes(input_data: dict, tool_name: str, tool_input: dict) -
     return allowed
 
 
-def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
+def _enforce_delegation(input_data: dict, tool_name: str, cwd: str, *, breaker_notify: str = "") -> int:
     """Block Task/Agent until a valid evidence spec unlocks the action phase."""
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
@@ -746,18 +669,9 @@ def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
         input_data,
         kind="delegate",
         detail=tool_name,
-        message=format_delegation_block(tool_name, task_id),
+        message=format_delegation_block(tool_name, task_id, ctx=block_context(input_data)),
+        breaker_notify=breaker_notify,
     )
-
-
-def _gate_block(rc: int, breaker_notify: str = "") -> int:
-    """Return a blocking exit code, but first surface any pending breaker notify
-    (a just-emitted breaker open / lift / fail-open / hint) to stderr so it is not
-    lost when a different gate blocks the same tool. Block stderr is shown to the
-    model, so both the gate reason and the breaker update reach it."""
-    if breaker_notify and breaker_notify.strip():
-        print(breaker_notify.strip(), file=sys.stderr)
-    return rc
 
 
 def _emit_allow(notify: str = "") -> int:
@@ -780,7 +694,7 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
     try:
         import time
 
-        from groundedness import evaluate_pre_tool_locked
+        from breaker_orchestration import evaluate_pre_tool_locked
 
         ledger = load_ledger(input_data)
         active = str(ledger.get("active_task") or "")
@@ -789,12 +703,12 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
         block, steering, notify, breaker = evaluate_pre_tool_locked(input_data, time.time(), active)
         if block:
             events = breaker.get("events") if isinstance(breaker.get("events"), list) else []
-            if events and events[-1].get("kind") == "REINSTATE":
-                steering = f"Groundedness breaker reinstated: {steering}"
+            if events and events[-1].get("kind") == "REINSTATE" and not steering:
+                pass
             message = steering or (
-                "Groundedness breaker: you asserted something confidently without "
-                "backing it up. Your tools are restricted to read-only ones (Read, "
-                "WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash "
+                "You asserted something confidently without backing it up. "
+                "Your tools are restricted to read-only ones (Read, WebSearch, "
+                "WebFetch, Grep, Glob) and whitelisted research Bash "
                 f"({bash_allowed_summary()}) until you ground the claim."
             )
             detail = " ".join(str(message).split())[:80]
@@ -880,9 +794,8 @@ def _enforce_tool_scope(input_data: dict, tool_name: str, breaker_notify: str) -
         # that merely echoes it (the "unifable director: <directive>" pending notify)
         # so the directive surfaces once, not duplicated across both stderr channels.
         notify = "" if (breaker_notify and reason and reason in breaker_notify) else breaker_notify
-        return _gate_block(
-            _block(input_data, kind="scope", detail=tool_name, message=reason),
-            notify,
+        return _block(
+            input_data, kind="scope", detail=tool_name, message=reason, breaker_notify=notify
         )
     except Exception:
         return None  # fail open on any error
@@ -933,29 +846,22 @@ def main() -> int:
         # apply_patch can touch several files in one envelope, so check them all.
         protected_hit = next((t for t in targets if _is_protected(t, cwd)), None)
         if protected_hit:
-            return _gate_block(
-                _block(
-                    input_data,
-                    kind="protected",
-                    detail="write",
-                    message=(
-                        f"write to protected unifable state file '{protected_hit}' is not allowed. "
-                        "Specs are CLI-only: create and mutate them via "
-                        "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
-                        "never by hand-editing the JSON. ledger, goals, findings, and state are off-limits too."
-                    ),
-                ),
-                breaker_notify,
+            return _block(
+                input_data,
+                kind="protected",
+                detail="write",
+                message=_protected_path_message(protected_hit),
+                breaker_notify=breaker_notify,
             )
 
-        rc = _enforce_spec(input_data, cwd, write_target=target)
+        rc = _enforce_spec(
+            input_data, cwd, write_target=target, breaker_notify=breaker_notify
+        )
         if rc == 0:
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
-        # Evidence gate would block this write. PROTECTED_PATHS already passed above,
-        # so the judge may lift the research-phase block for a legitimate write.
         if _evidence_lift_allows(input_data, tool_name, cwd, paths=targets):
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
-        return _gate_block(rc, breaker_notify)
+        return rc
 
     # --- Shell tools: research whitelist (unconditional) ---
     try:
@@ -985,34 +891,29 @@ def main() -> int:
         for command in shell_cmds:
             protected_hit = _bash_protected_write(command, cwd)
             if protected_hit:
-                return _gate_block(
-                    _block(
-                        input_data,
-                        kind="protected",
-                        detail="bash",
-                        message=(
-                            f"shell mutation of protected unifable state file '{protected_hit}' is not allowed. "
-                            "The specs/ and ledger state are CLI-only: create and mutate specs via "
-                            "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
-                            "never with a shell redirect, sed, rm, tee, or apply_patch heredoc."
-                        ),
-                    ),
-                    breaker_notify,
+                return _block(
+                    input_data,
+                    kind="protected",
+                    detail="bash",
+                    message=_protected_path_message(protected_hit, shell=True),
+                    breaker_notify=breaker_notify,
                 )
 
         hygiene_headlines = _run_spec_hygiene(input_data, cwd)
-        rc = _enforce_bash(input_data, tool_input, cwd, tool_name=tool_name)
+        rc = _enforce_bash(
+            input_data, tool_input, cwd, tool_name=tool_name, breaker_notify=breaker_notify
+        )
         if rc == 0:
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
-        return _gate_block(rc, breaker_notify)
+        return rc
 
     # --- Delegation: locked until the same evidence spec unlocks action phase ---
     if tool_name in DELEGATION_TOOLS:
         hygiene_headlines = _run_spec_hygiene(input_data, cwd)
-        rc = _enforce_delegation(input_data, tool_name, cwd)
+        rc = _enforce_delegation(input_data, tool_name, cwd, breaker_notify=breaker_notify)
         if rc == 0:
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
-        return _gate_block(rc, breaker_notify)
+        return rc
 
     # Any other tool — nothing to gate (read/search/web stay free).
     return _emit_allow(breaker_notify)

@@ -60,7 +60,7 @@ def _connect(path: Path, timeout: float) -> socket.socket:
 
 
 def _spawn(session_key: str, path: Path) -> None:
-    daemon = _HERE / "judge_daemon.py"
+    daemon = _HERE / "realtime_daemon.py"
     try:
         devnull = open(os.devnull, "wb")
     except OSError:

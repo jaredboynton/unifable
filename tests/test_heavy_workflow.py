@@ -11,11 +11,8 @@ GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
 import heavy_workflow as hw  # noqa: E402
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from spec import (  # noqa: E402
-    _cmd_add_frontier,
-    _cmd_restate,
-    _cmd_set_primary,
     all_tasks_validated,
     append_frontier_task,
     judge_discover_frontiers,
@@ -24,6 +21,11 @@ from spec import (  # noqa: E402
     set_primary_task,
     spec_template,
     validate_spec,
+)
+from spec_cli import (
+    _cmd_add_frontier,  # noqa: E402
+    _cmd_restate,
+    _cmd_set_primary,
 )
 
 
@@ -189,8 +191,8 @@ def test_frontier_judge_rejected_approach(tmp_path, monkeypatch):
     def fake_judge(sp, task, ec, out, **kw):
         return 0, "broken boundary: latency regression", [], "rejected_approach"
 
-    monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
-    from spec import _validate_one_task
+    monkeypatch.setattr(ssv, "judge_task", fake_judge)
+    from spec_stop_validate import _validate_one_task
 
     _validate_one_task(spec, frontier, str(tmp_path))
     assert frontier["status"] == "rejected_approach"
@@ -227,8 +229,8 @@ def test_frontier_accepted_outcome(tmp_path, monkeypatch):
     def fake_judge(sp, task, ec, out, **kw):
         return 1, "check passed, approach is viable", [], "accepted_approach"
 
-    monkeypatch.setattr(spec_mod, "judge_task", fake_judge)
-    from spec import _validate_one_task
+    monkeypatch.setattr(ssv, "judge_task", fake_judge)
+    from spec_stop_validate import _validate_one_task
 
     _validate_one_task(spec, frontier, str(tmp_path))
     assert frontier["status"] == "accepted_approach"

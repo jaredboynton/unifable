@@ -1,0 +1,3 @@
+{"dir":"recv","type":"response.output_text.delta","event":{"type":"response.output_text.delta","delta":"## Flow\n"}}
+{"dir":"recv","type":"response.output_text.delta","event":{"type":"response.output_text.delta","delta":"Stop gate in gate_stop.py.\n"}}
+{"dir":"recv","type":"response.done","event":{"type":"response.done","response":{"status":"completed","output":[]}}}

@@ -16,7 +16,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
 import codex_judge  # noqa: E402
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from spec import auto_validate_spec, load_spec, save_spec, spec_template  # noqa: E402
 
 MANIFESTS = ["hooks/hooks.json", ".codex-plugin/hooks.json"]
@@ -53,9 +53,9 @@ def _spec_with_pending(tmp_path, key):
 
 
 def test_zero_budget_does_no_work(tmp_path, monkeypatch):
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items]
+        ssv, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items]
     )
     spec, _ = auto_validate_spec(_spec_with_pending(tmp_path, "Z"), str(tmp_path), time_budget=0.0)
     assert spec["tasks"][0]["status"] == "pending"  # deadline already passed -> untouched
@@ -63,9 +63,9 @@ def test_zero_budget_does_no_work(tmp_path, monkeypatch):
 
 def test_budget_bounds_check_timeout(tmp_path, monkeypatch):
     seen = {}
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: seen.__setitem__("t", timeout) or (0, "ok"))
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: seen.__setitem__("t", timeout) or (0, "ok"))
     monkeypatch.setattr(
-        spec_mod, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items]
+        ssv, "judge_tasks", lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items]
     )
     spec, _ = auto_validate_spec(_spec_with_pending(tmp_path, "B"), str(tmp_path), time_budget=30.0)
     assert spec["tasks"][0]["status"] == "validated"

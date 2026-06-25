@@ -10,18 +10,15 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 import transcript_tail  # noqa: E402
-from spec import (  # noqa: E402
-    _judge_context,
+from spec import auto_validate_spec, load_spec, save_spec, spec_template  # noqa: E402
+from spec_judge import (
+    _judge_context,  # noqa: E402
     _judge_system_for_task,
     _judge_system_with_transcript,
     _judge_user,
     _render_judge_transcript,
-    auto_validate_spec,
-    load_spec,
-    save_spec,
-    spec_template,
 )
 from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS  # noqa: E402
 
@@ -87,8 +84,8 @@ def test_auto_validate_passes_rendered_transcript_to_judge_tasks(tmp_path, monke
         captured["transcript"] = transcript
         return [(1, "ok", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge_tasks)
 
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path), transcript_path=str(tx))
     assert marker in captured.get("transcript", "")
@@ -107,8 +104,8 @@ def test_auto_validate_no_transcript_when_path_absent(tmp_path, monkeypatch):
         captured["transcript"] = transcript
         return [(1, "ok", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge_tasks)
 
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert captured.get("transcript") == ""
@@ -134,7 +131,7 @@ def test_auto_validate_transcript_reaches_judge_system(tmp_path, monkeypatch):
         captured["system"] = system
         return {"verdict": 1, "reason": "ok"}
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
     monkeypatch.setattr(codex_judge, "ask_structured", fake_ask)
 
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path), transcript_path=str(tx))

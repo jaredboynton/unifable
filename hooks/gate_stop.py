@@ -93,7 +93,7 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
         count = int(ledger.get("completion_stop_blocks") or 0)
         if count < COMPLETION_HINT_THRESHOLD or (count - COMPLETION_HINT_THRESHOLD) % COMPLETION_HINT_STEP != 0:
             return ""
-        from spec import judge_hint
+        from spec_judge import judge_hint
 
         recent = " | ".join(
             (ledger.get("ran_commands") or [])[-6:] + [f"failure:{f}" for f in (ledger.get("failures") or [])[-3:]]
@@ -141,7 +141,7 @@ def _director_continuation(input_data: dict) -> str:
         directive = current_directive(load_breaker(input_data)).strip()
         if not directive:
             return ""
-        return f"Live director directive (continue the goal loop; do not stop yet): {directive}"
+        return directive
     except Exception:
         return ""
 
@@ -268,7 +268,7 @@ def _persist_stop_digest(cwd: str, session_id: str | None, body: str) -> str:
         return ""
     try:
         from atomicio import write_text_atomic
-        from spec import session_dir
+        from spec_io import session_dir
 
         path = session_dir(cwd, session_id) / "last_stop_validation.txt"
         write_text_atomic(path, body)
@@ -298,7 +298,8 @@ def _handle_completion_loop_release(
         should_invoke_loop_judge,
         update_loop_signature,
     )
-    from spec import all_tasks_validated, save_spec
+    from spec_io import save_spec
+    from spec_tasks import all_tasks_validated
 
     update_loop_signature(ledger, incomplete)
 
@@ -388,7 +389,7 @@ def _transcript_for_goal_judge(transcript_path: str | None, input_data: dict) ->
 def _goals_path(cwd: str | Path, session_id: str | None) -> Path:
     # The goals plan lives beside the spec in the per-(directory, session) dir, so a
     # new session never inherits a prior session's plan (the stale-plan bleed fix).
-    from spec import session_dir
+    from spec_io import session_dir
 
     return session_dir(cwd, session_id) / "goals.json"
 
@@ -503,7 +504,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
         return None
     if not (input_data.get("session_id") or input_data.get("transcript_path") or input_data.get("last_assistant_message")):
         return None
-    from spec import resolve_session_id
+    from spec_io import resolve_session_id
 
     session_id = resolve_session_id(input_data, default=None)
     plan = _load_goal_plan(cwd, session_id)
@@ -566,7 +567,7 @@ def main() -> int:
         resolved = locate_transcript(input_data)
         if resolved:
             input_data["transcript_path"] = resolved
-    from spec import canonical_project_root
+    from spec_io import canonical_project_root
 
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     grade = resolve_grade(load_ledger(input_data), os.environ.get("UNIFABLE_GRADE"))
@@ -583,7 +584,9 @@ def main() -> int:
     #    (fail open), the holdout 'off' arm, or a gate exception.
     if grade != "LIGHT":
         try:
-            from spec import all_tasks_validated, load_spec, resolve_session_id, validate_spec
+            from spec_io import load_spec, resolve_session_id
+            from spec_tasks import all_tasks_validated
+            from spec_validation import validate_spec
 
             ledger = load_ledger(input_data)
 
@@ -612,8 +615,9 @@ def main() -> int:
                     )
                     from heavy_workflow import clear_stale_heavy_workflow, heavy_snapshot
                     from parse_tool_result import format_verifications
-                    from spec import auto_validate_spec, save_spec
                     from spec_hygiene import apply_spec_hygiene
+                    from spec_io import save_spec
+                    from spec_stop_validate import auto_validate_spec
 
                     _stop_ledger = load_ledger(input_data)
                     ledger_activity = activity_from_ledger(_stop_ledger)
@@ -757,7 +761,7 @@ def main() -> int:
                         evidence_profile=resolve_evidence_profile(ledger, spec),
                     )
                     if not ok:
-                        from spec import format_spec_validation_block
+                        from spec_contracts import format_spec_validation_block
 
                         ev_reason = format_spec_validation_block(
                             grade,

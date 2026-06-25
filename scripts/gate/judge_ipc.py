@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Length-prefixed JSON framing for the local judge-daemon unix socket.
 
-Shared by judge_client (hook side) and judge_daemon (server side). 4-byte
+Shared by judge_client (hook side) and realtime_daemon (server side). 4-byte
 big-endian length header + UTF-8 JSON body, both directions. Stdlib only.
 """
 

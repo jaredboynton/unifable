@@ -10,7 +10,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from spec import (  # noqa: E402
     _normalize_hint,
     all_tasks_validated,
@@ -45,10 +45,8 @@ def test_normalize_hint_drops_empty_and_placeholders():
 
 def test_auto_validate_pass_stores_merged_reason(tmp_path, monkeypatch):
     _seed(tmp_path)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(1, "ok — evidence accepted", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
@@ -60,10 +58,8 @@ def test_auto_validate_pass_stores_merged_reason(tmp_path, monkeypatch):
 
 def test_failing_verdict_reason_includes_actionable_feedback(tmp_path, monkeypatch):
     _seed(tmp_path)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [
             (
                 0,
@@ -115,15 +111,12 @@ def test_stop_loop_appends_hint_at_threshold_without_lifting_gate(tmp_path, monk
     spec["tasks"] = [_task("T1", "failed")]
     save_spec(str(tmp_path), "hintsess", spec)
     payload = {"session_id": "hintsess", "cwd": str(tmp_path)}
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (1, "fail"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items],
     )
     monkeypatch.setattr(
-        spec_mod,
-        "judge_hint",
+        "spec_judge.judge_hint",
         lambda sp, *, signal, recent="": "fix the check before trying to finish",
     )
 

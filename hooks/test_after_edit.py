@@ -209,19 +209,19 @@ def run_tests(root: str, cmd: list[str], label: str) -> str:
             timeout=TIMEOUT_SECS,
         )
     except subprocess.TimeoutExpired:
-        return f"Test-after-edit: TIMEOUT ({label}): suite exceeded {TIMEOUT_SECS}s in {root}; result inconclusive."
+        return f"TIMEOUT ({label}): suite exceeded {TIMEOUT_SECS}s in {root}; result inconclusive."
     except FileNotFoundError:
         # Runner binary not installed — stay silent (emit {} from caller)
         return ""
     except Exception as exc:  # noqa: BLE001
-        return f"Test-after-edit: ERROR ({label}): {exc}"
+        return f"ERROR ({label}): {exc}"
 
     combined = (result.stdout or "") + (result.stderr or "")
     tail = "\n".join(combined.strip().splitlines()[-TAIL_LINES:])
 
     if result.returncode == 0:
-        return f"Test-after-edit: PASS ({label}): {tail}"
-    return f"Test-after-edit: FAIL ({label}) exit={result.returncode}:\n{tail}"
+        return f"PASS ({label}): {tail}"
+    return f"FAIL ({label}) exit={result.returncode}:\n{tail}"
 
 
 def main() -> int:

@@ -26,14 +26,10 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-import spec as spec_mod  # noqa: E402
+import spec_judge  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from spec import (  # noqa: E402
     JUDGE_MAX_UNRESOLVED_ADDED,
-    _apply_adjustments,
-    _current_requirements_payload,
-    _filter_judge_new_requirements,
-    _judge_user,
-    _normalize_new_requirements,
     all_tasks_validated,
     auto_validate_spec,
     is_brittle_version_pinned_requirement,
@@ -42,6 +38,8 @@ from spec import (  # noqa: E402
     save_spec,
     spec_template,
 )
+from spec_judge import _apply_adjustments, _judge_user, _normalize_new_requirements
+from spec_tasks import _current_requirements_payload, _filter_judge_new_requirements
 from verify_state import (  # noqa: E402
     COMPLETION_MAX_STALLED_BLOCKS,
     note_completion_block,
@@ -64,10 +62,8 @@ def _single_pending(tmp_path, monkeypatch, new_reqs, base_check="pytest -k base"
     s["restated_goal"] = "g"
     s["tasks"] = [_task("T1", "pending", check=base_check)] + list(extra or [])
     save_spec(str(tmp_path), "K", s)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [dict(r) for r in new_reqs], "") for _ in items],
     )
     return load_spec(str(tmp_path), "K")
@@ -356,7 +352,7 @@ def test_normalize_accepts_title_and_check_only():
 
 
 def test_judge_system_requires_purpose_reasoning():
-    guidance = spec_mod._JUDGE_CORE_GUIDANCE
+    guidance = spec_judge._JUDGE_CORE_GUIDANCE
     assert "PURPOSE" in guidance
     assert "current_requirements" in guidance
     assert "supersedes" in guidance
@@ -483,16 +479,16 @@ def test_no_churn_when_judge_sees_existing(tmp_path, monkeypatch):
         _task("T2", "pending", check="pytest -k other", title="other requirement", added_by="agent"),
     ]
     save_spec(str(tmp_path), "K", s)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
 
     def judge_via_payload(sp, items, *, transcript="", plan_mode=None, **_kw):
-        payload = json.loads(spec_mod._build_validate_all_user(sp, items))
+        payload = json.loads(spec_judge._build_validate_all_user(sp, items))
         titles = {str(r.get("title") or "").strip().lower() for r in payload.get("current_requirements") or []}
         want = {"title": "no duplicate judge or hint", "check": "pytest -k rederived"}
         new = [] if want["title"].lower() in titles else [want]
         return [(1, "ok", new, "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "judge_tasks", judge_via_payload)
+    monkeypatch.setattr(ssv, "judge_tasks", judge_via_payload)
 
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert all_tasks_validated(spec)[0] is True  # breaker opens

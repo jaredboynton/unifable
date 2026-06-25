@@ -16,8 +16,8 @@ from breaker_state import append_event, default_breaker  # noqa: E402
 
 
 def test_transcript_precedes_volatile_tail(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda input_data, max_tokens=None: "HOST-TRANSCRIPT-BODY")
-    monkeypatch.setattr(gb, "_spec_board_block", lambda input_data: "")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda input_data, max_tokens=None: "HOST-TRANSCRIPT-BODY")
+    monkeypatch.setattr("breaker_runtime._spec_board_block", lambda input_data: "")
 
     st = default_breaker()
     append_event(st, "ARM", claim="c", steering="s")

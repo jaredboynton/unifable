@@ -19,13 +19,11 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-import spec as spec_mod  # noqa: E402
-from spec import (  # noqa: E402
-    _apply_dispute,
-    _validate_all_system,
-    judge_dispute,
-    spec_template,
-)
+import spec_judge  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
+from spec import judge_dispute, spec_template  # noqa: E402
+from spec_judge import _validate_all_system
+from spec_stop_validate import _apply_dispute  # noqa: E402
 
 
 def _disputed_task():
@@ -73,7 +71,7 @@ def test_single_dispute_prompt_carries_obsolescence_rule(monkeypatch):
 def test_accepted_obsolescence_dispute_retracts_task(monkeypatch):
     # When the judge accepts the obsolescence claim, the task is retracted
     # (a resolved status), unblocking completion -- the deadlock is broken.
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e, **kw: (1, "obsolete: subject removed"))
+    monkeypatch.setattr(ssv, "judge_dispute", lambda s, t, e, **kw: (1, "obsolete: subject removed"))
     spec = spec_template()
     spec["requires_tasks"] = True
     spec["restated_goal"] = "pivot goal"
@@ -85,6 +83,6 @@ def test_accepted_obsolescence_dispute_retracts_task(monkeypatch):
 def test_obsolescence_rule_demands_absence_proof_not_mere_preference():
     # The rule must NOT be a blanket escape hatch: it explicitly rejects "merely
     # preferred a different approach" and requires captured absence proof.
-    rule = spec_mod._DISPUTE_OBSOLETE_RULE.lower()
+    rule = spec_judge._DISPUTE_OBSOLETE_RULE.lower()
     assert "merely preferred" in rule
     assert "absence proof" in rule or "absent" in rule

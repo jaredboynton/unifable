@@ -22,6 +22,7 @@ import gate_post_tool  # noqa: E402
 import gate_prompt  # noqa: E402
 import gate_stop  # noqa: E402
 import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from citations import empty_activity, sync_citations_from_activity  # noqa: E402
 from heavy_workflow import heavy_snapshot, heavy_transition_headline  # noqa: E402
 from spec import auto_validate_spec, judge_all_tasks, load_spec, save_spec, spec_template  # noqa: E402
@@ -157,8 +158,8 @@ def test_auto_validate_merges_adjust_headlines_into_msgs(tmp_path, monkeypatch):
         sp.setdefault("_stop_adjust_headlines", []).append("Judge retracted T2: redundant")
         return [(1, "ok", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge_tasks)
     _spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert any("Judge retracted T2: redundant" in m for m in msgs)
 

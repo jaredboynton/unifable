@@ -19,17 +19,13 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from ledger import add_unique, default_ledger  # noqa: E402
 from parse_tool_result import is_mcp_tool, mcp_evidence  # noqa: E402
-from spec import (  # noqa: E402
-    _build_validate_all_user,
+from spec import auto_validate_spec, is_runnable_check, load_spec, save_spec, spec_template  # noqa: E402
+from spec_judge import (
+    _build_validate_all_user,  # noqa: E402
     _evidence_payload,
-    auto_validate_spec,
-    is_runnable_check,
-    load_spec,
-    save_spec,
-    spec_template,
 )
 
 # --------------------------------------------------------------------------- #
@@ -222,8 +218,8 @@ def test_prose_check_routed_evidence_only_and_never_shell_run(tmp_path, monkeypa
         captured["evidence"] = evidence
         return [(1, "evidence supports it", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "run_check", boom_run_check)
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    monkeypatch.setattr(ssv, "run_check", boom_run_check)
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge_tasks)
 
     s2, _ = auto_validate_spec(
         load_spec(str(tmp_path), "K"),
@@ -241,7 +237,7 @@ def test_command_not_found_backstops_to_evidence_only(tmp_path, monkeypatch):
     not found) is also routed to evidence_only rather than recorded as failed."""
     save_spec(str(tmp_path), "K", _spec_with_check("pytest tests/does_not_exist.py"))
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (127, "/bin/sh: pytest: command not found"))
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (127, "/bin/sh: pytest: command not found"))
 
     captured = {}
 
@@ -249,6 +245,6 @@ def test_command_not_found_backstops_to_evidence_only(tmp_path, monkeypatch):
         captured["items"] = items
         return [(1, "ok", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge_tasks)
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
     assert captured["items"][0].get("evidence_only") is True

@@ -231,7 +231,7 @@ def test_repl_read_code_is_release_tool():
 
 
 def test_arms_then_disarms_via_whitelisted_bash_post_tool_release(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "unproven; blocked", "nine version fields say 1.9.90"), grounded=1)
     state = _state()
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
@@ -254,7 +254,7 @@ def test_arms_then_disarms_via_whitelisted_bash_post_tool_release(monkeypatch):
 
 
 def test_read_and_websearch_never_blocked_even_when_armed(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: definitely the cause is Y")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: definitely the cause is Y")
     judge = FakeJudge([(1, "you claimed Y with no proof; mutation blocked")])
     state = _state()
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=100.0, active_task="P", judge=judge)
@@ -266,7 +266,7 @@ def test_read_and_websearch_never_blocked_even_when_armed(monkeypatch):
 
 
 def test_verdict1_blocks_mutation_and_returns_steering(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: the fix is obviously Z")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: the fix is obviously Z")
     judge = FakeJudge([(1, "You asserted Z without reading the source. Write/Edit/Bash blocked until you cite evidence.")])
     state = _state()
     blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=10.0, active_task="P", judge=judge)
@@ -275,7 +275,7 @@ def test_verdict1_blocks_mutation_and_returns_steering(monkeypatch):
 
 
 def test_verdict0_no_block_no_steering(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "model: I read foo.py:10, it does X; here is the edit")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: I read foo.py:10, it does X; here is the edit")
     judge = FakeJudge([(0, "")])
     state = _state()
     blocked, steering, _ = gb.evaluate_pre_tool(_pre("Write"), state, now=10.0, active_task="P", judge=judge)
@@ -284,7 +284,7 @@ def test_verdict0_no_block_no_steering(monkeypatch):
 
 
 def test_arms_then_disarms_via_post_tool_release(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "unproven; blocked", "the cause is Y"), grounded=1)
     state = _state()
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
@@ -299,7 +299,7 @@ def test_arms_then_disarms_via_post_tool_release(monkeypatch):
 
 
 def test_armed_stays_blocked_on_mutation_without_post_tool_release(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0, release_load_bearing=1)
     state = _state()
     gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
@@ -310,7 +310,7 @@ def test_armed_stays_blocked_on_mutation_without_post_tool_release(monkeypatch):
 
 
 def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0, needed="still missing: read codex_judge.py:54 and cite MODEL")
     state = _state()
     gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=judge)
@@ -328,7 +328,7 @@ def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
 
 def test_arm_judge_debounced_at_most_once_per_3s_per_key(monkeypatch):
     # Stepwise harness: the per-tool judge debounce tightened from 15s to 3s.
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
     judge = RoutingJudge(arm=(0, "", ""))
     state = _state()
     gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
@@ -340,7 +340,7 @@ def test_arm_judge_debounced_at_most_once_per_3s_per_key(monkeypatch):
 
 
 def test_safety_cap_fails_open_after_max_blocks(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
     judge = RoutingJudge(arm=(1, "blocked", "claim X"), grounded=0)
     state = _state()
@@ -352,7 +352,7 @@ def test_safety_cap_fails_open_after_max_blocks(monkeypatch):
 
 
 def test_new_user_prompt_drops_stale_arm(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(0, "", ""))
     state = _state()
     gb.arm(state, gb.breaker_key("S", "P1"), 0.0, "blocked", "claim X")
@@ -364,7 +364,7 @@ def test_new_user_prompt_drops_stale_arm(monkeypatch):
 
 
 def test_debounce_key_is_session_plus_user_prompt(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
     judge = FakeJudge([(1, "blocked")])
     state = _state()
     gb.evaluate_pre_tool(_pre("Bash", session="S"), state, now=0.0, active_task="P1", judge=judge)
@@ -375,7 +375,7 @@ def test_debounce_key_is_session_plus_user_prompt(monkeypatch):
 
 
 def test_judge_exception_fails_open(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
 
     def boom(system, user, schema):
         raise RuntimeError("realtime down")
@@ -558,14 +558,14 @@ def test_disarm_judge_releases_task_board_status_claim():
 
 
 def test_judge_transcript_includes_spec_board(tmp_path, monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "host transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "host transcript")
     spec_path_root = tmp_path / "specs"
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
 
     def fake_board(input_data):
         return f"{gb._SPEC_BOARD_BEGIN}\ngoal: g\n  [OK] T7 (req) done\nbreaker: OPEN\n{gb._SPEC_BOARD_END}"
 
-    monkeypatch.setattr(gb, "_spec_board_block", fake_board)
+    monkeypatch.setattr("breaker_runtime._spec_board_block", fake_board)
     seg = gb.judge_transcript({"session_id": "S", "cwd": str(tmp_path)}, [])
     assert "host transcript" in seg
     assert gb._SPEC_BOARD_BEGIN in seg
@@ -614,7 +614,7 @@ def test_verdict0_forces_empty_steering_even_if_model_returns_text():
 
 
 def test_judge_transcript_includes_breaker_events(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "host transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "host transcript")
     events = [{"kind": "DISARM", "ts": "2026-01-01T00:00:00+00:00", "claim": "old claim", "grounded": True}]
     seg = gb.judge_transcript(_pre("Read"), events, fresh_tool="fresh output")
     assert "unifable_breaker" in seg
@@ -708,7 +708,7 @@ def test_transcript_segment_missing_is_empty():
 
 
 def test_disarm_adds_event_preventing_re_arm(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "blocked", "claim to disarm"), grounded=1)
     state = _state()
     blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
@@ -719,7 +719,7 @@ def test_disarm_adds_event_preventing_re_arm(monkeypatch):
 
 
 def test_safety_cap_adds_fail_open_event(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
     judge = RoutingJudge(arm=(1, "blocked", "uncapped claim"), grounded=0)
     state = _state()
@@ -732,7 +732,7 @@ def test_safety_cap_adds_fail_open_event(monkeypatch):
 
 
 def test_adjudicated_events_prevent_re_arm(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     state = _state()
     append_event(state, "DISARM", claim="my claim", grounded=True)
 
@@ -761,7 +761,7 @@ def test_adjudicated_events_prevent_re_arm(monkeypatch):
 
 
 def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "read baselines cited")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "read baselines cited")
     judge = RoutingJudge(
         arm=(1, "blocked", "unproven quality claim"),
         grounded=0,
@@ -781,7 +781,7 @@ def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
 
 
 def test_provisional_monitor_reinstates_on_egregious_drift(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     from breaker_state import lift_provisional
 
     state = _state()
@@ -807,7 +807,7 @@ def test_provisional_monitor_reinstates_on_egregious_drift(monkeypatch):
 
 
 def test_provisional_monitor_hints_on_minor_drift(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     from breaker_state import lift_provisional
 
     state = _state()
@@ -827,7 +827,7 @@ def test_provisional_monitor_hints_on_minor_drift(monkeypatch):
 
 
 def test_provisional_disarm_on_pre_tool_after_grounding(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "chromium source cited")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "chromium source cited")
     from breaker_state import lift_provisional
 
     state = _state()
@@ -843,7 +843,7 @@ def test_provisional_disarm_on_pre_tool_after_grounding(monkeypatch):
 
 
 def test_provisional_monitor_allows_on_track_edit(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     from breaker_state import lift_provisional
 
     state = _state()
@@ -858,7 +858,7 @@ def test_provisional_monitor_allows_on_track_edit(monkeypatch):
 
 
 def test_full_disarm_clears_provisional(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     from breaker_state import lift_provisional
 
     state = _state()

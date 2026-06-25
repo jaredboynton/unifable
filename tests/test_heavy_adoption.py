@@ -141,7 +141,7 @@ def test_finalize_heals_when_winner_already_set():
 
 
 def test_adopted_frontier_not_pending():
-    from spec import _task_is_pending
+    from spec_tasks import _task_is_pending
 
     task = {
         "id": "T4",

@@ -23,7 +23,6 @@ sys.path.insert(0, str(REPO / "hooks"))
 import gate_lift as gl  # noqa: E402
 import pre_tool_use as ptu  # noqa: E402
 
-
 # --- pure predicate / budget ------------------------------------------------
 
 

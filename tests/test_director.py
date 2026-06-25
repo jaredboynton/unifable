@@ -93,7 +93,7 @@ def test_directive_is_truncated() -> None:
 
 
 def test_evaluate_persists_and_surfaces_directive(monkeypatch) -> None:
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     dj = DirectorJudge(verdict=0)
     state = default_breaker()
     block, steering, notify = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=dj)
@@ -105,7 +105,7 @@ def test_evaluate_persists_and_surfaces_directive(monkeypatch) -> None:
 
 def test_debounce_window_is_3s(monkeypatch) -> None:
     assert gb.JUDGE_WINDOW_SECONDS == 3
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
     dj = DirectorJudge(verdict=0)
     state = default_breaker()
     gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=dj)
@@ -118,7 +118,7 @@ def test_debounce_window_is_3s(monkeypatch) -> None:
 
 def test_unchanged_directive_not_resurfaced(monkeypatch) -> None:
     """Token-aware: an identical directive is surfaced once, not every window."""
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
     dj = DirectorJudge(verdict=0, directive="Read foo.py, then edit.")
     state = default_breaker()
     _, _, n1 = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=dj)
@@ -130,7 +130,7 @@ def test_unchanged_directive_not_resurfaced(monkeypatch) -> None:
 
 
 def test_arming_clears_director_scope(monkeypatch) -> None:
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     dj = DirectorJudge(verdict=1)
     state = default_breaker()
     block, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=dj)

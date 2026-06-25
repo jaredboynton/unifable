@@ -97,7 +97,7 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
             )
 
             with patch("gate_post_tool.read_stdin_json", return_value=payload):
-                with patch("spec.judge_discover_frontiers") as discover:
+                with patch("spec_judge.judge_discover_frontiers") as discover:
                     rc = gate_post_tool.main()
             self.assertEqual(rc, 0)
             discover.assert_not_called()

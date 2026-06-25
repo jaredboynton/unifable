@@ -13,6 +13,12 @@ from typing import Any
 
 _PLAN_MODE_EMPTY: dict[str, Any] = {"enabled": False, "host": "", "marker": ""}
 
+PLAN_MODE_DIRECTIVE = (
+    "Plan Mode: repo-tracked writes forbidden; deliver a plan artifact only "
+    "(CreatePlan / ExitPlanMode / proposed_plan block). Spec checks must not "
+    "require new repo files — use plan-based checks or unifable dispute on stop."
+)
+
 _CURSOR_PLAN_ACTIVE_RE = re.compile(
     r"<system_reminder>[\s\S]*?Plan mode is active",
     re.IGNORECASE,
@@ -217,17 +223,7 @@ def resolve_plan_mode_for_hooks(input_data: dict | None) -> dict[str, Any]:
 def plan_mode_context_line(plan: dict[str, Any]) -> str:
     if not plan.get("enabled"):
         return ""
-    host = str(plan.get("host") or "host")
-    return (
-        f"\n\nHost Plan Mode is active ({host}). "
-        "Repo-tracked writes are forbidden this turn. "
-        "Deliverable is a plan artifact only "
-        "(Cursor: CreatePlan / ~/.cursor/plans; Claude: ExitPlanMode / ~/.claude/plans; "
-        "Codex: <proposed_plan> block). "
-        "Do not add spec tasks whose checks require new repo files "
-        "(test -f, git diff on paths). "
-        "Use plan-based checks or unifable dispute with plan-mode evidence on stop."
-    )
+    return f"\n\n{PLAN_MODE_DIRECTIVE}"
 
 
 def plan_mode_spec_task_guidance(plan: dict[str, Any]) -> str:
@@ -239,11 +235,7 @@ def plan_mode_spec_task_guidance(plan: dict[str, Any]) -> str:
 def append_plan_mode_note(message: str, plan: dict[str, Any] | None) -> str:
     if not isinstance(plan, dict) or not plan.get("enabled"):
         return message
-    note = (
-        "\nPlan Mode active: repo edits blocked by host. "
-        "Finish the plan deliverable; use unifable dispute for repo-file "
-        "requirements that cannot run until Agent mode."
-    )
+    note = "\nPlan Mode: repo edits blocked — finish the plan deliverable."
     msg = str(message or "").rstrip()
     if note.strip() in msg:
         return msg

@@ -56,7 +56,7 @@ def context_for_mode(
     *,
     first_prompt: bool = True,
 ) -> str:
-    lines = [f"Task mode: {mode}."]
+    lines: list[str] = []
     if risk_flags:
         # "uncertainty" gets its own actionable paragraph below, so don't also
         # name it in the bare enumeration -- that states the same signal twice.

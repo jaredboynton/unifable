@@ -40,8 +40,8 @@ Audit verification is now executable:
 ```text
 command: python3 scripts/audit_waits.py
 result:
-latency audit covered 32 grep-matched file(s)
-documented decisions: 32 file(s)
+latency audit covered 35 grep-matched file(s)
+documented decisions: 35 file(s)
 test sleep calls: 0
 ```
 
@@ -53,7 +53,7 @@ test sleep calls: 0
 | `scripts/gate/breaker_state.py`, `scripts/gate/judge_client.py` | Kept | These are the only non-doc files still matched by the narrower sleep-only check. Both are bounded gate/judge polling loops, not pytest pacing. |
 | `benchmark/bench.py` | Kept | Benchmark harness deadlines bound external CLI/terminal sessions and classify benchmark timeout outcomes. Removing them would make benchmark jobs hang-prone. |
 | `hooks/test_after_edit.py` | Kept | Hook subprocess budget for automatic post-edit verification. Safety bound, not test pacing. |
-| `hooks/gate_stop.py`, `scripts/gate/spec.py`, `scripts/gate/codex_judge.py`, `scripts/gate/judge_daemon.py`, `scripts/gate/judge_transport.py`, `scripts/gate/groundedness.py`, `scripts/gate/cli_install.py`, `scripts/gate/runtime_sync.py`, `scripts/gate/grade_override.py`, `scripts/generate_docs.py`, `scripts/shadow/outcome_collect.py` | Kept | Host hook, network, subprocess, generated-doc metadata, and fail-open budgets. These bound external work and are outside pytest scheduling. |
+| `hooks/gate_stop.py`, `scripts/gate/spec_io.py`, `scripts/gate/spec_validation.py`, `scripts/gate/spec_stop_validate.py`, `scripts/gate/codex_judge.py`, `scripts/gate/realtime_daemon.py`, `scripts/gate/judge_transport.py`, `scripts/gate/breaker_orchestration.py`, `scripts/gate/cli_install.py`, `scripts/gate/runtime_sync.py`, `scripts/gate/grade_override.py`, `scripts/generate_docs.py`, `scripts/shadow/outcome_collect.py` | Kept | Host hook, network, subprocess, generated-doc metadata, and fail-open budgets. These bound external work and are outside pytest scheduling. The spec/groundedness budgets now live in their split sub-modules (`spec_io`/`spec_validation`/`spec_stop_validate`, `breaker_orchestration`); the `spec.py` and `groundedness.py` facades carry no timing logic. |
 | `tests/test_stop_timeout_budget.py`, `tests/test_runtime_sync.py`, `tests/test_test_after_edit.py`, `tests/test_loop_release.py`, `tests/test_grade_adjudicate_hook.py`, `tests/test_spec_state_notifications.py`, `tests/test_stop_codex_json.py`, `tests/test_judge_message_cap.py`, `tests/test_judge_runaway.py`, `tests/test_mcp_evidence.py`, `tests/test_completion_handoff.py`, `tests/test_auto_validate_stop.py`, `tests/test_supersession.py`, `tests/test_codex_judge_reask.py`, `tests/test_codex_judge_fragment.py` | Kept | Test fixtures and assertions for timeout behavior, monkeypatched timeout-aware APIs, or prose strings. The audit found no removable wall-clock sleeps in these tests. (`test_codex_judge_fragment.py` matches only via a no-op `settimeout` on an in-memory fake socket.) |
 | `scripts/audit_waits.py` | Kept | Self-verifier for this audit. It contains the scan terms and coverage set so the raw grep command can be paired with a pass/fail accounting check. |
 | `docs/testing-optimization.md` | Kept | Documentation/prose matches only. |

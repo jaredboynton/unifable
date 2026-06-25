@@ -14,7 +14,7 @@ sys.path.insert(0, str(REPO / "hooks"))
 import loop_release as lr  # noqa: E402
 from ledger import DEFAULT_LEDGER, load_ledger, save_ledger  # noqa: E402
 from spec import load_spec, save_spec, spec_template  # noqa: E402
-from verify_state import COMPLETION_MAX_STALLED_BLOCKS, note_completion_block  # noqa: E402
+from verify_state import note_completion_block  # noqa: E402
 
 
 def _task(tid, status, *, added_by=None, check="true"):
@@ -192,7 +192,7 @@ def _run_stop(gate_stop, payload):
 def test_gate_stop_provisional_lift_allows_stop(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
-    import spec as spec_mod
+    import spec_stop_validate as ssv
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
@@ -211,8 +211,8 @@ def test_gate_stop_provisional_lift_allows_stop(tmp_path, monkeypatch):
     led["loop_lift_scope"] = "fix the check"
     save_ledger({"session_id": "loopsess", "cwd": str(tmp_path)}, led)
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
 
     out = _run_stop(gate_stop, {"session_id": "loopsess", "cwd": str(tmp_path)})
     assert out.get("decision") != "block"
@@ -223,7 +223,7 @@ def test_gate_stop_provisional_lift_allows_stop(tmp_path, monkeypatch):
 def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
-    import spec as spec_mod
+    import spec_stop_validate as ssv
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
@@ -241,8 +241,8 @@ def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     lr.update_loop_signature(led, ["T1"])
     save_ledger({"session_id": "loopsess2", "cwd": str(tmp_path)}, led)
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
 
     verdict = lr.LoopReleaseVerdict(True, "provisional", "loop detected", "rewrite check", [], 1)
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
@@ -265,7 +265,7 @@ def test_gate_stop_provisional_lift_shown_exactly_once(tmp_path, monkeypatch):
     onto the reason channel, never duplicated as a truncated Notes line."""
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
-    import spec as spec_mod
+    import spec_stop_validate as ssv
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
@@ -283,8 +283,8 @@ def test_gate_stop_provisional_lift_shown_exactly_once(tmp_path, monkeypatch):
     lr.update_loop_signature(led, ["T1"])
     save_ledger({"session_id": "loopdup", "cwd": str(tmp_path)}, led)
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
 
     verdict = lr.LoopReleaseVerdict(True, "provisional", "loop detected on T1", "rewrite the check", [], 1)
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
@@ -308,7 +308,7 @@ def test_gate_stop_provisional_lift_shown_exactly_once(tmp_path, monkeypatch):
 def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
-    import spec as spec_mod
+    import spec_stop_validate as ssv
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
@@ -326,8 +326,8 @@ def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
     lr.update_loop_signature(led, ["T1"])
     save_ledger({"session_id": "loopdecl", "cwd": str(tmp_path)}, led)
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
 
     verdict = lr.LoopReleaseVerdict(False, "none", "legit work remains", "", [], 0)
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
@@ -343,7 +343,7 @@ def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
 def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
-    import spec as spec_mod
+    import spec_stop_validate as ssv
 
     monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
     monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
@@ -360,9 +360,9 @@ def test_gate_stop_permanent_retract_opens_breaker(tmp_path, monkeypatch):
     lr.update_loop_signature(led, ["T1"])
     save_ledger({"session_id": "loopsess3", "cwd": str(tmp_path)}, led)
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items])
-    monkeypatch.setattr(spec_mod, "auto_validate_spec", lambda spec, cwd, **kw: (spec, []))
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items])
+    monkeypatch.setattr(ssv, "auto_validate_spec", lambda spec, cwd, **kw: (spec, []))
 
     verdict = lr.LoopReleaseVerdict(
         True,

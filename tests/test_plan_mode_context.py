@@ -10,7 +10,7 @@ from pathlib import Path
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from plan_mode import (  # noqa: E402
     append_plan_mode_note,
     detect_plan_mode,
@@ -19,15 +19,12 @@ from plan_mode import (  # noqa: E402
     plan_mode_context_line,
     resolve_plan_mode,
 )
-from spec import (  # noqa: E402
-    _build_validate_all_user,
+from spec import auto_validate_spec, load_spec, save_spec, spec_template  # noqa: E402
+from spec_judge import (
+    _build_validate_all_user,  # noqa: E402
     _judge_context,
     _judge_system_for_task,
     _judge_system_with_transcript,
-    auto_validate_spec,
-    load_spec,
-    save_spec,
-    spec_template,
 )
 from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS  # noqa: E402
 
@@ -207,8 +204,8 @@ def test_auto_validate_passes_plan_mode_to_judge_tasks(tmp_path, monkeypatch):
         captured["plan_mode"] = plan_mode
         return [(1, "ok", [], "") for _ in items]
 
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(spec_mod, "judge_tasks", fake_judge_tasks)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", fake_judge_tasks)
 
     auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path), transcript_path=str(tx))
     assert captured["plan_mode"]["enabled"] is True

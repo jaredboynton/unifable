@@ -295,7 +295,7 @@ def test_mutating_bash_blocked_while_breaker_armed():
     """Non-whitelisted Bash stays blocked when the breaker is armed."""
     rc, stderr = _run_pre_tool_bash_breaker_on("node scripts/score.mjs")
     assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
-    assert "groundedness" in stderr.lower() or "bash blocked" in stderr.lower()
+    assert "groundedness" in stderr.lower() or "whitelist" in stderr.lower()
 
 
 # ---------------------------------------------------------------------------

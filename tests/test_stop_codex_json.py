@@ -18,7 +18,7 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from spec import save_spec, spec_template  # noqa: E402
 
 
@@ -75,10 +75,8 @@ def test_codex_stop_block_without_hook_specific_output(stop_env, tmp_path, monke
     s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(0, "T1 needs more proof", [], "") for _ in items],
     )
 
@@ -103,10 +101,8 @@ def test_claude_stop_block_keeps_hook_specific_output(stop_env, tmp_path, monkey
     s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "sess", s)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(0, "T1 needs more proof", [], "") for _ in items],
     )
     monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "claude-sess")

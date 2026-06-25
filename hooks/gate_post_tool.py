@@ -42,7 +42,7 @@ from parse_tool_result import (
     verification_record,
 )
 from posttool_notify import emit_posttool_context, prepare_posttool_parts, should_suppress_cite_only
-from spec import canonical_project_root
+from spec_io import canonical_project_root
 
 
 def _abs(path: str, cwd: str) -> str:
@@ -76,7 +76,7 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
         return ctx
     _sub, _parsed_tid = parse_spec_cli_invocation(command)
     try:
-        from spec import load_spec, resolve_session_id
+        from spec_io import load_spec, resolve_session_id
 
         task_id = _parsed_tid or resolve_session_id(input_data, default=None)
         if not task_id:
@@ -93,8 +93,9 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
 
 def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool) -> str:
     try:
+        from breaker_orchestration import evaluate_post_tool_release
+        from breaker_runtime import is_release_tool
         from breaker_state import load_breaker, save_breaker
-        from groundedness import evaluate_post_tool_release, is_release_tool
 
         if not executed_ok or not is_release_tool(tool_name, input_data):
             return ""
@@ -120,7 +121,8 @@ def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int)
     repeated-failure signal (already bounded), spends one judge call for a concrete
     next step, and NEVER blocks. Fails open (returns "" on any error)."""
     try:
-        from spec import judge_hint, load_spec, resolve_session_id
+        from spec_io import load_spec, resolve_session_id
+        from spec_judge import judge_hint
 
         task_id = resolve_session_id(input_data, default=None)
         spec = (load_spec(cwd, task_id) if task_id else None) or {}
@@ -278,8 +280,9 @@ def main() -> int:
         from citations import activity_from_ledger
         from evidence_policy import resolve_grade
         from heavy_workflow import format_approach_board, frontier_tasks
-        from spec import judge_discover_frontiers, load_spec, resolve_session_id, save_spec
         from spec_hygiene import apply_spec_hygiene
+        from spec_io import load_spec, resolve_session_id, save_spec
+        from spec_judge import judge_discover_frontiers
 
         task_id = resolve_session_id(input_data, default=None)
         grade = resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
@@ -336,7 +339,7 @@ def main() -> int:
     guidance_map = None
     if spec_context:
         try:
-            from spec import load_spec, resolve_session_id
+            from spec_io import load_spec, resolve_session_id
 
             _tid = resolve_session_id(input_data, default=None)
             _sp = load_spec(cwd, _tid) if _tid else None
@@ -353,7 +356,10 @@ def main() -> int:
     if repeat:
         _sig, count = repeat
         hint = _repeated_failure_hint(input_data, ledger, cwd, count)
-        parts: list[str] = []
+        parts: list[str] = [
+            "Tool failure observed. Do not report completion until "
+            "it is fixed, isolated as a known baseline, or explicitly documented.",
+        ]
         if hint:
             parts.append("Hint: " + hint)
         if citation_context:
@@ -363,15 +369,6 @@ def main() -> int:
         if breaker_status_context:
             parts.append(breaker_status_context)
         _emit_context(input_data, parts, guidance_map=guidance_map, failure_sig=_sig)
-        parts = [
-            "Tool failure observed. Do not report completion until "
-            "it is fixed, isolated as a known baseline, or explicitly documented.",
-        ]
-        if citation_context:
-            parts.append(citation_context)
-        if breaker_status_context:
-            parts.append(breaker_status_context)
-        _emit_context(input_data, parts, guidance_map=guidance_map)
     else:
         parts: list[str] = []
         if failure and not spec_context:

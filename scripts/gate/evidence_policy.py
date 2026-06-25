@@ -35,7 +35,7 @@ from __future__ import annotations
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
-    from spec import GRADES
+    from spec_schema import GRADES
 except ImportError:  # pragma: no cover
     from scripts.gate.spec import GRADES
 

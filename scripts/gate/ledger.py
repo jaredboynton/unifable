@@ -112,11 +112,13 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "plan_mode_notified_epoch": "",
     # UserPromptSubmit scaffold onboarding (gate_prompt.py): full CLI tutorial once.
     "prompt_scaffold_notified": False,
+    "citation_footer_notified": False,
     # UserPromptSubmit router pack dedup (pack_router.py).
     "router_matched_tags": [],
     "router_fired_tags": [],
     # PreToolUse unlock footer dedup (pretool_block.py).
     "pretool_unlock_footer_epoch": "",
+    "pretool_allowlist_notified_epoch": "",
     # PreToolUse spec validation contract string once per turn (spec.py).
     "spec_contract_notified_epoch": "",
     # PostToolUse additionalContext dedup (posttool_notify.py / model_notify.py).
@@ -194,7 +196,7 @@ def data_root() -> Path:
 
 
 def ledger_key(input_data: dict[str, Any]) -> str:
-    from spec import canonical_project_root
+    from spec_io import canonical_project_root
 
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     session_id = input_data.get("session_id") or "no-session"

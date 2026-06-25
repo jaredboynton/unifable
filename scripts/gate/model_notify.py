@@ -76,7 +76,7 @@ def _synthetic_incomplete_action(tid: str) -> str | None:
 
 
 def _all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
-    from spec import all_tasks_validated
+    from spec_tasks import all_tasks_validated
 
     return all_tasks_validated(spec)
 
@@ -321,7 +321,12 @@ def format_stop_action_digest(spec: dict[str, Any], changed_ids: set[str]) -> st
     return "\n".join(lines)
 
 
-def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) -> str:
+def format_stop_unresolved_actions(
+    spec: dict[str, Any],
+    changed_ids: set[str],
+    *,
+    include_breaker_line: bool = True,
+) -> str:
     """Stop-facing action list: unresolved tasks only, with fresh guidance inline."""
     ok, incomplete = _all_tasks_validated(spec)
     if ok:
@@ -367,7 +372,8 @@ def format_stop_unresolved_actions(spec: dict[str, Any], changed_ids: set[str]) 
         if hint:
             lines.append(f"    hint: {hint}")
     display = [_synthetic_incomplete_label(tid) or tid for tid in ordered]
-    lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(display)})")
+    if include_breaker_line:
+        lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(display)})")
     return "\n".join(lines)
 
 
@@ -634,11 +640,10 @@ def build_stop_validate_context(
         return "", False
     limit = max_len if max_len is not None else _STOP_VALIDATE_CONTEXT_MAX
     changed_ids = _task_ids_from_headlines(raw_msgs)
-    action = format_stop_unresolved_actions(spec, changed_ids)
+    action = format_stop_unresolved_actions(spec, changed_ids, include_breaker_line=False)
     notes = _stop_non_task_notes(raw_msgs)
 
-    header = "Spec update (stop validation):"
-    core = f"{header}\n{action}"
+    core = action
     if not notes:
         return core, len(core) > limit
 

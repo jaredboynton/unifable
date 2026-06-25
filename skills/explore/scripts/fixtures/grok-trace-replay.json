@@ -1,0 +1,40 @@
+{
+  "explore_responses": [
+    {
+      "id": "resp_explore_1",
+      "output": [
+        {
+          "type": "function_call",
+          "call_id": "call_read_1",
+          "name": "read_file",
+          "arguments": "{\"path\":\"hooks/gate_stop.py\"}"
+        }
+      ]
+    },
+    {
+      "id": "resp_explore_2",
+      "output": [
+        {
+          "type": "message",
+          "content": [
+            { "type": "output_text", "text": "" }
+          ]
+        }
+      ]
+    }
+  ],
+  "submit_response": {
+    "id": "resp_submit_1",
+    "output": [
+      {
+        "type": "message",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "{\"opening_summary\":\"Stop gate lives in gate_stop.py.\",\"flow_steps\":[\"hooks/gate_stop.py defines adjudicate_dispute\"],\"comparison_tables\":[],\"sections\":[{\"heading\":\"gate_stop\",\"body\":\"Stop hook with adjudicate_dispute.\"}],\"key_files\":[{\"path\":\"hooks/gate_stop.py\",\"role\":\"stop gate\"}],\"code_passages\":[{\"file_path\":\"hooks/gate_stop.py\",\"start_line\":1,\"end_line\":4,\"rationale\":\"Header and entry\"}],\"grounding_manifest\":{\"files_read\":[\"hooks/gate_stop.py\"],\"tool_turns\":1}}"
+          }
+        ]
+      }
+    ]
+  }
+}

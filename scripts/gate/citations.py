@@ -42,7 +42,7 @@ from parse_tool_result import (
     read_targets,
     research_bash_evidence,
 )
-from spec import prior_art_parts, repo_context_of, repo_context_parts
+from spec_schema import prior_art_parts, repo_context_of, repo_context_parts
 
 try:
     from urllib.parse import urlsplit
@@ -299,13 +299,15 @@ def verify_citations(
     return reasons
 
 
-def format_citation_verify_message(reasons: list[str]) -> str:
+def format_citation_verify_message(reasons: list[str], *, include_footnotes: bool = True) -> str:
     """One headline, compact per-cite lines, shared footnotes (no repeated boilerplate)."""
     items = [str(r).strip() for r in (reasons or []) if str(r).strip()]
     if not items:
         return ""
     lines = ["spec citations are not backed by real activity this session:"]
     lines.extend(f"  {item}" for item in items)
+    if not include_footnotes:
+        return "\n".join(lines)
     footnotes: list[str] = []
     if any(r.startswith("repo_context[") for r in items):
         footnotes.append(

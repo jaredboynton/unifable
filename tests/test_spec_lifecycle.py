@@ -9,11 +9,8 @@ from types import SimpleNamespace
 GATE = Path(__file__).resolve().parent.parent / "scripts" / "gate"
 sys.path.insert(0, str(GATE))
 
-import spec as spec_mod  # noqa: E402
+import spec_stop_validate as ssv  # noqa: E402
 from spec import (  # noqa: E402
-    _cmd_add_task,
-    _cmd_dispute,
-    _cmd_restate,
     all_tasks_validated,
     auto_validate_spec,
     ensure_spec_scaffold,
@@ -21,6 +18,11 @@ from spec import (  # noqa: E402
     save_spec,
     spec_template,
     validate_spec,
+)
+from spec_cli import (
+    _cmd_add_task,  # noqa: E402
+    _cmd_dispute,
+    _cmd_restate,
 )
 
 
@@ -70,10 +72,8 @@ def test_auto_validate_accepts_dispute_and_retracts(tmp_path, monkeypatch):
     args = _seed(tmp_path)
     args.evidence = "proven impossible"
     _cmd_dispute(args)
-    monkeypatch.setattr(spec_mod, "judge_dispute", lambda s, t, e: (1, "genuinely impossible"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "judge_dispute", lambda s, t, e: (1, "genuinely impossible"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "genuinely impossible", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
@@ -86,10 +86,8 @@ def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):
     s["restated_goal"] = "g"
     s["tasks"] = [_task("T1", "pending")]
     save_spec(str(tmp_path), "K", s)
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", plan_mode=None, **_kw: (
             [(1, "ok", [{"title": "also handle errors", "check": "true"}], "")] if items else []
         ),
@@ -112,7 +110,8 @@ def test_scaffold_hook_creates_requires_tasks_spec(tmp_path):
 
 
 def test_seeded_goal_blocks_until_restated(tmp_path):
-    from spec import _cmd_add_task, _cmd_restate, validate_spec
+    from spec import validate_spec
+    from spec_cli import _cmd_add_task, _cmd_restate
 
     ensure_spec_scaffold(str(tmp_path), "K", "make the parser faster")
     _cmd_add_task(SimpleNamespace(root=str(tmp_path), task_id="K", title="t", check="true"))
@@ -140,7 +139,7 @@ def test_seeded_goal_blocks_until_restated(tmp_path):
 
 def test_end_to_end_add_task_and_auto_validate(tmp_path, monkeypatch):
     ensure_spec_scaffold(str(tmp_path), "K", "do the thing")
-    from spec import _cmd_restate
+    from spec_cli import _cmd_restate
 
     _cmd_restate(SimpleNamespace(root=str(tmp_path), task_id="K", goal="Make greet reject empty names"))
     _cmd_add_task(SimpleNamespace(root=str(tmp_path), task_id="K", title="thing works", check="true"))
@@ -150,10 +149,8 @@ def test_end_to_end_add_task_and_auto_validate(tmp_path, monkeypatch):
     save_spec(str(tmp_path), "K", s)
     ok, reasons = validate_spec(s, "STANDARD", require_evidence=True)
     assert ok, reasons
-    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".": (0, "ok"))
-    monkeypatch.setattr(
-        spec_mod,
-        "judge_tasks",
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "ok", [], "") for _ in items],
     )
     spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))

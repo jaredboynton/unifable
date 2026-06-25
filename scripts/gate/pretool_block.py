@@ -22,6 +22,7 @@ import hashlib
 import os
 import re
 import sys
+from dataclasses import dataclass
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
@@ -41,6 +42,17 @@ GATE_PREFIX = ""
 _WHITELIST_DETAIL_RE = re.compile(r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE)
 _PIPELINE_DETAIL_RE = re.compile(r"^(\S+) is not an allowed read-only pipeline sink$", re.IGNORECASE)
 
+_UNLOCK_LINE = "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier)."
+_ALLOWED_NOW_PREFIX = "Allowed now:"
+
+
+@dataclass(frozen=True)
+class BlockContext:
+    scaffold_notified: bool = False
+    unlock_footer_sent: bool = False
+    allowlist_sent: bool = False
+    contract_notified: bool = False
+
 
 def block_epoch(input_data: dict[str, Any], ledger: dict[str, Any] | None = None) -> str:
     """Scope dedup to one assistant turn / prompt epoch."""
@@ -53,6 +65,22 @@ def block_epoch(input_data: dict[str, Any], ledger: dict[str, Any] | None = None
         return f"task:{active}"
     sid = str(input_data.get("session_id") or "no-session")
     return f"session:{sid}"
+
+
+def block_context(input_data: dict[str, Any], ledger: dict[str, Any] | None = None) -> BlockContext:
+    """Ledger-derived flags for action-only block formatting."""
+    try:
+        data = ledger if isinstance(ledger, dict) else load_ledger(input_data)
+        epoch = block_epoch(input_data, data)
+        return BlockContext(
+            scaffold_notified=bool(data.get("prompt_scaffold_notified")),
+            unlock_footer_sent=data.get("pretool_unlock_footer_epoch") == epoch,
+            allowlist_sent=data.get("pretool_allowlist_notified_epoch") == epoch,
+            contract_notified=bool(data.get("prompt_scaffold_notified"))
+            or data.get("spec_contract_notified_epoch") == epoch,
+        )
+    except Exception:
+        return BlockContext()
 
 
 def block_signature(kind: str, detail: str) -> str:
@@ -76,14 +104,6 @@ def normalize_bash_detail(why: str) -> str:
     return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:12]
 
 
-_UNLOCK_LINE = "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier)."
-
-
-def _session_line(session_id: str) -> str:
-    sid = (session_id or "default").strip() or "default"
-    return f"session-id: {sid}"
-
-
 def pretool_headline_only(message: str) -> str:
     """First line of a block message (drop shared unlock footer)."""
     text = str(message or "").strip()
@@ -92,63 +112,152 @@ def pretool_headline_only(message: str) -> str:
     return text.split("\n", 1)[0].strip()
 
 
+def _join_lines(lines: list[str]) -> str:
+    return "\n".join(line for line in lines if line.strip())
+
+
+def _append_unlock(lines: list[str], ctx: BlockContext) -> None:
+    if not ctx.scaffold_notified and not ctx.unlock_footer_sent:
+        lines.append(_UNLOCK_LINE)
+
+
+def _append_bash_allowlist(lines: list[str], ctx: BlockContext) -> None:
+    if not ctx.allowlist_sent:
+        lines.append(f"{_ALLOWED_NOW_PREFIX} {bash_allowed_summary()}.")
+
+
+def message_includes_unlock(message: str) -> bool:
+    text = str(message or "")
+    return _UNLOCK_LINE in text or text.strip().startswith("Unlock:")
+
+
+def message_includes_allowlist(message: str) -> bool:
+    return _ALLOWED_NOW_PREFIX in str(message or "")
+
+
+def is_boilerplate_only(message: str) -> bool:
+    """True when the block is only unlock/allowlist boilerplate with no novel why."""
+    text = str(message or "").strip()
+    if not text:
+        return True
+    lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
+    for line in lines:
+        if line == _UNLOCK_LINE or line.startswith("Unlock:"):
+            continue
+        if line.startswith(_ALLOWED_NOW_PREFIX):
+            continue
+        if line.startswith("Allowed now: Read/Grep/Glob/web"):
+            continue
+        return False
+    return bool(lines)
+
+
+def is_redundant_with_notify(message: str, notify: str) -> bool:
+    """True when notify already carries the block's actionable content."""
+    msg = str(message or "").strip()
+    note = str(notify or "").strip()
+    if not msg or not note:
+        return False
+    if msg in note or note in msg:
+        return True
+    headline = pretool_headline_only(msg)
+    if headline and headline in note:
+        return True
+    return is_boilerplate_only(msg)
+
+
 def compact_pretool_output(message: str, *, footer_sent: bool) -> str:
     """Shrink a block when the unlock footer already went out this turn.
 
-    Keeps headline plus indented detail lines (e.g. per-cite list) but drops
-    repeated unlock boilerplate. Falls back to a pointer at the first full message."""
+    Drops repeated unlock/allowlist boilerplate; keeps the headline and any
+    indented detail lines (e.g. per-cite list)."""
     text = str(message or "").strip()
     if not text or not footer_sent:
         return text
-    lines = text.splitlines()
-    headline = lines[0].strip()
-    detail_lines: list[str] = []
-    for line in lines[1:]:
-        if not line.strip():
-            break
-        if line.startswith("  "):
-            detail_lines.append(line)
+    actionable: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped == _UNLOCK_LINE or stripped.startswith("Unlock:"):
+            continue
+        if stripped.startswith(_ALLOWED_NOW_PREFIX) or stripped.startswith("Allowed now: Read/Grep"):
+            continue
+        actionable.append(line.rstrip())
+    if not actionable:
+        return "(see the earlier instruction this turn.)"
+    headline = actionable[0].strip()
+    detail_lines = [ln for ln in actionable[1:] if ln.startswith("  ")]
     if detail_lines:
         return headline + "\n" + "\n".join(detail_lines)
-    return f"{headline} (see the earlier gate message this turn.)"
+    return headline
 
 
-def format_bash_research_block(why: str, session_id: str) -> str:
-    """Compact full block for bash research-phase whitelist failures."""
+def format_bash_research_block(
+    why: str,
+    session_id: str = "",
+    *,
+    ctx: BlockContext | None = None,
+) -> str:
+    """Action-only block for bash research-phase whitelist failures."""
+    _ = session_id
     why = " ".join(str(why or "").split())
-    return (
-        f"Bash blocked (research phase): {why}.\n"
-        f"{_UNLOCK_LINE}\n"
-        f"Allowed now: {bash_allowed_summary()}.\n"
-        f"{_session_line(session_id)}"
-    )
+    ctx = ctx or BlockContext()
+    lines: list[str] = []
+    if why:
+        lines.append(f"{why}.")
+    _append_unlock(lines, ctx)
+    _append_bash_allowlist(lines, ctx)
+    return _join_lines(lines)
 
 
-def format_bash_policy_block(why: str, session_id: str) -> str:
-    """Compact full block for Bash commands disallowed even after unlock."""
+def format_bash_policy_block(
+    why: str,
+    session_id: str = "",
+    *,
+    ctx: BlockContext | None = None,
+) -> str:
+    """Action-only block for Bash commands disallowed even after unlock."""
+    _ = session_id
+    _ = ctx
     why = " ".join(str(why or "").split())
-    return f"Bash blocked by policy: {why}.\n{_session_line(session_id)}"
+    return f"{why}." if why else ""
 
 
-def format_delegation_block(tool_name: str, session_id: str) -> str:
-    """Compact full block for Task/Agent delegation lockdown."""
-    return (
-        f"{tool_name} blocked before evidence spec validation (delegation bypass guard).\n"
-        f"{_UNLOCK_LINE}\n"
-        f"Allowed now: Read/Grep/Glob/web and Bash limited to {bash_allowed_summary()}.\n"
-        f"{_session_line(session_id)}"
-    )
+def format_delegation_block(
+    tool_name: str,
+    session_id: str = "",
+    *,
+    ctx: BlockContext | None = None,
+) -> str:
+    """Action-only block for Task/Agent delegation lockdown."""
+    _ = tool_name
+    _ = session_id
+    ctx = ctx or BlockContext()
+    lines: list[str] = []
+    _append_unlock(lines, ctx)
+    if not ctx.allowlist_sent:
+        lines.append(f"Allowed now: Read/Grep/Glob/web and Bash limited to {bash_allowed_summary()}.")
+    return _join_lines(lines)
 
 
-def format_spec_missing_block(grade: str, session_id: str, contract: str) -> str:
-    """Compact full block when no evidence spec exists yet."""
-    contract = " ".join(str(contract or "").split())
-    return (
-        f"no evidence spec for session '{session_id}' (grade={grade}). "
-        "Build via: unifable restate / unifable add-task "
-        f"(HEAVY: set-primary, add-frontier). {contract}\n"
-        f"{_session_line(session_id)}"
-    )
+def format_spec_missing_block(
+    grade: str,
+    session_id: str,
+    contract: str,
+    *,
+    ctx: BlockContext | None = None,
+) -> str:
+    """Action-only block when no evidence spec exists yet."""
+    _ = session_id
+    _ = contract
+    ctx = ctx or BlockContext()
+    if ctx.scaffold_notified:
+        return ""
+    grade = (grade or "STANDARD").upper()
+    if not ctx.unlock_footer_sent:
+        return f"Evidence spec required (grade={grade}).\n{_UNLOCK_LINE}"
+    return f"Evidence spec required (grade={grade})."
 
 
 @contextlib.contextmanager
@@ -182,20 +291,18 @@ def _record_pretool_block_in_lock(
     ledger["pretool_last_block_detail"] = " ".join(str(detail or "").split())[:200]
 
 
-def _mark_unlock_footer_sent(input_data: dict[str, Any]) -> None:
-    with _pretool_lock(input_data):
-        ledger = load_ledger(input_data)
-        epoch = block_epoch(input_data, ledger)
-        ledger["pretool_unlock_footer_epoch"] = epoch
-        save_ledger(input_data, ledger)
-
-
-def _record_pretool_block(input_data: dict[str, Any], kind: str, detail: str) -> None:
-    """Remember the last PreToolUse block so the next allow can emit Gate cleared."""
+def _mark_footer_flags(input_data: dict[str, Any], message: str) -> None:
+    """Persist unlock/allowlist dedup epochs when those lines were emitted."""
+    if not message.strip():
+        return
     try:
         with _pretool_lock(input_data):
             ledger = load_ledger(input_data)
-            _record_pretool_block_in_lock(input_data, ledger, kind, detail)
+            epoch = block_epoch(input_data, ledger)
+            if message_includes_unlock(message):
+                ledger["pretool_unlock_footer_epoch"] = epoch
+            if message_includes_allowlist(message):
+                ledger["pretool_allowlist_notified_epoch"] = epoch
             save_ledger(input_data, ledger)
     except Exception:
         pass
@@ -219,7 +326,7 @@ def consume_gate_cleared_notify(
             ld.pop("pretool_last_block_detail", None)
 
         update_ledger(input_data, clear)
-        lines = ["Gate cleared."]
+        lines: list[str] = []
         for h in hygiene_headlines or []:
             text = str(h).strip()
             if text and text not in lines:
@@ -248,6 +355,7 @@ def emit_pretool_block(
                 ledger["pretool_block_epoch"] = epoch
                 ledger["pretool_block_counts"] = {}
                 ledger["pretool_unlock_footer_epoch"] = ""
+                ledger["pretool_allowlist_notified_epoch"] = ""
                 footer_sent = False
             counts = ledger.get("pretool_block_counts")
             if not isinstance(counts, dict):
@@ -260,27 +368,18 @@ def emit_pretool_block(
             save_ledger(input_data, ledger)
         if message and count == 1:
             out = compact_pretool_output(message, footer_sent=footer_sent)
-            print(f"{GATE_PREFIX}{out}", file=sys.stderr)
-            if not footer_sent:
-                _mark_unlock_footer_sent(input_data)
+            if out:
+                print(f"{GATE_PREFIX}{out}", file=sys.stderr)
+                _mark_footer_flags(input_data, out)
         elif message and not str(input_data.get("turn_id") or "").strip():
-            # turn_id is a host-provided input field (never written by this repo);
-            # its presence is the Codex signal in hook_output.detect_host, while
-            # Claude is detected by other signals. When it is absent, block_epoch
-            # above falls back to the stable task/session scope, so this
-            # per-signature count never resets across the task. Without this
-            # branch every repeat after the first returns exit 2 with empty
-            # stderr, which Claude renders as a bare "hook error: No stderr
-            # output" blank wall that drives blind retries. Emit a compact
-            # one-line pointer instead; never empty stderr on a block. Turn-scoped
-            # hosts keep silent parallel dedup via the count branch above.
             headline = pretool_headline_only(message)
-            print(
-                f"{GATE_PREFIX}{headline} "
-                "(repeat -- same block as the earlier gate message this session; "
-                "see it for the unlock steps.)",
-                file=sys.stderr,
-            )
+            if headline:
+                print(
+                    f"{GATE_PREFIX}{headline} "
+                    "(repeat -- same block as the earlier instruction this session; "
+                    "see it for the next step.)",
+                    file=sys.stderr,
+                )
         return 2
     except Exception:
         if message:

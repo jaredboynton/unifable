@@ -69,7 +69,7 @@ def _pre(tool, session="S"):
 
 # N1 -------------------------------------------------------------------------
 def test_pre_tool_disarm_emits_breaker_open_notify(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "cited the source file")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "cited the source file")
     state = default_breaker()
     gb.arm(state, gb.breaker_key("S", "P"), 0.0, "read X and cite it", "claim X")
     judge = _Judge(grounded=1)
@@ -81,7 +81,7 @@ def test_pre_tool_disarm_emits_breaker_open_notify(monkeypatch):
 
 # N2 -------------------------------------------------------------------------
 def test_pre_tool_needed_emits_still_armed_notify_on_read(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "read the wrong file")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "read the wrong file")
     state = default_breaker()
     gb.arm(state, gb.breaker_key("S", "P"), 0.0, "read X", "claim X")
     judge = _Judge(grounded=0, needed="read foo.py:10 and cite the constant")
@@ -94,7 +94,7 @@ def test_pre_tool_needed_emits_still_armed_notify_on_read(monkeypatch):
 
 # N3 -------------------------------------------------------------------------
 def test_fail_open_emits_auto_released_notify(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     monkeypatch.setenv("UNIFABLE_BREAKER_MAX_BLOCKS", "3")
     judge = _Judge(arm=(1, "blocked", "uncapped claim"), grounded=0)
     state = default_breaker()
@@ -108,7 +108,7 @@ def test_fail_open_emits_auto_released_notify(monkeypatch):
 
 # N4 -------------------------------------------------------------------------
 def test_stale_arm_dropped_emits_notify(monkeypatch):
-    monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
     state = default_breaker()
     gb.arm(state, gb.breaker_key("S", "P1"), 0.0, "blocked", "claim X")
     judge = _Judge(arm=(0, "", ""))

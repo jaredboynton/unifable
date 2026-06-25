@@ -96,7 +96,7 @@ def test_completion_stop_hint_no_longer_mutates_counter(monkeypatch, tmp_path):
     save_ledger(payload, {"completion_stop_blocks": 2})
 
     # Patch judge_hint so no network call happens; the hint path is exercised.
-    monkeypatch.setattr("spec.judge_hint", lambda spec, **kw: "nudge")
+    monkeypatch.setattr("spec_judge.judge_hint", lambda spec, **kw: "nudge")
     spec = {"restated_goal": "test", "tasks": []}
     hint = gate_stop._completion_stop_hint(payload, spec, ["T1"])
     # The hint may or may not fire depending on threshold, but either way the

@@ -13,17 +13,12 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 
-from spec import (  # noqa: E402
-    _apply_cli_context,
+from spec import canonical_project_root, dir_hash, load_spec, save_spec, spec_path, spec_template  # noqa: E402
+from spec_cli import (
+    _apply_cli_context,  # noqa: E402
     _cmd_doctor_session_env,
-    _safe_session,
-    canonical_project_root,
-    dir_hash,
-    load_spec,
-    save_spec,
-    spec_path,
-    spec_template,
 )
+from spec_io import _safe_session
 
 
 @contextlib.contextmanager

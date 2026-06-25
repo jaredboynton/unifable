@@ -30,7 +30,7 @@ from pathlib import Path
 # what the caller's cwd is.
 sys.path.insert(0, str(Path(__file__).resolve().parent / "gate"))
 from atomicio import write_text_atomic
-from spec import resolve_session_id, session_dir
+from spec_io import resolve_session_id, session_dir
 
 
 # State is keyed per (directory, session): <data_root>/specs/<dir_hash(cwd)>/<session>/.

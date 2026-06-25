@@ -511,7 +511,7 @@ def ask_structured(
     so reasking can never exceed the caller's ``timeout`` (and the host Stop-hook
     budget). Operational failures (handshake rejection, websocket closed) are not
     reasked -- they have their own recovery or surface for fail-open fallback."""
-    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
+    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS
 
     rendered = render_structured_request(system, user, schema, schema_name=schema_name)
     session_update = rendered["session.update"]
@@ -786,7 +786,7 @@ def _response_create(req: dict[str, Any], cid: int) -> dict[str, Any]:
             "instructions": system,
             "tools": [tool],
             "tool_choice": "required",
-            **_realtime_reasoning_config(),
+            **_realtime_reasoning_config(req.get("reasoning_effort")),
             "metadata": {"cid": str(cid)},
             "input": [
                 {

@@ -427,6 +427,21 @@ def heavy_workflow_brief(spec: dict[str, Any] | None = None, phase: str | None =
     return "\n".join(lines)
 
 
+def heavy_workflow_phase_hint(spec: dict[str, Any] | None = None, phase: str | None = None) -> str:
+    """One-line HEAVY phase reminder when the full brief was already injected."""
+    phase = phase or (compute_heavy_phase(spec) if spec else "declare")
+    hints = {
+        "declare": (
+            "HEAVY declare: research only until restated goal, citations, "
+            ">=2 frontier tasks, and 1 primary task exist."
+        ),
+        "frontier": "HEAVY frontier: explore all frontier approaches before primary-path edits.",
+        "adopted": "HEAVY adopted: implement the selected frontier; primary is superseded.",
+        "primary": "HEAVY primary: all frontiers rejected — implement and validate the primary fallback.",
+    }
+    return hints.get(phase, f"HEAVY phase: {phase}.")
+
+
 def format_approach_board(spec: dict[str, Any]) -> str:
     """Compact phase + approach task summary for status notifications."""
     phase = compute_heavy_phase(spec)

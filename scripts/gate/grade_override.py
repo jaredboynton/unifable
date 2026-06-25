@@ -19,7 +19,7 @@ from typing import Any
 
 try:
     from evidence_policy import DEFAULT_EVIDENCE_PROFILE, EVIDENCE_PROFILES, MODES, grade_for_mode
-    from spec import load_spec, resolve_session_id, save_spec
+    from spec_io import load_spec, resolve_session_id, save_spec
 except ImportError:  # pragma: no cover
     from scripts.gate.evidence_policy import (
         DEFAULT_EVIDENCE_PROFILE,

@@ -53,7 +53,7 @@ def test_turnless_repeat_emits_compact_pointer_not_empty(tmp_path, capsys):
     # The bug: err2 used to be "" -> Claude "hook error: No stderr output".
     assert err2.strip() != "", "turnless repeat must not emit empty stderr"
     assert "grep is not in the Bash research whitelist" in err2  # names the block
-    assert "earlier gate message" in err2  # points back to the full message
+    assert "earlier instruction" in err2  # points back to the full message
     assert "Unlock:" not in err2  # compact: unlock footer not repeated
 
     rc3, err3 = _emit(payload, capsys)

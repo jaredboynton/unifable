@@ -144,7 +144,7 @@ def stall_signature(
     """True when observable signals indicate a completion suicide loop."""
     if spec is not None:
         try:
-            from spec import detect_requirement_fragmentation
+            from spec_tasks import detect_requirement_fragmentation
 
             frag = detect_requirement_fragmentation(spec)
         except Exception:
@@ -256,7 +256,7 @@ def judge_completion_loop_release(
 
     fragmentation = None
     try:
-        from spec import detect_requirement_fragmentation
+        from spec_tasks import detect_requirement_fragmentation
 
         fragmentation = detect_requirement_fragmentation(spec)
     except Exception:
@@ -353,7 +353,7 @@ def apply_loop_release_verdict(
         if not allowed:
             _append_loop_event(ledger, "LOOP_JUDGE_DECLINED", reason="no retractable judge tasks")
             return [], ""
-        from spec import _apply_adjustments
+        from spec_judge import _apply_adjustments
 
         adjustments = [{"id": tid, "action": "retract", "reason": _LOOP_RETRACT_REASON} for tid in allowed]
         headlines = _apply_adjustments(spec, {"adjust_requirements": adjustments})

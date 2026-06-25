@@ -1,0 +1,18 @@
+SECTION ExecutiveSummary
+MCP bridges let agents call external search tools with structured tool results.
+
+SECTION InScopeFindings
+- Model Context Protocol defines tool discovery and invocation <url:https://modelcontextprotocol.io/spec>
+<quote:https://modelcontextprotocol.io/spec|Servers expose tools with JSON schemas; clients invoke them over stdio or HTTP.>
+
+SECTION AdjacentOutOfScope
+- SWE-bench Docker farms are patch-execution eval, not read-only research.
+
+SECTION PriorArt
+- Reference MCP server examples <url:https://github.com/modelcontextprotocol/servers>
+
+SECTION GapsRisks
+- Static docs may lag live MCP registry entries.
+
+SECTION RecommendedNextSteps
+- Add optional Exa MCP validator script with low integration cost.

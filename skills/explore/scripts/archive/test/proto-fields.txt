@@ -1,0 +1,2401 @@
+# proto field tables from /tmp/cursor-oauth-opencode/src/proto/agent_pb.ts
+# 492 messages
+
+AbortArgs
+
+AbortResult
+
+AgentClientMessage
+    1 run_request : AgentRunRequest [oneof message]
+    2 exec_client_message : ExecClientMessage [oneof message]
+    5 exec_client_control_message : ExecClientControlMessage [oneof message]
+    3 kv_client_message : KvClientMessage [oneof message]
+    4 conversation_action : ConversationAction [oneof message]
+    6 interaction_response : InteractionResponse [oneof message]
+    7 client_heartbeat : ClientHeartbeat [oneof message]
+    8 prewarm_request : PrewarmRequest [oneof message]
+
+AgentConversationTurn
+    1 user_message : UserMessage
+    2 steps : repeated ConversationStep
+    3 request_id : optional string
+
+AgentConversationTurnStructure
+    1 user_message : bytes
+    2 steps : repeated bytes
+    3 request_id : optional string
+
+AgentRunRequest
+    1 conversation_state : ConversationStateStructure
+    2 action : ConversationAction
+    3 model_details : ModelDetails
+    9 requested_model : optional RequestedModel
+    4 mcp_tools : McpTools
+    5 conversation_id : optional string
+    6 mcp_file_system_options : optional McpFileSystemOptions
+    7 skill_options : optional SkillOptions
+    8 custom_system_prompt : optional string
+
+AgentServerMessage
+    1 interaction_update : InteractionUpdate [oneof message]
+    2 exec_server_message : ExecServerMessage [oneof message]
+    5 exec_server_control_message : ExecServerControlMessage [oneof message]
+    3 conversation_checkpoint_update : ConversationStateStructure [oneof message]
+    4 kv_server_message : KvServerMessage [oneof message]
+    7 interaction_query : InteractionQuery [oneof message]
+
+ApiKeyCredentials
+    1 api_key : string
+    2 base_url : optional string
+
+AppliedAgentChange
+    1 path : string
+    2 change_type : int32
+    3 before_content : optional string
+    4 after_content : optional string
+    5 error : optional string
+    6 message_for_model : optional string
+
+ApplyAgentDiffArgs
+    1 agent_id : string
+
+ApplyAgentDiffError
+    1 error : string
+    2 applied_changes : repeated AppliedAgentChange
+
+ApplyAgentDiffResult
+    1 success : ApplyAgentDiffSuccess [oneof result]
+    2 error : ApplyAgentDiffError [oneof result]
+
+ApplyAgentDiffSuccess
+    1 applied_changes : repeated AppliedAgentChange
+
+ApplyAgentDiffToolCall
+    1 args : ApplyAgentDiffArgs
+    2 result : ApplyAgentDiffResult
+
+ArtifactUploadDispatchResult
+    1 absolute_path : string
+    2 status : int32
+    3 message : string
+    4 slack_file_id : optional string
+
+ArtifactUploadInstruction
+    1 absolute_path : string
+    2 upload_url : string
+    3 method : string
+    4 headers : map<string, string>
+    5 content_type : optional string
+    6 slack_upload_url : optional string
+    7 slack_file_id : optional string
+
+ArtifactUploadMetadata
+    1 absolute_path : string
+    2 size_bytes : uint64
+    3 updated_at_unix_ms : int64
+    4 status : int32
+    5 bytes_uploaded : uint64
+    6 last_error : string
+    7 upload_attempts : uint32
+    8 last_started_at_unix_ms : int64
+    9 last_finished_at_unix_ms : int64
+   10 upload_id : string
+
+AskQuestionArgs
+    1 title : string
+    2 questions : repeated AskQuestionArgs_Question
+    5 run_async : bool
+    6 async_original_tool_call_id : string
+
+AskQuestionArgs_Option
+    1 id : string
+    2 label : string
+
+AskQuestionArgs_Question
+    1 id : string
+    2 prompt : string
+    3 options : repeated AskQuestionArgs_Option
+    4 allow_multiple : bool
+
+AskQuestionAsync
+
+AskQuestionError
+    1 error_message : string
+
+AskQuestionInteractionQuery
+    1 args : AskQuestionArgs
+    2 tool_call_id : string
+
+AskQuestionInteractionResponse
+    1 result : AskQuestionResult
+
+AskQuestionRejected
+    1 reason : string
+
+AskQuestionResult
+    1 success : AskQuestionSuccess [oneof result]
+    2 error : AskQuestionError [oneof result]
+    3 rejected : AskQuestionRejected [oneof result]
+    4 async : AskQuestionAsync [oneof result]
+
+AskQuestionSuccess
+    1 answers : repeated AskQuestionSuccess_Answer
+
+AskQuestionSuccess_Answer
+    1 question_id : string
+    2 selected_option_ids : repeated string
+
+AskQuestionToolCall
+    1 args : AskQuestionArgs
+    2 result : AskQuestionResult
+
+AssistantMessage
+    1 text : string
+
+AsyncAskQuestionCompletionAction
+    1 original_tool_call_id : string
+    2 original_args : AskQuestionArgs
+    3 result : AskQuestionResult
+
+AzureCredentials
+    1 api_key : string
+    2 base_url : string
+    3 deployment : string
+
+BackgroundShellSpawnArgs
+    1 command : string
+    2 working_directory : string
+    3 tool_call_id : string
+    4 parsing_result : ShellCommandParsingResult
+    5 sandbox_policy : optional SandboxPolicy
+    6 enable_write_shell_stdin_tool : bool
+
+BackgroundShellSpawnError
+    1 command : string
+    2 working_directory : string
+    3 error : string
+
+BackgroundShellSpawnResult
+    1 success : BackgroundShellSpawnSuccess [oneof result]
+    2 error : BackgroundShellSpawnError [oneof result]
+    3 rejected : ShellRejected [oneof result]
+    4 permission_denied : ShellPermissionDenied [oneof result]
+
+BackgroundShellSpawnSuccess
+    1 shell_id : uint32
+    2 command : string
+    3 working_directory : string
+    4 pid : optional uint32
+
+BedrockCredentials
+    1 access_key : string
+    2 secret_key : string
+    3 region : string
+    4 session_token : optional string
+
+BidiRequestId
+    1 request_id : string
+
+BootstrapStatsigRequest
+    1 ignore_dev_status : optional bool
+    2 operating_system : optional int32
+
+CallFrame
+    1 function_name : optional string
+    2 url : optional string
+    3 line_number : optional int32
+    4 column_number : optional int32
+
+CancelAction
+
+ClickAction
+    1 coordinate : optional Coordinate
+    2 button : int32
+    3 count : int32
+    4 modifier_keys : optional string
+
+ClientHeartbeat
+
+ComputerUseAction
+    1 mouse_move : MouseMoveAction [oneof action]
+    2 click : ClickAction [oneof action]
+    3 mouse_down : MouseDownAction [oneof action]
+    4 mouse_up : MouseUpAction [oneof action]
+    5 drag : DragAction [oneof action]
+    6 scroll : ScrollAction [oneof action]
+    7 type : TypeAction [oneof action]
+    8 key : KeyAction [oneof action]
+    9 wait : WaitAction [oneof action]
+   10 screenshot : ScreenshotAction [oneof action]
+   11 cursor_position : CursorPositionAction [oneof action]
+
+ComputerUseArgs
+    1 tool_call_id : string
+    2 actions : repeated ComputerUseAction
+
+ComputerUseError
+    1 error : string
+    2 action_count : int32
+    3 duration_ms : int32
+    4 log : optional string
+    5 screenshot : optional string
+    6 screenshot_path : optional string
+
+ComputerUseResult
+    1 success : ComputerUseSuccess [oneof result]
+    2 error : ComputerUseError [oneof result]
+
+ComputerUseSuccess
+    1 action_count : int32
+    2 duration_ms : int32
+    3 screenshot : optional string
+    4 log : optional string
+    5 screenshot_path : optional string
+    6 cursor_position : optional Coordinate
+
+ComputerUseToolCall
+    1 args : ComputerUseArgs
+    2 result : ComputerUseResult
+
+ConversationAction
+    1 user_message_action : UserMessageAction [oneof action]
+    2 resume_action : ResumeAction [oneof action]
+    3 cancel_action : CancelAction [oneof action]
+    4 summarize_action : SummarizeAction [oneof action]
+    5 shell_command_action : ShellCommandAction [oneof action]
+    6 start_plan_action : StartPlanAction [oneof action]
+    7 execute_plan_action : ExecutePlanAction [oneof action]
+    8 async_ask_question_completion_action : AsyncAskQuestionCompletionAction [oneof action]
+
+ConversationPlan
+    1 plan : string
+
+ConversationState
+    1 root_prompt_messages_json : repeated string
+    8 turns : repeated ConversationTurn
+    3 todos : repeated TodoItem
+    4 pending_tool_calls : repeated string
+    5 token_details : ConversationTokenDetails
+    6 summary : optional ConversationSummary
+    7 plan : optional ConversationPlan
+    9 summary_archive : optional ConversationSummaryArchive
+   10 file_states : map<string, FileState>
+   11 summary_archives : repeated ConversationSummaryArchive
+
+ConversationStateStructure
+    2 turns_old : repeated bytes
+    1 root_prompt_messages_json : repeated bytes
+    8 turns : repeated bytes
+    3 todos : repeated bytes
+    4 pending_tool_calls : repeated string
+    5 token_details : ConversationTokenDetails
+    6 summary : optional bytes
+    7 plan : optional bytes
+    9 previous_workspace_uris : repeated string
+   10 mode : optional int32
+   11 summary_archive : optional bytes
+   12 file_states : map<string, bytes>
+   15 file_states_v2 : map<string, FileStateStructure>
+   13 summary_archives : repeated bytes
+   14 turn_timings : repeated StepTiming
+   16 subagent_states : map<string, SubagentPersistedState>
+   17 self_summary_count : uint32
+   18 read_paths : repeated string
+
+ConversationStep
+    1 assistant_message : AssistantMessage [oneof message]
+    2 tool_call : ToolCall [oneof message]
+    3 thinking_message : ThinkingMessage [oneof message]
+
+ConversationSummary
+    1 summary : string
+
+ConversationSummaryArchive
+    1 summarized_messages : repeated bytes
+    2 summary : string
+    3 window_tail : uint32
+    4 summary_message : bytes
+
+ConversationTokenDetails
+    1 used_tokens : uint32
+    2 max_tokens : uint32
+
+ConversationTurn
+    1 agent_conversation_turn : AgentConversationTurn [oneof turn]
+    2 shell_conversation_turn : ShellConversationTurn [oneof turn]
+
+ConversationTurnStructure
+    1 agent_conversation_turn : AgentConversationTurnStructure [oneof turn]
+    2 shell_conversation_turn : ShellConversationTurnStructure [oneof turn]
+
+Coordinate
+    1 x : int32
+    2 y : int32
+
+CreatePlanArgs
+    1 plan : string
+    2 todos : repeated TodoItem
+    3 overview : string
+    4 name : string
+    5 is_project : bool
+    6 phases : repeated Phase
+
+CreatePlanError
+    1 error : string
+
+CreatePlanRequestQuery
+    1 args : CreatePlanArgs
+    2 tool_call_id : string
+
+CreatePlanRequestResponse
+    1 result : CreatePlanResult
+
+CreatePlanResult
+    3 plan_uri : string
+    1 success : CreatePlanSuccess [oneof result]
+    2 error : CreatePlanError [oneof result]
+
+CreatePlanSuccess
+
+CreatePlanToolCall
+    1 args : CreatePlanArgs
+    2 result : CreatePlanResult
+
+CursorPackage
+    1 name : string
+    2 description : string
+    3 folder_path : string
+    4 enabled : bool
+    5 parse_error : optional string
+    6 prompts : repeated CursorPackagePrompt
+    7 readme_file_path : string
+    8 package_type : int32
+
+CursorPackagePrompt
+    1 name : string
+    2 file_path : string
+
+CursorPositionAction
+
+CursorRule
+    1 full_path : string
+    2 content : string
+    3 type : CursorRuleType
+    4 source : int32
+    5 git_remote_origin : optional string
+    6 parse_error : optional string
+
+CursorRuleType
+    1 global : CursorRuleTypeGlobal [oneof type]
+    2 file_globbed : CursorRuleTypeFileGlobs [oneof type]
+    3 agent_fetched : CursorRuleTypeAgentFetched [oneof type]
+    4 manually_attached : CursorRuleTypeManuallyAttached [oneof type]
+
+CursorRuleTypeAgentFetched
+    1 description : string
+
+CursorRuleTypeFileGlobs
+    1 globs : repeated string
+
+CursorRuleTypeGlobal
+
+CursorRuleTypeManuallyAttached
+
+CustomSubagent
+    1 full_path : string
+    2 name : string
+    3 description : string
+    4 tools : repeated string
+    5 model : string
+    6 prompt : string
+    7 permission_mode : int32
+
+DebugModeConfig
+    1 log_path : string
+    2 server_endpoint : string
+
+DeleteArgs
+    1 path : string
+    2 tool_call_id : string
+
+DeleteError
+    1 path : string
+    2 error : string
+
+DeleteFileBusy
+    1 path : string
+
+DeleteFileNotFound
+    1 path : string
+
+DeleteNotFile
+    1 path : string
+    2 actual_type : string
+
+DeletePermissionDenied
+    1 path : string
+    2 client_visible_error : string
+    3 is_readonly : bool
+
+DeleteRejected
+    1 path : string
+    2 reason : string
+
+DeleteResult
+    1 success : DeleteSuccess [oneof result]
+    2 file_not_found : DeleteFileNotFound [oneof result]
+    3 not_file : DeleteNotFile [oneof result]
+    4 permission_denied : DeletePermissionDenied [oneof result]
+    5 file_busy : DeleteFileBusy [oneof result]
+    6 rejected : DeleteRejected [oneof result]
+    7 error : DeleteError [oneof result]
+
+DeleteSuccess
+    1 path : string
+    2 deleted_file : string
+    3 file_size : int64
+    4 prev_content : string
+
+DeleteToolCall
+    1 args : DeleteArgs
+    2 result : DeleteResult
+
+Diagnostic
+    1 severity : int32
+    2 range : Range
+    3 message : string
+    4 source : string
+    5 code : string
+    6 is_stale : bool
+
+DiagnosticItem
+    1 severity : DiagnosticSeverity
+    2 range : DiagnosticRange
+    3 message : string
+    4 source : string
+    5 code : string
+    6 is_stale : bool
+
+DiagnosticRange
+    1 start : Position
+    2 end : Position
+
+DiagnosticsArgs
+    1 path : string
+    2 tool_call_id : string
+
+DiagnosticsError
+    1 path : string
+    2 error : string
+
+DiagnosticsFileNotFound
+    1 path : string
+
+DiagnosticsPermissionDenied
+    1 path : string
+
+DiagnosticsRejected
+    1 path : string
+    2 reason : string
+
+DiagnosticsResult
+    1 success : DiagnosticsSuccess [oneof result]
+    2 error : DiagnosticsError [oneof result]
+    3 rejected : DiagnosticsRejected [oneof result]
+    4 file_not_found : DiagnosticsFileNotFound [oneof result]
+    5 permission_denied : DiagnosticsPermissionDenied [oneof result]
+
+DiagnosticsSuccess
+    1 path : string
+    2 diagnostics : repeated Diagnostic
+    3 total_diagnostics : int32
+
+DragAction
+    1 path : repeated Coordinate
+    2 button : int32
+
+EditArgs
+    1 path : string
+    6 stream_content : optional string
+
+EditError
+    1 path : string
+    2 error : string
+    5 model_visible_error : optional string
+
+EditFileNotFound
+    1 path : string
+
+EditReadPermissionDenied
+    1 path : string
+
+EditRejected
+    1 path : string
+    2 reason : string
+
+EditResult
+    1 success : EditSuccess [oneof result]
+    2 file_not_found : EditFileNotFound [oneof result]
+    3 read_permission_denied : EditReadPermissionDenied [oneof result]
+    4 write_permission_denied : EditWritePermissionDenied [oneof result]
+    6 rejected : EditRejected [oneof result]
+    7 error : EditError [oneof result]
+
+EditSuccess
+    1 path : string
+    3 lines_added : optional int32
+    4 lines_removed : optional int32
+    5 diff_string : optional string
+    6 before_full_file_content : optional string
+    7 after_full_file_content : string
+    8 message : optional string
+
+EditToolCall
+    1 args : EditArgs
+    2 result : EditResult
+
+EditToolCallDelta
+    1 stream_content_delta : string
+
+EditWritePermissionDenied
+    1 path : string
+    2 error : string
+    3 is_readonly : bool
+
+Empty
+
+Error
+    1 message : string
+
+ExaFetchArgs
+    1 ids : repeated string
+    2 tool_call_id : string
+
+ExaFetchContent
+    1 title : string
+    2 url : string
+    3 text : string
+    4 published_date : string
+
+ExaFetchError
+    1 error : string
+
+ExaFetchRejected
+    1 reason : string
+
+ExaFetchRequestQuery
+    1 args : ExaFetchArgs
+
+ExaFetchRequestResponse
+    1 approved : ExaFetchRequestResponse_Approved [oneof result]
+    2 rejected : ExaFetchRequestResponse_Rejected [oneof result]
+
+ExaFetchRequestResponse_Approved
+
+ExaFetchRequestResponse_Rejected
+    1 reason : string
+
+ExaFetchResult
+    1 success : ExaFetchSuccess [oneof result]
+    2 error : ExaFetchError [oneof result]
+    3 rejected : ExaFetchRejected [oneof result]
+
+ExaFetchSuccess
+    1 contents : repeated ExaFetchContent
+
+ExaFetchToolCall
+    1 args : ExaFetchArgs
+    2 result : ExaFetchResult
+
+ExaSearchArgs
+    1 query : string
+    2 type : string
+    3 num_results : int32
+    4 tool_call_id : string
+
+ExaSearchError
+    1 error : string
+
+ExaSearchReference
+    1 title : string
+    2 url : string
+    3 text : string
+    4 published_date : string
+
+ExaSearchRejected
+    1 reason : string
+
+ExaSearchRequestQuery
+    1 args : ExaSearchArgs
+
+ExaSearchRequestResponse
+    1 approved : ExaSearchRequestResponse_Approved [oneof result]
+    2 rejected : ExaSearchRequestResponse_Rejected [oneof result]
+
+ExaSearchRequestResponse_Approved
+
+ExaSearchRequestResponse_Rejected
+    1 reason : string
+
+ExaSearchResult
+    1 success : ExaSearchSuccess [oneof result]
+    2 error : ExaSearchError [oneof result]
+    3 rejected : ExaSearchRejected [oneof result]
+
+ExaSearchSuccess
+    1 references : repeated ExaSearchReference
+
+ExaSearchToolCall
+    1 args : ExaSearchArgs
+    2 result : ExaSearchResult
+
+ExecClientControlMessage
+    1 stream_close : ExecClientStreamClose [oneof message]
+    2 throw : ExecClientThrow [oneof message]
+    3 heartbeat : ExecClientHeartbeat [oneof message]
+
+ExecClientHeartbeat
+    1 id : uint32
+
+ExecClientMessage
+    1 id : uint32
+   15 exec_id : string
+    2 shell_result : ShellResult [oneof message]
+    3 write_result : WriteResult [oneof message]
+    4 delete_result : DeleteResult [oneof message]
+    5 grep_result : GrepResult [oneof message]
+    7 read_result : ReadResult [oneof message]
+    8 ls_result : LsResult [oneof message]
+    9 diagnostics_result : DiagnosticsResult [oneof message]
+   10 request_context_result : RequestContextResult [oneof message]
+   11 mcp_result : McpResult [oneof message]
+   14 shell_stream : ShellStream [oneof message]
+   16 background_shell_spawn_result : BackgroundShellSpawnResult [oneof message]
+   17 list_mcp_resources_exec_result : ListMcpResourcesExecResult [oneof message]
+   18 read_mcp_resource_exec_result : ReadMcpResourceExecResult [oneof message]
+   20 fetch_result : FetchResult [oneof message]
+   21 record_screen_result : RecordScreenResult [oneof message]
+   22 computer_use_result : ComputerUseResult [oneof message]
+   23 write_shell_stdin_result : WriteShellStdinResult [oneof message]
+
+ExecClientStreamClose
+    1 id : uint32
+
+ExecClientThrow
+    1 id : uint32
+    2 error : string
+    3 stack_trace : optional string
+
+ExecRequest
+    1 command : string
+    2 cwd : optional string
+    3 args : repeated string
+    4 environment : map<string, string>
+
+ExecResponse
+    1 stdout_event : StdoutEvent [oneof event]
+    2 stderr_event : StderrEvent [oneof event]
+    3 exit_event : ExitEvent [oneof event]
+
+ExecServerAbort
+    1 id : uint32
+
+ExecServerControlMessage
+    1 abort : ExecServerAbort [oneof message]
+
+ExecServerMessage
+    1 id : uint32
+   15 exec_id : string
+   19 span_context : optional SpanContext
+    2 shell_args : ShellArgs [oneof message]
+    3 write_args : WriteArgs [oneof message]
+    4 delete_args : DeleteArgs [oneof message]
+    5 grep_args : GrepArgs [oneof message]
+    7 read_args : ReadArgs [oneof message]
+    8 ls_args : LsArgs [oneof message]
+    9 diagnostics_args : DiagnosticsArgs [oneof message]
+   10 request_context_args : RequestContextArgs [oneof message]
+   11 mcp_args : McpArgs [oneof message]
+   14 shell_stream_args : ShellArgs [oneof message]
+   16 background_shell_spawn_args : BackgroundShellSpawnArgs [oneof message]
+   17 list_mcp_resources_exec_args : ListMcpResourcesExecArgs [oneof message]
+   18 read_mcp_resource_exec_args : ReadMcpResourceExecArgs [oneof message]
+   20 fetch_args : FetchArgs [oneof message]
+   21 record_screen_args : RecordScreenArgs [oneof message]
+   22 computer_use_args : ComputerUseArgs [oneof message]
+   23 write_shell_stdin_args : WriteShellStdinArgs [oneof message]
+
+ExecutePlanAction
+    1 request_context : RequestContext
+    2 plan : optional ConversationPlan
+    3 plan_file_uri : optional string
+    4 plan_file_content : optional string
+
+ExitEvent
+    1 exit_code : int32
+
+ExtraContextEntry
+    1 data : string [oneof data_or_blob_id]
+    2 blob_id : bytes [oneof data_or_blob_id]
+
+FetchArgs
+    1 url : string
+    2 tool_call_id : string
+
+FetchError
+    1 url : string
+    2 error : string
+
+FetchResult
+    1 success : FetchSuccess [oneof result]
+    2 error : FetchError [oneof result]
+
+FetchSuccess
+    1 url : string
+    2 content : string
+    3 status_code : int32
+    4 content_type : string
+
+FetchToolCall
+    1 args : FetchArgs
+    2 result : FetchResult
+
+FileDiagnostics
+    1 path : string
+    2 diagnostics : repeated DiagnosticItem
+    3 diagnostics_count : int32
+
+FileState
+    1 content : optional string
+    2 initial_content : optional string
+
+FileStateStructure
+    1 content : optional bytes
+    2 initial_content : optional bytes
+
+Frame
+    1 id : string
+    2 method : string
+    3 data : bytes
+    4 kind : int32
+    5 error : string
+
+GenerateImageArgs
+    1 description : string
+    2 file_path : optional string
+    5 reference_image_paths : repeated string
+
+GenerateImageError
+    1 error : string
+
+GenerateImageResult
+    1 success : GenerateImageSuccess [oneof result]
+    2 error : GenerateImageError [oneof result]
+
+GenerateImageSuccess
+    1 file_path : string
+    2 image_data : string
+
+GenerateImageToolCall
+    1 args : GenerateImageArgs
+    2 result : GenerateImageResult
+
+GetAllowedModelIntentsRequest
+
+GetAllowedModelIntentsResponse
+    1 model_intents : repeated string
+
+GetBlobArgs
+    1 blob_id : bytes
+
+GetBlobResult
+    1 blob_data : optional bytes
+
+GetDefaultModelForCliRequest
+
+GetDefaultModelForCliResponse
+    1 model : ModelDetails
+
+GetMcpRefreshTokensRequest
+
+GetMcpRefreshTokensResponse
+    1 refresh_tokens : map<string, string>
+
+GetUsableModelsRequest
+    1 custom_model_ids : repeated string
+
+GetUsableModelsResponse
+    1 models : repeated ModelDetails
+
+GetWorkspaceChangesHashRequest
+    1 root_path : string
+    2 base_ref : string
+
+GetWorkspaceChangesHashResponse
+    1 hash : string
+
+GitRepoInfo
+    1 path : string
+    2 status : string
+    3 branch_name : string
+    4 remote_url : optional string
+
+GlobToolCall
+    1 args : bytes
+    2 result : GlobToolResult
+
+GlobToolError
+    1 error : string
+
+GlobToolResult
+    1 success : GlobToolSuccess [oneof result]
+    2 error : GlobToolError [oneof result]
+
+GlobToolSuccess
+    1 pattern : string
+    2 path : string
+    3 files : repeated string
+    4 total_files : int32
+    5 client_truncated : bool
+    6 ripgrep_truncated : bool
+
+GrepArgs
+    1 pattern : string
+    2 path : optional string
+    3 glob : optional string
+    4 output_mode : optional string
+    5 context_before : optional int32
+    6 context_after : optional int32
+    7 context : optional int32
+    8 case_insensitive : optional bool
+    9 type : optional string
+   10 head_limit : optional int32
+   11 multiline : optional bool
+   12 sort : optional string
+   13 sort_ascending : optional bool
+   14 tool_call_id : string
+   15 sandbox_policy : optional SandboxPolicy
+
+GrepContentMatch
+    1 line_number : int32
+    2 content : string
+    3 content_truncated : bool
+    4 is_context_line : bool
+
+GrepContentResult
+    1 matches : repeated GrepFileMatch
+    2 total_lines : int32
+    3 total_matched_lines : int32
+    4 client_truncated : bool
+    5 ripgrep_truncated : bool
+
+GrepCountResult
+    1 counts : repeated GrepFileCount
+    2 total_files : int32
+    3 total_matches : int32
+    4 client_truncated : bool
+    5 ripgrep_truncated : bool
+
+GrepError
+    1 error : string
+
+GrepFileCount
+    1 file : string
+    2 count : int32
+
+GrepFileMatch
+    1 file : string
+    2 matches : repeated GrepContentMatch
+
+GrepFilesResult
+    1 files : repeated string
+    2 total_files : int32
+    3 client_truncated : bool
+    4 ripgrep_truncated : bool
+
+GrepResult
+    1 success : GrepSuccess [oneof result]
+    2 error : GrepError [oneof result]
+
+GrepStream
+    1 pattern : string
+
+GrepSuccess
+    1 pattern : string
+    2 path : string
+    3 output_mode : string
+    4 workspace_results : map<string, GrepUnionResult>
+    5 active_editor_result : optional GrepUnionResult
+
+GrepToolCall
+    1 args : GrepArgs
+    2 result : GrepResult
+
+GrepUnionResult
+    1 count : GrepCountResult [oneof result]
+    2 files : GrepFilesResult [oneof result]
+    3 content : GrepContentResult [oneof result]
+
+HeartbeatUpdate
+
+IdeEditorsStateFile
+    1 relative_path : string
+    2 absolute_path : string
+    3 is_currently_focused : optional bool
+    4 current_line_number : optional int32
+    5 current_line_text : optional string
+    6 line_count : optional int32
+
+IdeEditorsStateLite
+    1 recently_viewed_files : repeated IdeEditorsStateFile
+
+ImageProto
+    1 data : bytes
+    2 uuid : string
+    3 path : string
+    4 dimension : ImageProto_Dimension
+    6 task_specific_description : optional string
+    7 mime_type : string
+
+ImageProto_Dimension
+    1 width : int32
+    2 height : int32
+
+InteractionQuery
+    1 id : uint32
+    2 web_search_request_query : WebSearchRequestQuery [oneof query]
+    3 ask_question_interaction_query : AskQuestionInteractionQuery [oneof query]
+    4 switch_mode_request_query : SwitchModeRequestQuery [oneof query]
+    5 exa_search_request_query : ExaSearchRequestQuery [oneof query]
+    6 exa_fetch_request_query : ExaFetchRequestQuery [oneof query]
+    7 create_plan_request_query : CreatePlanRequestQuery [oneof query]
+    8 setup_vm_environment_args : SetupVmEnvironmentArgs [oneof query]
+
+InteractionResponse
+    1 id : uint32
+    2 web_search_request_response : WebSearchRequestResponse [oneof result]
+    3 ask_question_interaction_response : AskQuestionInteractionResponse [oneof result]
+    4 switch_mode_request_response : SwitchModeRequestResponse [oneof result]
+    5 exa_search_request_response : ExaSearchRequestResponse [oneof result]
+    6 exa_fetch_request_response : ExaFetchRequestResponse [oneof result]
+    7 create_plan_request_response : CreatePlanRequestResponse [oneof result]
+    8 setup_vm_environment_result : SetupVmEnvironmentResult [oneof result]
+
+InteractionUpdate
+    1 text_delta : TextDeltaUpdate [oneof message]
+    7 partial_tool_call : PartialToolCallUpdate [oneof message]
+   15 tool_call_delta : ToolCallDeltaUpdate [oneof message]
+    2 tool_call_started : ToolCallStartedUpdate [oneof message]
+    3 tool_call_completed : ToolCallCompletedUpdate [oneof message]
+    4 thinking_delta : ThinkingDeltaUpdate [oneof message]
+    5 thinking_completed : ThinkingCompletedUpdate [oneof message]
+    6 user_message_appended : UserMessageAppendedUpdate [oneof message]
+    8 token_delta : TokenDeltaUpdate [oneof message]
+    9 summary : SummaryUpdate [oneof message]
+   10 summary_started : SummaryStartedUpdate [oneof message]
+   11 summary_completed : SummaryCompletedUpdate [oneof message]
+   12 shell_output_delta : ShellOutputDeltaUpdate [oneof message]
+   13 heartbeat : HeartbeatUpdate [oneof message]
+   14 turn_ended : TurnEndedUpdate [oneof message]
+   16 step_started : StepStartedUpdate [oneof message]
+   17 step_completed : StepCompletedUpdate [oneof message]
+
+InvocationContext
+    1 slack_thread : InvocationContext_SlackThread [oneof data]
+    2 github_pr : InvocationContext_GithubPR [oneof data]
+    3 ide_state : InvocationContext_IdeState [oneof data]
+   10 blob_id : bytes [oneof data]
+
+InvocationContext_GithubPR
+    1 title : string
+    2 description : string
+    3 comments : string
+    4 ci_failures : optional string
+
+InvocationContext_IdeState
+    1 visible_files : repeated InvocationContext_IdeState_File
+    2 recently_viewed_files : repeated InvocationContext_IdeState_File
+    3 currently_viewed_prs : repeated InvocationContext_IdeState_ViewedPullRequest
+
+InvocationContext_IdeState_File
+    1 path : string
+    2 relative_path : optional string
+    3 cursor_position : optional InvocationContext_IdeState_File_CursorPosition
+    4 total_lines : int32
+    5 active_command : optional string
+
+InvocationContext_IdeState_File_CursorPosition
+    1 line : int32
+    2 text : string
+
+InvocationContext_IdeState_ViewedPullRequest
+    1 number : int32
+    2 url : string
+    3 title : optional string
+    4 folder_path : optional string
+    5 summary_json : optional string
+    6 description : optional string
+
+InvocationContext_SlackThread
+    1 thread : string
+    2 channel_name : optional string
+    3 channel_purpose : optional string
+    4 channel_topic : optional string
+
+KeyAction
+    1 key : string
+    2 hold_duration_ms : optional int32
+
+KvClientMessage
+    1 id : uint32
+    2 get_blob_result : GetBlobResult [oneof message]
+    3 set_blob_result : SetBlobResult [oneof message]
+
+KvServerMessage
+    1 id : uint32
+    4 span_context : optional SpanContext
+    2 get_blob_args : GetBlobArgs [oneof message]
+    3 set_blob_args : SetBlobArgs [oneof message]
+
+ListArtifactsRequest
+
+ListArtifactsResponse
+    1 artifacts : repeated ArtifactUploadMetadata
+
+ListMcpResourcesError
+    1 error : string
+
+ListMcpResourcesExecArgs
+    1 server : optional string
+
+ListMcpResourcesExecResult
+    1 success : ListMcpResourcesSuccess [oneof result]
+    2 error : ListMcpResourcesError [oneof result]
+    3 rejected : ListMcpResourcesRejected [oneof result]
+
+ListMcpResourcesExecResult_McpResource
+    1 uri : string
+    2 name : optional string
+    3 description : optional string
+    4 mime_type : optional string
+    5 server : string
+    6 annotations : map<string, string>
+
+ListMcpResourcesRejected
+    1 reason : string
+
+ListMcpResourcesSuccess
+    1 resources : repeated ListMcpResourcesExecResult_McpResource
+
+ListMcpResourcesToolCall
+    1 args : ListMcpResourcesExecArgs
+    2 result : ListMcpResourcesExecResult
+
+LsArgs
+    1 path : string
+    2 ignore : repeated string
+    3 tool_call_id : string
+    4 sandbox_policy : optional SandboxPolicy
+    5 timeout_ms : optional uint32
+
+LsDirectoryTreeNode
+    1 abs_path : string
+    2 children_dirs : repeated LsDirectoryTreeNode
+    3 children_files : repeated LsDirectoryTreeNode_File
+    4 children_were_processed : bool
+    5 full_subtree_extension_counts : map<string, int32>
+    6 num_files : int32
+
+LsDirectoryTreeNode_File
+    1 name : string
+    2 terminal_metadata : optional TerminalMetadata
+
+LsError
+    1 path : string
+    2 error : string
+
+LsRejected
+    1 path : string
+    2 reason : string
+
+LsResult
+    1 success : LsSuccess [oneof result]
+    2 error : LsError [oneof result]
+    3 rejected : LsRejected [oneof result]
+    4 timeout : LsTimeout [oneof result]
+
+LsSuccess
+    1 directory_tree_root : LsDirectoryTreeNode
+
+LsTimeout
+    1 directory_tree_root : LsDirectoryTreeNode
+
+LsToolCall
+    1 args : LsArgs
+    2 result : LsResult
+
+McpArgs
+    1 name : string
+    2 args : map<string, bytes>
+    3 tool_call_id : string
+    4 provider_identifier : string
+    5 tool_name : string
+
+McpDescriptor
+    1 server_name : string
+    2 server_identifier : string
+    3 folder_path : optional string
+    4 server_use_instructions : optional string
+    5 tools : repeated McpToolDescriptor
+
+McpError
+    1 error : string
+
+McpFileSystemOptions
+    1 enabled : bool
+    2 workspace_project_dir : string
+    3 mcp_descriptors : repeated McpDescriptor
+
+McpImageContent
+    1 data : bytes
+    2 mime_type : string
+
+McpInstructions
+    1 server_name : string
+    2 instructions : string
+
+McpOAuthStoredData
+    1 refresh_token : string
+    2 client_id : string
+    3 client_secret : optional string
+    4 redirect_uris : repeated string
+
+McpPermissionDenied
+    1 error : string
+    2 is_readonly : bool
+
+McpRejected
+    1 reason : string
+    2 is_readonly : bool
+
+McpResult
+    1 success : McpSuccess [oneof result]
+    2 error : McpError [oneof result]
+    3 rejected : McpRejected [oneof result]
+    4 permission_denied : McpPermissionDenied [oneof result]
+    5 tool_not_found : McpToolNotFound [oneof result]
+
+McpSuccess
+    1 content : repeated McpToolResultContentItem
+    2 is_error : bool
+
+McpTextContent
+    1 text : string
+    2 output_location : optional OutputLocation
+
+McpToolCall
+    1 args : McpArgs
+    2 result : McpToolResult
+
+McpToolDefinition
+    1 name : string
+    4 provider_identifier : string
+    5 tool_name : string
+    2 description : string
+    3 input_schema : bytes
+
+McpToolDescriptor
+    1 tool_name : string
+    2 definition_path : optional string
+
+McpToolError
+    1 error : string
+
+McpToolNotFound
+    1 name : string
+    2 available_tools : repeated string
+
+McpToolResult
+    1 success : McpSuccess [oneof result]
+    2 error : McpToolError [oneof result]
+    3 rejected : McpRejected [oneof result]
+    4 permission_denied : McpPermissionDenied [oneof result]
+
+McpToolResultContentItem
+    1 text : McpTextContent [oneof content]
+    2 image : McpImageContent [oneof content]
+
+McpTools
+    1 mcp_tools : repeated McpToolDefinition
+
+ModelDetails
+    1 model_id : string
+    3 display_model_id : string
+    4 display_name : string
+    5 display_name_short : string
+    6 aliases : repeated string
+    2 thinking_details : optional ThinkingDetails
+    7 max_mode : optional bool
+    8 api_key_credentials : ApiKeyCredentials [oneof credentials]
+    9 azure_credentials : AzureCredentials [oneof credentials]
+   10 bedrock_credentials : BedrockCredentials [oneof credentials]
+
+MouseDownAction
+    1 button : int32
+
+MouseMoveAction
+    1 coordinate : Coordinate
+
+MouseUpAction
+    1 button : int32
+
+NameAgentRequest
+    1 user_message : string
+
+NameAgentResponse
+    1 name : string
+
+OutputLocation
+    1 file_path : string
+    2 size_bytes : int64
+    3 line_count : int64
+
+PartialToolCallUpdate
+    1 call_id : string
+    2 tool_call : ToolCall
+    3 args_text_delta : string
+    4 model_call_id : string
+
+Phase
+    1 name : string
+    2 todos : repeated TodoItem
+
+PingResponse
+
+Position
+    1 line : uint32
+    2 column : uint32
+
+PrewarmRequest
+    1 model_details : ModelDetails
+    9 requested_model : optional RequestedModel
+    2 conversation_id : optional string
+    3 conversation_state : ConversationStateStructure
+    4 mcp_tools : McpTools
+    5 mcp_file_system_options : optional McpFileSystemOptions
+    6 best_of_n_group_id : optional string
+    7 try_use_best_of_n_promotion : optional bool
+    8 custom_system_prompt : optional string
+
+Range
+    1 start : Position
+    2 end : Position
+
+ReadArgs
+    1 path : string
+    2 tool_call_id : string
+
+ReadBinaryFileRequest
+    1 path : string
+
+ReadBinaryFileResponse
+    1 content : bytes
+
+ReadError
+    1 path : string
+    2 error : string
+
+ReadFileNotFound
+    1 path : string
+
+ReadInvalidFile
+    1 path : string
+    2 reason : string
+
+ReadLintsToolArgs
+    1 paths : repeated string
+
+ReadLintsToolCall
+    1 args : ReadLintsToolArgs
+    2 result : ReadLintsToolResult
+
+ReadLintsToolError
+    1 error_message : string
+
+ReadLintsToolResult
+    1 success : ReadLintsToolSuccess [oneof result]
+    2 error : ReadLintsToolError [oneof result]
+
+ReadLintsToolSuccess
+    1 file_diagnostics : repeated FileDiagnostics
+    2 total_files : int32
+    3 total_diagnostics : int32
+
+ReadMcpResourceError
+    1 uri : string
+    2 error : string
+
+ReadMcpResourceExecArgs
+    1 server : string
+    2 uri : string
+    3 download_path : optional string
+
+ReadMcpResourceExecResult
+    1 success : ReadMcpResourceSuccess [oneof result]
+    2 error : ReadMcpResourceError [oneof result]
+    3 rejected : ReadMcpResourceRejected [oneof result]
+    4 not_found : ReadMcpResourceNotFound [oneof result]
+
+ReadMcpResourceNotFound
+    1 uri : string
+
+ReadMcpResourceRejected
+    1 uri : string
+    2 reason : string
+
+ReadMcpResourceSuccess
+    1 uri : string
+    2 name : optional string
+    3 description : optional string
+    4 mime_type : optional string
+    7 annotations : map<string, string>
+    8 download_path : optional string
+    5 text : string [oneof content]
+    6 blob : bytes [oneof content]
+
+ReadMcpResourceToolCall
+    1 args : ReadMcpResourceExecArgs
+    2 result : ReadMcpResourceExecResult
+
+ReadPermissionDenied
+    1 path : string
+
+ReadRange
+    1 start_line : uint32
+    2 end_line : uint32
+
+ReadRejected
+    1 path : string
+    2 reason : string
+
+ReadResult
+    1 success : ReadSuccess [oneof result]
+    2 error : ReadError [oneof result]
+    3 rejected : ReadRejected [oneof result]
+    4 file_not_found : ReadFileNotFound [oneof result]
+    5 permission_denied : ReadPermissionDenied [oneof result]
+    6 invalid_file : ReadInvalidFile [oneof result]
+
+ReadSuccess
+    1 path : string
+    3 total_lines : int32
+    4 file_size : int64
+    6 truncated : bool
+    7 output_blob_id : optional bytes
+    2 content : string [oneof output]
+    5 data : bytes [oneof output]
+
+ReadTextFileRequest
+    1 path : string
+
+ReadTextFileResponse
+    1 content : string
+
+ReadTodosArgs
+    1 status_filter : repeated int32
+    2 id_filter : repeated string
+
+ReadTodosError
+    1 error : string
+
+ReadTodosResult
+    1 success : ReadTodosSuccess [oneof result]
+    2 error : ReadTodosError [oneof result]
+
+ReadTodosSuccess
+    1 todos : repeated TodoItem
+    2 total_count : int32
+
+ReadTodosToolCall
+    1 args : ReadTodosArgs
+    2 result : ReadTodosResult
+
+ReadToolArgs
+    1 path : string
+    2 offset : optional int32
+    3 limit : optional int32
+
+ReadToolCall
+    1 args : ReadToolArgs
+    2 result : ReadToolResult
+
+ReadToolError
+    1 error_message : string
+
+ReadToolResult
+    1 success : ReadToolSuccess [oneof result]
+    2 error : ReadToolError [oneof result]
+
+ReadToolSuccess
+    2 is_empty : bool
+    3 exceeded_limit : bool
+    4 total_lines : uint32
+    5 file_size : uint32
+    7 path : string
+    8 read_range : optional ReadRange
+    1 content : string [oneof output]
+    6 data : bytes [oneof output]
+    9 data_blob_id : bytes [oneof output]
+   10 content_blob_id : bytes [oneof output]
+
+RecordScreenArgs
+    1 mode : int32
+    2 tool_call_id : string
+    3 save_as_filename : optional string
+
+RecordScreenDiscardSuccess
+
+RecordScreenFailure
+    1 error : string
+
+RecordScreenResult
+    1 start_success : RecordScreenStartSuccess [oneof result]
+    2 save_success : RecordScreenSaveSuccess [oneof result]
+    3 discard_success : RecordScreenDiscardSuccess [oneof result]
+    4 failure : RecordScreenFailure [oneof result]
+
+RecordScreenSaveSuccess
+    1 path : string
+    2 recording_duration_ms : int64
+    3 requested_file_path_rejected_reason : optional int32
+
+RecordScreenStartSuccess
+    1 was_prior_recording_cancelled : bool
+    2 was_save_as_filename_ignored : bool
+
+RecordScreenToolCall
+    1 args : RecordScreenArgs
+    2 result : RecordScreenResult
+
+ReflectArgs
+    1 unexpected_action_outcomes : string
+    2 relevant_instructions : string
+    3 scenario_analysis : string
+    4 critical_synthesis : string
+    5 next_steps : string
+    6 tool_call_id : string
+
+ReflectError
+    1 error : string
+
+ReflectResult
+    1 success : ReflectSuccess [oneof result]
+    2 error : ReflectError [oneof result]
+
+ReflectSuccess
+
+ReflectToolCall
+    1 args : ReflectArgs
+    2 result : ReflectResult
+
+RefreshGithubAccessTokenRequest
+    1 github_access_token : string
+    2 hostname : string
+
+RefreshGithubAccessTokenResponse
+
+RepositoryIndexingInfo
+    1 relative_workspace_path : string
+    2 remote_urls : repeated string
+    3 remote_names : repeated string
+    4 repo_name : string
+    5 repo_owner : string
+    6 is_tracked : bool
+    7 is_local : bool
+    8 orthogonal_transform_seed : optional double
+    9 workspace_uri : string
+   10 path_encryption_key : string
+
+RequestContext
+    2 rules : repeated CursorRule
+    4 env : RequestContextEnv
+    6 repository_info : repeated RepositoryIndexingInfo
+    7 tools : repeated McpToolDefinition
+    8 conversation_notes_listing : optional string
+    9 shared_notes_listing : optional string
+   11 git_repos : repeated GitRepoInfo
+   13 project_layouts : repeated LsDirectoryTreeNode
+   14 mcp_instructions : repeated McpInstructions
+   15 debug_mode_config : optional DebugModeConfig
+   16 cloud_rule : optional string
+   17 web_search_enabled : optional bool
+   18 skill_options : optional SkillOptions
+   19 repository_info_should_query_prod : optional bool
+   20 file_contents : map<string, string>
+   21 user_intent_summary : optional string
+   22 custom_subagents : repeated CustomSubagent
+   23 mcp_file_system_options : optional McpFileSystemOptions
+
+RequestContextArgs
+    2 notes_session_id : optional string
+    3 workspace_id : optional string
+
+RequestContextEnv
+    1 os_version : string
+    2 workspace_paths : repeated string
+    3 shell : string
+    5 sandbox_enabled : bool
+    7 terminals_folder : string
+    8 agent_shared_notes_folder : string
+    9 agent_conversation_notes_folder : string
+   10 time_zone : string
+   11 project_folder : string
+   12 agent_transcripts_folder : string
+
+RequestContextError
+    1 error : string
+
+RequestContextRejected
+    1 reason : string
+
+RequestContextResult
+    1 success : RequestContextSuccess [oneof result]
+    2 error : RequestContextError [oneof result]
+    3 rejected : RequestContextRejected [oneof result]
+
+RequestContextSuccess
+    1 request_context : RequestContext
+
+RequestedModel
+    1 model_id : string
+    2 max_mode : bool
+    3 parameters : repeated RequestedModel_ModelParameterbytes
+    4 api_key_credentials : ApiKeyCredentials [oneof credentials]
+    5 azure_credentials : AzureCredentials [oneof credentials]
+    6 bedrock_credentials : BedrockCredentials [oneof credentials]
+
+RequestedModel_ModelParameterbytes
+    1 id : string
+    2 value : string
+
+ResumeAction
+    2 request_context : RequestContext
+
+SandboxPolicy
+    1 type : int32
+    2 network_access : optional bool
+    3 additional_readwrite_paths : repeated string
+    4 additional_readonly_paths : repeated string
+    5 debug_output_dir : optional string
+    6 block_git_writes : optional bool
+    7 disable_tmp_write : optional bool
+
+ScreenshotAction
+
+ScrollAction
+    1 coordinate : optional Coordinate
+    2 direction : int32
+    3 amount : int32
+    4 modifier_keys : optional string
+
+SelectedCodeSelection
+    1 content : string
+    2 path : string
+    3 relative_path : optional string
+    4 range : Range
+
+SelectedConsoleLog
+    1 message : string
+    2 timestamp : double
+    3 level : string
+    4 client_name : string
+    5 session_id : string
+    6 stack_trace : optional StackTrace
+    7 object_data_json : optional string
+
+SelectedContext
+    1 selected_images : repeated SelectedImage
+    2 invocation_context : optional InvocationContext
+    3 extra_context : repeated string
+   16 extra_context_entries : repeated ExtraContextEntry
+    4 files : repeated SelectedFile
+    5 code_selections : repeated SelectedCodeSelection
+    6 terminals : repeated SelectedTerminal
+    7 terminal_selections : repeated SelectedTerminalSelection
+    8 folders : repeated SelectedFolder
+    9 external_links : repeated SelectedExternalLink
+   10 cursor_rules : repeated SelectedCursorRule
+   18 git_diff : optional SelectedGitDiff
+   11 git_diff_from_branch_to_main : optional SelectedGitDiffFromBranchToMain
+   12 cursor_commands : repeated SelectedCursorCommand
+   13 documentations : repeated SelectedDocumentation
+   14 ui_elements : repeated SelectedUIElement
+   15 console_logs : repeated SelectedConsoleLog
+   17 git_commits : repeated SelectedGitCommit
+   19 past_chats : repeated SelectedPastChat
+   20 git_pr_diff_selections : repeated SelectedGitPRDiffSelection
+   21 selected_pull_requests : repeated SelectedPullRequest
+   22 selected_subagents : repeated SelectedSubagent
+
+SelectedCursorCommand
+    1 name : string
+    2 content : string
+
+SelectedCursorRule
+    1 rule : CursorRule
+
+SelectedDocumentation
+    1 doc_id : string
+    2 name : string
+
+SelectedExternalLink
+    1 url : string
+    2 uuid : string
+    3 pdf_content : optional string
+    4 is_pdf : optional bool
+    5 filename : optional string
+
+SelectedFile
+    1 content : string
+    2 path : string
+    3 relative_path : optional string
+
+SelectedFolder
+    1 path : string
+    2 relative_path : optional string
+    3 directory_tree : LsDirectoryTreeNode
+
+SelectedGitCommit
+    1 sha : string
+    2 message : string
+    3 description : optional string
+    4 diff : string
+
+SelectedGitDiff
+    1 content : string
+
+SelectedGitDiffFromBranchToMain
+    1 content : string
+
+SelectedGitPRDiffSelection
+    1 pr_url : string
+    2 file_path : string
+    3 start_line : int32
+    4 end_line : int32
+    5 diff_content : optional string
+    6 blob_id : optional bytes
+
+SelectedImage
+    2 uuid : string
+    3 path : string
+    4 dimension : SelectedImage_Dimension
+    7 mime_type : string
+    1 blob_id : bytes [oneof data_or_blob_id]
+    8 data : bytes [oneof data_or_blob_id]
+    9 blob_id_with_data : SelectedImage_BlobIdWithData [oneof data_or_blob_id]
+
+SelectedImage_BlobIdWithData
+    1 blob_id : bytes
+    2 data : bytes
+
+SelectedImage_Dimension
+    1 width : int32
+    2 height : int32
+
+SelectedPastChat
+    1 agent_id : string
+    2 name : string
+
+SelectedPullRequest
+    1 number : int32
+    2 url : string
+    3 title : optional string
+    4 folder_path : string
+    5 summary_json : optional string
+    6 description : optional string
+    7 blob_id : optional bytes
+
+SelectedSubagent
+    1 name : string
+
+SelectedTerminal
+    1 content : string
+    2 title : optional string
+    3 path : optional string
+
+SelectedTerminalSelection
+    1 content : string
+    2 title : optional string
+    3 path : optional string
+    4 range : Range
+
+SelectedUIElement
+    1 element : string
+    2 xpath : string
+    3 text_content : string
+    4 extra : string
+    5 component : optional string
+    6 component_props_json : optional string
+
+SemSearchToolArgs
+    1 query : string
+    2 target_directories : repeated string
+    3 explanation : string
+
+SemSearchToolCall
+    1 args : SemSearchToolArgs
+    2 result : SemSearchToolResult
+
+SemSearchToolError
+    1 error_message : string
+
+SemSearchToolResult
+    1 success : SemSearchToolSuccess [oneof result]
+    2 error : SemSearchToolError [oneof result]
+
+SemSearchToolSuccess
+    1 results : string
+    2 code_results : repeated bytes
+
+SetBlobArgs
+    1 blob_id : bytes
+    2 blob_data : bytes
+
+SetBlobResult
+    1 error : optional Error
+
+SetupVmEnvironmentArgs
+    2 install_command : string
+    3 start_command : string
+
+SetupVmEnvironmentResult
+    1 success : SetupVmEnvironmentSuccess [oneof result]
+
+SetupVmEnvironmentSuccess
+
+SetupVmEnvironmentToolCall
+    1 args : SetupVmEnvironmentArgs
+    2 result : SetupVmEnvironmentResult
+
+ShellArgs
+    1 command : string
+    2 working_directory : string
+    3 timeout : int32
+    4 tool_call_id : string
+    5 simple_commands : repeated string
+    6 has_input_redirect : bool
+    7 has_output_redirect : bool
+    8 parsing_result : ShellCommandParsingResult
+    9 requested_sandbox_policy : optional SandboxPolicy
+   10 file_output_threshold_bytes : optional uint64
+   11 is_background : bool
+   12 skip_approval : bool
+   13 timeout_behavior : int32
+   14 hard_timeout : optional int32
+
+ShellCommand
+    1 command : string
+
+ShellCommandAction
+    1 shell_command : ShellCommand
+    2 exec_id : string
+
+ShellCommandParsingResult
+    1 parsing_failed : bool
+    2 executable_commands : repeated ShellCommandParsingResult_ExecutableCommand
+    3 has_redirects : bool
+    4 has_command_substitution : bool
+
+ShellCommandParsingResult_ExecutableCommand
+    1 name : string
+    2 args : repeated ShellCommandParsingResult_ExecutableCommandArg
+    3 full_text : string
+
+ShellCommandParsingResult_ExecutableCommandArg
+    1 type : string
+    2 value : string
+
+ShellConversationTurn
+    1 shell_command : ShellCommand
+    2 shell_output : ShellOutput
+
+ShellConversationTurnStructure
+    1 shell_command : bytes
+    2 shell_output : bytes
+
+ShellFailure
+    1 command : string
+    2 working_directory : string
+    3 exit_code : int32
+    4 signal : string
+    5 stdout : string
+    6 stderr : string
+    7 execution_time : int32
+    8 output_location : optional OutputLocation
+    9 interleaved_output : optional string
+   10 abort_reason : optional int32
+   11 aborted : bool
+
+ShellOutput
+    1 stdout : string
+    2 stderr : string
+    3 exit_code : int32
+
+ShellOutputDeltaUpdate
+    1 stdout : ShellStreamStdout [oneof event]
+    2 stderr : ShellStreamStderr [oneof event]
+    3 exit : ShellStreamExit [oneof event]
+    4 start : ShellStreamStart [oneof event]
+
+ShellPartialResult
+    1 stdout_delta : string
+    2 stderr_delta : string
+
+ShellPermissionDenied
+    1 command : string
+    2 working_directory : string
+    3 error : string
+    4 is_readonly : bool
+
+ShellRejected
+    1 command : string
+    2 working_directory : string
+    3 reason : string
+    4 is_readonly : bool
+
+ShellResult
+  101 sandbox_policy : optional SandboxPolicy
+  102 is_background : optional bool
+  103 terminals_folder : optional string
+  104 pid : optional uint32
+    1 success : ShellSuccess [oneof result]
+    2 failure : ShellFailure [oneof result]
+    3 timeout : ShellTimeout [oneof result]
+    4 rejected : ShellRejected [oneof result]
+    5 spawn_error : ShellSpawnError [oneof result]
+    7 permission_denied : ShellPermissionDenied [oneof result]
+
+ShellSpawnError
+    1 command : string
+    2 working_directory : string
+    3 error : string
+
+ShellStream
+    1 stdout : ShellStreamStdout [oneof event]
+    2 stderr : ShellStreamStderr [oneof event]
+    3 exit : ShellStreamExit [oneof event]
+    4 start : ShellStreamStart [oneof event]
+    5 rejected : ShellRejected [oneof event]
+    6 permission_denied : ShellPermissionDenied [oneof event]
+    7 backgrounded : ShellStreamBackgrounded [oneof event]
+
+ShellStreamBackgrounded
+    1 shell_id : uint32
+    2 command : string
+    3 working_directory : string
+    4 pid : optional uint32
+    5 ms_to_wait : optional int32
+
+ShellStreamExit
+    1 code : uint32
+    2 cwd : string
+    3 output_location : optional OutputLocation
+    4 aborted : bool
+    5 abort_reason : optional int32
+
+ShellStreamStart
+    1 sandbox_policy : optional SandboxPolicy
+
+ShellStreamStderr
+    1 data : string
+
+ShellStreamStdout
+    1 data : string
+
+ShellSuccess
+    1 command : string
+    2 working_directory : string
+    3 exit_code : int32
+    4 signal : string
+    5 stdout : string
+    6 stderr : string
+    7 execution_time : int32
+    8 output_location : optional OutputLocation
+    9 shell_id : optional uint32
+   10 interleaved_output : optional string
+   11 pid : optional uint32
+   12 ms_to_wait : optional int32
+
+ShellTimeout
+    1 command : string
+    2 working_directory : string
+    3 timeout_ms : int32
+
+ShellToolCall
+    1 args : ShellArgs
+    2 result : ShellResult
+
+ShellToolCallDelta
+    1 stdout : ShellToolCallStdoutDelta [oneof delta]
+    2 stderr : ShellToolCallStderrDelta [oneof delta]
+
+ShellToolCallStderrDelta
+    1 content : string
+
+ShellToolCallStdoutDelta
+    1 content : string
+
+SkillDescriptor
+    1 name : string
+    2 description : string
+    3 folder_path : string
+    4 enabled : bool
+    5 parse_error : optional string
+    6 readme_file_path : string
+    7 package_type : int32
+
+SkillOptions
+    1 skill_descriptors : repeated SkillDescriptor
+
+SpanContext
+    1 trace_id : string
+    2 span_id : string
+    3 trace_flags : optional uint32
+    4 trace_state : optional string
+
+StackTrace
+    1 call_frames : repeated CallFrame
+    2 raw_stack_trace : optional string
+
+StartGrindExecutionArgs
+    1 explanation : optional string
+    2 tool_call_id : string
+
+StartGrindExecutionError
+    1 error : string
+
+StartGrindExecutionResult
+    1 success : StartGrindExecutionSuccess [oneof result]
+    2 error : StartGrindExecutionError [oneof result]
+
+StartGrindExecutionSuccess
+
+StartGrindExecutionToolCall
+    1 args : StartGrindExecutionArgs
+    2 result : StartGrindExecutionResult
+
+StartGrindPlanningArgs
+    1 explanation : optional string
+    2 tool_call_id : string
+
+StartGrindPlanningError
+    1 error : string
+
+StartGrindPlanningResult
+    1 success : StartGrindPlanningSuccess [oneof result]
+    2 error : StartGrindPlanningError [oneof result]
+
+StartGrindPlanningSuccess
+
+StartGrindPlanningToolCall
+    1 args : StartGrindPlanningArgs
+    2 result : StartGrindPlanningResult
+
+StartPlanAction
+    1 user_message : UserMessage
+    2 request_context : RequestContext
+    3 is_spec : bool
+
+StderrEvent
+    1 data : string
+
+StdoutEvent
+    1 data : string
+
+StepCompletedUpdate
+    1 step_id : uint64
+    2 step_duration_ms : int64
+
+StepStartedUpdate
+    1 step_id : uint64
+
+StepTiming
+    1 duration_ms : uint64
+    2 timestamp_ms : uint64
+
+SubagentPersistedState
+    1 conversation_state : ConversationStateStructure
+    2 created_timestamp_ms : uint64
+    3 last_used_timestamp_ms : uint64
+    4 subagent_type : SubagentType
+
+SubagentType
+    1 unspecified : SubagentTypeUnspecified [oneof type]
+    2 computer_use : SubagentTypeComputerUse [oneof type]
+    3 custom : SubagentTypeCustom [oneof type]
+    4 explore : SubagentTypeExplore [oneof type]
+
+SubagentTypeComputerUse
+
+SubagentTypeCustom
+    1 name : string
+
+SubagentTypeExplore
+
+SubagentTypeUnspecified
+
+SummarizeAction
+
+SummaryCompletedUpdate
+
+SummaryStartedUpdate
+
+SummaryUpdate
+    1 summary : string
+
+SwitchModeArgs
+    1 target_mode_id : string
+    2 explanation : optional string
+    3 tool_call_id : string
+
+SwitchModeError
+    1 error : string
+
+SwitchModeRejected
+    1 reason : string
+
+SwitchModeRequestQuery
+    1 args : SwitchModeArgs
+
+SwitchModeRequestResponse
+    1 approved : SwitchModeRequestResponse_Approved [oneof result]
+    2 rejected : SwitchModeRequestResponse_Rejected [oneof result]
+
+SwitchModeRequestResponse_Approved
+
+SwitchModeRequestResponse_Rejected
+    1 reason : string
+
+SwitchModeResult
+    1 success : SwitchModeSuccess [oneof result]
+    2 error : SwitchModeError [oneof result]
+    3 rejected : SwitchModeRejected [oneof result]
+
+SwitchModeSuccess
+    1 from_mode_id : string
+    2 to_mode_id : string
+
+SwitchModeToolCall
+    1 args : SwitchModeArgs
+    2 result : SwitchModeResult
+
+TaskArgs
+    1 description : string
+    2 prompt : string
+    3 subagent_type : SubagentType
+    4 model : optional string
+    5 resume : optional string
+
+TaskError
+    1 error : string
+
+TaskResult
+    1 success : TaskSuccess [oneof result]
+    2 error : TaskError [oneof result]
+
+TaskSuccess
+    1 conversation_steps : repeated ConversationStep
+    2 agent_id : optional string
+    3 is_background : bool
+    4 duration_ms : optional uint64
+
+TaskToolCall
+    1 args : TaskArgs
+    2 result : TaskResult
+
+TaskToolCallDelta
+    1 interaction_update : InteractionUpdate
+
+TerminalMetadata
+    1 cwd : optional string
+    2 last_commands : repeated TerminalMetadata_Command
+    3 last_modified_ms : optional int64
+    4 current_command : optional TerminalMetadata_Command
+
+TerminalMetadata_Command
+    1 command : string
+    2 exit_code : optional int32
+    3 timestamp_ms : optional int64
+    4 duration_ms : optional int64
+
+TextDeltaUpdate
+    1 text : string
+
+ThinkingCompletedUpdate
+    1 thinking_duration_ms : int32
+
+ThinkingDeltaUpdate
+    1 text : string
+
+ThinkingDetails
+
+ThinkingMessage
+    1 text : string
+    2 duration_ms : uint32
+
+TodoItem
+    1 id : string
+    2 content : string
+    3 status : int32
+    4 created_at : int64
+    5 updated_at : int64
+    6 dependencies : repeated string
+
+TokenDeltaUpdate
+    1 tokens : int32
+
+ToolCall
+    1 shell_tool_call : ShellToolCall [oneof tool]
+    3 delete_tool_call : DeleteToolCall [oneof tool]
+    4 glob_tool_call : GlobToolCall [oneof tool]
+    5 grep_tool_call : GrepToolCall [oneof tool]
+    8 read_tool_call : ReadToolCall [oneof tool]
+    9 update_todos_tool_call : UpdateTodosToolCall [oneof tool]
+   10 read_todos_tool_call : ReadTodosToolCall [oneof tool]
+   12 edit_tool_call : EditToolCall [oneof tool]
+   13 ls_tool_call : LsToolCall [oneof tool]
+   14 read_lints_tool_call : ReadLintsToolCall [oneof tool]
+   15 mcp_tool_call : McpToolCall [oneof tool]
+   16 sem_search_tool_call : SemSearchToolCall [oneof tool]
+   17 create_plan_tool_call : CreatePlanToolCall [oneof tool]
+   18 web_search_tool_call : WebSearchToolCall [oneof tool]
+   19 task_tool_call : TaskToolCall [oneof tool]
+   20 list_mcp_resources_tool_call : ListMcpResourcesToolCall [oneof tool]
+   21 read_mcp_resource_tool_call : ReadMcpResourceToolCall [oneof tool]
+   22 apply_agent_diff_tool_call : ApplyAgentDiffToolCall [oneof tool]
+   23 ask_question_tool_call : AskQuestionToolCall [oneof tool]
+   24 fetch_tool_call : FetchToolCall [oneof tool]
+   25 switch_mode_tool_call : SwitchModeToolCall [oneof tool]
+   26 exa_search_tool_call : ExaSearchToolCall [oneof tool]
+   27 exa_fetch_tool_call : ExaFetchToolCall [oneof tool]
+   28 generate_image_tool_call : GenerateImageToolCall [oneof tool]
+   29 record_screen_tool_call : RecordScreenToolCall [oneof tool]
+   30 computer_use_tool_call : ComputerUseToolCall [oneof tool]
+   31 write_shell_stdin_tool_call : WriteShellStdinToolCall [oneof tool]
+   32 reflect_tool_call : ReflectToolCall [oneof tool]
+   33 setup_vm_environment_tool_call : SetupVmEnvironmentToolCall [oneof tool]
+   34 truncated_tool_call : TruncatedToolCall [oneof tool]
+   35 start_grind_execution_tool_call : StartGrindExecutionToolCall [oneof tool]
+   36 start_grind_planning_tool_call : StartGrindPlanningToolCall [oneof tool]
+
+ToolCallCompletedUpdate
+    1 call_id : string
+    2 tool_call : ToolCall
+    3 model_call_id : string
+
+ToolCallDelta
+    1 shell_tool_call_delta : ShellToolCallDelta [oneof delta]
+    2 task_tool_call_delta : TaskToolCallDelta [oneof delta]
+    3 edit_tool_call_delta : EditToolCallDelta [oneof delta]
+
+ToolCallDeltaUpdate
+    1 call_id : string
+    2 tool_call_delta : ToolCallDelta
+    3 model_call_id : string
+
+ToolCallStartedUpdate
+    1 call_id : string
+    2 tool_call : ToolCall
+    3 model_call_id : string
+
+TruncatedToolCall
+    1 original_step_blob_id : bytes
+    2 args : TruncatedToolCallArgs
+    3 result : TruncatedToolCallResult
+
+TruncatedToolCallArgs
+
+TruncatedToolCallError
+    1 error : string
+
+TruncatedToolCallResult
+    1 success : TruncatedToolCallSuccess [oneof result]
+    2 error : TruncatedToolCallError [oneof result]
+
+TruncatedToolCallSuccess
+
+TurnEndedUpdate
+
+TypeAction
+    1 text : string
+
+UpdateEnvironmentVariablesRequest
+    1 env : map<string, string>
+    2 replace : bool
+
+UpdateEnvironmentVariablesResponse
+    1 applied : uint32
+    2 removed : uint32
+
+UpdateTodosArgs
+    1 todos : repeated TodoItem
+    2 merge : bool
+
+UpdateTodosError
+    1 error : string
+
+UpdateTodosResult
+    1 success : UpdateTodosSuccess [oneof result]
+    2 error : UpdateTodosError [oneof result]
+
+UpdateTodosSuccess
+    1 todos : repeated TodoItem
+    2 total_count : int32
+    3 was_merge : bool
+
+UpdateTodosToolCall
+    1 args : UpdateTodosArgs
+    2 result : UpdateTodosResult
+
+UploadArtifactsRequest
+    1 uploads : repeated ArtifactUploadInstruction
+
+UploadArtifactsResponse
+    1 results : repeated ArtifactUploadDispatchResult
+
+UserMessage
+    1 text : string
+    2 message_id : string
+    3 selected_context : optional SelectedContext
+    4 mode : int32
+    5 is_simulated_msg : optional bool
+    6 best_of_n_group_id : optional string
+    7 try_use_best_of_n_promotion : optional bool
+    8 rich_text : optional string
+
+UserMessageAction
+    1 user_message : UserMessage
+    2 request_context : RequestContext
+    3 send_to_interaction_listener : optional bool
+
+UserMessageAppendedUpdate
+    1 user_message : UserMessage
+
+WaitAction
+    1 duration_ms : int32
+
+WarmRemoteAccessServerRequest
+    1 commit : string
+    2 port : int32
+    3 connection_token : string
+
+WarmRemoteAccessServerResponse
+
+WebSearchArgs
+    1 search_term : string
+    2 tool_call_id : string
+
+WebSearchError
+    1 error : string
+
+WebSearchReference
+    1 title : string
+    2 url : string
+    3 chunk : string
+
+WebSearchRejected
+    1 reason : string
+
+WebSearchRequestQuery
+    1 args : WebSearchArgs
+
+WebSearchRequestResponse
+    1 approved : WebSearchRequestResponse_Approved [oneof result]
+    2 rejected : WebSearchRequestResponse_Rejected [oneof result]
+
+WebSearchRequestResponse_Approved
+
+WebSearchRequestResponse_Rejected
+    1 reason : string
+
+WebSearchResult
+    1 success : WebSearchSuccess [oneof result]
+    2 error : WebSearchError [oneof result]
+    3 rejected : WebSearchRejected [oneof result]
+
+WebSearchSuccess
+    1 references : repeated WebSearchReference
+
+WebSearchToolCall
+    1 args : WebSearchArgs
+    2 result : WebSearchResult
+
+WriteArgs
+    1 path : string
+    2 file_text : string
+    3 tool_call_id : string
+    4 return_file_content_after_write : bool
+    5 file_bytes : bytes
+
+WriteBinaryFileRequest
+    1 path : string
+    2 content : bytes
+
+WriteBinaryFileResponse
+
+WriteError
+    1 path : string
+    2 error : string
+
+WriteNoSpace
+    1 path : string
+
+WritePermissionDenied
+    1 path : string
+    2 directory : string
+    3 operation : string
+    4 error : string
+    5 is_readonly : bool
+
+WriteRejected
+    1 path : string
+    2 reason : string
+
+WriteResult
+    1 success : WriteSuccess [oneof result]
+    3 permission_denied : WritePermissionDenied [oneof result]
+    4 no_space : WriteNoSpace [oneof result]
+    5 error : WriteError [oneof result]
+    6 rejected : WriteRejected [oneof result]
+
+WriteShellStdinArgs
+    1 shell_id : uint32
+    2 chars : string
+
+WriteShellStdinError
+    1 error : string
+
+WriteShellStdinResult
+    1 success : WriteShellStdinSuccess [oneof result]
+    2 error : WriteShellStdinError [oneof result]
+
+WriteShellStdinSuccess
+    1 shell_id : uint32
+    2 terminal_file_length_before_input_written : uint32
+
+WriteShellStdinToolCall
+    1 args : WriteShellStdinArgs
+    2 result : WriteShellStdinResult
+
+WriteSuccess
+    1 path : string
+    2 lines_created : int32
+    3 file_size : int32
+    4 file_content_after_write : optional string
+
+WriteTextFileRequest
+    1 path : string
+    2 content : string
+
+WriteTextFileResponse
+

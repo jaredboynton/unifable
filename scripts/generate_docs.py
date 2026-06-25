@@ -23,6 +23,7 @@ for path in (str(GATE_DIR), str(HOOKS_DIR)):
     if path not in sys.path:
         sys.path.insert(0, path)
 
+import breaker_judges  # noqa: E402
 import classify_task  # noqa: E402
 import codex_judge  # noqa: E402
 import completion_handoff  # noqa: E402
@@ -30,7 +31,6 @@ import context_block  # noqa: E402
 import gate_prompt_effort  # noqa: E402
 import gate_stop  # noqa: E402
 import grade_override  # noqa: E402
-import groundedness  # noqa: E402
 import heavy_workflow  # noqa: E402
 import hook_output  # noqa: E402
 import loop_release  # noqa: E402
@@ -646,9 +646,9 @@ def collect_judge_prompts() -> list[JudgePrompt]:
     cases.append(
         _capture_direct(
             "Groundedness arm",
-            "scripts/gate/groundedness.py",
+            "scripts/gate/breaker_judges.py",
             "groundedness",
-            lambda judge: groundedness.arm_judge(
+            lambda judge: breaker_judges.arm_judge(
                 '<record line="000001" role="assistant">The docs are already current.</record>',
                 events=[],
                 judge=judge,
@@ -658,9 +658,9 @@ def collect_judge_prompts() -> list[JudgePrompt]:
     cases.append(
         _capture_direct(
             "Groundedness release",
-            "scripts/gate/groundedness.py",
+            "scripts/gate/breaker_judges.py",
             "groundedness",
-            lambda judge: groundedness.disarm_judge(
+            lambda judge: breaker_judges.disarm_judge(
                 "The docs are already current.",
                 '<record line="000002" role="tool">python3 scripts/generate_docs.py --check passed</record>',
                 user_goal="Generate docs.",
@@ -671,9 +671,9 @@ def collect_judge_prompts() -> list[JudgePrompt]:
     cases.append(
         _capture_direct(
             "Provisional lift monitor",
-            "scripts/gate/groundedness.py",
+            "scripts/gate/breaker_judges.py",
             "groundedness",
-            lambda judge: groundedness.monitor_provisional_judge(
+            lambda judge: breaker_judges.monitor_provisional_judge(
                 "The docs are already current.",
                 "Run the generated-docs check.",
                 '<record line="000003" role="tool">checking docs</record>',
