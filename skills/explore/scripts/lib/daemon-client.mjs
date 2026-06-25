@@ -77,13 +77,16 @@ export function scorerModel() {
   return SCORER_MODEL;
 }
 
-// Per-(repo,model,slot) socket: distinct repos/models get distinct warm pools,
-// distinct slots are distinct processes. Never collides with the judge namespace.
-function sockKey(repoRoot) {
-  return crypto.createHash("sha1").update(`search:${SCORER_MODEL}:${repoRoot}`).digest("hex").slice(0, 16);
+// Per-(namespace,model,slot) socket: distinct namespaces/models get distinct
+// warm pools, distinct slots are distinct processes. The namespace is the
+// caller's logical pool key (search passes repoRoot; websearch passes a fixed
+// "websearch"); the model separates a mini pool from a full pool. Never collides
+// with the judge namespace.
+function sockKey(namespace, model) {
+  return crypto.createHash("sha1").update(`${model}:${namespace}`).digest("hex").slice(0, 16);
 }
-function sockPathForSlot(repoRoot, slot) {
-  return path.join(dataRoot(), "searchd", `${sockKey(repoRoot)}-${slot}.sock`);
+function sockPathForSlot(namespace, model, slot) {
+  return path.join(dataRoot(), "searchd", `${sockKey(namespace, model)}-${slot}.sock`);
 }
 
 function connect(sock, timeoutMs) {
@@ -95,14 +98,14 @@ function connect(sock, timeoutMs) {
   });
 }
 
-function spawnDaemon(sock) {
+function spawnDaemon(sock, model) {
   try {
     fs.mkdirSync(path.dirname(sock), { recursive: true });
   } catch { /* ignore */ }
   const key = path.basename(sock, ".sock");
   try {
     // Single worker per process: GIL-free parallelism comes from many processes.
-    // The daemon reads its model from UNIFABLE_JUDGE_MODEL; pass the scorer model
+    // The daemon reads its model from UNIFABLE_JUDGE_MODEL; pass the pool's model
     // so a mini pool and a full pool never share a process (or a socket).
     const child = spawn(process.env.PYTHON || "python3", [
       DAEMON_PY, "--session-key", key, "--sock", sock, "--pool", "1",
@@ -110,17 +113,17 @@ function spawnDaemon(sock) {
       cwd: GATE_DIR,
       detached: true,
       stdio: "ignore",
-      env: { ...process.env, UNIFABLE_JUDGE_MODEL: SCORER_MODEL },
+      env: { ...process.env, UNIFABLE_JUDGE_MODEL: model },
     });
     child.unref();
   } catch { /* fail-open: connect attempts below will give up */ }
 }
 
-async function connectOrSpawn(sock) {
+async function connectOrSpawn(sock, model) {
   try {
     return await connect(sock, CONNECT_TIMEOUT_MS);
   } catch { /* spawn below */ }
-  spawnDaemon(sock);
+  spawnDaemon(sock, model);
   const deadline = Date.now() + SPAWN_WAIT_MS;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, 50));
@@ -157,11 +160,11 @@ function recvFramed(conn, timeoutMs) {
   });
 }
 
-async function askOnSlot(repoRoot, slot, { system, user, schema, schemaName = "result", reasoningEffort }) {
-  const sock = sockPathForSlot(repoRoot, slot);
+async function askOnSlot(namespace, model, slot, { system, user, schema, schemaName = "result", reasoningEffort }) {
+  const sock = sockPathForSlot(namespace, model, slot);
   let conn;
   try {
-    conn = await connectOrSpawn(sock);
+    conn = await connectOrSpawn(sock, model);
   } catch {
     return null;
   }
@@ -182,28 +185,30 @@ async function askOnSlot(repoRoot, slot, { system, user, schema, schemaName = "r
 
 // Spawn + warm the whole process pool eagerly (idempotent: connectOrSpawn is a
 // no-op when a daemon already owns the slot). Call this as early as possible so
-// every socket is warm before the first batch.
-export async function warmDaemonPool(repoRoot, size = POOL_SIZE) {
+// every socket is warm before the first batch. `namespace` is the logical pool
+// key (search passes repoRoot; websearch passes "websearch"); `model` defaults
+// to the search SCORER_MODEL so existing search call sites are unchanged.
+export async function warmDaemonPool(namespace, size = POOL_SIZE, { model = SCORER_MODEL } = {}) {
   if (!daemonEnabled()) return;
   await Promise.all(
     Array.from({ length: size }, (_, slot) =>
-      connectOrSpawn(sockPathForSlot(repoRoot, slot)).then((c) => { try { c && c.destroy(); } catch { /* ignore */ } }),
+      connectOrSpawn(sockPathForSlot(namespace, model, slot), model).then((c) => { try { c && c.destroy(); } catch { /* ignore */ } }),
     ),
   );
 }
 
 // Run one structured request over slot 0's warm socket. Returns the parsed
 // arguments object, or null to signal fail-open fallback.
-export async function daemonAsk(repoRoot, req) {
+export async function daemonAsk(namespace, req, { model = SCORER_MODEL } = {}) {
   if (!daemonEnabled()) return null;
-  return askOnSlot(repoRoot, 0, req);
+  return askOnSlot(namespace, model, 0, req);
 }
 
 // Run N structured requests in genuine parallel, one per pool slot (round-robin
 // when N > pool size). Returns an array aligned to `requests`; any element is
 // null on that request's failure (caller decides fallback). Returns null only
 // when the daemon path is disabled.
-export async function daemonAskBatch(repoRoot, requests) {
+export async function daemonAskBatch(namespace, requests, { model = SCORER_MODEL } = {}) {
   if (!daemonEnabled()) return null;
-  return Promise.all(requests.map((req, i) => askOnSlot(repoRoot, i % POOL_SIZE, req)));
+  return Promise.all(requests.map((req, i) => askOnSlot(namespace, model, i % POOL_SIZE, req)));
 }

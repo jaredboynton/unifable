@@ -81,6 +81,7 @@ def _cmd_add_task(args: argparse.Namespace) -> int:
         spec,
         f"Requirement {task['id']} added: {task['title']}.",
         highlight_task=task["id"],
+        surface="stdout_only",
     )
     return 0
 
@@ -97,7 +98,11 @@ def _cmd_set_primary(args: argparse.Namespace) -> int:
         return 1
     save_spec(args.root, args.task_id, spec)
     print(f"Primary approach set: {task['id']} (blocked until frontiers ruled out).")
-    notify_spec_update(spec, f"Primary approach {task['id']} set (blocked until frontiers rejected).")
+    notify_spec_update(
+        spec,
+        f"Primary approach {task['id']} set (blocked until frontiers rejected).",
+        surface="stdout_only",
+    )
     return 0
 
 
@@ -110,7 +115,11 @@ def _cmd_add_frontier(args: argparse.Namespace) -> int:
     save_spec(args.root, args.task_id, spec)
     n = len(frontier_tasks(spec))
     print(f"Frontier approach added: {task['id']} ({n} total).")
-    notify_spec_update(spec, f"Frontier {task['id']} added ({n}/2 for declare phase).")
+    notify_spec_update(
+        spec,
+        f"Frontier {task['id']} added ({n}/2 for declare phase).",
+        surface="stdout_only",
+    )
     return 0
 
 
@@ -140,7 +149,7 @@ def _cmd_restate(args: argparse.Namespace) -> int:
         )
     else:
         print(f"restated_goal set ({len(goal)} chars); goal_seeded cleared.")
-    notify_spec_update(spec, "Goal restated.")
+    notify_spec_update(spec, "Goal restated.", surface="stdout_only")
     return 0
 
 
@@ -163,7 +172,12 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     task["dispute_evidence"] = args.evidence
     save_spec(args.root, args.task_id, spec)
     print(f"{args.task} -> disputed. The harness adjudicates impossibility/obsolescence claims on stop.")
-    notify_spec_update(spec, f"{args.task} disputed as impossible/obsolete.", highlight_task=args.task)
+    notify_spec_update(
+        spec,
+        f"{args.task} disputed as impossible/obsolete.",
+        highlight_task=args.task,
+        surface="stdout_only",
+    )
     return 0
 
 

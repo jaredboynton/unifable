@@ -31,6 +31,7 @@ import {
 import { websearchPointerSubmitRules } from "./lib/explore-output-prompt.mjs";
 import { buildWebsearchSubmitPacket } from "./websearch-lib.mjs";
 import { rehydrateWebsearchWire } from "./lib/rehydrate-explore-wire.mjs";
+import { daemonAsk, daemonAskBatch, daemonEnabled, warmDaemonPool } from "./lib/daemon-client.mjs";
 
 const WS_BACKEND = (process.env.EXPLORE_WS_BACKEND || "alpha").toLowerCase();
 
@@ -66,6 +67,95 @@ const SUBMIT_PACKET_MAX = envInt("EXPLORE_WS_SUBMIT_PACKET_MAX", 45_000);
 // raised wall to 22-27s with no QI/citation gain, so 18 is the tuned default.
 const SWARM_OPEN_CAP = envInt("EXPLORE_WS_SWARM_OPEN_CAP", 18);
 const SUBMIT_AUTHORITY_GATE = envBool("EXPLORE_WS_SUBMIT_AUTHORITY_GATE", true);
+
+// Daemon-pool source scoring (mirrors search-fast.mjs): score each fetched page
+// 0-10 for goal relevance in parallel across a warm mini pool, keep pages >=
+// floor, and synthesize the report from only the top-ranked sources. Replaces
+// the monolithic submit that ingested all ~45 pages in one slow turn.
+const WS_DAEMON = envBool("EXPLORE_WS_DAEMON", true) && daemonEnabled();
+const WS_SCORER_MODEL = (process.env.EXPLORE_WS_SCORER_MODEL || "gpt-realtime-mini").trim();
+const WS_SYNTH_MODEL = (process.env.EXPLORE_WS_SYNTH_MODEL || "gpt-realtime-2").trim();
+const WS_SCORE_MIN = envInt("EXPLORE_WS_SCORE_MIN", 4);
+const WS_SYNTH_MAX_SOURCES = envInt("EXPLORE_WS_SYNTH_MAX_SOURCES", 24);
+const WS_NAMESPACE = "websearch";
+const WS_SCORE_EXCERPT_MAX = envInt("EXPLORE_WS_SCORE_EXCERPT_MAX", 1200);
+
+const WS_SCORE_INSTRUCTIONS = [
+  "You are a research-source relevance scorer. You will be given a research GOAL and exactly one fetched web SOURCE (title + excerpt).",
+  "Decide how directly this SOURCE helps answer the GOAL, then return a single integer 0-10 via the score tool.",
+  "Use this exact scale:",
+  "0-1: unrelated (the source is about something else).",
+  "2-3: same general topic but does not substantively address the goal (tangential mention, navigation, marketing).",
+  "4-5: useful supporting context (background, adjacent technique, partial coverage).",
+  "6-7: directly on-topic evidence (covers a core aspect of the goal with specifics).",
+  "8-10: authoritative primary evidence (spec, paper, reference implementation, or detailed writeup that directly answers the goal).",
+  "Judge ONLY this source's own content. Reward primary/authoritative sources; do not reward a page just for repeating the goal's keywords.",
+  "Score conservatively and consistently. Return only the integer score.",
+].join("\n");
+
+const WS_SCORE_SCHEMA = {
+  type: "object",
+  properties: { score: { type: "integer", description: "0-10 goal relevance: 0-1 unrelated, 4-5 supporting, 6-7 on-topic, 8-10 authoritative primary evidence" } },
+  required: ["score"],
+  additionalProperties: false,
+};
+
+function wsScorePromptFor(goal, entry) {
+  const excerpt = (entry.excerpts && entry.excerpts.length ? entry.excerpts.join(" ") : entry.text || "").slice(0, WS_SCORE_EXCERPT_MAX);
+  return [
+    "GOAL:",
+    goal,
+    "",
+    `SOURCE: ${entry.url}${entry.title ? ` (${entry.title})` : ""}`,
+    "EXCERPT:",
+    excerpt || "(no excerpt)",
+    "",
+    "How directly does this SOURCE help answer the GOAL? Return the integer score 0-10 now.",
+  ].join("\n");
+}
+
+// Score every fetched page in parallel across the warm mini pool, keep pages
+// scoring >= floor (best first), and cap to the synthesis source budget. Each
+// kept entry retains its original fetchIndex so citation indices stay valid.
+// Fail-open: returns the input unchanged if the daemon path is disabled or every
+// score failed (the daemon is never on the correctness path).
+async function scoreAndRankSources(goal, fetchLog, { debug = false } = {}) {
+  if (!WS_DAEMON || !fetchLog.length) return { ranked: fetchLog, scored: false };
+  const t0 = Date.now();
+  const scores = await daemonAskBatch(
+    WS_NAMESPACE,
+    fetchLog.map((e) => ({
+      system: WS_SCORE_INSTRUCTIONS,
+      user: wsScorePromptFor(goal, e),
+      schema: WS_SCORE_SCHEMA,
+      schemaName: "score",
+    })),
+    { model: WS_SCORER_MODEL },
+  );
+  if (scores == null) return { ranked: fetchLog, scored: false };
+  const anyScored = scores.some((s) => s && typeof s.score === "number");
+  if (!anyScored) return { ranked: fetchLog, scored: false };
+  const ranked = fetchLog
+    .map((e, i) => ({ e, score: scores[i] && typeof scores[i].score === "number" ? scores[i].score : -1 }))
+    .filter((x) => x.score >= WS_SCORE_MIN)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, WS_SYNTH_MAX_SOURCES)
+    .map((x) => x.e);
+  if (debug) {
+    process.stderr.write(`phase score_ms=${Date.now() - t0} scorer=${WS_SCORER_MODEL} kept=${ranked.length}/${fetchLog.length} floor=${WS_SCORE_MIN}\n`);
+  }
+  // If the floor pruned everything (all low), fall back to the top-K by score so
+  // synthesis still has material rather than an empty report.
+  if (!ranked.length) {
+    const byScore = fetchLog
+      .map((e, i) => ({ e, score: scores[i] && typeof scores[i].score === "number" ? scores[i].score : -1 }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, Math.min(WS_SYNTH_MAX_SOURCES, fetchLog.length))
+      .map((x) => x.e);
+    return { ranked: byScore, scored: true };
+  }
+  return { ranked, scored: true };
+}
 
 // F1 strategies: each explores a distinct source class so the merged candidate
 // pool spans papers, repos/docs, production systems and standards in parallel.
@@ -161,6 +251,42 @@ async function runPointerSubmitPhase(conn, {
   throw new RealtimeError(lastError || "pointer submit failed");
 }
 
+// Daemon synthesis: run the pointer submit over the warm full-model pool with
+// reasoning OMITTED ("none"), reusing the same validate + reask loop. Returns
+// wire text on success or null to signal fail-open to the session submit. The
+// daemon is never on the correctness path.
+async function runDaemonPointerSubmit({ submitPacket, fetchLog, reask, debug = false }) {
+  const schema = websearchPointerSchema({ fetchLog });
+  let userText = submitPacket;
+  const t0 = Date.now();
+  for (let attempt = 0; attempt <= (reask ? 1 : 0); attempt += 1) {
+    const parsed = await daemonAsk(
+      WS_NAMESPACE,
+      {
+        system: SUBMIT_SYSTEM,
+        user: userText,
+        schema,
+        schemaName: SUBMIT_WEBSEARCH_POINTER_NAME,
+        reasoningEffort: "none",
+      },
+      { model: WS_SYNTH_MODEL },
+    );
+    if (!parsed) return null; // daemon miss -> fall back to session submit
+    const err = validateWebsearchPointer(parsed, fetchLog);
+    if (err) {
+      if (attempt < (reask ? 1 : 0)) {
+        userText = `${submitPacket}\n\nVALIDATION FAILED: ${err}\nFix citation_refs and call ${SUBMIT_WEBSEARCH_POINTER_NAME} again.`;
+        continue;
+      }
+      if (debug) process.stderr.write(`phase synth_daemon_invalid=${err}\n`);
+      return null; // validation failed after reask -> fall back
+    }
+    if (debug) process.stderr.write(`phase synth_ms=${Date.now() - t0} synth=${WS_SYNTH_MODEL}\n`);
+    return renderWebsearchWire(parsed, fetchLog);
+  }
+  return null;
+}
+
 async function runPointerReplay(replayPath, fetchLogFixture) {
   const lines = readFileSync(replayPath, "utf8").trim().split("\n").filter(Boolean);
   let argsJson = null;
@@ -225,6 +351,14 @@ function fixtureFetchLog() {
 // them on depth (45 URLs) at equal-or-better latency (docs/benchmarks/websearch-swarm.md).
 async function runAlphaWebsearch({ goal, authPath, ctx }) {
   const searchStart = Date.now();
+  // Warm the daemon scorer pool concurrently with the host fanout so the per-page
+  // scoring batch never pays a connect+handshake. Fire-and-forget; fail-open.
+  if (WS_DAEMON) {
+    warmDaemonPool(WS_NAMESPACE, undefined, { model: WS_SCORER_MODEL }).catch(() => {});
+    if (WS_SYNTH_MODEL !== WS_SCORER_MODEL) {
+      warmDaemonPool(WS_NAMESPACE, undefined, { model: WS_SYNTH_MODEL }).catch(() => {});
+    }
+  }
   await hostFanoutSearch(ctx, {
     authPathOverride: authPath,
     strategies: [...buildFanoutStrategies(goal), ...buildDeepenFacets(goal)],
@@ -277,6 +411,16 @@ async function runWebsearch({
       pruneFetchLogForSubmit(ctx);
     }
 
+    // Score each fetched page 0-10 for goal relevance in parallel across the warm
+    // mini pool, keep pages >= floor (best first), and synthesize from only the
+    // top-ranked sources. Fail-open: scoreAndRankSources returns the pruned log
+    // unchanged when the daemon path is unavailable. fetchIndex is preserved on
+    // each entry so citation indices stay valid against the FULL fetchLog.
+    let scoreMs = 0;
+    const scoreStart = Date.now();
+    const { ranked: synthSources, scored } = await scoreAndRankSources(goal, ctx.fetchLog, { debug: true });
+    scoreMs = Date.now() - scoreStart;
+
     // Swarm runs every search/open over HTTP while the RT socket sits idle with no
     // reader. The WebSocket pong is only emitted from the frame read loop
     // (realtime_client.mjs), so server pings during that idle window go unanswered
@@ -285,41 +429,56 @@ async function runWebsearch({
     // stale no-op here. Reconnect unconditionally before submit: the submit phase
     // reconfigures the session from scratch (session.update below), so a fresh
     // socket is correct and carries no lost state.
-    if (backend === "alpha") {
-      await session.reconnectFresh("post-host-search-idle");
-    }
+    // Only needed for the fallback session submit; the daemon synth uses its own
+    // warm pool. Defer the reconnect until we know we need it.
 
     const submitStart = Date.now();
     const submitPacket = buildWebsearchSubmitPacket({
       goal,
       submitInstructions,
-      fetchIndex: buildFetchIndex(ctx.fetchLog, { previewExcerpts: 3 }),
+      fetchIndex: buildFetchIndex(synthSources, { previewExcerpts: 3 }),
       maxChars: SUBMIT_PACKET_MAX,
     });
 
-    const submitSession = {
-      type: "session.update",
-      session: {
-        type: "realtime",
-        instructions: SUBMIT_SYSTEM,
-        output_modalities: ["text"],
-        tools: [],
-        ...realtimeReasoningConfig(SUBMIT_REASONING),
-      },
-    };
-    session.prewarm(submitSession);
-
-    const wire = await runPointerSubmitPhase(session.connection, {
-      submitPacket,
-      fetchLog: ctx.fetchLog,
-      deadlineMs,
-      framesPath,
-      reask: SUBMIT_REASK,
-    });
+    // Synthesis: prefer the warm full-model daemon pool (reasoning omitted); fall
+    // back to the session submit on any daemon miss. Citations validate/rehydrate
+    // against the FULL fetchLog so indices remain stable regardless of pruning.
+    let wire = null;
+    if (WS_DAEMON) {
+      wire = await runDaemonPointerSubmit({
+        submitPacket,
+        fetchLog: ctx.fetchLog,
+        reask: SUBMIT_REASK,
+        debug: true,
+      });
+    }
+    if (wire == null) {
+      if (backend === "alpha") {
+        await session.reconnectFresh("post-host-search-idle");
+      }
+      const submitSession = {
+        type: "session.update",
+        session: {
+          type: "realtime",
+          instructions: SUBMIT_SYSTEM,
+          output_modalities: ["text"],
+          tools: [],
+          ...realtimeReasoningConfig(SUBMIT_REASONING),
+        },
+      };
+      session.prewarm(submitSession);
+      wire = await runPointerSubmitPhase(session.connection, {
+        submitPacket,
+        fetchLog: ctx.fetchLog,
+        deadlineMs,
+        framesPath,
+        reask: SUBMIT_REASK,
+      });
+    }
     const submitMs = Date.now() - submitStart;
 
     process.stderr.write(
-      `phase search_ms=${searchMs} fetch_ms=${fetchMs} submit_ms=${submitMs} searches=${ctx.searchCount} fetches=${ctx.fetchCount} urls_fetched=${ctx.fetchLog.length}\n`,
+      `phase search_ms=${searchMs} fetch_ms=${fetchMs} score_ms=${scoreMs} scored=${scored} synth_sources=${synthSources.length} submit_ms=${submitMs} searches=${ctx.searchCount} fetches=${ctx.fetchCount} urls_fetched=${ctx.fetchLog.length}\n`,
     );
 
     const text = hydrate ? rehydrateWebsearchWire(wire) : wire;

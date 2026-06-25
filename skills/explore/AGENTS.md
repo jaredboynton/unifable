@@ -13,6 +13,12 @@
 
 **Alpha defaults (speed):** one coalesced `alpha/search` batch per RT turn (`EXPLORE_WS_STOP_SEARCHES=1`, `EXPLORE_WS_COALESCE_WEB_RUN=1`), `128000` max output tokens (the model cap; small caps truncate multi-page fetches), query-matched per-URL excerpts for submit, mandatory citation coverage (cite every on-topic fetched source).
 
+**Daemon-pool source scoring + focused synthesis (mirrors `search-fast.mjs`).** After the host swarm fetch and authority gate, websearch scores EVERY fetched page 0-10 for goal relevance in PARALLEL across the warm daemon pool (`scoreAndRankSources` -> `daemonAskBatch`), keeps pages >= floor (best first), and synthesizes the report from only the top-ranked sources via a single daemon turn (`runDaemonPointerSubmit` -> `daemonAsk`). This replaces the old monolithic submit that ingested all ~45 pages in one slow turn. Measured A/B (MCP goal): scoring 43 pages = ~0.8s on the mini pool (kept top 24), synth 12.3s vs 15.4s monolithic; same 6-section structure and citation coverage.
+- **Scorer = `gpt-realtime-mini`** (`EXPLORE_WS_SCORER_MODEL`, 2x TPS, reasoning omitted); **synthesis = `gpt-realtime-2`** (`EXPLORE_WS_SYNTH_MODEL`) with reasoning OMITTED (`reasoning_effort:"none"` -> daemon sends no `reasoning` field). The pool warms concurrently with the host fanout so scoring pays no connect+handshake.
+- **Citations validate/rehydrate against the FULL fetchLog**, so pruning to the top-K never invalidates citation indices (each entry keeps its `fetchIndex`).
+- **Fail-open (daemon never on the correctness path):** if the score batch is unavailable, all pruned pages pass through unscored; if the daemon synth misses or fails validation after one reask, it falls back to the legacy session submit (which reconnects the RT socket first). Force the legacy path with `EXPLORE_WS_DAEMON=0`.
+- **Knobs:** `EXPLORE_WS_DAEMON` (default on), `EXPLORE_WS_SCORER_MODEL` (`gpt-realtime-mini`), `EXPLORE_WS_SYNTH_MODEL` (`gpt-realtime-2`), `EXPLORE_WS_SCORE_MIN` (floor 4 = the rubric's "useful supporting context" band and up), `EXPLORE_WS_SYNTH_MAX_SOURCES` (24), `EXPLORE_WS_SCORE_EXCERPT_MAX` (1200). The daemon pool, namespace, and process-pool design are shared with search and the judge (see "Warm daemon pool"); websearch uses the `"websearch"` namespace so its sockets never collide.
+
 **Realtime `web_search`:** Not supported on gpt-realtime-2 Realtime WS. Server rejects `{ type: "web_search" }` with `Supported values are: 'function' and 'mcp'.` Use `web_run` function tool bridged to Codex `alpha/search` instead. (Probe retired to `scripts/archive/probe-rt-websearch.sh`.)
 
 ## Code search transport
@@ -27,7 +33,41 @@
 - **Reasoning effort default `minimal`.** With forced tool use and grep hydration, the model no longer wanders; it batches and converges in 2-4 turns. `EXPLORE_SEARCH_REASONING_EFFORT` remains an override.
 - Parallel tool calls are already on (`parallel_tool_calls` in `realtime-search.mjs`); the loop fires 3-6 calls/turn.
 
-## Forced tool use on gpt-realtime-2 (anti-narration)
+## Fast search path (host retrieve + parallel span scoring)
+
+`search-rt.mjs` tries `runFastPath` (`search-fast.mjs`) BEFORE the agentic loop; on `null` (empty pool, daemon unavailable, or nothing cleared the score floor) it falls back to `runSearch` for quality safety. The fast path replaces the multi-turn explore loop with host pre-processing + ONE parallel scoring wave, landing symbol queries ~0.6s and prose ~1.3s (warm pool).
+
+Pipeline:
+1. **One combined ripgrep** over the alternation of all query terms (`runCombinedRg`); classify def-vs-ref + rank files in node (`classifyHits` / `scoreCandidates`). Scoring is IDF-style: rare query terms (low document frequency) outweigh common ones, central dirs score up, generators/vendor down.
+2. **Multi-span AST hydration** via the shared `hydrateHitsToBlocks` (`ast-context.mjs`, the same proven path as grep `enrichGrepLines`): each hit expands to its enclosing AST node (cAST: never split mid-function), deduped per file, comment-stripped, clamped. Emits MULTIPLE spans per file (default 6) so a scattered answer (a helper + the core fn far apart) is each captured as its own candidate. Hits are hydrated in rarity-weighted order so the most distinctive matches win the per-file span budget.
+3. **Parallel relevance scoring**: one tiny 0-10 call PER SPAN, fanned out across the warm daemon process-pool (`daemonAskBatch`). The score prompt is an explicit 0-10 rubric (`SCORE_INSTRUCTIONS`) written for a no-reasoning model: no ambiguity, judge the window on its own merit.
+4. **Coalesce** (`EXPLORE_SEARCH_FINISH_MODE`): `score` (A1, default) keeps spans >= floor, groups by file, merges ranges (`path:a-b,c-d`), orders by best span score, no model turn. `coalesce` (A2) adds one finish turn over survivors. A/B showed A1 wins on quality AND latency; A2 is debug-only.
+
+Tuning: `EXPLORE_SEARCH_FAST=0` (disable), `EXPLORE_SEARCH_FAST_MAX_FILES` (12), `EXPLORE_SEARCH_FAST_MAX_SPANS` (32), `EXPLORE_SEARCH_FAST_SPANS_PER_FILE` (6), `EXPLORE_SEARCH_FAST_HYDRATE_SPAN` (40), `EXPLORE_SEARCH_SCORE_MIN` (floor 4 = the rubric's "related supporting code" band and up; a single span rarely scores the rubric's "definitive answer" for distributed prose answers, so 6 starved prose queries), `EXPLORE_SEARCH_FINISH_MAX` (6 files).
+
+## Warm daemon pool (shared with judge)
+
+Scoring runs against a pool of always-warm Realtime sockets so no call pays connect/prewarm. `scripts/gate/realtime_daemon.py` (generalized from the judge daemon) holds persistent gpt-realtime sockets; `lib/daemon-client.mjs` is the node IPC client.
+
+- **Process pool, not thread pool.** One Realtime session serializes responses and the Python GIL serializes a thread pool, so the client spawns N single-worker daemon processes (default `POOL_SIZE`=8, matching the ~8 concurrent OpenAI account ceiling) on sockets `searchd/<key>-<slot>.sock`. `daemonAskBatch` spreads requests `i % POOL` across slots; measured ~16 calls in ~1.1s flat. One socket can run ~128 concurrent OOB responses (throughput, used by judge) but its latency grows with N; the process pool keeps latency flat.
+- **Event-driven, eager-warm, fail-open.** Workers wake on a socketpair self-pipe (no polling), warm all sockets at startup, idle-shutdown, and reconnect + refresh tokens on drop. Daemon unavailable -> client returns null -> fast path falls back to the in-process warm call, then the agentic loop. At pool=1 the daemon is byte-identical to the judge.
+- **Scorer model knob.** `EXPLORE_SEARCH_SCORER_MODEL` (default `gpt-realtime-2`). `gpt-realtime-mini` is opt-in: 2x TPS, 32k context, function calling, but **rejects the `reasoning` option** ("Unsupported option for this model") so `_realtime_reasoning_config` omits `reasoning` for mini (and for effort `none`/`off`). Sockets are namespaced by model; the client spawns the daemon with `UNIFABLE_JUDGE_MODEL=<scorer>`. mini scores ~2.3x faster (N=8 0.63s vs 1.42s) at comparable quality.
+
+## Realtime model throughput (WSS, measured)
+
+Do **not** send the `priority` service tier on Realtime requests — it measurably SLOWS them (lower TPS, higher or equal TTFT in every row below). Leave the tier at default. The Realtime search/trace/judge/daemon paths already send no `priority`/`service_tier`; keep it that way. (The only `service_tier: "priority"` left is `lib/codex-responses-client.mjs`, a Codex Responses HTTP path that is out of scope for search/trace.)
+
+Reasoning `omit` (no `reasoning` field) beats `minimal` on both TPS and TTFT. `gpt-realtime-mini` is roughly 2x the TPS of the full models. Measured WSS TPS (default / priority) and TTFT (default / priority):
+
+| Model | Reasoning | WSS TPS default / priority | WSS TTFT default / priority |
+|---|---|---|---|
+| `gpt-realtime-1.5` | omit | 113.4 / 92.8 | 269 / 329 ms |
+| `gpt-realtime` | omit | 115.9 / 107.5 | 288 / 217 ms |
+| `gpt-realtime-2` | omit | 121.3 / 112.0 | 513 / 511 ms |
+| `gpt-realtime-2` | minimal | 107.5 / 110.0 | 445 / 461 ms |
+| `gpt-realtime-mini` | omit | 219.3 / 176.7 | 308 / 185 ms |
+
+
 
 All gpt-realtime-2 function-call loops force `tool_choice: "required"` every turn and carry the prompt line "Do not narrate steps or tool calls. Perform all searching/reading silently." `finish`/`submit` tools are always in the toolset so required is always satisfiable, and it eliminates plain-text non-answer turns. Applies to: search (`realtime-search.mjs`), trace explore phase (`realtime-trace.mjs`, gated by `EXPLORE_RT_EXPLORE_TOOL_REQUIRED`, default on), and submit phases (`askStructured`, already required).
 
@@ -44,9 +84,19 @@ Superseded trace variants (`trace-gemini.sh` Gemini CLI, `trace-gk.sh` Grok, `tr
 
 **gpt-realtime-2** (OpenAI Realtime WebSocket) is the target model/API for deep codebase trace in this skill. Default entry: `trace.sh` → `trace-rt.sh` / `realtime-trace.mjs`.
 
-- Explore phase: Realtime tools (`explore_exec`); default reasoning effort `low`.
-- Submit phase: Realtime structured output (`askStructured` / function call JSON), with host pointer rehydration by default; default reasoning effort `minimal`.
+- Explore phase: default mode `nav` (host-driven micro-agent), with `agentic` (legacy `explore_exec` Realtime loop, reasoning `low`) as the override and the automatic fail-open.
+- Submit phase: Realtime structured output (`askStructured` / function call JSON) with host pointer rehydration, synthesized over the warm daemon pool by default; default reasoning effort `minimal` on the session fallback, omitted on the daemon path.
 - **Do not** add Codex Responses HTTP (`chatgpt.com/backend-api/codex/responses`) or other Responses-API submit paths here — they are out of scope and were removed after bench showed no win over Realtime submit.
+
+## Trace fast path (nav explore + daemon submit)
+
+A/B-decided defaults on the kepler precision set (`scripts/bench/trace-ab.sh`; results + tradeoffs in `docs/benchmarks/trace-fast.md`). Do not change these without a new benchmark run.
+
+- **Explore = `nav` (`EXPLORE_RT_EXPLORE_MODE`, default).** `lib/rt-explore-nav.mjs`: host seeds the read cache with the search-fast retriever (`retrieveCandidates` — one combined rg → classify/score → AST-hydrate, pinned), then fans out **8 parallel `gpt-realtime-mini` navigators** (`EXPLORE_RT_NAV_COUNT=8`, `EXPLORE_RT_NAV_ROUNDS=1`) over the warm pool. Each navigator (distinct facet framing) returns `grep_terms` + `read_paths`; the host greps (one combined rg) and reads (`toolReadRange`, confined + preamble-stripped), unions/dedups by path+range, and writes into the same `readCache` the submit phase consumes. mini never reads files itself. Breadth in one round beat depth (4×2/6×2/8×2) on the bench.
+- **Submit = daemon pool, full `gpt-realtime-2`, reasoning omitted** (`runDaemonPointerSubmit` → `daemonAsk`, `EXPLORE_RT_DAEMON=1`, `EXPLORE_RT_SYNTH_MODEL=gpt-realtime-2`). Reuses the pointer rehydrate + `validateTraceObject` + one-reask path; a daemon miss or post-reask invalid result falls back to the live-session `runSubmitPhase`. A **mini synth collapsed quality** (bench score 3 vs 5-6), so the synth model stays full; submit generation is the dominant cost in every mode.
+- **Three-tier fail-open:** nav → (daemon unavailable) agentic `explore_exec` loop; daemon submit → live-session submit → agentic submit. The daemon is never on the correctness path. `hybrid` mode adds a one-turn agentic top-up on thin coverage (override; added latency without a quality win on the bench).
+- **Pool warming:** `realtime-trace.mjs` warms the synth pool (and the nav-model pool when it differs) concurrently with connect + explore, so neither batch pays a connect+handshake. Shared pool/namespace design is in "Warm daemon pool"; trace uses the `"trace"` namespace.
+- **Knobs:** `EXPLORE_RT_EXPLORE_MODE` (`nav`|`agentic`|`hybrid`), `EXPLORE_RT_NAV_MODEL` (`gpt-realtime-mini`), `EXPLORE_RT_NAV_COUNT` (8), `EXPLORE_RT_NAV_ROUNDS` (1), `EXPLORE_RT_DAEMON` (1), `EXPLORE_RT_SYNTH_MODEL` (`gpt-realtime-2`), `EXPLORE_RT_NAV_SEED_SPANS` (12), `EXPLORE_RT_NAV_ROUND_SPANS` (8).
 
 Optional submit overrides (debug only): `EXPLORE_RT_SUBMIT_TRANSPORT=rt|wire-rt` (default `rt`).
 
@@ -63,6 +113,9 @@ Optional submit overrides (debug only): `EXPLORE_RT_SUBMIT_TRANSPORT=rt|wire-rt`
 | Task | Location |
 |---|---|
 | Realtime trace pipeline | `scripts/realtime-trace.mjs` |
+| Trace nav micro-agent (explore) | `scripts/lib/rt-explore-nav.mjs` |
+| Daemon IPC client (shared) | `scripts/lib/daemon-client.mjs` |
+| Trace A/B harness + benchmark | `scripts/bench/trace-ab.sh`, `docs/benchmarks/trace-fast.md` |
 | Realtime client | `scripts/lib/realtime_client.mjs` |
 | RT agent session (reuse/prewarm/reconnect) | `scripts/lib/rt-agent-session.mjs` |
 | Pointer submit / rehydration | `scripts/lib/rt-rehydrate-submit.mjs`, `scripts/lib/rt-pick-passages.mjs` |

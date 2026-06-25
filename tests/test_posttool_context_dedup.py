@@ -116,17 +116,11 @@ def test_citation_sync_no_repeat_same_guidance():
         assert JUDGE_REASON not in ctx2
 
 
-def test_spec_cli_still_emits_action_digest():
+def test_spec_cli_success_add_task_is_silent():
     spec = _sample_spec()
-    buf = io.StringIO()
-    with redirect_stderr(buf):
-        mn.notify_spec_update(
-            spec,
-            "Requirement T9 added: follow-up.",
-            highlight_task="T1",
-        )
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["UNIFABLE_DATA"] = tmp
+        save_spec(tmp, "spec-cli-digest", spec)
         payload = {
             "session_id": "spec-cli-digest",
             "turn_id": "turn-cli",
@@ -137,15 +131,12 @@ def test_spec_cli_still_emits_action_digest():
             },
             "tool_response": {
                 "exit_code": 0,
-                "stdout": "Added T9",
-                "stderr": buf.getvalue(),
+                "stdout": "Added T9: follow",
             },
         }
         out = _run_post_tool(payload)
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "Requirement T9 added" in ctx
-        assert "T1:" in ctx
-        assert JUDGE_REASON in ctx
+        assert ctx == ""
 
 
 def test_parallel_identical_body_deduped(capsys):

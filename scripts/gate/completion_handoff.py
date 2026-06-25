@@ -208,15 +208,35 @@ def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> 
         }
 
     user_goal = ""
+    spec_deliverable_complete = False
     try:
         from spec_io import load_spec, resolve_session_id
+        from spec_tasks import all_tasks_validated
 
         session_id = resolve_session_id(input_data, default=None)
         spec = load_spec(cwd, session_id)
         if spec:
             user_goal = str(spec.get("restated_goal") or "").strip()
+            tasks = spec.get("tasks")
+            # Only "complete" when there is a real tracked deliverable (>=1 task)
+            # and every task is resolved -- an empty/task-less spec validates
+            # vacuously and must NOT short-circuit the handoff guard.
+            if isinstance(tasks, list) and tasks and all_tasks_validated(spec)[0]:
+                spec_deliverable_complete = True
     except Exception:
         pass
+
+    # Deterministic allow when the evidence spec's tracked deliverable is provably
+    # complete (>=1 task, all validated). A text-only sign-off is then not a
+    # deferred-work handoff: any remaining "want me to commit?" is user-owned, which
+    # the judge's own ALLOW rules already cover. This also resolves the Stop-hook
+    # contention where the evidence gate reports "all tasks validated" while this
+    # judge independently blocks -- the two no longer disagree. The guard stays
+    # fully active for LIGHT / task-less / unsatisfied-spec sessions.
+    if spec_deliverable_complete:
+        ledger["completion_handoff_blocks"] = 0
+        save_ledger(input_data, ledger)
+        return None
 
     grade = str(ledger.get("grade") or input_data.get("grade") or "").strip()
     transcript = _transcript_for_handoff_judge(transcript_path, input_data)

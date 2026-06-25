@@ -403,8 +403,16 @@ export const DEFAULT_EXPLORE_REASONING_EFFORT = "low";
 export const DEFAULT_SUBMIT_REASONING_EFFORT = "minimal";
 export const DEFAULT_REASONING_EFFORT = DEFAULT_SUBMIT_REASONING_EFFORT;
 
+// Sentinels that disable reasoning by OMITTING the `reasoning` field entirely.
+// The Realtime API has no "none"/"off" effort level; the way to run with no
+// reasoning is to send no `reasoning` key at all (mirrors the Python judge's
+// _realtime_reasoning_config in scripts/gate/codex_judge.py).
+const REASONING_OMIT_VALUES = new Set(["", "none", "off", "omit", "false", "no", "disable", "disabled"]);
+
 export function realtimeReasoningConfig(effort = DEFAULT_SUBMIT_REASONING_EFFORT) {
-  return { reasoning: { effort } };
+  const e = typeof effort === "string" ? effort.trim().toLowerCase() : effort;
+  if (e == null || REASONING_OMIT_VALUES.has(e)) return {};
+  return { reasoning: { effort: e } };
 }
 
 export async function askStructured(conn, {

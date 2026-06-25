@@ -19,14 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from model_notify import (
-    bash_output_text,
     build_citation_sync_context,
-    build_spec_context_from_output,
-    build_spec_context_from_spec,
-    format_spec_action_digest_delta,
-    is_mutating_spec_cli,
+    build_posttool_spec_context,
     is_spec_cli_command,
-    parse_spec_cli_invocation,
 )
 from parse_tool_result import (
     changed_kinds,
@@ -64,31 +59,26 @@ def _fresh_tool_block(input_data: dict, tool_name: str, executed_ok: bool) -> st
     return f"[tool_result name={tool_name}]\n{excerpt}"
 
 
-def _spec_context(input_data: dict, tool_name: str, cwd: str) -> str:
+def _spec_context(input_data: dict, tool_name: str, cwd: str) -> tuple[str, dict[str, dict[str, str]] | None]:
     if tool_name != "Bash":
-        return ""
+        return "", None
     command = command_from_input(input_data)
     if not is_spec_cli_command(command):
-        return ""
-    text = bash_output_text(input_data.get("tool_response", input_data), 16000)
-    ctx = build_spec_context_from_output(text)
-    if ctx:
-        return ctx
-    _sub, _parsed_tid = parse_spec_cli_invocation(command)
+        return "", None
     try:
         from spec_io import load_spec, resolve_session_id
 
-        task_id = _parsed_tid or resolve_session_id(input_data, default=None)
-        if not task_id:
-            return ""
-        if not is_mutating_spec_cli(command):
-            return ""
-        spec = load_spec(cwd, task_id)
-        if spec:
-            return build_spec_context_from_spec(spec)
+        task_id = resolve_session_id(input_data, default=None)
+        spec = load_spec(cwd, task_id) if task_id else None
+        ledger = load_ledger(input_data)
+        return build_posttool_spec_context(
+            command,
+            input_data.get("tool_response", input_data),
+            spec,
+            ledger,
+        )
     except Exception:
-        return ""
-    return ""
+        return "", None
 
 
 def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool) -> str:
@@ -202,27 +192,6 @@ def _emit_context(
     )
 
 
-def _spec_action_context_from_spec(
-    input_data: dict,
-    spec: dict[str, Any],
-    *,
-    highlight_task: str | None = None,
-    force: bool = False,
-) -> tuple[str, dict[str, dict[str, str]] | None]:
-    """Delta action digest using ledger guidance cache."""
-    try:
-        ledger = load_ledger(input_data)
-        action, guidance_map = format_spec_action_digest_delta(
-            spec,
-            ledger,
-            highlight_task=highlight_task,
-            force=force,
-        )
-        return action, guidance_map
-    except Exception:
-        return "", None
-
-
 def main() -> int:
     input_data = read_stdin_json()
 
@@ -332,25 +301,9 @@ def main() -> int:
     except Exception:
         pass
 
-    spec_context = _spec_context(input_data, tool_name, cwd)
+    spec_context, guidance_map = _spec_context(input_data, tool_name, cwd)
     breaker_context = _breaker_release_context(input_data, tool_name, executed_ok)
     breaker_status_context = _breaker_status_context(input_data)
-
-    guidance_map = None
-    if spec_context:
-        try:
-            from spec_io import load_spec, resolve_session_id
-
-            _tid = resolve_session_id(input_data, default=None)
-            _sp = load_spec(cwd, _tid) if _tid else None
-            if isinstance(_sp, dict):
-                _, guidance_map = _spec_action_context_from_spec(
-                    input_data,
-                    _sp,
-                    force=True,
-                )
-        except Exception:
-            pass
 
     repeat = repeated_failure(ledger.get("failures", [])) if failure else None
     if repeat:

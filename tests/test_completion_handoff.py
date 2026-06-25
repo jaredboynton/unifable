@@ -187,6 +187,81 @@ def test_allows_commit_permission():
         assert out is None
 
 
+def _save_spec_with_tasks(cwd: str, session_id: str, statuses: list[str]) -> None:
+    try:
+        from spec_io import save_spec
+    except Exception:  # pragma: no cover - facade fallback
+        from spec import save_spec
+    spec = {
+        "restated_goal": "fix the two gate bugs, restated in my own words",
+        "acceptance_criteria": [{"check": "true", "evidence": "ran -> ok"}],
+        "tasks": [
+            {"id": f"T{i + 1}", "title": f"task {i + 1}", "check": "true", "status": s}
+            for i, s in enumerate(statuses)
+        ],
+    }
+    save_spec(cwd, session_id, spec)
+
+
+def test_allows_when_spec_tasks_all_validated():
+    """Deterministic allow (no judge call) when the spec has tasks and all are
+    validated -- the tracked deliverable is complete, so a closing 'want me to
+    commit?' is user-owned, not a deferred-work handoff."""
+    with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as dd:
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(
+            transcript,
+            [{"type": "text", "text": "All requirements are validated. Want me to commit these changes?"}],
+        )
+        payload = _payload(transcript, session_id="handoff_validated")
+        called = {"judge": False}
+
+        def fake_judge(*_a, **_k):
+            called["judge"] = True
+            return {"ok_to_stop": False, "reason": "would block", "steering": "do more"}
+
+        old_env = os.environ.get("UNIFABLE_DATA")
+        try:
+            os.environ["UNIFABLE_DATA"] = dd
+            _save_spec_with_tasks(td, "handoff_validated", ["validated", "validated"])
+            with patch.object(completion_handoff, "judge_completion_handoff", fake_judge):
+                out = completion_handoff.completion_handoff_decision(payload, td)
+        finally:
+            if old_env is None:
+                os.environ.pop("UNIFABLE_DATA", None)
+            else:
+                os.environ["UNIFABLE_DATA"] = old_env
+
+        assert out is None
+        assert not called["judge"]
+
+
+def test_blocks_when_spec_task_incomplete():
+    """Guard: the short-circuit must NOT fire while any task is still open; the
+    judge still governs and may block."""
+    with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as dd:
+        transcript = Path(td) / "session.jsonl"
+        _write_transcript(transcript, [{"type": "text", "text": "Want me to keep going on the rest?"}])
+        payload = _payload(transcript, session_id="handoff_incomplete")
+
+        def fake_judge(*_a, **_k):
+            return {"ok_to_stop": False, "reason": "deferred work remains", "steering": "finish T2 now"}
+
+        old_env = os.environ.get("UNIFABLE_DATA")
+        try:
+            os.environ["UNIFABLE_DATA"] = dd
+            _save_spec_with_tasks(td, "handoff_incomplete", ["validated", "pending"])
+            with patch.object(completion_handoff, "judge_completion_handoff", fake_judge):
+                out = completion_handoff.completion_handoff_decision(payload, td)
+        finally:
+            if old_env is None:
+                os.environ.pop("UNIFABLE_DATA", None)
+            else:
+                os.environ["UNIFABLE_DATA"] = old_env
+
+        assert out and out.get("decision") == "block"
+
+
 def test_allows_when_last_turn_had_tool():
     with tempfile.TemporaryDirectory() as td, tempfile.TemporaryDirectory() as dd:
         transcript = Path(td) / "session.jsonl"

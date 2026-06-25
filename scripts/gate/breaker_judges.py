@@ -159,6 +159,80 @@ def verify_claim_predicate(predicate: Any, cwd: str) -> str:
         return "unverifiable"
 
 
+_SELF_RESOLVE_TIMEOUT = 6.0
+_SELF_RESOLVE_MAX_CHARS = 8000
+
+
+def _self_resolve_enabled() -> bool:
+    """Read-only self-resolution is on by default; UNIFABLE_BREAKER_SELF_RESOLVE=0 disables it."""
+    return os.environ.get("UNIFABLE_BREAKER_SELF_RESOLVE", "1").strip().lower() not in ("0", "false", "no", "off")
+
+
+def run_explore_search(
+    query: str,
+    cwd: str,
+    *,
+    timeout: float = _SELF_RESOLVE_TIMEOUT,
+    max_chars: int = _SELF_RESOLVE_MAX_CHARS,
+) -> str:
+    """Run the explore skill's search.sh --json READ-ONLY and return a compact
+    snippets blob (capped), or '' on any failure/timeout/missing script. Never
+    raises -- breaker self-resolution is fail-open."""
+    q = str(query or "").strip()
+    if not q:
+        return ""
+    try:
+        try:
+            from research_bash_guidance import resolve_explore_search_sh
+        except ImportError:  # pragma: no cover
+            from scripts.gate.research_bash_guidance import resolve_explore_search_sh
+        script = resolve_explore_search_sh()
+        if not script:
+            return ""
+        import subprocess
+
+        proc = subprocess.run(
+            ["bash", str(script), "--json", "--root", str(cwd or "."), q],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+        out = (proc.stdout or "").strip()
+        return out[:max_chars] if out else ""
+    except Exception:
+        return ""
+
+
+def _self_resolve_via_search(
+    claim: str,
+    resolve_query: Any,
+    segment: str,
+    cwd: str,
+    *,
+    user_goal: str = "",
+) -> bool:
+    """Read-only self-resolution: gather repo evidence via explore search and ask the
+    release judge whether the flagged claim is now grounded. Returns True to
+    DE-ESCALATE (do not arm). Fail-open: disabled, empty query, no search results,
+    or any error returns False so the arm verdict stands -- this can only REMOVE a
+    false arm, never add a block."""
+    if not _self_resolve_enabled():
+        return False
+    q = str(resolve_query or "").strip()
+    if not q:
+        return False
+    try:
+        snippets = run_explore_search(q, cwd)
+        if not snippets:
+            return False
+        enriched = f"{segment}\n\n[breaker self-resolution] read-only explore search for '{q}' returned:\n{snippets}"
+        verdict = disarm_judge(claim, enriched, user_goal=user_goal)
+        return bool(getattr(verdict, "grounded", False))
+    except Exception:
+        return False
+
+
 def _parse_director_fields(obj: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Extract the stepwise director's (directive, tool_scope) from a judge object.
 
@@ -242,6 +316,13 @@ def arm_judge(
     if verdict == 1:
         cwd = str((input_data or {}).get("cwd") or os.getcwd())
         if verify_claim_predicate(obj.get("verify"), cwd) == "confirmed":
+            return 0, "", ""
+        # Read-only self-resolution: if the judge named a search that would settle the
+        # claim, run it (explore search.sh, read-only) and de-escalate if the gathered
+        # evidence grounds it -- instead of arming and forcing the model to re-read what
+        # the breaker could check here. De-escalate-only; disabled/empty/timeout/error
+        # leaves the arm verdict intact, so it can never add a block.
+        if _self_resolve_via_search(claim, obj.get("resolve_query"), segment, cwd):
             return 0, "", ""
     return verdict, steering, claim
 

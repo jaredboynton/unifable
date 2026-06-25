@@ -42,6 +42,8 @@ import {
   orderReadCacheEntries,
   rehydratePointerSubmit,
 } from "./lib/rt-rehydrate-submit.mjs";
+import { daemonAsk, daemonEnabled, warmDaemonPool } from "./lib/daemon-client.mjs";
+import { runExploreNav } from "./lib/rt-explore-nav.mjs";
 
 const WIRE_SUBMIT_SCHEMA = {
   type: "object",
@@ -153,6 +155,22 @@ const EXPLORE_RT_SUBMIT_REASONING_EFFORT =
   || DEFAULT_SUBMIT_REASONING_EFFORT;
 const EXPLORE_RT_EXPLORE_TOOL_REQUIRED = envBool("EXPLORE_RT_EXPLORE_TOOL_REQUIRED", true);
 const EXPLORE_RT_MAP_COMPACT_SUBMIT = envBool("EXPLORE_RT_MAP_COMPACT_SUBMIT", true);
+
+// Daemon submit: synthesize the pointer trace over the warm gpt-realtime daemon
+// pool (reasoning omitted), mirroring websearch's runDaemonPointerSubmit. The
+// daemon is never on the correctness path — a miss/invalid result falls back to
+// the live-session runSubmitPhase. Default on; disable with EXPLORE_RT_DAEMON=0.
+const EXPLORE_RT_DAEMON = envBool("EXPLORE_RT_DAEMON", true) && daemonEnabled();
+const EXPLORE_RT_NAMESPACE = (process.env.EXPLORE_RT_NAMESPACE || "trace").trim();
+const EXPLORE_RT_SYNTH_MODEL = (process.env.EXPLORE_RT_SYNTH_MODEL || "gpt-realtime-2").trim();
+// Explore strategy (A/B-decided): nav = host-driven micro-agent (mini navigators
+// + host hydration). On the kepler precision set nav delivered the best
+// quality-per-second (~2x faster than the agentic explore_exec loop at
+// comparable grounding) and fails open to agentic when the daemon is
+// unavailable. agentic = legacy full-model explore_exec loop; hybrid = nav with a
+// one-turn agentic top-up on thin coverage. See docs/benchmarks/trace-fast.md.
+const EXPLORE_RT_EXPLORE_MODE = (process.env.EXPLORE_RT_EXPLORE_MODE || "nav").trim();
+const EXPLORE_RT_NAV_MODEL = (process.env.EXPLORE_RT_NAV_MODEL || "gpt-realtime-mini").trim();
 
 function submitTransport() {
   const t = String(process.env.EXPLORE_RT_SUBMIT_TRANSPORT || "rt").toLowerCase();
@@ -388,6 +406,53 @@ async function runExplorePhase(session, {
   return { toolTurnCount, exploreTurns, maxBatch, seedPaths, exploreItemIds };
 }
 
+// Explore-phase dispatcher (A/B). agentic = full-model explore_exec loop
+// (runExplorePhase, legacy default). nav = host-driven micro-agent (mini
+// navigators + host hydration, no live-session tool loop). hybrid = nav primary,
+// with one agentic turn appended when nav coverage is thin. Fail-open: nav/hybrid
+// fall back to the agentic loop whenever the daemon path is unavailable.
+async function dispatchExplore(session, args) {
+  const mode = EXPLORE_RT_EXPLORE_MODE;
+  if (mode !== "nav" && mode !== "hybrid") {
+    return runExplorePhase(session, args);
+  }
+
+  const { workspace, question, mapBlock, filesRead, readCache, toolLog, framesPath } = args;
+  const onRead = makeReadTracker(workspace, filesRead, readCache);
+  const navStats = await runExploreNav({
+    workspace,
+    question,
+    mapBlock,
+    filesRead,
+    readCache,
+    onRead,
+    namespace: EXPLORE_RT_NAMESPACE,
+    navModel: EXPLORE_RT_NAV_MODEL,
+    debug: Boolean(framesPath),
+  });
+
+  if (!navStats) {
+    toolLog.push("phase explore_mode=nav_failopen->agentic");
+    return runExplorePhase(session, args);
+  }
+  if (navStats.seedPaths.length) toolLog.push(`seed reads: ${navStats.seedPaths.join(", ")}`);
+  toolLog.push(`phase explore_mode=${mode} nav_turns=${navStats.exploreTurns} files_read=${filesRead.size}`);
+
+  if (mode === "hybrid" && filesRead.size < EXPLORE_MIN_READS) {
+    toolLog.push(`phase explore_hybrid_topup files_read=${filesRead.size} < ${EXPLORE_MIN_READS}`);
+    const topUp = await runExplorePhase(session, { ...args, maxTurns: 1 });
+    return {
+      toolTurnCount: navStats.toolTurnCount + topUp.toolTurnCount,
+      exploreTurns: navStats.exploreTurns + topUp.exploreTurns,
+      maxBatch: Math.max(navStats.maxBatch, topUp.maxBatch),
+      seedPaths: [...new Set([...navStats.seedPaths, ...(topUp.seedPaths || [])])],
+      exploreItemIds: topUp.exploreItemIds || new Set(),
+    };
+  }
+
+  return navStats;
+}
+
 function buildSubmitPacket({
   question, mapBlock, submitInstructions, filesRead, readCache, toolLog, seedPaths = [], wire = false,
   hostPassages = false,
@@ -574,6 +639,65 @@ async function runSubmitPhase(conn, {
   throw new RealtimeError(lastError || "structured submit failed");
 }
 
+// Daemon pointer submit: run the pointer-index submit over the warm daemon pool
+// with reasoning OMITTED ("none"), reusing the same rehydrate + validate + reask
+// loop as the live-session path. Returns rendered markdown + structured object on
+// success, or null to signal fail-open to runSubmitPhase. The daemon is never on
+// the correctness path.
+async function runDaemonPointerSubmit({
+  submitPacket, orderedPaths = [], workspace, filesRead, readCache, toolTurns, reask,
+  question, seedPaths = [], debug = false,
+}) {
+  const slim = EXPLORE_RT_SUBMIT_SLIM_SCHEMA;
+  const schema = tracePointerSchema({ question, slim, orderedPaths });
+  const submitSystem = [
+    SUBMIT_SYSTEM.replace(/submit_trace/g, SUBMIT_POINTER_SCHEMA_NAME),
+    "Return citation_spans with excerpt_index from READ INDEX plus line ranges — not full code.",
+    "Do NOT include code_passages or grounding_manifest — host rehydrates citations.",
+  ].join("\n");
+  let userText = typeof submitPacket === "string" ? submitPacket : submitPacket.text;
+  const t0 = Date.now();
+
+  for (let attempt = 0; attempt <= (reask ? 1 : 0); attempt += 1) {
+    let parsed = await daemonAsk(
+      EXPLORE_RT_NAMESPACE,
+      {
+        system: submitSystem,
+        user: userText,
+        schema,
+        schemaName: SUBMIT_POINTER_SCHEMA_NAME,
+        reasoningEffort: "none",
+      },
+      { model: EXPLORE_RT_SYNTH_MODEL },
+    );
+    if (!parsed) return null; // daemon miss -> fall back to session submit
+
+    parsed = rehydratePointerSubmit({
+      pointer: parsed,
+      orderedPaths,
+      workspace,
+      filesRead,
+      readCache,
+      toolTurns,
+      seedPaths,
+      question,
+    });
+
+    const err = validateTraceObject(parsed, { workspace, filesRead, toolTurns });
+    if (err) {
+      if (attempt < (reask ? 1 : 0)) {
+        userText = `${userText}\n\nVALIDATION FAILED: ${err}\nFix grounding and call ${SUBMIT_POINTER_SCHEMA_NAME} again.`;
+        continue;
+      }
+      if (debug) process.stderr.write(`phase submit_daemon_invalid=${err}\n`);
+      return null; // validation failed after reask -> fall back
+    }
+    if (debug) process.stderr.write(`phase submit_daemon_ms=${Date.now() - t0} synth=${EXPLORE_RT_SYNTH_MODEL}\n`);
+    return { markdown: renderTraceStructured(workspace, parsed), structured: parsed };
+  }
+  return null;
+}
+
 async function runWireSubmitPhase(conn, {
   submitPacket, workspace, deadlineMs, framesPath, filesRead, reask,
 }) {
@@ -649,6 +773,17 @@ async function runStructuredTrace({
 
   const q = question || extractQuestion(explorePrompt);
   const mapBlock = mapBlockArg || extractMapBlock(explorePrompt);
+  // Warm the daemon synth pool concurrently with the session connect + explore so
+  // the submit batch never pays a connect+handshake. Fire-and-forget; fail-open.
+  if (EXPLORE_RT_DAEMON) {
+    warmDaemonPool(EXPLORE_RT_NAMESPACE, undefined, { model: EXPLORE_RT_SYNTH_MODEL }).catch(() => {});
+    if (
+      (EXPLORE_RT_EXPLORE_MODE === "nav" || EXPLORE_RT_EXPLORE_MODE === "hybrid") &&
+      EXPLORE_RT_NAV_MODEL !== EXPLORE_RT_SYNTH_MODEL
+    ) {
+      warmDaemonPool(EXPLORE_RT_NAMESPACE, undefined, { model: EXPLORE_RT_NAV_MODEL }).catch(() => {});
+    }
+  }
   const session = new RtAgentSession({ model, authPath, framesPath });
   const connectStart = Date.now();
   await session.connect();
@@ -660,7 +795,7 @@ async function runStructuredTrace({
 
   try {
     const exploreStart = Date.now();
-    const exploreStats = await runExplorePhase(session, {
+    const exploreStats = await dispatchExplore(session, {
       prompt: explorePrompt,
       question: q,
       mapBlock,
@@ -722,6 +857,28 @@ async function runStructuredTrace({
       toolLog.push(`phase submit_ms=${Date.now() - submitStart}`);
       flushFrames(framesPath);
       return { text: wireText, toolLog };
+    }
+
+    const usePointerSubmit =
+      EXPLORE_RT_HOST_PASSAGES && EXPLORE_RT_SUBMIT_POINTER_INDEX && transport === "rt";
+    if (EXPLORE_RT_DAEMON && usePointerSubmit) {
+      const daemonResult = await runDaemonPointerSubmit({
+        submitPacket,
+        orderedPaths,
+        workspace,
+        filesRead,
+        readCache,
+        toolTurns: exploreStats.toolTurnCount,
+        reask: SUBMIT_REASK,
+        question: q,
+        seedPaths: exploreStats.seedPaths || [],
+        debug: Boolean(framesPath),
+      });
+      if (daemonResult) {
+        toolLog.push(`phase submit_ms=${Date.now() - submitStart} synth=daemon:${EXPLORE_RT_SYNTH_MODEL}`);
+        flushFrames(framesPath);
+        return { text: daemonResult.markdown, toolLog, structured: daemonResult.structured };
+      }
     }
 
     structured = await runSubmitPhase(session.connection, {

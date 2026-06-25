@@ -97,11 +97,9 @@ def test_post_tool_restate_compacts_to_headline_and_next_action():
     spec["requires_tasks"] = True
     spec["restated_goal"] = "Plan a focused tune-up of agent-memory files"
     spec["tasks"] = []
-    buf = io.StringIO()
-    with redirect_stderr(buf):
-        mn.notify_spec_update(spec, "Goal restated.")
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["UNIFABLE_DATA"] = tmp
+        save_spec(tmp, "spec-restate-test", spec)
         payload = {
             "session_id": "spec-restate-test",
             "cwd": tmp,
@@ -112,13 +110,14 @@ def test_post_tool_restate_compacts_to_headline_and_next_action():
             "tool_response": {
                 "exit_code": 0,
                 "stdout": "restated_goal set (49 chars); goal_seeded cleared.",
-                "stderr": buf.getvalue(),
+                "stderr": "",
             },
         }
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert ctx.startswith("Goal restated. Add at least one:")
+    assert ctx.startswith("Add at least one:")
     assert "unifable add-task" in ctx
+    assert "Goal restated" not in ctx
     assert "Spec update:" not in ctx
     assert "goal:" not in ctx
     assert "breaker: CLOSED" not in ctx
@@ -384,19 +383,14 @@ def test_post_tool_add_task_reload_fallback_when_stderr_missing():
         }
         out = _run_post_tool(payload)
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "Spec update:" not in ctx
-        assert "T1:" in ctx
-        assert LONG_JUDGE in ctx
-        assert "[--] T4" not in ctx
+        assert ctx == ""
 
 
 def test_post_tool_add_task_success_no_failure_nag():
     spec = _sample_spec()
-    buf = io.StringIO()
-    with redirect_stderr(buf):
-        mn.notify_spec_update(spec, "Requirement T9 added: new req.", highlight_task="T9")
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["UNIFABLE_DATA"] = tmp
+        save_spec(tmp, "spec-add-test", spec)
         payload = {
             "session_id": "spec-add-test",
             "cwd": tmp,
@@ -404,12 +398,11 @@ def test_post_tool_add_task_success_no_failure_nag():
             "tool_input": {
                 "command": "unifable add-task --title new --check true",
             },
-            "tool_response": {"exit_code": 0, "stdout": "Added T9", "stderr": buf.getvalue()},
+            "tool_response": {"exit_code": 0, "stdout": "Added T9: new"},
         }
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "Requirement T9 added" in ctx
-    assert "observed a tool failure" not in ctx
+    assert ctx == ""
 
 
 STALE_JUDGE = "x" * 800

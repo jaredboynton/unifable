@@ -1,0 +1,26 @@
+{
+  "repo": "~/__devlocal/kepler",
+  "note": "Deep context-gathering trace questions against the kepler repo. Each requires reading multiple load-bearing files across modules, not a single-file lookup.",
+  "prompts": [
+    {
+      "id": "retry-flow",
+      "question": "How does retry and backoff work for LLM provider calls in kepler-runtime, and where are the retry policy parameters configured?"
+    },
+    {
+      "id": "llm-provider",
+      "question": "Trace how an LLM request flows through kepler-runtime's llm_provider: how is the provider selected, the request built, and the response handled?"
+    },
+    {
+      "id": "db-guard",
+      "question": "What does the kepler-db-guard crate enforce, and how does a query get checked or rejected as it passes through the guard?"
+    },
+    {
+      "id": "rate-limiter",
+      "question": "How does the gateway rate limiter work end to end: where are limits defined, how is a request counted, and what happens when a client exceeds the limit?"
+    },
+    {
+      "id": "scopes-identity",
+      "question": "How are scopes and identity resolved and enforced in kepler-runtime and kepler-identity, from incoming credential to an authorized scope check?"
+    }
+  ]
+}

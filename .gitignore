@@ -7,4 +7,6 @@ __pycache__/
 *.unifable-bak.*
 *.fablize-bak.*
 benchmark/results/
+skills/explore/scripts/bench/results/
+.sisyphus/
 .jscpd-report/

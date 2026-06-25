@@ -27,6 +27,12 @@ _SUBCMD_RE = re.compile(
 
 MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
 
+_ADDED_STDOUT_RE = re.compile(r"^Added (T\d+)\b", re.IGNORECASE)
+_PRIMARY_STDOUT_RE = re.compile(r"^Primary approach set: (T\d+)\b", re.IGNORECASE)
+_FRONTIER_STDOUT_RE = re.compile(r"^Frontier approach added: (T\d+)\b", re.IGNORECASE)
+_DISPUTE_STDOUT_RE = re.compile(r"^(T\d+) -> disputed\b", re.IGNORECASE)
+_RESTATE_STDOUT_RE = re.compile(r"restated_goal set\b", re.IGNORECASE)
+
 _TASK_ID_RE = re.compile(r"\bT(\d+)\b")
 _STATUS_ROW_RE = re.compile(r"^\s+\[[^\]]+\]\s+(T\d+)\s+\([^)]+\)\s+(.+)$")
 _RETRACT_HEADLINE_RE = re.compile(r"^Judge retracted (T\d+):\s*(.+)$", re.IGNORECASE)
@@ -199,8 +205,15 @@ def notify_spec_update(
     headline: str,
     *,
     highlight_task: str | None = None,
+    surface: str = "full",
 ) -> None:
-    """Emit headline, full internal status, and compact model-facing action."""
+    """Emit headline, full internal status, and compact model-facing action.
+
+    With ``surface="stdout_only"``, emit nothing on stderr — the CLI stdout ack
+    is the sole model-facing notification for successful mutating commands.
+    """
+    if surface == "stdout_only":
+        return
     notify_model(headline)
     _emit_status(format_spec_status(spec, highlight_task=highlight_task, collapse_resolved=True))
     _emit_action(format_spec_action_digest(spec, highlight_task=highlight_task))
@@ -712,6 +725,130 @@ def _fallback_action_from_status(status: str) -> str:
                 if detail:
                     return f"{tid}: {detail}"
     return ""
+
+
+def _bash_stream(value: Any, key: str) -> str:
+    if isinstance(value, dict):
+        part = value.get(key)
+        if isinstance(part, str):
+            return part.replace("\r", "")
+    return ""
+
+
+def bash_exit_code(value: Any) -> int | None:
+    if isinstance(value, dict) and "exit_code" in value:
+        try:
+            return int(value["exit_code"])
+        except (TypeError, ValueError):
+            return None
+    return None
+
+
+def parse_mutating_spec_stdout(subcommand: str | None, stdout: str) -> str | None:
+    """Return ack token from mutating spec CLI stdout (task id or ``restate``)."""
+    sub = str(subcommand or "").lower()
+    text = str(stdout or "").strip()
+    if not text:
+        return None
+    first = text.splitlines()[0].strip()
+    if sub == "add-task":
+        m = _ADDED_STDOUT_RE.match(first)
+        return m.group(1).upper() if m else None
+    if sub == "set-primary":
+        m = _PRIMARY_STDOUT_RE.match(first)
+        return m.group(1).upper() if m else None
+    if sub == "add-frontier":
+        m = _FRONTIER_STDOUT_RE.match(first)
+        return m.group(1).upper() if m else None
+    if sub == "dispute":
+        m = _DISPUTE_STDOUT_RE.match(first)
+        return m.group(1).upper() if m else None
+    if sub == "restate" and _RESTATE_STDOUT_RE.search(text):
+        return "restate"
+    return None
+
+
+def _synthetics_satisfied_by_ack(subcommand: str | None, ack: str | None) -> frozenset[str]:
+    """Synthetic incomplete markers addressed by a successful mutating stdout ack."""
+    sub = str(subcommand or "").lower()
+    token = str(ack or "")
+    if not token:
+        return frozenset()
+    satisfied: set[str] = set()
+    if sub == "add-task" and token.startswith("T"):
+        satisfied.add("<no requirements added yet>")
+    if sub == "add-frontier" and token.startswith("T"):
+        satisfied.add("<need >=2 frontier approach tasks>")
+        satisfied.add("<no requirements added yet>")
+    if sub == "set-primary" and token.startswith("T"):
+        satisfied.add("<need primary approach task>")
+    return frozenset(satisfied)
+
+
+def _novel_synthetic_guidance(
+    spec: dict[str, Any],
+    *,
+    restate_only: bool = False,
+    skip: frozenset[str] | None = None,
+) -> str:
+    """Return the first synthetic incomplete action line, if any."""
+    skip_ids = skip or frozenset()
+    _ok, incomplete = _all_tasks_validated(spec)
+    for tid in incomplete:
+        stid = str(tid)
+        if not stid.startswith("<"):
+            continue
+        if stid in skip_ids:
+            continue
+        if restate_only and stid != "<no requirements added yet>":
+            continue
+        action = _synthetic_incomplete_action(stid)
+        if action:
+            return action
+    return ""
+
+
+def build_posttool_spec_context(
+    command: str,
+    tool_response: Any,
+    spec: dict[str, Any] | None,
+    ledger: dict[str, Any],
+) -> tuple[str, dict[str, dict[str, str]] | None]:
+    """Build PostToolUse spec context; suppress self-explanatory mutating acks."""
+    subcommand, _ = parse_spec_cli_invocation(command)
+    exit_code = bash_exit_code(tool_response)
+    stdout = _bash_stream(tool_response, "stdout")
+    combined = bash_output_text(tool_response, 16000)
+
+    guidance_map: dict[str, dict[str, str]] | None = None
+    if isinstance(spec, dict):
+        _, guidance_map = format_spec_action_digest_delta(spec, ledger, force=True)
+
+    if subcommand not in MUTATING_SUBCMDS or exit_code not in (None, 0):
+        ctx = build_spec_context_from_output(combined)
+        return ctx, guidance_map
+
+    ack = parse_mutating_spec_stdout(subcommand, stdout)
+    if ack is None:
+        return build_spec_context_from_output(combined), guidance_map
+
+    if not isinstance(spec, dict):
+        if subcommand == "restate":
+            return build_spec_context_from_output(combined), guidance_map
+        return "", guidance_map
+
+    skip = _synthetics_satisfied_by_ack(subcommand, ack)
+
+    if subcommand == "restate":
+        novel = _novel_synthetic_guidance(spec, restate_only=True, skip=skip)
+        if novel:
+            return novel, guidance_map
+
+    novel = _novel_synthetic_guidance(spec, skip=skip)
+    if novel:
+        return novel, guidance_map
+
+    return "", guidance_map
 
 
 def bash_output_text(value: Any, limit: int = 16000) -> str:

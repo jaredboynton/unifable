@@ -138,6 +138,57 @@ code_mode = true
 EOF
 }
 
+# _unifusion_write_gemini_panel_settings <gemini_home> <model> <thinking_level>
+# Panel isolation for the standalone `gemini` CLI: an isolated $HOME/.gemini/settings.json with Exa-only
+# MCP (no user skills/extensions/tavily), banner/telemetry/auto-update off, and two headless fixes:
+#   - experimental.contextManagement=false  -> suppresses the context-calibrator 404 (the calibrator
+#     pseudo-model only exists on Vertex/Code-Assist, not the api-key generativelanguage endpoint).
+#   - context.discoveryMaxDirs=0            -> stops the project-context scan that hits unreadable
+#     /tmp tmp-mount-* siblings of the throwaway workdir (EACCES warnings).
+# Thinking effort is set via a custom alias extending the system gemini-3.5-flash-base (which carries the
+# model id); for Gemini 3.x Flash the knob is thinkingConfig.thinkingLevel (MINIMAL|LOW|HIGH), not the
+# numeric thinkingBudget (that is 2.5).
+_unifusion_write_gemini_panel_settings() {
+  local gemini_home="${1:?gemini_home required}"
+  local model="${2:?model required}"
+  local thinking_level="${3:?thinking_level required}"
+  mkdir -p "$gemini_home/.gemini"
+  EXA_URL="$UNIFUSION_EXA_MCP_URL" GMODEL="$model" GTHINK="$thinking_level" \
+  python3 - "$gemini_home/.gemini/settings.json" <<'PY' || return 1
+import json, os, sys
+dest = sys.argv[1]
+model = os.environ["GMODEL"]
+settings = {
+    "experimental": {"contextManagement": False},
+    "ui": {"hideBanner": True},
+    "privacy": {"usageStatisticsEnabled": False},
+    "general": {"enableAutoUpdate": False},
+    "security": {"auth": {"selectedType": "gemini-api-key"}},
+    "context": {"discoveryMaxDirs": 0},
+    "mcpServers": {"exa": {"type": "http", "url": os.environ["EXA_URL"]}},
+    "modelConfigs": {
+        "customAliases": {
+            model: {
+                "extends": "gemini-3.5-flash-base",
+                "modelConfig": {
+                    "generateContentConfig": {
+                        "thinkingConfig": {
+                            "thinkingLevel": os.environ["GTHINK"],
+                            "includeThoughts": False,
+                        }
+                    }
+                },
+            }
+        }
+    },
+}
+os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+with open(dest, "w", encoding="utf-8") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+PY
+}
+
 # _kimi_bin — print the path to the real kimi binary, never the shell alias (often `kimi --yolo`,
 # which conflicts with print mode: "Cannot combine --prompt with --yolo").
 # Precedence: UNIFUSION_KIMI_BIN > ~/.kimi-code/bin/kimi > command -P kimi (bash, ignores aliases).

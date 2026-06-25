@@ -51,14 +51,17 @@ Plain bash + two interpreter helpers; no build step.
   Devin, and GLM transcripts all summarize end-to-end. Writes a bundle to `--out-dir`; the brief is
   `<out-dir>/summary.md`. Vendored from claudecompact-patcher; keep the four provider dispatch paths in sync
   if edited.
-- `scripts/run_codex.sh` (GPT-5.5), `run_gemini.sh` (Gemini 3.5 Flash via `agy`), `run_kimi.sh` (Kimi K2.7),
-  `run_glm.sh` (GLM-5.2 via `glm-acp-agent` ACP) — one external panelist each.
+- `scripts/run_codex.sh` (GPT-5.5), `run_gemini.sh` (Gemini 3.5 Flash via the standalone `gemini` CLI),
+  `run_kimi.sh` (Kimi K2.7), `run_glm.sh` (GLM-5.2 via `glm-acp-agent` ACP) — one external panelist each.
+  `run_agy.sh` is the preserved Antigravity (`agy`) baseline of the Gemini panelist (the pty bug-#76 path
+  + transcript fallback), kept for side-by-side comparison; the orchestrator still launches `run_gemini.sh`.
 - `scripts/_acp_client.mjs` — minimal ACP (Agent Client Protocol) stdio client that drives `glm-acp-agent`
   through the JSON-RPC protocol (initialize → authenticate → session/new → session/set_mode →
   session/prompt → session/close). Collects streamed `agent_message_chunk` text and writes it to stdout.
   Called by `run_glm.sh`.
 - `scripts/_unifusion_lib.sh` — sourced by the runners; `have()`, `_has_content`, panel config builders
-  (`_unifusion_write_cb_panel_settings`, `_unifusion_write_codex_panel_config`), and `_run_with_timeout`
+  (`_unifusion_write_cb_panel_settings`, `_unifusion_write_codex_panel_config`,
+  `_unifusion_write_gemini_panel_settings`), and `_run_with_timeout`
   (perl fork+alarm, since stock macOS has no `timeout`/`gtimeout`). The child is exec'd as its own
   **process-group leader** and the deadline/signal handler kills the whole group, so panelist helper children
   (codex MCP servers, kimi's `kimi-code` worker) are reaped instead of orphaned. `UNIFUSION_TIMEOUT` default
@@ -93,8 +96,14 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
 - **kimi** → `--skills-dir <empty>`; Exa from `[mcp_servers.exa]` in `~/.kimi-code/config.toml`; plus a
   best-effort by-name reap of the `kimi-code` worker it spawns (snapshot PIDs before, TERM/KILL the new
   ones after) since that worker daemonizes out of the process group.
-- **agy** → Exa from `~/.gemini/config/mcp_config.json`; separate Antigravity binary; verified clean,
-  has its own anti-empty guard.
+- **gemini** → `run_gemini.sh` drives the standalone `gemini` CLI under an isolated `$HOME/.gemini`
+  (`_unifusion_write_gemini_panel_settings`): Exa-only MCP (no user skills/extensions/tavily), banner/
+  telemetry/auto-update off, `experimental.contextManagement=false` (kills the context-calibrator 404),
+  `context.discoveryMaxDirs=0` (kills the /tmp tmp-mount EACCES scans), and a custom alias extending
+  `gemini-3.5-flash-base` to set `thinkingConfig.thinkingLevel`. Invoked with `TERM=xterm-256color`
+  (silences the dumb-terminal warning); clean stdout, has its own anti-empty guard.
+- **agy** (run_agy.sh, comparison baseline) → Exa from `~/.gemini/config/mcp_config.json`; separate
+  Antigravity binary; verified clean, has its own anti-empty guard.
 
 `SKILL.md` is the entry; the skill is reachable identically at `~/.agents/skills/unifusion` and
 `~/.claude/skills/unifusion` (same inode).
@@ -127,9 +136,11 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
 | `UNIFUSION_KIMI_BIN` | `~/.kimi-code/bin/kimi` | real kimi binary (bypasses shell alias) |
 | `GLM_MODEL` | `glm-5.2` | model passed to glm-acp-agent via `ACP_GLM_MODEL` env |
 | `GLM_MAX_TOKENS` | `131072` | per-call max output tokens (`glm-5.2` API maximum) |
-| `AGY_MODEL` | `Gemini 3.5 Flash (Medium)` | agy model name |
-| `UNIFUSION_AGY_NO_MODEL` | (unset) | omit `--model`, use agy default |
-| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | (unset) | enables the (gemini) session-context brief |
+| `GEMINI_MODEL` | `gemini-3.5-flash` | gemini CLI model id (run_gemini.sh) |
+| `GEMINI_THINKING_LEVEL` | `HIGH` | gemini 3.x Flash reasoning effort: `MINIMAL`/`LOW`/`HIGH` |
+| `AGY_MODEL` | `Gemini 3.5 Flash (Medium)` | agy model name (run_agy.sh baseline) |
+| `UNIFUSION_AGY_NO_MODEL` | (unset) | omit `--model`, use agy default (run_agy.sh baseline) |
+| `GEMINI_API_KEY` / `GOOGLE_API_KEY` | (unset) | required by run_gemini.sh (isolated api-key auth); also enables the (gemini) session-context brief |
 | `UNIFUSION_CONTEXT_PROVIDER` | `gemini` | summarizer provider (`codex`/`xai`/`mantle` also valid) |
 | `UNIFUSION_TRANSCRIPT` | (unset) | explicit transcript path; overrides resolver/`--session` auto-detection |
 | `UNIFUSION_CONTEXT_FILE`, `UNIFUSION_PANEL_NOTE`, `UNIFUSION_ESTIMATE` | — | passed into `save_run.sh` |

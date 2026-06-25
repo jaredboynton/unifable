@@ -136,6 +136,20 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "required": ["must_contain", "must_not_contain"],
             "additionalProperties": False,
         },
+        "resolve_query": {
+            "type": "string",
+            "description": (
+                "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a "
+                "single literal substring `verify` can express): a natural-language search whose "
+                "results would settle it -- enumeration/absence claims ('are there other live files "
+                "referencing X'), completeness over a TRUNCATED tool output, 'is Y still used "
+                "anywhere'. The breaker runs it READ-ONLY via explore search and DE-ESCALATES (does "
+                "NOT arm) if the gathered evidence grounds the claim, so you need not arm and force "
+                "the model to re-read what you could check here. Empty when verdict=0, when `verify` "
+                "already covers it, or when the claim is not settleable by searching this repo "
+                "(external/API facts, judgement, runtime behavior)."
+            ),
+        },
         "directive": {
             "type": "string",
             "description": (
@@ -166,7 +180,7 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
-    "required": ["verdict", "steering", "claim", "load_bearing", "verify", "directive", "tool_scope"],
+    "required": ["verdict", "steering", "claim", "load_bearing", "verify", "resolve_query", "directive", "tool_scope"],
     "additionalProperties": False,
 }
 

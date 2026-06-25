@@ -186,7 +186,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
     if len(effort_context) > 12_000:
         effort_context = effort_context[:12_000].rstrip() + "\n...[truncated in generated docs]"
 
-    post_context = "Requirement T2 added: Generated docs implementation tests pass.\nT2: Generated docs implementation tests pass"
+    post_context = ""
     test_context = (
         "PASS (pytest -q): tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
     )

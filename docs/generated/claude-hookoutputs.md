@@ -206,7 +206,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "Requirement T2 added: Generated docs implementation tests pass.\nT2: Generated docs implementation tests pass",
+    "additionalContext": "",
     "hookEventName": "PostToolUse"
   }
 }

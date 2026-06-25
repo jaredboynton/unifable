@@ -15,7 +15,7 @@ from pathlib import Path
 
 _EXPLORE_NAME_RE = re.compile(r"(?m)^name:\s*explore\s*$")
 
-EXPLORE_SCRIPT_BASENAMES = ("trace.sh", "websearch.sh")
+EXPLORE_SCRIPT_BASENAMES = ("trace.sh", "websearch.sh", "search.sh")
 
 _DEFAULT_EXPLORE_ROOTS = (
     ".agents/skills/explore",
@@ -99,6 +99,16 @@ def resolve_explore_websearch_sh() -> Path | None:
     """Return the explore skill's websearch.sh when installed alongside trace.sh."""
     for name, path in _installed_explore_scripts():
         if name == "websearch.sh":
+            return path
+    return None
+
+
+def resolve_explore_search_sh() -> Path | None:
+    """Return the explore skill's search.sh (fast read-only code search) when
+    installed alongside trace.sh. Used by the groundedness breaker to self-resolve
+    find/read-checkable claims before arming."""
+    for name, path in _installed_explore_scripts():
+        if name == "search.sh":
             return path
     return None
 

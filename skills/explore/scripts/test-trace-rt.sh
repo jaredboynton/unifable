@@ -45,6 +45,7 @@ node --test "$SCRIPT_DIR/test/rt-pick-passages.test.mjs"
 node --test "$SCRIPT_DIR/test/rt-rehydrate-submit.test.mjs"
 node --test "$SCRIPT_DIR/test/rt-explore-runtime.test.mjs"
 node --test "$SCRIPT_DIR/test/rt-map-seed.test.mjs"
+node --test "$SCRIPT_DIR/test/rt-explore-nav.test.mjs"
 node --test "$SCRIPT_DIR/test/test-trace-schema.mjs"
 
 (

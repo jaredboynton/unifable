@@ -9,21 +9,19 @@
 //
 // Env:
 //   EXPLORE_SEARCH_FAST=0              disable fast path (pure legacy loop)
-//   EXPLORE_SEARCH_FAST_MAX_CANDIDATES max hydrated candidate files (default 16)
-//   EXPLORE_SEARCH_FAST_HYDRATE_SPAN   max lines per hydrated window (default 40)
-//   EXPLORE_SEARCH_FAST_GREP_CAP       max rg matches parsed per pattern (default 400)
+//   EXPLORE_SEARCH_FAST_MAX_FILES      max ranked files to hydrate (default 12)
+//   EXPLORE_SEARCH_FAST_MAX_SPANS      max total hydrated spans/candidates (default 32)
+//   EXPLORE_SEARCH_FAST_SPANS_PER_FILE max AST-node spans per file (default 6)
+//   EXPLORE_SEARCH_FAST_HYDRATE_SPAN   max lines per hydrated span (default 40)
+//   EXPLORE_SEARCH_FAST_GREP_CAP       max rg matches parsed (default 4000)
 
 import { execFile } from "node:child_process";
-import fs from "node:fs";
-import path from "node:path";
 import {
   detectAstBinary,
   ensureAstTool,
-  expandLineRange,
+  hydrateHitsToBlocks,
   langForPath,
-  stripCommentsEnabled,
 } from "./ast-context.mjs";
-import { makeLineHider } from "./lib/code-line.mjs";
 import { codeSymbolIdents } from "./search-seed.mjs";
 
 const NON_SOURCE_RE = /\.(md|markdown|json|ndjson|jsonl|txt|log|csv|tsv|ya?ml|toml|lock|svg|png|jpe?g|gif|ico)$/i;
@@ -109,118 +107,70 @@ function runCombinedRg(repoRoot, terms, cap) {
 const CENTRAL_RE = /(^|\/)(src|lib|pkg|internal|hooks|app|core|routes|middleware|handlers?|controllers?|services?)\//;
 const GENERATOR_RE = /(^|\/)(generate|generated|portal|vendor|examples?)\/|generate\.|\.min\./;
 
-// Classify combined-rg hits into per-file stats. For each line, "def" means the
-// line declares a name containing one of the terms (DECL keyword + term);
-// everything else is a "ref". Tracks distinct matched terms and the best anchor
-// line (the def line covering the most terms).
+// Classify combined-rg hits into per-file stats for FILE-LEVEL ranking. "def"
+// means the line declares a name containing one of the terms (DECL keyword +
+// term); everything else is a "ref". Tracks distinct matched terms, per-hit
+// matched terms (for rarity-weighted span selection), and document frequency
+// per term (rare terms are the distinctive signal).
 export function classifyHits(hits, terms) {
   const declRe = terms.length
     ? new RegExp(`\\b(${DECL_KW})\\s+\\w*(${terms.join("|")})\\w*`, "i")
     : null;
   const termRes = terms.map((t) => new RegExp(`\\b${t}`, "i"));
   const files = new Map();
+  const docFreq = new Map(); // term -> # files containing it
   for (const h of hits) {
     let f = files.get(h.file);
-    if (!f) { f = { file: h.file, def: 0, ref: 0, terms: new Set(), defLines: new Map(), refLines: [], hitLines: [] }; files.set(h.file, f); }
+    if (!f) { f = { file: h.file, def: 0, ref: 0, terms: new Set(), hits: [] }; files.set(h.file, f); }
     const isDef = declRe ? declRe.test(h.text) : false;
-    if (isDef) f.def += 1; else { f.ref += 1; f.refLines.push(h.line); }
-    f.hitLines.push(h.line);
-    const lineTerms = new Set();
-    for (let i = 0; i < terms.length; i++) if (termRes[i].test(h.text)) { f.terms.add(terms[i]); lineTerms.add(terms[i]); }
-    if (isDef && lineTerms.size) {
-      const prev = f.defLines.get(h.line) || new Set();
-      for (const t of lineTerms) prev.add(t);
-      f.defLines.set(h.line, prev);
+    if (isDef) f.def += 1; else f.ref += 1;
+    const matched = [];
+    for (let i = 0; i < terms.length; i++) {
+      if (termRes[i].test(h.text)) { matched.push(terms[i]); if (!f.terms.has(terms[i])) docFreq.set(terms[i], (docFreq.get(terms[i]) || 0) + 1); f.terms.add(terms[i]); }
     }
+    f.hits.push({ file: h.file, line: h.line, isDef, matched });
   }
-  return files;
+  return { files, docFreq };
 }
 
-// The densest cluster of hit lines: the smallest window (<= span) covering the
-// most hits. Returns the cluster bounds and center so callers can anchor the
-// hydrated window on the query-relevant code instead of the file header.
-function densestCluster(lines, span) {
-  if (!lines.length) return { lo: 0, hi: 0, center: 0, count: 0 };
-  const sorted = [...lines].sort((a, b) => a - b);
-  let bestStart = 0;
-  let bestCount = 0;
-  let j = 0;
-  for (let i = 0; i < sorted.length; i++) {
-    while (j < sorted.length && sorted[j] - sorted[i] <= span) j += 1;
-    const count = j - i;
-    if (count > bestCount) { bestCount = count; bestStart = i; }
-  }
-  const lo = sorted[bestStart];
-  const hi = sorted[Math.min(bestStart + bestCount - 1, sorted.length - 1)];
-  return { lo, hi, center: Math.floor((lo + hi) / 2), count: bestCount };
-}
-
-// Score per-file stats. def is capped (a real implementation rarely has >6
-// matching declarations; 12+ signals a generator/data file -> penalize), refs
-// contribute marginally, multi-term coverage and central-dir placement dominate.
-export function scoreCandidates(fileStats, { hydrateSpan = 40 } = {}) {
+// Score per-file stats for ranking. def is capped (a real implementation rarely
+// has >6 matching declarations; 12+ signals a generator/data file -> penalize),
+// refs contribute marginally, multi-term coverage and central-dir placement
+// dominate. Returns files ordered best-first, each carrying its hits (ordered by
+// rarity-weighted term coverage then def) so the caller hydrates the most
+// distinctive matches into AST-node spans first.
+export function scoreCandidates({ files, docFreq }) {
+  const nFiles = files.size || 1;
+  // Rarity weight: rare terms (low document frequency) carry more signal than
+  // terms that hit nearly every file. Adds a small base so a single common term
+  // still counts.
+  const rarity = (t) => 1 + Math.log(nFiles / (1 + (docFreq.get(t) || 0)));
   const scored = [];
-  for (const f of fileStats.values()) {
+  for (const f of files.values()) {
     const defCap = Math.min(f.def, 6);
     const overflow = f.def > 12 ? -4 : 0;
     let score = defCap * 4 + Math.min(f.ref, 3) + (f.terms.size - 1) * 6 + overflow;
     if (CENTRAL_RE.test(f.file)) score += 5;
     if (GENERATOR_RE.test(f.file)) score -= 4;
-    // Window the densest cluster of ALL query hits (trace-style range, not a
-    // single guessed def anchor): the smallest line span covering the most
-    // matches. hydrateWindow then snaps this range to enclosing AST nodes and
-    // clamps it, so the window lands on the code that actually matches the query
-    // (e.g. the function where the terms co-occur) instead of the file header.
-    const cluster = densestCluster(f.hitLines, hydrateSpan);
-    scored.push({
-      file: f.file,
-      score,
-      rangeStart: cluster.lo || 1,
-      rangeEnd: cluster.hi || cluster.lo || 1,
-      defCount: f.def,
-      refCount: f.ref,
-      termCount: f.terms.size,
-    });
+    const hitWeight = (h) => h.matched.reduce((s, t) => s + rarity(t), 0) + (h.isDef ? 2 : 0);
+    const hits = [...f.hits].sort((a, b) => hitWeight(b) - hitWeight(a) || a.line - b.line);
+    scored.push({ file: f.file, score, hits, defCount: f.def, refCount: f.ref, termCount: f.terms.size });
   }
   scored.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
   return scored;
 }
 
-function hydrateWindow(absPath, anchorLine, binary, maxSpan) {
-  let s = anchorLine || 1;
-  let e = anchorLine || 1;
-  if (binary && anchorLine) {
-    const exp = expandLineRange(absPath, anchorLine, anchorLine, { binary });
-    s = exp.startLine;
-    e = exp.endLine;
-  }
-  if (s === e) {
-    // No AST node (or no anchor): take a leading window of the file.
-    s = Math.max(1, (anchorLine || 1) - 4);
-    e = s + maxSpan - 1;
-  }
-  let raw;
-  try { raw = fs.readFileSync(absPath, "utf8"); } catch { return null; }
-  const all = raw.split(/\r?\n/);
-  e = Math.min(e, all.length);
-  if (e - s + 1 > maxSpan) e = s + maxSpan - 1;
-  const strip = stripCommentsEnabled();
-  const hide = strip ? makeLineHider(absPath) : null;
-  const lines = [];
-  for (let i = 1; i <= e; i++) {
-    const hidden = hide ? hide(all[i - 1] ?? "") : false;
-    if (i < s || hidden) continue;
-    lines.push(all[i - 1] ?? "");
-  }
-  const content = lines.join("\n");
-  if (!content.trim()) return null;
-  return { startLine: s, endLine: e, content };
-}
-
-// Fire all retrieval greps concurrently and assemble a ranked, hydrated
-// candidate pool. Returns { candidates:[{path,startLine,endLine,content,score}], terms }.
+// Combined rg -> file-level rank -> per-file AST-node multi-span hydration.
+// Returns one candidate PER SPAN so a scattered answer (helper + core fn far
+// apart in the same file) yields a candidate for each, and the parallel scorer
+// rates every span on its own merit. Spans are produced by the shared
+// `hydrateHitsToBlocks` (the proven grep-hydration path: enclosing AST node,
+// per-file dedup, comment-strip, clamp). Returns
+// { candidates:[{path,startLine,endLine,content,score}], terms }.
 export async function retrieveCandidates(repoRoot, query, {
-  maxCandidates = envInt("EXPLORE_SEARCH_FAST_MAX_CANDIDATES", 16),
+  maxFiles = envInt("EXPLORE_SEARCH_FAST_MAX_FILES", 12),
+  maxSpans = envInt("EXPLORE_SEARCH_FAST_MAX_SPANS", 32),
+  spansPerFile = envInt("EXPLORE_SEARCH_FAST_SPANS_PER_FILE", 6),
   hydrateSpan = envInt("EXPLORE_SEARCH_FAST_HYDRATE_SPAN", 40),
   grepCap = envInt("EXPLORE_SEARCH_FAST_GREP_CAP", 4000),
 } = {}) {
@@ -239,16 +189,23 @@ export async function retrieveCandidates(repoRoot, query, {
   ensureAstTool({ install: process.env.EXPLORE_AST_SKIP_INSTALL !== "1" });
   const binary = detectAstBinary();
 
-  // ONE combined ripgrep; classify + score in node.
+  // ONE combined ripgrep; classify + rank files in node, then hydrate the top
+  // files' hits into AST-node spans.
   const hits = await runCombinedRg(repoRoot, terms, grepCap);
-  const ranked = scoreCandidates(classifyHits(hits, terms), { hydrateSpan }).slice(0, maxCandidates);
+  const ranked = scoreCandidates(classifyHits(hits, terms)).slice(0, maxFiles);
 
   const candidates = [];
   for (const r of ranked) {
-    const abs = path.resolve(repoRoot, r.file);
-    const win = hydrateWindow(abs, r.anchorLine, binary, hydrateSpan);
-    if (!win) continue;
-    candidates.push({ path: r.file, startLine: win.startLine, endLine: win.endLine, content: win.content, score: r.score });
+    if (candidates.length >= maxSpans) break;
+    const blocks = hydrateHitsToBlocks(repoRoot, r.hits, {
+      maxBlocks: spansPerFile,
+      binary,
+      maxSpan: hydrateSpan,
+    });
+    for (const b of blocks) {
+      if (candidates.length >= maxSpans) break;
+      candidates.push({ path: b.path, startLine: b.startLine, endLine: b.endLine, content: b.content, score: r.score });
+    }
   }
   return { candidates, terms };
 }
@@ -285,7 +242,7 @@ const RANK_INSTRUCTIONS = [
   "empty files string. Do not invent paths or ranges.",
 ].join(" ");
 
-const SCORE_INSTRUCTIONS = [
+export const SCORE_INSTRUCTIONS = [
   "You are a code-search relevance scorer. You will be given a QUERY and exactly one CODE window.",
   "Decide how directly the CODE answers the QUERY, then return a single integer 0-10 via the score tool.",
   "Use this exact scale:",
@@ -317,7 +274,7 @@ const FINISH_SCHEMA = {
   additionalProperties: false,
 };
 
-function scorePromptFor(query, c) {
+export function scorePromptFor(query, c) {
   return [
     "QUERY:",
     query,
@@ -346,7 +303,7 @@ export async function runFastPath(repoRoot, query, { debug = false } = {}) {
   const { validateFinishFiles } = await import("./search-lib.mjs");
 
   const reasoningEffort = process.env.EXPLORE_SEARCH_REASONING_EFFORT || "minimal";
-  const scoreFloor = envInt("EXPLORE_SEARCH_SCORE_MIN", 6);
+  const scoreFloor = envInt("EXPLORE_SEARCH_SCORE_MIN", 4);
   const finishMax = envInt("EXPLORE_SEARCH_FINISH_MAX", 6);
   const mode = (process.env.EXPLORE_SEARCH_FINISH_MODE || "score").trim();
 
@@ -373,15 +330,14 @@ export async function runFastPath(repoRoot, query, { debug = false } = {}) {
     })),
   );
   if (scored == null) return null; // daemon disabled -> fall back
-  const ranked = candidates
+  const survivors = candidates
     .map((c, i) => ({ c, score: scored[i] && typeof scored[i].score === "number" ? scored[i].score : -1 }))
     .filter((x) => x.score >= scoreFloor)
-    .sort((a, b) => b.score - a.score || b.c.score - a.c.score)
-    .slice(0, finishMax);
+    .sort((a, b) => b.score - a.score || b.c.score - a.c.score);
   if (debug) {
-    process.stderr.write(`[search-fast] score_ms=${Date.now() - tScore} mode=${mode} survivors=${ranked.length}/${candidates.length}\n`);
+    process.stderr.write(`[search-fast] score_ms=${Date.now() - tScore} mode=${mode} survivors=${survivors.length}/${candidates.length}\n`);
   }
-  if (!ranked.length) {
+  if (!survivors.length) {
     // Pool returned scores but nothing cleared the floor: genuine no-match only
     // if scoring actually ran; if every score is -1 (all failed) fall back.
     const anyScored = scored.some((s) => s && typeof s.score === "number");
@@ -389,14 +345,31 @@ export async function runFastPath(repoRoot, query, { debug = false } = {}) {
   }
 
   if (mode === "score") {
-    // A1: host coalesce, no final model turn. Emit survivors as path:lines.
-    const files = ranked.map(({ c }) => ({ path: c.path, lines: `${c.startLine}-${c.endLine}` }));
-    const validation = validateFinishFiles(repoRoot, files.map((f) => `${f.path}:${f.lines}`).join("\n"));
+    // A1: host coalesce, no final model turn. Group surviving spans BY FILE and
+    // merge their ranges (path:a-b,c-d), so a file whose answer spans multiple
+    // AST nodes is returned with every relevant range. Files are ordered by best
+    // span score and capped to FINISH_MAX.
+    const byFile = new Map(); // path -> { best, ranges:[[s,e]] }
+    for (const { c, score } of survivors) {
+      let f = byFile.get(c.path);
+      if (!f) { f = { best: score, ranges: [] }; byFile.set(c.path, f); }
+      f.best = Math.max(f.best, score);
+      f.ranges.push([c.startLine, c.endLine]);
+    }
+    const ordered = [...byFile.entries()]
+      .sort((a, b) => b[1].best - a[1].best || a[0].localeCompare(b[0]))
+      .slice(0, finishMax);
+    const lines = ordered.map(([p, f]) => {
+      const ranges = f.ranges.sort((a, b) => a[0] - b[0]).map(([s, e]) => `${s}-${e}`).join(",");
+      return `${p}:${ranges}`;
+    });
+    const validation = validateFinishFiles(repoRoot, lines.join("\n"));
     if (validation.kind === "ok") return validation.files;
     return validation.kind === "empty" ? [] : null;
   }
 
   // A2: one final coalesce turn over the survivors so the model can merge them.
+  const ranked = survivors.slice(0, finishMax);
   const tRank = Date.now();
   const obj = await daemonAsk(repoRoot, {
     system: RANK_INSTRUCTIONS,

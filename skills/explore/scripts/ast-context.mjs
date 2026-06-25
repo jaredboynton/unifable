@@ -268,24 +268,20 @@ function fileLineCount(absPath) {
   try { return fs.readFileSync(absPath, "utf8").split(/\r?\n/).length; } catch { return 0; }
 }
 
-// Hydrate each grep hit with surrounding code so the model can cite ranges
-// without a separate read turn: prefer the enclosing AST node, fall back to a
-// clamped line window. Unsupported files (no known language) are left to `read`.
-export function enrichGrepLines(repoRoot, lines, { maxBlocks = 12 } = {}) {
-  if (!astContextEnabled() || !lines?.length) return lines;
+// Hydrate structured hits [{file,line}] into self-contained code blocks: expand
+// each hit to its enclosing AST node (cAST: never split mid-function), fall back
+// to a clamped line window, dedup hits already covered per file, clamp to
+// HYDRATE_MAX_SPAN, and comment-strip. Returns [{path,startLine,endLine,content}]
+// (path is repo-relative). Shared by grep hydration and the fast search path so
+// both get the same proven multi-span behavior. Unsupported files are skipped.
+export function hydrateHitsToBlocks(repoRoot, hits, { maxBlocks = 12, binary = null, maxSpan = HYDRATE_MAX_SPAN, pad = HYDRATE_PAD } = {}) {
+  if (!astContextEnabled() || !hits?.length) return [];
   ensureAstTool({ install: process.env.EXPLORE_AST_SKIP_INSTALL !== "1" });
-  const binary = detectAstBinary();
-
-  const matches = [];
-  for (const line of lines) {
-    const hit = parseRgMatchLine(line);
-    if (hit) matches.push(hit);
-  }
-  if (!matches.length) return lines;
+  const bin = binary || detectAstBinary();
 
   const blocks = [];
   const acceptedByFile = new Map(); // rel -> [[startLine, endLine]] already hydrated
-  for (const hit of matches) {
+  for (const hit of hits) {
     if (blocks.length >= maxBlocks) break;
     const rel = hit.file.startsWith("/") ? path.relative(repoRoot, hit.file) : hit.file;
     const abs = path.isAbsolute(hit.file) ? hit.file : path.resolve(repoRoot, rel);
@@ -296,18 +292,18 @@ export function enrichGrepLines(repoRoot, lines, { maxBlocks = 12 } = {}) {
 
     let s = hit.line;
     let e = hit.line;
-    if (binary) {
-      const exp = expandLineRange(abs, hit.line, hit.line, { binary });
+    if (bin) {
+      const exp = expandLineRange(abs, hit.line, hit.line, { binary: bin });
       s = exp.startLine;
       e = exp.endLine;
     }
     if (s === hit.line && e === hit.line) {
-      s = Math.max(1, hit.line - HYDRATE_PAD);
-      e = hit.line + HYDRATE_PAD;
+      s = Math.max(1, hit.line - pad);
+      e = hit.line + pad;
     }
     const total = fileLineCount(abs);
     if (total) e = Math.min(e, total);
-    if (e - s + 1 > HYDRATE_MAX_SPAN) e = s + HYDRATE_MAX_SPAN - 1;
+    if (e - s + 1 > maxSpan) e = s + maxSpan - 1;
 
     const content = readLines(abs, s, e, { strip: stripCommentsEnabled() });
     if (!content.trim()) continue;
@@ -315,7 +311,22 @@ export function enrichGrepLines(repoRoot, lines, { maxBlocks = 12 } = {}) {
     acceptedByFile.set(rel, accepted);
     blocks.push({ path: rel, startLine: s, endLine: e, content });
   }
+  return blocks;
+}
 
+// Hydrate each grep hit with surrounding code so the model can cite ranges
+// without a separate read turn: prefer the enclosing AST node, fall back to a
+// clamped line window. Unsupported files (no known language) are left to `read`.
+export function enrichGrepLines(repoRoot, lines, { maxBlocks = 12 } = {}) {
+  if (!astContextEnabled() || !lines?.length) return lines;
+  const matches = [];
+  for (const line of lines) {
+    const hit = parseRgMatchLine(line);
+    if (hit) matches.push(hit);
+  }
+  if (!matches.length) return lines;
+
+  const blocks = hydrateHitsToBlocks(repoRoot, matches, { maxBlocks });
   if (!blocks.length) return lines;
   const suffix = [
     "",

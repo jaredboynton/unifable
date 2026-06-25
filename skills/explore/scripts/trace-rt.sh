@@ -12,6 +12,13 @@
 #   EXPLORE_RT_MODEL           Realtime model slug (default: gpt-realtime-2)
 #   EXPLORE_CODEX_AUTH_PATH    Codex OAuth file (default: ~/.codex/auth.json)
 #   EXPLORE_RT_TIMEOUT         total trace deadline seconds (default: 300)
+#   EXPLORE_RT_EXPLORE_MODE    nav | agentic | hybrid (default: nav; host-driven
+#                              mini navigators, fail-open to agentic explore_exec)
+#   EXPLORE_RT_NAV_MODEL       navigator model (default: gpt-realtime-mini)
+#   EXPLORE_RT_NAV_COUNT       parallel navigators per round (default: 8)
+#   EXPLORE_RT_NAV_ROUNDS      navigator rounds (default: 1)
+#   EXPLORE_RT_DAEMON          daemon-pool submit synthesis (default: 1)
+#   EXPLORE_RT_SYNTH_MODEL     submit synthesis model (default: gpt-realtime-2)
 #   EXPLORE_RT_EXPLORE_MAX_TURNS explore tool cap (default: 3)
 #   EXPLORE_RT_EXPLORE_MAX_READS hard cap on read_file paths (default: 14)
 #   EXPLORE_RT_EXPLORE_MIN_READS early stop once explore stops (default: 4)

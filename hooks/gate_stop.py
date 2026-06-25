@@ -821,10 +821,12 @@ def main() -> int:
     try:
         goal_payload = goal_stop_decision(input_data, cwd)
         if goal_payload:
+            # Board rides only the evidence-gate block (see the handoff note below);
+            # a goals.py block is a different concern and must not carry it.
             _emit_stop_payload(
                 goal_payload,
                 input_data,
-                validate_ctx=validate_ctx,
+                validate_ctx="",
                 digest_path=stop_digest_path,
             )
             return 0
@@ -839,10 +841,15 @@ def main() -> int:
         handoff_payload = completion_handoff_decision(input_data, cwd)
         if handoff_payload:
             steering = str(handoff_payload.pop("_handoff_steering", "") or "").strip()
+            # The evidence-spec board (validate_ctx, e.g. "breaker: OPEN (all tasks
+            # validated)") is a statement ABOUT the evidence gate; stapling it onto a
+            # handoff block produces a self-contradictory "blocked + all validated"
+            # message. The board rides ONLY the step-1 evidence-gate block; the digest
+            # file pointer is fine to keep.
             _emit_stop_payload(
                 handoff_payload,
                 input_data,
-                validate_ctx=validate_ctx,
+                validate_ctx="",
                 loop_lift_ctx=steering,
                 digest_path=stop_digest_path,
             )
