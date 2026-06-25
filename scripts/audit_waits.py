@@ -32,6 +32,7 @@ COVERED = {
     "scripts/generate_docs.py",
     "scripts/shadow/outcome_collect.py",
     "tests/test_auto_validate_stop.py",
+    "tests/test_codex_judge_fragment.py",
     "tests/test_codex_judge_reask.py",
     "tests/test_completion_handoff.py",
     "tests/test_grade_adjudicate_hook.py",
