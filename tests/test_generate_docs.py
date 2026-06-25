@@ -55,7 +55,7 @@ def test_stop_payload_rendering_tracks_host_visible_difference():
     assert "hookSpecificOutput" in claude
     assert "additionalContext" in claude["hookSpecificOutput"]
     assert "hookSpecificOutput" not in codex
-    assert "Spec update (stop validation)" in codex["reason"]
+    assert "Action required:" in codex["reason"]
 
 
 def test_all_docs_render_deterministically():

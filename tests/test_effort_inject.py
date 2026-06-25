@@ -219,7 +219,7 @@ class TestEffortInject(unittest.TestCase):
             marker_dir=self._marker_dir,
         )
         context = result.get("hookSpecificOutput", {}).get("additionalContext", "")
-        self.assertIn("execution playbook active", context.lower(), "injected context should carry the playbook header")
+        self.assertIn("working style", context.lower(), "injected context should carry the playbook core")
 
 
 class TestPlaybookDedup(unittest.TestCase):

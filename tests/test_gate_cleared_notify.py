@@ -33,7 +33,7 @@ def test_consume_gate_cleared_after_recorded_block(tmp_path, monkeypatch):
         {"session_id": "s1"},
         ["Removed invalid auto-sync citation(s) (path does not exist): x."],
     )
-    assert msg.startswith("Gate cleared.")
+    assert msg.startswith("Removed invalid auto-sync")
     assert "Removed invalid auto-sync" in msg
     assert recorded.get("session_id") == "s1"
 

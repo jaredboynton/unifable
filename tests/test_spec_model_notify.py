@@ -172,12 +172,11 @@ def test_build_stop_validate_context_dispute_rejected():
     ]
     headlines = ["T5: dispute rejected"]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
-    assert ctx.startswith("Spec update (stop validation):")
+    assert ctx.startswith("Action required:")
     assert "T5 [XX] impossible req" in ctx
     # judge reason rides the unresolved action inline, exactly once.
     assert DISPUTE_REJECT_REASON in ctx
     assert ctx.count(DISPUTE_REJECT_REASON) == 1
-    assert "breaker: CLOSED" in ctx
 
 
 def test_build_stop_validate_context_dispute_accepted():
@@ -206,7 +205,6 @@ def test_build_stop_validate_context_check_rejected():
     assert "T1 [XX] Density reinforcement" in ctx
     assert LONG_JUDGE in ctx
     assert ctx.count(LONG_JUDGE) == 1
-    assert "breaker: CLOSED" in ctx
 
 
 def test_build_stop_validate_context_no_judge_duplication():
@@ -268,7 +266,7 @@ def test_spec_board_not_duplicated_across_channels():
     only; the short alarm stays in reason (no cross-channel duplication)."""
     import gate_stop
 
-    board = "Spec update (stop validation):\n  [XX] T1 (req) something\nbreaker: CLOSED (1 left: T1)"
+    board = "Action required:\n  [XX] T1 (req) something"
     payload = {"decision": "block", "reason": "breaker CLOSED: 1 task(s) not validated (T1)."}
     gate_stop._attach_validate_context(payload, board)
     ctx = (payload.get("hookSpecificOutput") or {}).get("additionalContext") or ""
@@ -475,7 +473,6 @@ def test_stop_action_digest_before_stale_items():
     assert t17_hint_pos < action_pos + 2500
     assert stale_pos == -1
     assert "Board:" not in ctx
-    assert ctx.find("Action required:") < ctx.find("breaker: CLOSED")
 
 
 def test_stop_context_prioritizes_hints_in_first_2kb():
@@ -669,7 +666,6 @@ def test_stop_unresolved_synthetic_primary_missing():
     append_frontier_task(spec, "Try native path", "cargo test -p native")
     ctx, _ = mn.build_stop_validate_context(spec, ["frontier explore"])
     assert "unifable set-primary" in ctx
-    assert "primary approach (missing)" in ctx
     assert "<need primary approach task>" not in ctx
 
 
@@ -680,7 +676,6 @@ def test_stop_unresolved_synthetic_no_requirements():
     spec["tasks"] = []
     ctx, _ = mn.build_stop_validate_context(spec, ["seed"])
     assert "unifable add-task" in ctx
-    assert "requirements (none yet)" in ctx
     assert "<no requirements added yet>" not in ctx
 
 

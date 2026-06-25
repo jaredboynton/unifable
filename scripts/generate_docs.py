@@ -166,7 +166,6 @@ def _sample_stop_payload(host: str) -> dict[str, Any]:
         "reason": "breaker CLOSED: 1 task(s) not validated (T1).",
     }
     validate_ctx = (
-        "Spec update (stop validation):\n"
         "Action required:\n"
         "  T1 [--] Generated docs are reproducible and current\n"
         "    judge: Run python3 scripts/generate_docs.py --check."
@@ -189,7 +188,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
 
     post_context = "Requirement T2 added: Generated docs implementation tests pass.\nT2: Generated docs implementation tests pass"
     test_context = (
-        "Test-after-edit: pytest selected tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
+        "PASS (pytest -q): tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
     )
     breaker_context = "Breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
     session_start_context = context_block.build_session_context()

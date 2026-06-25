@@ -43,8 +43,8 @@ def test_gate_prompt_injects_plan_mode_context(tmp_path, monkeypatch):
     }
     out = _run_gate_prompt(payload, monkeypatch)
     ctx = out.get("hookSpecificOutput", {}).get("additionalContext", "")
-    assert "Plan Mode is active" in ctx
-    assert "repo-tracked writes are forbidden" in ctx.lower() or "Repo-tracked writes" in ctx
+    assert "Plan Mode:" in ctx
+    assert "repo-tracked writes forbidden" in ctx.lower()
 
 
 def test_gate_prompt_sets_ledger_plan_mode(tmp_path, monkeypatch):
@@ -76,7 +76,7 @@ def test_pretool_block_appends_plan_mode_note(tmp_path, monkeypatch, capsys):
     )
     assert rc == 2
     err = capsys.readouterr().err
-    assert "Plan Mode active" in err
+    assert "Plan Mode:" in err
 
 
 def test_pretool_block_no_note_when_agent_mode(tmp_path, monkeypatch, capsys):
@@ -91,9 +91,9 @@ def test_pretool_block_no_note_when_agent_mode(tmp_path, monkeypatch, capsys):
 
     pre_tool_use._block(payload, kind="spec", detail="missing", message="no evidence spec")
     err = capsys.readouterr().err
-    assert "Plan Mode active" not in err
+    assert "Plan Mode:" not in err
 
 
 def test_emit_pretool_with_plan_note_direct():
     msg = append_plan_mode_note("blocked", {"enabled": True, "host": "codex"})
-    assert "Plan Mode active" in msg
+    assert "Plan Mode:" in msg

@@ -1792,7 +1792,7 @@ You are a calm, senior engineering lead watching an agent that appears to be stu
 
 ## Groundedness arm
 
-Source: `scripts/gate/groundedness.py`
+Source: `scripts/gate/breaker_judges.py`
 
 Schema name: `groundedness`
 
@@ -2106,7 +2106,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
 
 ## Groundedness release
 
-Source: `scripts/gate/groundedness.py`
+Source: `scripts/gate/breaker_judges.py`
 
 Schema name: `groundedness`
 
@@ -2285,7 +2285,7 @@ TRANSCRIPT (what the model has since read/run/cited):
 
 ## Provisional lift monitor
 
-Source: `scripts/gate/groundedness.py`
+Source: `scripts/gate/breaker_judges.py`
 
 Schema name: `groundedness`
 

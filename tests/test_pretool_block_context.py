@@ -64,6 +64,37 @@ def test_is_boilerplate_only():
     assert not pb.is_boilerplate_only("npm is not in the Bash research whitelist.")
 
 
+def test_heavy_workflow_phase_hint():
+    import heavy_workflow as hw
+
+    hint = hw.heavy_workflow_phase_hint(phase="frontier")
+    assert "HEAVY frontier" in hint
+    assert len(hint) < 200
+    assert "Phase rules" not in hint
+
+
+def test_format_spec_validation_compact_when_scaffold_notified():
+    from spec_contracts import format_spec_validation_block
+
+    reasons = ["missing prior_art", "run unifable restate 'goal' first"]
+    msg = format_spec_validation_block(
+        "STANDARD",
+        reasons,
+        include_contract=False,
+        scaffold_notified=True,
+        contract_notified=True,
+    )
+    assert "Evidence spec does not satisfy" not in msg
+    assert "To unblock edits:" not in msg
+    assert "missing prior_art" in msg
+    assert "fetch" in msg.lower()
+
+
+def test_block_context_contract_notified():
+    ctx = pb.BlockContext(scaffold_notified=True, contract_notified=True)
+    assert ctx.contract_notified is True
+
+
 if __name__ == "__main__":
     import pytest
 

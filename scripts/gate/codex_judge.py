@@ -163,15 +163,16 @@ def _augment_user_text(user_text: str, reason: str) -> str:
 
 
 def _realtime_reasoning_config(effort: str | None = None) -> dict[str, Any]:
-    """Realtime `reasoning.effort` for gpt-realtime-2 judge/breaker calls."""
-    e = (effort or REASONING_EFFORT).strip() or "low"
-    return {"reasoning": {"effort": e}}
+    """Realtime `reasoning.effort` for gpt-realtime-2 judge/breaker calls.
 
-
-def _realtime_reasoning_config(effort: str | None = None) -> dict[str, Any]:
-    """Realtime `reasoning.effort` for gpt-realtime-2 judge/breaker calls."""
-    e = (effort or REASONING_EFFORT).strip() or "low"
-    return {"reasoning": {"effort": e}}
+    Returns an empty dict (no `reasoning` key) when reasoning is unsupported or
+    explicitly disabled: gpt-realtime-MINI rejects the `reasoning` option with
+    'Unsupported option for this model', and callers may pass effort 'none'/'off'
+    to opt out. Spreading an empty dict into the response leaves it absent."""
+    e = (effort or REASONING_EFFORT).strip().lower()
+    if e in ("none", "off", "no", "disabled") or "mini" in MODEL.lower():
+        return {}
+    return {"reasoning": {"effort": e or "low"}}
 
 
 class JudgeError(Exception):

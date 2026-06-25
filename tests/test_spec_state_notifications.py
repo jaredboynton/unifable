@@ -123,7 +123,7 @@ def test_grade_change_surfaces_reason_and_shift(tmp_path, monkeypatch):
         lambda *a, **k: {"mode": "deep", "risk_flags": [], "reason": "broad rearchitecture", "evidence_profile": "code"},
     )
     ctx = _run_prompt({"session_id": "sess", "prompt": "now deeply rearchitect the module across files", "cwd": str(tmp_path)})
-    assert "Grade now HEAVY (was STANDARD)" in ctx
+    assert "Enforcement is now HEAVY (was STANDARD)" in ctx
     assert "broad rearchitecture" in ctx
 
 

@@ -215,7 +215,7 @@ def test_auto_validate_passes_plan_mode_to_judge_tasks(tmp_path, monkeypatch):
 def test_append_plan_mode_note():
     base = "write blocked"
     out = append_plan_mode_note(base, {"enabled": True, "host": "cursor"})
-    assert "Plan Mode active" in out
+    assert "Plan Mode:" in out
     assert append_plan_mode_note(out, {"enabled": True, "host": "cursor"}) == out
 
 

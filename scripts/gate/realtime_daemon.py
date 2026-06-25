@@ -64,7 +64,13 @@ def _env_int(name: str, default: int) -> int:
 IDLE_TTL = _env_float("UNIFABLE_JUDGE_DAEMON_IDLE", 120.0)
 REQUEST_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_REQUEST", 90.0)
 FRAME_READ_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_FRAME_TIMEOUT", 30.0)
-SELECT_POLL = 0.2
+# Max time select() blocks with no events; bounds how fast we notice _stop and
+# service keepalive pongs. NOT a per-request poll: requests wake the loop via the
+# self-pipe and ws frames wake it directly, both instantly.
+STOP_TICK = _env_float("UNIFABLE_DAEMON_STOP_TICK", 5.0)
+# Bounded wait for the whole pool to finish its initial connect+prewarm at
+# startup so the first parallel batch never pays a handshake.
+WARM_WAIT = _env_float("UNIFABLE_DAEMON_WARM_WAIT", 8.0)
 MAX_INFLIGHT = cj.BATCH_MAX_INFLIGHT
 # Pool size: number of independent warm sockets. Default 1 keeps the judge path
 # byte-identical (one io-thread, one ws); the search profile spawns with a larger
@@ -101,10 +107,19 @@ class _Worker:
         self._rid_to_cid: dict[Any, int] = {}
         self._outbox: queue.Queue[tuple[int, dict, _Holder]] = queue.Queue()
         self._thread: threading.Thread | None = None
+        # Self-pipe to wake the io-loop the instant a request is enqueued, so the
+        # select() blocks on real events (ws frames OR new work) instead of
+        # polling. Eliminates the per-request poll latency.
+        self._wake_r, self._wake_w = socket.socketpair()
+        self._wake_r.setblocking(False)
+        self._ready = threading.Event()  # set once the ws is connected + prewarmed
 
     def start(self) -> None:
         self._thread = threading.Thread(target=self._io_loop, name=f"rt-io-{self.idx}", daemon=True)
         self._thread.start()
+
+    def wait_ready(self, timeout: float) -> bool:
+        return self._ready.wait(timeout)
 
     def inflight(self) -> int:
         with self._state_lock:
@@ -115,6 +130,10 @@ class _Worker:
 
     def enqueue(self, cid: int, req: dict[str, Any], holder: _Holder) -> None:
         self._outbox.put((cid, req, holder))
+        try:
+            self._wake_w.send(b"\x01")  # wake the io-loop immediately
+        except OSError:
+            pass
 
     # --- WS lifecycle (io-thread only) --------------------------------------
     def _ensure_ws(self) -> ssl.SSLSocket:
@@ -133,9 +152,11 @@ class _Worker:
             {"type": "session.update", "session": {"type": "realtime", "output_modalities": ["text"]}},
         )
         self._ws = ws
+        self._ready.set()
         return ws
 
     def _mark_ws_dead(self) -> None:
+        self._ready.clear()
         if self._ws is not None:
             try:
                 self._ws.close()
@@ -154,7 +175,17 @@ class _Worker:
                 h.error = reason
                 h.event.set()
 
+    def _drain_wake(self) -> None:
+        try:
+            while self._wake_r.recv(4096):
+                pass
+        except (BlockingIOError, OSError):
+            pass
+
     def _io_loop(self) -> None:
+        # Block on the ws AND the wake pipe. The short STOP_TICK timeout only
+        # bounds how fast we notice _stop / send keepalive pongs; it is NOT a
+        # per-request poll (requests and ws frames both wake select instantly).
         while not self._stop.is_set():
             try:
                 ws = self._ensure_ws()
@@ -169,11 +200,13 @@ class _Worker:
                 self._mark_ws_dead()
                 continue
             try:
-                readable, _, _ = select.select([ws], [], [], SELECT_POLL)
+                readable, _, _ = select.select([ws, self._wake_r], [], [], STOP_TICK)
             except (OSError, ValueError):
                 self._mark_ws_dead()
                 continue
-            if readable or ws.pending():
+            if self._wake_r in readable:
+                self._drain_wake()  # new request enqueued; loop will drain outbox
+            if ws in readable or ws.pending():
                 try:
                     self._read_available(ws)
                 except Exception:
@@ -286,6 +319,11 @@ class _Worker:
             except OSError:
                 pass
             self._ws = None
+        for s in (self._wake_r, self._wake_w):
+            try:
+                s.close()
+            except OSError:
+                pass
 
 
 class JudgeDaemon:
@@ -396,7 +434,7 @@ class JudgeDaemon:
 
     def _idle_monitor(self) -> None:
         while not self._stop.is_set():
-            if self._stop.wait(SELECT_POLL):
+            if self._stop.wait(1.0):
                 break
             self._maybe_idle_shutdown()
 
@@ -411,6 +449,18 @@ class JudgeDaemon:
         self._workers = [_Worker(i, self._stop) for i in range(self._pool_size)]
         for w in self._workers:
             w.start()
+        # Eagerly warm the whole pool so EVERY socket is connected + prewarmed
+        # before the first request, not lazily on first hit. A nudge wakes each
+        # io-loop to run _ensure_ws immediately; we then wait (bounded) for all
+        # sockets to report ready so a parallel batch never pays a handshake.
+        for w in self._workers:
+            try:
+                w._wake_w.send(b"\x01")
+            except OSError:
+                pass
+        warm_deadline = time.monotonic() + WARM_WAIT
+        for w in self._workers:
+            w.wait_ready(max(0.0, warm_deadline - time.monotonic()))
         threading.Thread(target=self._idle_monitor, name="rt-idle", daemon=True).start()
         try:
             while not self._stop.is_set():

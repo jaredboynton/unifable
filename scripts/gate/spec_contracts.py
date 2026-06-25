@@ -10,7 +10,6 @@ from __future__ import annotations
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
-    from spec_schema import GRADES
     from spec_validation import repo_maintenance_waives_prior_art
 except ImportError:  # pragma: no cover
     from scripts.gate.spec_validation import repo_maintenance_waives_prior_art
@@ -18,25 +17,15 @@ except ImportError:  # pragma: no cover
 
 _CONTRACT: dict[str, str] = {
     "LIGHT": (
-        "Spec contract — LIGHT grade. "
-        "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' (non-empty string) "
-        "and 'acceptance_criteria' (list with >=1 {check, evidence} entry). "
-        "Evidence must be live command output — no placeholders."
+        "LIGHT: restated_goal + >=1 acceptance_criteria {check, evidence} with live command output."
     ),
     "STANDARD": (
-        "Spec contract — STANDARD grade. "
-        "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' "
-        "and 'acceptance_criteria' (>=1 {check: <runnable command>, evidence: <live output>}). "
-        "Evidence must be observed tool output, not assumed."
+        "STANDARD: restated_goal + >=1 acceptance_criteria {check, evidence} from observed tool output."
     ),
     "HEAVY": (
-        "Spec contract — HEAVY grade (frontier-first workflow with adoption). "
-        "Before editing: restated_goal, citation evidence, >=2 frontier approach tasks, "
-        "and 1 primary approach task. Judge adjudicates frontiers on Stop "
-        "(rejected_approach / still_viable / accepted_approach). When all frontiers "
-        "are explored, the judge compares evidence and may adopt the best frontier "
-        "(primary is superseded) or fall back to primary if none accepted. "
-        "CLI: unifable set-primary / unifable add-frontier."
+        "HEAVY (frontier-first): restated_goal, citation evidence, >=2 frontier tasks, 1 primary. "
+        "Judge adjudicates frontiers on Stop; may adopt best frontier or fall back to primary. "
+        "CLI: unifable set-primary / add-frontier."
     ),
 }
 
@@ -53,7 +42,7 @@ def contract_string(
     (code profile: repo_context + prior_art at STANDARD+; operational: tasks only).
     """
     try:
-        from evidence_policy import DEFAULT_EVIDENCE_PROFILE, resolve_evidence_profile
+        from evidence_policy import DEFAULT_EVIDENCE_PROFILE
     except ImportError:  # pragma: no cover
         from scripts.gate.evidence_policy import DEFAULT_EVIDENCE_PROFILE
 
