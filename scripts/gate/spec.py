@@ -2824,24 +2824,6 @@ def format_spec_validation_block(
 # ---------------------------------------------------------------------------
 
 
-def _cmd_validate(args: argparse.Namespace) -> int:
-    spec = load_spec(args.root, args.task_id)
-    if spec is None:
-        print(
-            f"No spec found at {spec_path(args.root, args.task_id)}.",
-            file=sys.stderr,
-        )
-        return 1
-    grade = (args.grade or "STANDARD").upper()
-    ok, reasons = validate_spec(spec, grade, require_evidence=getattr(args, "require_evidence", False))
-    if ok:
-        print(f"spec valid (grade={grade})")
-        return 0
-    for reason in reasons:
-        print(f"- {reason}")
-    return 1
-
-
 def _cmd_contract(args: argparse.Namespace) -> int:
     grade = (args.grade or "STANDARD").upper()
     if grade not in GRADES:
@@ -3030,15 +3012,6 @@ def main(argv: list[str] | None = None) -> int:
     )
     sub = parser.add_subparsers(dest="cmd")
 
-    p_validate = sub.add_parser("validate", help="Validate an existing spec (harness/dev).")
-    p_validate.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
-    p_validate.add_argument(
-        "--require-evidence",
-        action="store_true",
-        dest="require_evidence",
-        help="Also require citation evidence (repo_context, prior_art).",
-    )
-
     p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier (harness/dev).")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
     p_contract.add_argument(
@@ -3090,7 +3063,6 @@ def main(argv: list[str] | None = None) -> int:
     if err is not None:
         return err
     dispatch = {
-        "validate": _cmd_validate,
         "contract": _cmd_contract,
         "restate": _cmd_restate,
         "add-task": _cmd_add_task,

@@ -22,7 +22,7 @@ _HEADLINE_MAX = 320
 _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)")
 _SUBCMD_RE = re.compile(
     r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)\s+"
-    r"(restate|add-task|set-primary|add-frontier|dispute|validate|contract|where)\b"
+    r"(restate|add-task|set-primary|add-frontier|dispute|contract|where)\b"
 )
 
 MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
