@@ -44,6 +44,7 @@ CONDITIONS = (
     Condition("codex", "gpt-5.5", "xhigh", True),
     Condition("codex", "gpt-5.5", "xhigh", False),
 )
+CONDITIONS_BY_SLUG = {condition.slug: condition for condition in CONDITIONS}
 
 # Hermetic Claude config dir contents. The only difference between the two Claude
 # cells is the unifable plugin (added via --plugin-dir for the unifable cell); the
@@ -426,6 +427,21 @@ def _write_session_files(run_dir: Path, condition: Condition, status: str, elaps
     (run_dir / "usage.json").write_text(json.dumps(usage, indent=2) + "\n", encoding="utf-8")
 
 
+def _pty_env_args() -> list[str]:
+    """Env flags for the PTY-launched agent command. TERM is pinned to a known
+    terminfo entry so subprocess tools (pytest, etc.) do not emit "No entry for
+    terminal type" noise into the captured output; color is forced on so agents
+    still see styled output."""
+    return [
+        "--env",
+        "FORCE_COLOR=3",
+        "--env",
+        "COLORTERM=truecolor",
+        "--env",
+        "TERM=xterm-256color",
+    ]
+
+
 def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, timeout: int, cell_id: str | None = None) -> Path:
     driver_name, driver = _find_driver()
     cell_id = cell_id or condition.slug
@@ -445,14 +461,11 @@ def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, time
                 str(worktree),
                 "--record",
                 str(record),
-                "--env",
-                "FORCE_COLOR=3",
-                "--env",
-                "COLORTERM=truecolor",
+                *_pty_env_args(),
             ]
         )
     else:
-        launch.extend(["--cwd", str(worktree), "--env", "FORCE_COLOR=3", "--env", "COLORTERM=truecolor"])
+        launch.extend(["--cwd", str(worktree), *_pty_env_args()])
     env = _env_for(condition, worktree, run_dir)
     start = time.monotonic()
     out = ""
@@ -502,8 +515,14 @@ def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, time
     return run_dir
 
 
-def dry_run(raw_dir: Path) -> None:
-    for idx, condition in enumerate(CONDITIONS, start=1):
+def selected_conditions(slugs: list[str] | None) -> tuple[Condition, ...]:
+    if not slugs:
+        return CONDITIONS
+    return tuple(CONDITIONS_BY_SLUG[slug] for slug in slugs)
+
+
+def dry_run(raw_dir: Path, conditions: tuple[Condition, ...] = CONDITIONS) -> None:
+    for idx, condition in enumerate(conditions, start=1):
         run_dir = raw_dir / condition.slug
         _write_session_files(
             run_dir,
@@ -521,6 +540,12 @@ def main() -> int:
     parser.add_argument("--task", type=Path, default=DEFAULT_TASK)
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--repeats", type=int, default=1, help="runs per condition; means are aggregated over repeats")
+    parser.add_argument(
+        "--condition",
+        action="append",
+        choices=tuple(CONDITIONS_BY_SLUG),
+        help="run only this benchmark cell; repeat the flag for multiple cells",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--driver", choices=("tuistory",), default="tuistory")
     args = parser.parse_args()
@@ -529,11 +554,12 @@ def main() -> int:
     raw_dir = result_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     repeats = max(1, args.repeats)
+    conditions = selected_conditions(args.condition)
     if args.dry_run:
-        dry_run(raw_dir)
+        dry_run(raw_dir, conditions)
     else:
         for repeat in range(1, repeats + 1):
-            for condition in CONDITIONS:
+            for condition in conditions:
                 cell_id = condition.slug if repeats == 1 else f"{condition.slug}-r{repeat}"
                 run_with_tuistory(condition, raw_dir, args.task, args.timeout, cell_id=cell_id)
 

@@ -19,7 +19,7 @@ model executes.
 |---|---|---|
 | Run the panel | `unifusion.sh` | auto-detect installed CLIs, build the brief, assemble the shared prompt, fan **every** available panelist out in parallel + blind + clean-room, print a manifest |
 | Brief *(auto)* | `resolve_session.sh` → `summarize_session.sh` → `compact-full-transcript.mjs` | resolve **this** session's transcript host-agnostically, summarize it to a **factual-only** brief shared identically by every panelist |
-| Fan out | `run_cb.sh`, `run_codex.sh`, `run_gemini.sh`, `run_kimi.sh`, `run_devin.sh` | every model answers the **same** prompt in parallel, blind, with web + bash, citing real evidence |
+| Fan out | `run_cb.sh`, `run_codex.sh`, `run_gemini.sh`, `run_kimi.sh`, `run_glm.sh` | every model answers the **same** prompt in parallel, blind, with web + bash, citing real evidence |
 | Judge | `references/judge_rubric.md` | Opus 4.8 **merges** (Track A, code) or **synthesizes** (Track B, five sections) |
 | Save | `save_run.sh` | timestamped provenance under `~/.claude/unifusion-runs/` (auto-discovers the run dir) |
 
@@ -31,12 +31,12 @@ Panel composition scales to whatever is installed, one panelist per CLI:
 | `codex` | GPT-5.5 | `-gpt5.5` |
 | `agy` | Gemini 3.5 Flash | `-gemini3.5flash` |
 | `kimi` | Kimi K2.7 | `-kimi2.7` |
-| `devin` | GLM-5.2 | `-glm5.2` |
+| `glm-acp-agent` | GLM-5.1 | `-glm5.1` |
 
 With no external CLI present, unifusion still runs as `opus4.8-4.8` — two independent Opus passes, judged.
 
 Every panelist runs **isolated** — plugins, skills, and non-Exa MCP stripped; cb/codex keep live standard
-user hooks with fast mode (isolated `CLAUDE_CONFIG_DIR` / `CODEX_HOME`, minimal devin config, empty kimi
+user hooks with fast mode (isolated `CLAUDE_CONFIG_DIR` / `CODEX_HOME`, ACP client shim with Exa via session params, empty kimi
 skills dir) — so plugin harness hooks (e.g. the groundedness breaker that would block a panelist's tools in
 a loop) or a slow MCP server can never stall or correlate the panel.
 
@@ -65,11 +65,12 @@ session"?* Different host CLIs store transcripts differently and most expose no 
 `resolve_session.sh` is host-agnostic:
 
 1. **Detect the host by process ancestry** — walk `$$` → PID 1 reading `comm`/argv, classify the nearest
-   agent ancestor as `claude | codex | droid | devin`.
+   agent ancestor as `claude | codex | droid | devin | glm`.
 2. **Resolve id → transcript path** per host (Claude `CLAUDE_CODE_SESSION_ID` / `--resume` →
    `~/.claude/projects/**/<id>.jsonl`; Codex `CODEX_THREAD_ID` → `~/.codex/sessions/**/rollout-*-<id>.jsonl`;
    Droid argv uuid → `~/.factory/sessions/<slug>/<id>.jsonl`; Devin `devin list --format json` scoped to the
-   host cwd → `~/.local/share/devin/cli/transcripts/<id>.json`).
+   host cwd → `~/.local/share/devin/cli/transcripts/<id>.json`; GLM session JSON at
+   `~/.local/state/glm-acp-agent/sessions/<id>.json`, fingerprint-matched).
 3. **Fingerprint-verify** — match the verbatim question (written to `/tmp/unifusion_question.txt`, not to a
    project-local `question.txt`) with
    `grep -lF` to disambiguate cwd candidates and confirm the pick.
@@ -79,7 +80,7 @@ session"?* Different host CLIs store transcripts differently and most expose no 
 `compact-full-transcript.mjs` then summarizes the resolved transcript with **schema-constrained structured
 output** (gemini-3.5-flash by default). Two foreign-format adapters feed its native-Claude pipeline —
 `codexPayloadText` for Codex `.payload` records and `atifToClaudeJsonl` for Devin ATIF-v1.4 JSON — so all
-four hosts summarize end-to-end. A content guard fails closed before any API call if a transcript yields no
+supported hosts summarize end-to-end. A content guard fails closed before any API call if a transcript yields no
 citable text.
 
 ## Why a panel beats one model
@@ -149,7 +150,7 @@ unifusion/
   references/
     panel.md            panel composition + the independence rules
     judge_rubric.md     the two judge tracks (merge code / synthesize research)
-  scripts/              unifusion.sh (entrypoint), resolver + summarizer, run_* panelists (cb/codex/agy/kimi/devin), save_run, helpers
+  scripts/              unifusion.sh (entrypoint), resolver + summarizer, run_* panelists (cb/codex/agy/kimi/glm), save_run, helpers
 ```
 
 ## Sources

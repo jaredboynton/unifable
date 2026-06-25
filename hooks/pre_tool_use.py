@@ -510,26 +510,26 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
     LIGHT waives entirely."""
     try:
         from parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             _REPL_CAT_RE,
             _REPL_READ_PATH_RE,
             command_from_input,
             is_repl_tool,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
     except ImportError:
         from scripts.gate.parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             _REPL_CAT_RE,
             _REPL_READ_PATH_RE,
             command_from_input,
             is_repl_tool,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
 
     if is_repl_tool(tool_name):
         code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
-        bash_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+        bash_cmds = repl_shell_cmds_from_code(code)
         if bash_cmds:
             for cmd in bash_cmds:
                 blocked_env = blocked_agent_env_reason(cmd)
@@ -599,30 +599,30 @@ def _shell_research_passes(input_data: dict, tool_name: str, tool_input: dict) -
     """True when a shell/REPL call is allowed research (breaker bypass)."""
     try:
         from parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             _REPL_CAT_RE,
             _REPL_READ_PATH_RE,
             command_from_input,
             is_repl_tool,
             is_shell_tool,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
     except ImportError:
         from scripts.gate.parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             _REPL_CAT_RE,
             _REPL_READ_PATH_RE,
             command_from_input,
             is_repl_tool,
             is_shell_tool,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
 
     if not is_shell_tool(tool_name):
         return False
     if is_repl_tool(tool_name):
         code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
-        bash_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+        bash_cmds = repl_shell_cmds_from_code(code)
         if bash_cmds:
             return all(is_allowed_research_bash(cmd)[0] for cmd in bash_cmds)
         return bool(_REPL_READ_PATH_RE.search(code) or _REPL_CAT_RE.search(code))
@@ -846,25 +846,25 @@ def main() -> int:
     # --- Shell tools: research whitelist (unconditional) ---
     try:
         from parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             command_from_input,
             is_repl_tool,
             is_shell_tool,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
     except ImportError:
         from scripts.gate.parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             command_from_input,
             is_repl_tool,
             is_shell_tool,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
 
     if is_shell_tool(tool_name):
         if is_repl_tool(tool_name):
             code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
-            shell_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+            shell_cmds = repl_shell_cmds_from_code(code)
         else:
             shell_cmds = [command_from_input({"tool_name": tool_name, "tool_input": tool_input})]
 

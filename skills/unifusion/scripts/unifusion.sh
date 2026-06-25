@@ -12,7 +12,7 @@
 # - [run_dir]       : optional dir to hold this run's prompt/outputs; a fresh mktemp dir is used if omitted.
 #
 # What it does (folds in the old detect_panel + preflight + context + per-CLI launch steps):
-#   1. Detects panelist CLIs: claude (Opus), codex (GPT-5.5), agy (Gemini), kimi (Kimi), devin (GLM).
+#   1. Detects panelist CLIs: claude (Opus), codex (GPT-5.5), agy (Gemini), kimi (Kimi), glm-acp-agent (GLM).
 #   2. Builds a FACTUAL session-context brief (summarize_session.sh, best-effort; skipped silently if it
 #      can't be built). The identical brief is shared by every panelist — the panel's one allowed prior.
 #   3. Assembles the canonical panelist prompt ([SESSION CONTEXT]? + [INSTRUCTIONS] + verbatim [TASK])
@@ -28,7 +28,7 @@
 # per-panelist, never fatal).
 #
 # Env knobs (advanced; sensible defaults): UNIFUSION_TIMEOUT (per-panelist seconds, default 600),
-# UNIFUSION_OPUS_MODEL (claude model, default opus), KIMI_MODEL, DEVIN_MODEL, AGY_MODEL,
+# UNIFUSION_OPUS_MODEL (claude model, default opus), KIMI_MODEL, GLM_MODEL, AGY_MODEL,
 # UNIFUSION_CONTEXT_PROVIDER + GEMINI_API_KEY/GOOGLE_API_KEY (enable the session brief).
 
 set -uo pipefail
@@ -61,7 +61,7 @@ have claude && claude_ok=true
 have codex && codex_ok=true
 have agy   && agy_ok=true
 have_kimi  && kimi_ok=true
-have devin && devin_ok=true
+have glm-acp-agent && glm_ok=true
 
 # ---- 2. best-effort shared session-context brief --------------------------------------------------
 context_file="$run_dir/context.md"
@@ -128,7 +128,7 @@ ext=0
 $codex_ok && { launch gpt5.5         gpt5.5         codex_out.md  bash "$SCRIPT_DIR/run_codex.sh"  ; ext=$((ext+1)); }
 $agy_ok   && { launch gemini3.5flash gemini3.5flash gemini_out.md bash "$SCRIPT_DIR/run_gemini.sh" ; ext=$((ext+1)); }
 $kimi_ok  && { launch kimi2.7        kimi2.7        kimi_out.md   bash "$SCRIPT_DIR/run_kimi.sh"   ; ext=$((ext+1)); }
-$devin_ok && { launch glm5.2         glm5.2         devin_out.md  bash "$SCRIPT_DIR/run_devin.sh"  ; ext=$((ext+1)); }
+$glm_ok   && { launch glm5.1         glm5.1         glm_out.md    bash "$SCRIPT_DIR/run_glm.sh"   ; ext=$((ext+1)); }
 
 # No external CLI at all -> run a SECOND cold Opus (the opus4.8-4.8 fallback).
 if [ "$ext" -eq 0 ]; then

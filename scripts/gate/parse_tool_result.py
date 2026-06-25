@@ -120,8 +120,11 @@ def response_text(value: Any, limit: int = 4000) -> str:
 _READ_PROGS = {"cat", "bat", "head", "tail", "wc", "nl", "less", "more", "grep", "egrep", "fgrep", "rg", "ag", "ack", "xmllint"}
 # grep-family: the first non-flag arg is the PATTERN, not a file -- skip it.
 _GREP_FAMILY = {"grep", "egrep", "fgrep", "rg", "ag", "ack"}
+_BARE_FILENAME_RE = re.compile(r"^[\w@+,-]+$")
 # fetch-style programs (URL retrievers). Matched in command position only.
 _FETCH_PROGS = {"curl", "wget", "xh", "http", "https", "httpie", "lynx", "w3m"}
+_PATH_INPUT_KEYS = ("file_path", "path", "notebook_path")
+_MCP_WRITE_RE = re.compile(r"(?i)(write|create|update|delete|patch|apply|remove|insert|put|post|send)")
 _URL_IN_TEXT_RE = re.compile(r"https?://[^\s'\"|>;)]+", re.IGNORECASE)
 _SHELL_OPERATORS = {";", "|", "||", "&&", "&", ">", ">>", "<", "2>", "2>&1"}
 
@@ -211,9 +214,61 @@ def _bash_read_files(cmd: str) -> list[str]:
                 continue
             if arg.endswith("/"):
                 continue  # directory search root (e.g. `rg pat scripts/gate/`), not a file read
-            if "/" in arg or "." in arg:
+            if "/" in arg or "." in arg or _looks_like_bare_filename(arg):
                 out.append(arg)
     return out
+
+
+def _looks_like_bare_filename(token: str) -> bool:
+    """True for cwd-relative single-segment names like justfile or Makefile."""
+    return len(token) >= 2 and bool(_BARE_FILENAME_RE.match(token))
+
+
+def _looks_like_path_string(value: str) -> bool:
+    raw = str(value or "").strip()
+    if not raw or "://" in raw:
+        return False
+    if raw.startswith("file:"):
+        return len(raw) > 5
+    return bool(raw)
+
+
+def _paths_from_mapping(obj: Any, *, depth: int = 0) -> list[str]:
+    """Structured path keys from tool_input (MCP queries[].path, Read.path, etc.)."""
+    if depth > 6:
+        return []
+    out: list[str] = []
+    if isinstance(obj, dict):
+        for key in _PATH_INPUT_KEYS:
+            value = obj.get(key)
+            if isinstance(value, str) and _looks_like_path_string(value):
+                out.append(value)
+        queries = obj.get("queries")
+        if isinstance(queries, list):
+            for item in queries:
+                if isinstance(item, dict):
+                    path = item.get("path")
+                    if isinstance(path, str) and _looks_like_path_string(path):
+                        out.append(path)
+        for key, child in obj.items():
+            if key == "queries":
+                continue
+            if isinstance(child, (dict, list)):
+                out.extend(_paths_from_mapping(child, depth=depth + 1))
+    elif isinstance(obj, list):
+        for child in obj[:50]:
+            if isinstance(child, (dict, list)):
+                out.extend(_paths_from_mapping(child, depth=depth + 1))
+    return out
+
+
+def _mcp_tool_is_read_like(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    if not is_mcp_tool(name):
+        return False
+    if _MCP_WRITE_RE.search(name):
+        return False
+    return bool(re.search(r"(?i)(read|get|fetch|content|search|file|view|lookup|list|query)", name))
 
 
 def _bash_fetch_urls(cmd: str) -> list[str]:
@@ -511,6 +566,27 @@ _REPL_BASH_CMD_RE = re.compile(
     r"(?:^|[^A-Za-z0-9_$])(?:Bash|sh)\s*\(\s*\{[^}]*command\s*:\s*['\"]([^'\"]+)['\"]",
     re.DOTALL,
 )
+_REPL_EXEC_CMD_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_$])(?:tools\.)?exec_command\s*\(\s*\{[^}]*?\bcmd\s*:\s*['\"]([^'\"]+)['\"]",
+    re.DOTALL,
+)
+_REPL_VIEW_IMAGE_PATH_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_$])(?:tools\.)?view_image\s*\(\s*\{[^}]*?\bpath\s*:\s*['\"]([^'\"]+)['\"]",
+    re.DOTALL,
+)
+_REPL_TOOL_PATH_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_$])tools\.[\w$]+\s*\(\s*\{[^}]*?"
+    r"(?:file_path|path|notebook_path)\s*:\s*['\"]([^'\"]+)['\"]",
+    re.DOTALL,
+)
+
+
+def repl_shell_cmds_from_code(code: str) -> list[str]:
+    """Shell commands embedded in REPL / Codex exec JS source."""
+    out: list[str] = []
+    for pattern in (_REPL_BASH_CMD_RE, _REPL_EXEC_CMD_RE):
+        out.extend(m.group(1) for m in pattern.finditer(code))
+    return out
 
 
 def repl_code_from_input(input_data: dict[str, Any]) -> str:
@@ -528,11 +604,10 @@ def repl_code_from_input(input_data: dict[str, Any]) -> str:
 
 def _paths_from_structured_tool(name: str, ti: dict[str, Any]) -> list[str]:
     out: list[str] = []
-    if name in STRUCTURED_READ_TOOLS:
-        for key in ("file_path", "path", "notebook_path"):
-            value = ti.get(key)
-            if value:
-                out.append(str(value))
+    if name in STRUCTURED_READ_TOOLS or name == "view_image":
+        out.extend(_paths_from_mapping(ti))
+    if is_mcp_tool(name) and _mcp_tool_is_read_like(name):
+        out.extend(_paths_from_mapping(ti))
     if name == "Bash":
         out.extend(_bash_read_files(str(ti.get("command") or "")))
     return out
@@ -568,8 +643,12 @@ def _paths_from_repl_code(code: str) -> list[str]:
         out.append(m.group(1))
     for m in _REPL_CAT_RE.finditer(code):
         out.append(m.group(1))
-    for m in _REPL_BASH_CMD_RE.finditer(code):
-        out.extend(_bash_read_files(m.group(1)))
+    for m in _REPL_VIEW_IMAGE_PATH_RE.finditer(code):
+        out.append(m.group(1))
+    for m in _REPL_TOOL_PATH_RE.finditer(code):
+        out.append(m.group(1))
+    for cmd in repl_shell_cmds_from_code(code):
+        out.extend(_bash_read_files(cmd))
     return out
 
 
@@ -577,8 +656,8 @@ def _urls_from_repl_code(code: str) -> list[str]:
     out: list[str] = []
     for m in _REPL_WEBFETCH_URL_RE.finditer(code):
         out.append(m.group(1))
-    for m in _REPL_BASH_CMD_RE.finditer(code):
-        out.extend(_bash_fetch_urls(m.group(1)))
+    for cmd in repl_shell_cmds_from_code(code):
+        out.extend(_bash_fetch_urls(cmd))
     return out
 
 
@@ -624,8 +703,10 @@ def read_targets(input_data: dict[str, Any]) -> list[str]:
     ti = input_data.get("tool_input")
     out: list[str] = []
     if isinstance(ti, dict):
-        if tool in STRUCTURED_READ_TOOLS:
+        if tool in STRUCTURED_READ_TOOLS or tool == "view_image":
             out.extend(_paths_from_structured_tool(tool, ti))
+        elif is_mcp_tool(tool) and _mcp_tool_is_read_like(tool):
+            out.extend(_paths_from_mapping(ti))
         if is_shell_tool(tool):
             out.extend(_bash_read_files(command_from_input(input_data)))
     elif isinstance(ti, str) and is_shell_tool(tool):
@@ -809,6 +890,26 @@ def verification_record(input_data: dict[str, Any]) -> dict[str, Any] | None:
         "success": bool(success) if success is not None else None,
         "summary": redact(text, 220),
     }
+
+
+def format_verifications(records: Any, limit: int = 20) -> list[str]:
+    """Render recorded verification_results (from verification_record) into the
+    one-line strings the evidence corpus carries. A passing pytest run the agent
+    already executed becomes proof the evidence judge can read, so it need not be
+    laundered through a research wrapper to be counted."""
+    out: list[str] = []
+    for r in (records or [])[-limit:]:
+        if not isinstance(r, dict):
+            continue
+        command = str(r.get("command") or "").strip()
+        if not command:
+            continue
+        success = r.get("success")
+        status = "PASS" if success is True else "FAIL" if success is False else "RAN"
+        summary = str(r.get("summary") or "").strip()
+        line = f"{command} -> {status}: {summary}" if summary else f"{command} -> {status}"
+        out.append(line)
+    return out
 
 
 def _failure_signature(summary: str) -> str:

@@ -168,6 +168,12 @@ def _realtime_reasoning_config(effort: str | None = None) -> dict[str, Any]:
     return {"reasoning": {"effort": e}}
 
 
+def _realtime_reasoning_config(effort: str | None = None) -> dict[str, Any]:
+    """Realtime `reasoning.effort` for gpt-realtime-2 judge/breaker calls."""
+    e = (effort or REASONING_EFFORT).strip() or "low"
+    return {"reasoning": {"effort": e}}
+
+
 class JudgeError(Exception):
     """Any auth / transport / protocol failure talking to the Realtime API."""
 

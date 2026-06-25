@@ -1,5 +1,6 @@
 import importlib.util
 import json
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -86,6 +87,16 @@ def test_summary_requires_all_four_benchmark_cells(tmp_path):
     assert summarize.missing_conditions(incomplete) == {"codex:baseline"}
 
 
+def test_selected_conditions_filters_benchmark_cells(tmp_path):
+    bench = _load_module("bench.py", "benchmark_bench_conditions")
+
+    selected = bench.selected_conditions(["codex-unifable"])
+    bench.dry_run(tmp_path / "raw", selected)
+
+    assert [condition.slug for condition in selected] == ["codex-unifable"]
+    assert sorted(path.name for path in (tmp_path / "raw").iterdir()) == ["codex-unifable"]
+
+
 def test_hermetic_home_installs_explore_skill(tmp_path, monkeypatch):
     bench = _load_module("bench.py", "benchmark_bench_explore")
     monkeypatch.setattr(bench, "WORKSPACE_ROOT", tmp_path / "workspaces")
@@ -100,6 +111,26 @@ def test_hermetic_home_installs_explore_skill(tmp_path, monkeypatch):
     assert (explore / "scripts" / "websearch.sh").is_file()
     assert (run_dir / "explore-skill-path.txt").is_file()
     assert explore.resolve().as_posix() in (run_dir / "explore-skill-path.txt").read_text(encoding="utf-8")
+
+
+def test_explore_fixture_scripts_are_executable():
+    # The fixture is copied into the agent's worktree verbatim; if the source
+    # scripts lack the exec bit, an agent invoking the worktree copy directly
+    # hits "permission denied" (only the installed hermetic copy is chmod'd).
+    bench = _load_module("bench.py", "benchmark_bench_fixture_perms")
+    scripts = bench.EXPLORE_SKILL_FIXTURE / "scripts"
+    assert os.access(scripts / "trace.sh", os.X_OK)
+    assert os.access(scripts / "websearch.sh", os.X_OK)
+
+
+def test_pty_env_args_includes_stable_term():
+    # A pinned TERM silences "No entry for terminal type" noise from subprocess
+    # tools; color stays forced on.
+    bench = _load_module("bench.py", "benchmark_bench_pty_env")
+    args = bench._pty_env_args()
+    assert "TERM=xterm-256color" in args
+    assert "FORCE_COLOR=3" in args
+    assert "COLORTERM=truecolor" in args
 
 
 def _write_session_full(raw_dir, name, host, unifable, *, elapsed, usage, files_changed, model=None):

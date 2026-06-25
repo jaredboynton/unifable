@@ -22,7 +22,7 @@ the caller only judges + saves. "Always use all available," automatically.
 Plain bash + two interpreter helpers; no build step.
 
 - `scripts/unifusion.sh <question_file> [run_dir]` — THE entrypoint. Detects panelist CLIs (cb/codex/agy/
-  kimi/devin), builds the best-effort session brief, assembles the one canonical prompt
+  kimi/glm), builds the best-effort session brief, assembles the one canonical prompt
   (`panel_prompt.md`), fans every available panelist out as parallel background jobs into
   `<run_dir>/<label>_out.md` (always Opus via `cb`; a 2nd `cb` if no external CLI → the `opus4.8-4.8`
   fallback), waits, and prints a manifest (`RUN_DIR=`, `PANEL_PROMPT=`, `CONTEXT=`, `SLUG=`, one
@@ -33,8 +33,8 @@ Plain bash + two interpreter helpers; no build step.
   no plugins, `fastMode`, plus `--mcp-config` Exa only (`--strict-mcp-config`). The `cb` wrapper
   auto-adds `--dangerously-skip-permissions` for web+bash. Override model via `UNIFUSION_OPUS_MODEL`.
 - `scripts/resolve_session.sh [--path|--id|--json] [--fingerprint-file <f>]` — host-agnostic resolver:
-  walks process ancestry to the host agent (claude/codex/droid/devin), reads its session id (env/argv/
-  `devin list`), maps id→transcript path, and uses the fingerprint (the verbatim question) to disambiguate
+  walks process ancestry to the host agent (claude/codex/droid/glm), reads its session id (env/argv/
+  session store), maps id→transcript path, and uses the fingerprint (the verbatim question) to disambiguate
   among cwd candidates and verify the pick. Unresolved → non-zero (fail closed).
 - `scripts/summarize_session.sh <out>` → resolver → `scripts/compact-full-transcript.mjs` — best-effort
   factual session brief. The shim resolves the transcript via `resolve_session.sh --path --fingerprint-file
@@ -48,11 +48,15 @@ Plain bash + two interpreter helpers; no build step.
   Two foreign-format adapters feed the native Claude pipeline: `codexPayloadText` makes Codex `.payload`-shaped
   records citable/renderable, and `atifToClaudeJsonl` converts a Devin ATIF-v1.4 JSON document (`steps[]`)
   into Claude-shaped JSONL records (`sha256`/`bytes` still hash the original file). So Claude, Codex, Droid,
-  and Devin transcripts all summarize end-to-end. Writes a bundle to `--out-dir`; the brief is
+  Devin, and GLM transcripts all summarize end-to-end. Writes a bundle to `--out-dir`; the brief is
   `<out-dir>/summary.md`. Vendored from claudecompact-patcher; keep the four provider dispatch paths in sync
   if edited.
 - `scripts/run_codex.sh` (GPT-5.5), `run_gemini.sh` (Gemini 3.5 Flash via `agy`), `run_kimi.sh` (Kimi K2.7),
-  `run_devin.sh` (GLM-5.2) — one external panelist each.
+  `run_glm.sh` (GLM-5.2 via `glm-acp-agent` ACP) — one external panelist each.
+- `scripts/_acp_client.mjs` — minimal ACP (Agent Client Protocol) stdio client that drives `glm-acp-agent`
+  through the JSON-RPC protocol (initialize → authenticate → session/new → session/set_mode →
+  session/prompt → session/close). Collects streamed `agent_message_chunk` text and writes it to stdout.
+  Called by `run_glm.sh`.
 - `scripts/_unifusion_lib.sh` — sourced by the runners; `have()`, `_has_content`, panel config builders
   (`_unifusion_write_cb_panel_settings`, `_unifusion_write_codex_panel_config`), and `_run_with_timeout`
   (perl fork+alarm, since stock macOS has no `timeout`/`gtimeout`). The child is exec'd as its own
@@ -63,7 +67,7 @@ Plain bash + two interpreter helpers; no build step.
   with no TTY) while surviving a socket stdin (headless/cmux).
 - `scripts/save_run.sh` — writes the provenance `.md` under `~/.claude/unifusion-runs/` only. Accepts a
   single `<run_dir>` 5th arg and auto-discovers `*_out.md` (mapping cb_out→opus-A, cb_out_b→opus-B,
-  codex_out→gpt5.5, gemini_out→gemini3.5flash, kimi_out→kimi2.7, devin_out→glm5.2), or an explicit
+  codex_out→gpt5.5, gemini_out→gemini3.5flash, kimi_out→kimi2.7, glm_out→glm5.1), or an explicit
   `LABEL=path` list as fallback.
 - `references/panel.md`, `references/judge_rubric.md` — panel composition + the two judge tracks.
 
@@ -82,8 +86,10 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
   `include_apps_instructions = false`, `[features] hooks/code_mode`, copied `auth.json`, live
   `~/.codex/hooks.json`, Exa `[mcp_servers.exa]` only; no notify). `codex exec --dangerously-bypass-hook-trust`
   auto-approves hooks headlessly. Per-run, so concurrent runs never share Codex state.
-- **devin** → `--config <throwaway minimal.json>` = real config minus `hooks`/`plugins`/`rules`/`skills`,
-  `mcpServers` replaced with Exa only, model pinned to glm-5.2.
+- **glm** → `glm-acp-agent` is an ACP stdio agent (JSON-RPC), not a traditional CLI. The `_acp_client.mjs`
+  shim drives it: MCP servers (Exa only) passed via `session/new` params, permission bypass via
+  `session/set_mode bypass_permissions`, model pinned via `ACP_GLM_MODEL` env (default `glm-5.2`).
+  No config file needed; no hooks/plugins/rules/skills to strip (the agent has none).
 - **kimi** → `--skills-dir <empty>`; Exa from `[mcp_servers.exa]` in `~/.kimi-code/config.toml`; plus a
   best-effort by-name reap of the `kimi-code` worker it spawns (snapshot PIDs before, TERM/KILL the new
   ones after) since that worker daemonizes out of the process group.
@@ -97,10 +103,10 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
 
 - Signature `run_<cli>.sh <prompt_file> <output_file> [extra]`; writes ONLY the model's clean final
   answer to `<output_file>`.
-- cb/codex/kimi/devin run the model against a **throwaway copy** of the repo/workdir (deleted on exit), so a
+- cb/codex/kimi/glm run the model against a **throwaway copy** of the repo/workdir (deleted on exit), so a
   panelist's file writes never touch the live checkout.
 - Run **panel isolation**: strip plugins/skills and non-Exa MCP (see Panel isolation above). cb/codex keep
-  live standard user hooks; devin/kimi strip hooks/skills. Exa MCP is injected (cb/codex/devin throwaways)
+  live standard user hooks; glm/kimi strip hooks/skills. Exa MCP is injected (cb/codex/glm throwaways)
   or read from user config (kimi/agy).
 - Strip the CLI's wrapper to clean Markdown (ANSI + control bytes; kimi also has a leading bullet +
   2-space hanging indent).
@@ -114,13 +120,13 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
 | Var | Default | Effect |
 |-----|---------|--------|
 | `UNIFUSION_TIMEOUT` | `600` | per-panelist deadline (seconds) |
-| `UNIFUSION_EXA_MCP_URL` | (see `_unifusion_lib.sh`) | Exa MCP endpoint for cb/codex/devin throwaway configs |
+| `UNIFUSION_EXA_MCP_URL` | (see `_unifusion_lib.sh`) | Exa MCP endpoint for cb/codex/glm throwaway configs |
 | `UNIFUSION_OPUS_MODEL` | `opus` | cb model alias for the Opus panelist(s) |
 | `UNIFUSION_CODEX_MODEL` | `gpt-5.5` | model in the isolated codex config |
 | `KIMI_MODEL` | (unset → kimi `default_model`) | optional Kimi model override |
 | `UNIFUSION_KIMI_BIN` | `~/.kimi-code/bin/kimi` | real kimi binary (bypasses shell alias) |
-| `DEVIN_MODEL` | `glm-5.2` | model pinned in the throwaway devin config |
-| `DEVIN_CONFIG` | `~/.config/devin/config.json` | source config the minimal one is derived from |
+| `GLM_MODEL` | `glm-5.2` | model passed to glm-acp-agent via `ACP_GLM_MODEL` env |
+| `GLM_MAX_TOKENS` | `131072` | per-call max output tokens (`glm-5.2` API maximum) |
 | `AGY_MODEL` | `Gemini 3.5 Flash (Medium)` | agy model name |
 | `UNIFUSION_AGY_NO_MODEL` | (unset) | omit `--model`, use agy default |
 | `GEMINI_API_KEY` / `GOOGLE_API_KEY` | (unset) | enables the (gemini) session-context brief |
@@ -144,7 +150,7 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
 
 - `printf 'what is the latest node LTS?' > /tmp/q.md && bash scripts/run_<cli>.sh /tmp/q.md /tmp/o.md;
   echo "exit=$?"; cat /tmp/o.md` → clean Markdown, no wrapper artifacts. (For each of cb/codex/gemini/kimi/
-  devin; confirm it returns in seconds, not blocked by plugin hooks/MCP — that's panel isolation working.)
+  glm; confirm it returns in seconds, not blocked by plugin hooks/MCP — that's panel isolation working.)
 - `bash scripts/unifusion.sh /tmp/q.md /tmp/ufrun` → a manifest with one `PANELIST ... ok ...` per installed
   CLI; every `*_out.md` in `/tmp/ufrun` is non-empty and distinct. After, `ps aux | grep kimi-code | grep -v
   grep | wc -l` should not grow run-over-run (orphan reap).

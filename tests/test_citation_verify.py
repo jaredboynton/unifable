@@ -71,6 +71,96 @@ def test_exec_command_cmd_registers_read():
     assert read_targets(payload) == ["foo.py"]
 
 
+def test_exec_js_tools_exec_command_registers_read():
+    aw = "a" + "w" + "ait"
+    payload = {
+        "tool_name": "exec",
+        "tool_input": {
+            "code": (
+                f"{aw} tools.exec_command({{ cmd: "
+                "'rg -n hooks hooks/hooks.json' "
+                "})"
+            )
+        },
+    }
+    assert read_targets(payload) == ["hooks/hooks.json"]
+
+
+def test_bare_filename_head_justfile_registers_read():
+    assert read_targets(_bash("head -n 5 justfile")) == ["justfile"]
+
+
+def test_bare_filename_not_from_echo():
+    assert read_targets(_bash("echo justfile")) == []
+
+
+def test_bare_filename_syncs_repo_context(tmp_path, monkeypatch):
+    from citations import sync_citations_from_activity  # noqa: E402
+    from spec import repo_context_of, spec_template  # noqa: E402
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    justfile = repo / "justfile"
+    justfile.write_text("default:\n\techo ok\n")
+    read_path = str(justfile.resolve())
+    spec = spec_template()
+    activity = empty_activity()
+    activity["read_paths"] = [read_path]
+    assert sync_citations_from_activity(spec, activity, str(repo)) is True
+    assert any(item.get("cite") == "justfile:1" for item in repo_context_of(spec))
+    assert path_was_read("justfile:1", [read_path], str(repo))
+
+
+def test_view_image_registers_path():
+    payload = {
+        "tool_name": "view_image",
+        "tool_input": {"path": "assets/x.png"},
+    }
+    assert read_targets(payload) == ["assets/x.png"]
+
+
+def test_mcp_read_like_octocode_registers_path():
+    payload = {
+        "tool_name": "mcp__octocode__githubGetFileContent",
+        "tool_input": {"queries": [{"path": "src/mod.py", "owner": "o", "repo": "r"}]},
+    }
+    assert read_targets(payload) == ["src/mod.py"]
+
+
+def test_mcp_write_like_skips_path():
+    payload = {
+        "tool_name": "mcp__foo__createIssue",
+        "tool_input": {"path": "src/mod.py"},
+    }
+    assert read_targets(payload) == []
+
+
+def test_exec_js_tools_exec_command_post_tool_ledger():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        target = Path(cwd) / "hooks" / "hooks.json"
+        target.parent.mkdir(parents=True)
+        target.write_text("{}\n")
+        aw = "a" + "w" + "ait"
+        sess = "EXEC-JS"
+        payload = {
+            "tool_name": "exec",
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_input": {
+                "code": (
+                    f"{aw} tools.exec_command({{ cmd: "
+                    "'rg hooks hooks/hooks.json' "
+                    "})"
+                )
+            },
+        }
+        rc, _, err = _run("gate_post_tool.py", payload, dd)
+        assert rc == 0, err
+        os.environ["UNIFABLE_DATA"] = dd
+        ledger = load_ledger({"session_id": sess, "cwd": cwd})
+        assert str(target.resolve()) in ledger.get("read_paths", [])
+
+
 def test_repl_nested_read_in_tool_response():
     abs_path = "/Users/me/project/src/mod.py"
     payload = {
