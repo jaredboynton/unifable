@@ -582,6 +582,7 @@ def main() -> int:
                         verify_citations,
                     )
                     from heavy_workflow import clear_stale_heavy_workflow, heavy_snapshot
+                    from parse_tool_result import format_verifications
                     from spec import auto_validate_spec, save_spec
                     from spec_hygiene import apply_spec_hygiene
 
@@ -597,6 +598,7 @@ def main() -> int:
                         save_spec(cwd, task_key, spec)
                     stop_evidence = dict(activity)
                     stop_evidence["tool_evidence"] = [str(x) for x in (activity.get("tool_evidence") or [])][-60:]
+                    stop_evidence["verifications"] = format_verifications(_stop_ledger.get("verification_results"))
                     spec, val_msgs = auto_validate_spec(
                         spec,
                         cwd,

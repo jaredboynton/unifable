@@ -892,6 +892,26 @@ def verification_record(input_data: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def format_verifications(records: Any, limit: int = 20) -> list[str]:
+    """Render recorded verification_results (from verification_record) into the
+    one-line strings the evidence corpus carries. A passing pytest run the agent
+    already executed becomes proof the evidence judge can read, so it need not be
+    laundered through a research wrapper to be counted."""
+    out: list[str] = []
+    for r in (records or [])[-limit:]:
+        if not isinstance(r, dict):
+            continue
+        command = str(r.get("command") or "").strip()
+        if not command:
+            continue
+        success = r.get("success")
+        status = "PASS" if success is True else "FAIL" if success is False else "RAN"
+        summary = str(r.get("summary") or "").strip()
+        line = f"{command} -> {status}: {summary}" if summary else f"{command} -> {status}"
+        out.append(line)
+    return out
+
+
 def _failure_signature(summary: str) -> str:
     """Normalize a failure summary into a stable class key. Numbers and paths
     differ between occurrences of the same failure, so collapse them so that

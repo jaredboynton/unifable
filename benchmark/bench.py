@@ -427,6 +427,21 @@ def _write_session_files(run_dir: Path, condition: Condition, status: str, elaps
     (run_dir / "usage.json").write_text(json.dumps(usage, indent=2) + "\n", encoding="utf-8")
 
 
+def _pty_env_args() -> list[str]:
+    """Env flags for the PTY-launched agent command. TERM is pinned to a known
+    terminfo entry so subprocess tools (pytest, etc.) do not emit "No entry for
+    terminal type" noise into the captured output; color is forced on so agents
+    still see styled output."""
+    return [
+        "--env",
+        "FORCE_COLOR=3",
+        "--env",
+        "COLORTERM=truecolor",
+        "--env",
+        "TERM=xterm-256color",
+    ]
+
+
 def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, timeout: int, cell_id: str | None = None) -> Path:
     driver_name, driver = _find_driver()
     cell_id = cell_id or condition.slug
@@ -446,14 +461,11 @@ def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, time
                 str(worktree),
                 "--record",
                 str(record),
-                "--env",
-                "FORCE_COLOR=3",
-                "--env",
-                "COLORTERM=truecolor",
+                *_pty_env_args(),
             ]
         )
     else:
-        launch.extend(["--cwd", str(worktree), "--env", "FORCE_COLOR=3", "--env", "COLORTERM=truecolor"])
+        launch.extend(["--cwd", str(worktree), *_pty_env_args()])
     env = _env_for(condition, worktree, run_dir)
     start = time.monotonic()
     out = ""
