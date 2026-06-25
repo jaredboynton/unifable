@@ -88,6 +88,25 @@ def test_over_budget_drops_bulk_prose():
     assert "..." in out  # an elision marker survives
 
 
+def test_wire_tokens_tier0_survive_budget():
+    wire = (
+        "SECTION ExecutiveSummary\n"
+        "Summary line.\n\n"
+        "SECTION InScopeFindings\n"
+        "- claim <url:https://example.org/wire>\n"
+        "<quote:https://example.org/wire|verified excerpt token>\n"
+        "<file:scripts/gate/spec.py:1-3>\n"
+        + "\n".join(f"padding line {i}" for i in range(120))
+        + "\nSECTION RecommendedNextSteps\n"
+        "FINAL_WIRE_SHIP_MARKER: ship it\n"
+    )
+    out = compress_research_output(wire, RESEARCH_BASH_EVIDENCE_CHARS)
+    assert "https://example.org/wire" in out
+    assert "verified excerpt token" in out
+    assert "<file:scripts/gate/spec.py:1-3>" in out
+    assert "FINAL_WIRE_SHIP_MARKER" in out
+
+
 # --------------------------------------------------------------------------- #
 # research_bash_evidence: end-to-end through the explore-script gate
 # --------------------------------------------------------------------------- #

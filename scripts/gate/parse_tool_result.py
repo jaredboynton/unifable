@@ -337,6 +337,10 @@ _RB_HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S")
 _RB_FENCE_REF_RE = re.compile(r"^\s*`{3,}[\w.+-]*\s*\d+:\d+:[^\s`]+")  # ```120:140:path opener
 _RB_INLINE_REF_RE = re.compile(r"(?<![:\w/])(?:[\w.\-]+/)*[\w.\-]+\.[A-Za-z]{1,6}:\d+\b")
 _RB_URL_RE = re.compile(r"https?://[^\s)>\]\"'|]+")
+_RB_WIRE_FILE_RE = re.compile(r"<file:[^:>]+:\d+-\d+>")
+_RB_WIRE_URL_RE = re.compile(r"<url:https?://[^>]+>")
+_RB_WIRE_QUOTE_RE = re.compile(r"<quote:https?://[^>|]+\|")
+_RB_WIRE_SECTION_RE = re.compile(r"^SECTION\s+[A-Za-z]", re.M)
 _RB_TABLE_RE = re.compile(r"^\s*\|.*\|\s*$")
 _RB_KEYWORD_RE = re.compile(
     r"(?i)\b(recommendation|verified fact|key files?|summary|conclusion|caveat|gotcha|takeaway|important)\b"
@@ -430,6 +434,10 @@ def compress_research_output(text: str, budget: int = RESEARCH_BASH_EVIDENCE_CHA
         if i in critical:
             return 0
         if _RB_URL_RE.search(ln) or _RB_FENCE_REF_RE.match(ln) or _RB_INLINE_REF_RE.search(ln):
+            return 0
+        if _RB_WIRE_FILE_RE.search(ln) or _RB_WIRE_URL_RE.search(ln) or _RB_WIRE_QUOTE_RE.search(ln):
+            return 0
+        if _RB_WIRE_SECTION_RE.match(ln):
             return 0
         if _RB_HEADER_RE.match(ln) or _RB_TABLE_RE.match(ln) or _RB_KEYWORD_RE.search(ln):
             return 1
