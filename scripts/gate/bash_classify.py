@@ -2,7 +2,8 @@
 """Classify whether a Bash command is allowed during the pre-spec research phase.
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
-spec, Bash may run only `cd`, `ls`, `glob`, `rg`, read-only file inspection
+spec, Bash may run only `cd`, `ls`, `glob`, `rg`, `grep`/`egrep`/`fgrep`, `echo` (read-only pipeline sinks only),
+`ast-grep`/`sg`, read-only file inspection
 (`head`, `tail`, `wc`, `sort`, `uniq`), read-only `git` subcommands, git
 workflow commands (`status`, `add`, `commit`, `push` without `--force`), a file
 whose basename is `trace.sh` or `websearch.sh` when the explore skill is
@@ -23,7 +24,9 @@ except ImportError:  # pragma: no cover
 
 ALLOWED_RESEARCH_BASH = allowed_research_bash_detail()
 
-_ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg"})
+_ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg", "grep", "egrep", "fgrep", "echo"})
+_AST_GREP_NAMES = frozenset({"ast-grep", "sg"})
+_AST_GREP_REWRITE_FLAGS = frozenset({"-U", "--update", "--rewrite"})
 # Standalone or as pipeline sinks after an allowed command.
 READONLY_INSPECTION_COMMANDS = frozenset({"head", "tail", "wc", "sort", "uniq"})
 _PIPELINE_SINKS = READONLY_INSPECTION_COMMANDS
@@ -88,6 +91,28 @@ _ALLOWED_GIT_SUBCMDS = frozenset(
         "reflog",
         "merge-base",
         "name-rev",
+        "ls-remote",
+        "ls-files",
+        "ls-tree",
+        "cat-file",
+        "for-each-ref",
+        "show-ref",
+        "rev-list",
+        "grep",
+        "check-ignore",
+        "check-attr",
+        "check-ref-format",
+        "check-mailmap",
+        "verify-commit",
+        "verify-tag",
+        "help",
+        "archive",
+        "count-objects",
+        "merge-tree",
+        "whatchanged",
+        "diff-tree",
+        "get-tar-commit-id",
+        "var",
         "config",
         "add",
         "commit",
@@ -374,6 +399,14 @@ def _git_subcommand(rest: list[str]) -> str:
     return ""
 
 
+def _validate_ast_grep_readonly(rest: list[str]) -> tuple[bool, str]:
+    """Allow ast-grep scan/run/test; block in-place rewrite flags."""
+    for tok in rest:
+        if tok in _AST_GREP_REWRITE_FLAGS or tok.startswith("--update="):
+            return False, "ast-grep file rewrite is not allowed before the evidence spec is validated"
+    return True, ""
+
+
 def _validate_git_readonly(rest: list[str]) -> tuple[bool, str]:
     """Allow read-only git subcommands; block mutating ones."""
     sub = _git_subcommand(rest)
@@ -408,6 +441,10 @@ def _validate_git_readonly(rest: list[str]) -> tuple[bool, str]:
         for tok in rest:
             if tok in ("-f", "--force", "--force-if-includes"):
                 return False, "git push --force is not allowed before the evidence spec is validated"
+    if sub == "reflog":
+        for tok in rest:
+            if tok in ("expire", "delete"):
+                return False, "git reflog write is not allowed before the evidence spec is validated"
     return True, ""
 
 
@@ -537,9 +574,25 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
+    if base in _AST_GREP_NAMES:
+        return _validate_ast_grep_readonly(rest)
     if base == "git":
         return _validate_git_readonly(rest)
     return False, f"{base} is not in the Bash research whitelist"
+
+
+def _segment_command_base(seg: str) -> str:
+    """Return basename of the first executable command in *seg*, or ""."""
+    try:
+        tokens = shlex.split(seg)
+    except ValueError:
+        tokens = seg.split()
+    if not tokens:
+        return ""
+    command, _rest = _first_command(tokens)
+    if not command:
+        return ""
+    return _basename(command)
 
 
 def _allowed_pipeline_sink(seg: str) -> tuple[bool, str]:
@@ -575,7 +628,17 @@ def _allowed_compound(compound: str) -> tuple[bool, str]:
     ok, reason = _allowed_segment(pipe_parts[0])
     if not ok:
         return False, reason
+    echo_source = _segment_command_base(pipe_parts[0]) == "echo"
     for seg in pipe_parts[1:]:
+        if echo_source:
+            ok, reason = _allowed_pipeline_sink(seg)
+            if not ok:
+                return (
+                    False,
+                    reason
+                    or "echo may only pipe to read-only inspection commands (head, tail, wc, sort, uniq)",
+                )
+            continue
         ok, reason = _allowed_pipeline_rest(seg)
         if not ok:
             return False, reason

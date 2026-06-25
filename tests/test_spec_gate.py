@@ -590,7 +590,7 @@ def test_whitelisted_bash_passes_without_spec():
 def test_non_whitelisted_bash_blocks_without_spec():
     with tempfile.TemporaryDirectory() as data_root:
         rc, out, stderr = run_pre_tool(
-            _bash_payload("echo hi", session_id="bash-block-test"),
+            _bash_payload("cat README.md", session_id="bash-block-test"),
             grade="STANDARD",
             tmp_root=data_root,
         )

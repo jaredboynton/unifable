@@ -46,7 +46,7 @@ def test_context_block_preempts_research_walls() -> None:
     research-phase walls before they hit them (see benchmark wall diagnosis)."""
     ctx = context_block.build_session_context()
     # W2: Bash synonym reflexes.
-    assert "rg not grep" in ctx
+    assert "rg/grep/ast-grep" in ctx
     assert "glob/ls not find" in ctx
     assert "head/wc/tail not cat" in ctx
     assert "no pwd" in ctx.lower()

@@ -52,9 +52,10 @@ def test_resolve_finds_agents_skill_layout(tmp_path: Path, monkeypatch: pytest.M
     websearch = tmp_path / ".agents" / "skills" / "explore" / "scripts" / "websearch.sh"
     assert rbg.resolve_explore_websearch_sh() == websearch.resolve()
     summary = rbg.bash_allowed_summary()
-    assert "explore skill" in summary
-    assert "~/.agents/skills/explore/scripts/trace.sh" in summary
-    assert "~/.agents/skills/explore/scripts/websearch.sh" in summary
+    assert "explore trace.sh/websearch.sh" in summary
+    detail = rbg.allowed_research_bash_detail()
+    assert "~/.agents/skills/explore/scripts/trace.sh" in detail
+    assert "~/.agents/skills/explore/scripts/websearch.sh" in detail
 
 
 def test_env_override_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

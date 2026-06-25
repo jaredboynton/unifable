@@ -157,12 +157,22 @@ def groundedness_bash_whitelist_fragment() -> str:
     return explore_trace_inline_prefix()
 
 
+def explore_trace_compact_item() -> str:
+    """Short explore clause for size-budget block messages, or empty."""
+    scripts = _installed_explore_scripts()
+    if not scripts:
+        return ""
+    names = "/".join(name for name, _path in scripts)
+    return f", explore {names}"
+
+
 def bash_allowed_summary() -> str:
     """Compact allowlist for PreToolUse block messages and breaker copy."""
     parts = [
-        "cd, ls, glob, rg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force)",
+        "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, "
+        "read-only git, git add/commit/push (no --force)",
     ]
-    explore = explore_trace_list_item()
+    explore = explore_trace_compact_item()
     if explore:
         parts.append(explore.lstrip(", "))
     parts.append("unifusion scripts, unifable spec CLI")
@@ -174,9 +184,14 @@ def allowed_research_bash_detail() -> str:
     explore = explore_trace_list_item()
     explore_clause = explore if explore else ""
     return (
-        "cd, ls, glob, rg, read-only file inspection (head, tail, wc, sort, uniq), "
+        "cd, ls, glob, rg, grep/egrep/fgrep, echo (read-only pipeline sinks only), "
+        "ast-grep/sg (scan/run/test; no --update/--rewrite), "
+        "read-only file inspection (head, tail, wc, sort, uniq), "
         "read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
-        "tag -l, stash list, blame, shortlog, reflog, merge-base, name-rev, config get), "
+        "tag -l, stash list, blame, shortlog, reflog show, merge-base, name-rev, "
+        "ls-remote, ls-files, ls-tree, cat-file, for-each-ref, show-ref, rev-list, "
+        "grep, check-ignore, check-attr, verify-commit, verify-tag, help, archive, "
+        "count-objects, merge-tree, config get), "
         "git workflow (add, commit, push without --force)"
         f"{explore_clause}, "
         "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "

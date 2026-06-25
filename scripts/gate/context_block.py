@@ -100,7 +100,7 @@ _ORCH_POSTURE = (
 )
 
 _RESEARCH_REFLEXES = (
-    "- Avoid two common research walls. (1) Bash synonyms: rg not grep, glob/ls not find, "
+    "- Avoid two common research walls. (1) Bash synonyms: rg/grep/ast-grep, glob/ls not find, "
     "head/wc/tail not cat, no pwd; python3 -c unlocks post-spec only. "
     "(2) Read before naming locations -- citing unread paths arms the breaker."
 )

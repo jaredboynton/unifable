@@ -258,7 +258,7 @@ def scenario_specs() -> list[Scenario]:
             "STANDARD",
             lambda cwd: bash(cwd, "git commit -m x", "BL2b"),
         ),
-        ("BL3", "bash-whitelist echo blocked pre-spec", BLOCK, EV, "STANDARD", lambda cwd: bash(cwd, "echo hi", "BL3")),
+        ("BL3", "bash-whitelist echo allowed pre-spec", ALLOW, EV, "STANDARD", lambda cwd: bash(cwd, "echo hi", "BL3")),
         (
             "BL4",
             "bash-whitelist pytest blocked pre-spec",
