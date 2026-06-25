@@ -257,7 +257,7 @@ summary). Implemented in `scripts/gate/parse_tool_result.py`, locked by
 /plugin install unifable@unifable
 ```
 
-Then (optional always-on operating block):
+Then install the spec CLI + record setup state (optional; the operating-mode context is delivered by the SessionStart hook whenever the plugin is enabled, so no block is injected into CLAUDE.md):
 
 ```bash
 bash "${CLAUDE_PLUGIN_ROOT}/setup/setup.sh" global   # or: local
@@ -277,8 +277,9 @@ codex plugin add unifable@unifable
 
 `install/codex.sh` reproduces this non-interactively and **migrates off** any legacy install: it
 registers the marketplace, installs + force-enables `unifable@unifable`, then strips the old
-unifable entries from `~/.codex/hooks.json`
-(both backed up). Optional always-on operating block: prefix with `UNIFABLE_BLOCK=1`.
+unifable entries from `~/.codex/hooks.json` and any prior `<!-- UNIFABLE -->` / `<!-- FABLIZE -->`
+static block from `~/.codex/AGENTS.md` (both backed up). The operating-mode context is delivered
+by the SessionStart hook whenever the plugin is enabled — no block is injected into AGENTS.md.
 
 ```bash
 git clone https://github.com/jaredboynton/unifable ~/__devlocal/unifable

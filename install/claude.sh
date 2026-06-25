@@ -6,8 +6,9 @@
 #   /plugin install unifable@unifable
 # This script reproduces that on-disk so it can run non-interactively: it clones the
 # marketplace, registers + enables the plugin, disables/removes the legacy fablize, and
-# swaps the CLAUDE.md operating block. Everything is backed up. Takes effect on next
-# Claude Code restart. If the plugin does not appear, fall back to the command above.
+# strips any prior CLAUDE.md operating block (the operating-mode context is now delivered
+# by the SessionStart hook, not a static block). Everything is backed up. Takes effect on
+# next Claude Code restart. If the plugin does not appear, fall back to the command above.
 #
 # Usage: bash install/claude.sh
 set -euo pipefail
