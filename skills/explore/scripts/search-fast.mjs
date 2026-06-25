@@ -121,9 +121,10 @@ export function classifyHits(hits, terms) {
   const files = new Map();
   for (const h of hits) {
     let f = files.get(h.file);
-    if (!f) { f = { file: h.file, def: 0, ref: 0, terms: new Set(), defLines: new Map(), refLines: [] }; files.set(h.file, f); }
+    if (!f) { f = { file: h.file, def: 0, ref: 0, terms: new Set(), defLines: new Map(), refLines: [], hitLines: [] }; files.set(h.file, f); }
     const isDef = declRe ? declRe.test(h.text) : false;
     if (isDef) f.def += 1; else { f.ref += 1; f.refLines.push(h.line); }
+    f.hitLines.push(h.line);
     const lineTerms = new Set();
     for (let i = 0; i < terms.length; i++) if (termRes[i].test(h.text)) { f.terms.add(terms[i]); lineTerms.add(terms[i]); }
     if (isDef && lineTerms.size) {
@@ -135,11 +136,11 @@ export function classifyHits(hits, terms) {
   return files;
 }
 
-// The line at the center of the densest cluster of hit lines (smallest window
-// covering the most hits). Used as the anchor when no definition matched, so the
-// hydrated window lands on real code instead of the file header.
+// The densest cluster of hit lines: the smallest window (<= span) covering the
+// most hits. Returns the cluster bounds and center so callers can anchor the
+// hydrated window on the query-relevant code instead of the file header.
 function densestCluster(lines, span) {
-  if (!lines.length) return 0;
+  if (!lines.length) return { lo: 0, hi: 0, center: 0, count: 0 };
   const sorted = [...lines].sort((a, b) => a - b);
   let bestStart = 0;
   let bestCount = 0;
@@ -151,7 +152,7 @@ function densestCluster(lines, span) {
   }
   const lo = sorted[bestStart];
   const hi = sorted[Math.min(bestStart + bestCount - 1, sorted.length - 1)];
-  return Math.floor((lo + hi) / 2);
+  return { lo, hi, center: Math.floor((lo + hi) / 2), count: bestCount };
 }
 
 // Score per-file stats. def is capped (a real implementation rarely has >6
@@ -165,19 +166,21 @@ export function scoreCandidates(fileStats, { hydrateSpan = 40 } = {}) {
     let score = defCap * 4 + Math.min(f.ref, 3) + (f.terms.size - 1) * 6 + overflow;
     if (CENTRAL_RE.test(f.file)) score += 5;
     if (GENERATOR_RE.test(f.file)) score -= 4;
-    // Anchor: the def line covering the most terms; else earliest def; else the
-    // densest ref-line cluster (so no-def files still hydrate real code, not the
-    // file header at lines 1-N).
-    let anchor = 0;
-    let bestTerms = 0;
-    for (const [line, lineTerms] of f.defLines) {
-      if (lineTerms.size > bestTerms || (lineTerms.size === bestTerms && (anchor === 0 || line < anchor))) {
-        bestTerms = lineTerms.size;
-        anchor = line;
-      }
-    }
-    if (anchor === 0) anchor = densestCluster(f.refLines, hydrateSpan);
-    scored.push({ file: f.file, score, anchorLine: anchor, defCount: f.def, refCount: f.ref, termCount: f.terms.size });
+    // Window the densest cluster of ALL query hits (trace-style range, not a
+    // single guessed def anchor): the smallest line span covering the most
+    // matches. hydrateWindow then snaps this range to enclosing AST nodes and
+    // clamps it, so the window lands on the code that actually matches the query
+    // (e.g. the function where the terms co-occur) instead of the file header.
+    const cluster = densestCluster(f.hitLines, hydrateSpan);
+    scored.push({
+      file: f.file,
+      score,
+      rangeStart: cluster.lo || 1,
+      rangeEnd: cluster.hi || cluster.lo || 1,
+      defCount: f.def,
+      refCount: f.ref,
+      termCount: f.terms.size,
+    });
   }
   scored.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
   return scored;
@@ -283,16 +286,21 @@ const RANK_INSTRUCTIONS = [
 ].join(" ");
 
 const SCORE_INSTRUCTIONS = [
-  "You are a code-search relevance scorer. Given a query and ONE code window,",
-  "rate 0-10 how directly this window answers the query: 0 = unrelated, 10 = this",
-  "is the definitive implementation that answers it. Judge the code on its own",
-  "merit (definitions/implementations score higher than incidental mentions or",
-  "call sites). Output only the integer score.",
-].join(" ");
+  "You are a code-search relevance scorer. You will be given a QUERY and exactly one CODE window.",
+  "Decide how directly the CODE answers the QUERY, then return a single integer 0-10 via the score tool.",
+  "Use this exact scale:",
+  "0-1: unrelated code (the window is about something else).",
+  "2-3: same general area but does not answer the query (an import, a type, a constant, an incidental mention).",
+  "4-5: related supporting code (a caller, a test, a helper) that touches the answer but is not the answer.",
+  "6-7: part of the answer (one of the functions/blocks that implements what the query asks about).",
+  "8-10: the definitive answer (this window contains the core definition/implementation the query is asking for).",
+  "Judge ONLY this window's own code. Reward definitions and real implementations; do not reward files just for",
+  "mentioning the query words. Score conservatively and consistently. Return only the integer score.",
+].join("\n");
 
 const SCORE_SCHEMA = {
   type: "object",
-  properties: { score: { type: "integer", description: "0-10 relevance, 10 = definitive answer" } },
+  properties: { score: { type: "integer", description: "0-10 relevance per the scale: 0-1 unrelated, 4-5 supporting, 6-7 part of the answer, 8-10 the definitive answer" } },
   required: ["score"],
   additionalProperties: false,
 };
@@ -310,7 +318,15 @@ const FINISH_SCHEMA = {
 };
 
 function scorePromptFor(query, c) {
-  return `<query>\n${query}\n</query>\n<code ${c.startLine}:${c.endLine}:${c.path}>\n${c.content}\n</code>\nScore 0-10.`;
+  return [
+    "QUERY:",
+    query,
+    "",
+    `CODE (${c.path} lines ${c.startLine}-${c.endLine}):`,
+    c.content,
+    "",
+    "How directly does this CODE answer the QUERY? Return the integer score 0-10 now.",
+  ].join("\n");
 }
 
 // Fast path: host retrieve -> hydrate -> PARALLEL per-candidate relevance scoring
