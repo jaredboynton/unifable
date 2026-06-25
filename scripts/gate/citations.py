@@ -269,11 +269,24 @@ def verify_citations(
 
     for i, item in enumerate(repo_context_of(spec)):
         cite, _why = repo_context_parts(item)
+        # Harness auto-synced cites to a still-existing file are self-certifying:
+        # sync_citations_from_activity appends them ONLY after confirming the read
+        # (path_was_read at sync time), so re-checking them here false-positives
+        # whenever the activity view shifts out from under the durable spec -- a cwd
+        # change (e.g. worktree->main, whose `git rev-parse --show-toplevel` differs
+        # and re-keys the ledger) or a compaction truncating the transcript. An
+        # auto-cite to a now-MISSING file is NOT trusted: it falls through to the
+        # normal check (surfaced, then dropped by filter_gate_defect_citation_reasons
+        # as a gate defect). So we suppress only the false positive for present files.
+        if _is_harness_auto_read(item) and cite and _cite_path_exists(cite, cwd):
+            continue
         if cite and not path_was_read(cite, read_paths, cwd):
             reasons.append(f"repo_context[{i}]: {cite!r} (never read this session)")
 
     for i, item in enumerate(spec.get("prior_art") or []):
-        cite, _why = prior_art_parts(item)
+        cite, why = prior_art_parts(item)
+        if str(why or "").strip() == _FETCH_WHY:  # auto-synced fetch: verified at sync time
+            continue
         if cite and not url_was_fetched(cite, fetched):
             reasons.append(f"prior_art[{i}]: {cite!r} (never fetched this session)")
 

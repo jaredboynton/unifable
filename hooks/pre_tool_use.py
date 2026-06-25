@@ -760,6 +760,14 @@ def _enforce_tool_scope(input_data: dict, tool_name: str, breaker_notify: str) -
         # scope-blocked -- reads/web stay free via the grounding floor anyway.
         if not _is_gated_tool(tool_name):
             return None
+        # Evidence-gathering shell never gets scope-blocked: a content-revealing
+        # search (grep/rg/ast-grep/read-only inspection) grounds a claim exactly as a
+        # Read does, and the spec CLI must stay reachable to progress the gate. Mirror
+        # the breaker's research bypass (main() / _shell_research_passes) so the
+        # director steers mutations, never the agent's research.
+        tool_input = input_data.get("tool_input") or {}
+        if _shell_research_passes(input_data, tool_name, tool_input):
+            return None
         state = load_breaker(input_data)
         scope = scope_from_state(state)
         if not scope:
@@ -770,9 +778,13 @@ def _enforce_tool_scope(input_data: dict, tool_name: str, breaker_notify: str) -
         cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
         if _spec_validated(input_data, cwd):
             return None  # action phase: director is advisory, not blocking
+        # The scope block's reason already carries the directive; drop a breaker_notify
+        # that merely echoes it (the "unifable director: <directive>" pending notify)
+        # so the directive surfaces once, not duplicated across both stderr channels.
+        notify = "" if (breaker_notify and reason and reason in breaker_notify) else breaker_notify
         return _gate_block(
             _block(input_data, kind="scope", detail=tool_name, message=reason),
-            breaker_notify,
+            notify,
         )
     except Exception:
         return None  # fail open on any error

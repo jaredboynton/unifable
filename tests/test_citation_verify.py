@@ -366,6 +366,27 @@ def test_verify_citations_all_backed_and_none_backed():
     assert len(verify_citations(spec, none, "/repo", require_commands=False)) == 2
 
 
+def test_verify_citations_trusts_harness_autosynced(tmp_path):
+    """Harness auto-synced cites (why == the sync sentinel) are self-certifying: they
+    are appended only after the read/fetch was observed, so they must NOT be re-flagged
+    when the activity view shifts (cwd change worktree->main, or compaction). Cites an
+    agent could author (substantive why) are still verified."""
+    from citations import HARNESS_FETCH_WHY, HARNESS_READ_WHY
+
+    f = tmp_path / "real.py"
+    f.write_text("x = 1\n")
+    auto = {
+        "repo_context": [{"cite": f"{f}:1", "why": HARNESS_READ_WHY}],
+        "prior_art": [{"cite": "https://x.io/p", "why": HARNESS_FETCH_WHY}],
+    }
+    empty = {"read_paths": [], "fetched_urls": [], "ran_commands": []}
+    # Trusted even against empty activity (the view shifted; the cite is durable).
+    assert verify_citations(auto, empty, str(tmp_path), require_commands=False) == []
+    # A substantive-why cite to the same unread file is still flagged.
+    authored = {"repo_context": [{"cite": f"{f}:1", "why": "I claim X lives here"}]}
+    assert len(verify_citations(authored, empty, str(tmp_path), require_commands=False)) == 1
+
+
 def test_format_citation_verify_message_no_repeated_boilerplate():
     reasons = verify_citations(
         {

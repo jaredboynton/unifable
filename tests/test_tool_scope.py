@@ -125,6 +125,70 @@ def test_pretool_no_scope_is_noop(tmp_path, monkeypatch) -> None:
     assert pre_tool_use._enforce_tool_scope(input_data, "Edit", "") is None
 
 
+def _reload_pre_tool_use(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    repo = Path(__file__).resolve().parent.parent
+    for p in (str(repo / "hooks"), str(repo / "scripts" / "gate")):
+        if p not in sys.path:
+            sys.path.insert(0, p)
+    import importlib
+
+    import breaker_state
+
+    importlib.reload(breaker_state)
+    import pre_tool_use
+
+    importlib.reload(pre_tool_use)
+    return breaker_state, pre_tool_use
+
+
+def test_pretool_scope_allows_research_bash(tmp_path, monkeypatch) -> None:
+    """A content-revealing search (grep/rg) and the spec CLI pass the director scope
+    even when it denies Bash -- the director steers mutations, not the agent's
+    evidence-gathering. Non-research Bash stays scope-blocked."""
+    breaker_state, pre_tool_use = _reload_pre_tool_use(tmp_path, monkeypatch)
+
+    def _inp(cmd):
+        return {
+            "session_id": "rb",
+            "cwd": str(tmp_path),
+            "tool_name": "Bash",
+            "tool_input": {"command": cmd},
+        }
+
+    state = breaker_state.default_breaker()
+    state["breaker_tool_scope"] = {"deny": ["Bash"], "directive": "Read foo.py first."}
+    state["breaker_directive"] = "Read foo.py first."
+    breaker_state.save_breaker(_inp("grep"), state)
+
+    # Research Bash passes even though the scope denies Bash.
+    assert pre_tool_use._enforce_tool_scope(_inp("grep -n foo bar.py"), "Bash", "") is None
+    assert pre_tool_use._enforce_tool_scope(_inp("rg foo"), "Bash", "") is None
+    assert pre_tool_use._enforce_tool_scope(_inp("unifable restate 'x'"), "Bash", "") is None
+    # Non-research Bash is still blocked by the scope (research phase, no valid spec).
+    assert pre_tool_use._enforce_tool_scope(_inp("python3 evil.py"), "Bash", "") == 2
+
+
+def test_pretool_scope_block_emits_directive_once(tmp_path, monkeypatch, capsys) -> None:
+    """A scope block surfaces the directive ONCE -- not duplicated as both
+    'unifable pre-edit gate: <directive>' and 'unifable director: <directive>'."""
+    breaker_state, pre_tool_use = _reload_pre_tool_use(tmp_path, monkeypatch)
+
+    directive = "Read foo.py before editing."
+    input_data = {"session_id": "dedupe", "cwd": str(tmp_path)}
+    state = breaker_state.default_breaker()
+    state["breaker_tool_scope"] = {"deny": ["Edit"], "directive": directive}
+    state["breaker_directive"] = directive
+    breaker_state.save_breaker(input_data, state)
+
+    rc = pre_tool_use._enforce_tool_scope(input_data, "Edit", f"unifable director: {directive}")
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert err.count(directive) == 1, err
+    assert "unifable director:" not in err
+    assert "unifable pre-edit gate:" in err
+
+
 if __name__ == "__main__":
     import pytest
 
