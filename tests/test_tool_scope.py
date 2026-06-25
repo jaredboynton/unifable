@@ -170,8 +170,7 @@ def test_pretool_scope_allows_research_bash(tmp_path, monkeypatch) -> None:
 
 
 def test_pretool_scope_block_emits_directive_once(tmp_path, monkeypatch, capsys) -> None:
-    """A scope block surfaces the directive ONCE -- not duplicated as both
-    'unifable pre-edit gate: <directive>' and 'unifable director: <directive>'."""
+    """A scope block surfaces the directive ONCE -- not duplicated in stderr and notify."""
     breaker_state, pre_tool_use = _reload_pre_tool_use(tmp_path, monkeypatch)
 
     directive = "Read foo.py before editing."
@@ -181,12 +180,13 @@ def test_pretool_scope_block_emits_directive_once(tmp_path, monkeypatch, capsys)
     state["breaker_directive"] = directive
     breaker_state.save_breaker(input_data, state)
 
-    rc = pre_tool_use._enforce_tool_scope(input_data, "Edit", f"unifable director: {directive}")
+    rc = pre_tool_use._enforce_tool_scope(input_data, "Edit", directive)
     assert rc == 2
     err = capsys.readouterr().err
     assert err.count(directive) == 1, err
     assert "unifable director:" not in err
-    assert "unifable pre-edit gate:" in err
+    assert "unifable pre-edit gate:" not in err
+    assert directive in err
 
 
 if __name__ == "__main__":

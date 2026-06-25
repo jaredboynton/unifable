@@ -213,13 +213,13 @@ class TestEffortInject(unittest.TestCase):
     # (g) Content sanity check
     # ------------------------------------------------------------------
 
-    def test_injected_context_contains_unifable_content(self):
+    def test_injected_context_contains_playbook_content(self):
         result = run_hook(
             {"session_id": "sess-content-001", "prompt": "x", "effort": "xhigh"},
             marker_dir=self._marker_dir,
         )
         context = result.get("hookSpecificOutput", {}).get("additionalContext", "")
-        self.assertIn("unifable", context.lower(), "injected context should mention unifable")
+        self.assertIn("execution playbook active", context.lower(), "injected context should carry the playbook header")
 
 
 class TestPlaybookDedup(unittest.TestCase):

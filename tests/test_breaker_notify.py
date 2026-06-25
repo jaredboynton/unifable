@@ -127,7 +127,7 @@ def test_evidence_gate_block_still_surfaces_breaker_notify(monkeypatch, capsys, 
     monkeypatch.setattr(
         ptu,
         "_enforce_breaker",
-        lambda d: (None, "unifable breaker open: the flagged claim is grounded."),
+        lambda d: (None, "Breaker open: the flagged claim is grounded."),
     )
     payload = {
         "tool_name": "Write",

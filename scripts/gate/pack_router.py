@@ -13,10 +13,16 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from classify_task import operative_prompt
 from ledger import emit_json, read_stdin_json, update_ledger
 from plugin_root import resolve_plugin_root
 
 _MANIFEST_NAME = "router-manifest.json"
+
+# Cap how many discipline packs fire on one prompt. A prompt that genuinely spans
+# many disciplines still gets the top few (manifest order); the rest are disclosed,
+# not silently dropped. This bounds the injected block even after corpus-stripping.
+_MAX_PACKS = 3
 
 
 @dataclass(frozen=True)
@@ -73,7 +79,7 @@ def match_routes(prompt: str, routes: list[PackRoute]) -> list[PackRoute]:
 
 
 def format_context(matched: list[PackRoute], *, packs_root: str) -> str:
-    blocks = [f"[unifable:{route.tag}] {route.label} — {route.summary}\n{route.body}" for route in matched]
+    blocks = [f"[{route.tag}] {route.label} — {route.summary}\n{route.body}" for route in matched]
     return "\n\n".join(blocks)
 
 
@@ -104,11 +110,24 @@ def _session_filtered_routes(matched: list[PackRoute], input_data: dict[str, Any
 
 def route_prompt(prompt: str, *, root: Path, input_data: dict[str, Any] | None = None) -> dict[str, Any] | None:
     routes = load_manifest(root)
-    matched = match_routes(prompt, routes)
+    # Route on the operative instruction, not pasted corpus/tool output: a prompt
+    # that pastes a hook dump (full of every pack's keywords) must not fire packs
+    # keyed off the paste. operative_prompt() is the same slice the grade
+    # classifier trusts.
+    matched = match_routes(operative_prompt(prompt), routes)
     matched = _session_filtered_routes(matched, input_data)
     if not matched:
         return None
+    suppressed = 0
+    if len(matched) > _MAX_PACKS:
+        suppressed = len(matched) - _MAX_PACKS
+        matched = matched[:_MAX_PACKS]
     ctx = format_context(matched, packs_root=str(root))
+    if suppressed:
+        ctx += (
+            f"\n\n{suppressed} more discipline pack(s) matched but were "
+            f"suppressed (cap {_MAX_PACKS}); narrow the prompt to surface a specific one."
+        )
     return {
         "hookSpecificOutput": {
             "hookEventName": "UserPromptSubmit",

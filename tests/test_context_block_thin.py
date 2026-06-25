@@ -38,7 +38,17 @@ def test_frame_states_judge_relationship() -> None:
 
 def test_frame_instructs_restate_first() -> None:
     ctx = context_block.build_session_context()
-    assert "unifable restate" in ctx
+    # The frame tells the agent to restate first ...
+    assert "restat" in ctx.lower()
+
+
+def test_frame_does_not_duplicate_spec_cli_tutorial() -> None:
+    """The literal restate/add-task command syntax lives in the first-prompt
+    scaffold onboarding (gate_prompt._format_scaffold_onboarding), not here. The
+    frame must not repeat it, or the agent sees the same tutorial twice on prompt 1."""
+    ctx = context_block.build_session_context()
+    assert "unifable restate" not in ctx
+    assert "unifable add-task" not in ctx
 
 
 def test_frame_drops_the_old_standing_posture() -> None:

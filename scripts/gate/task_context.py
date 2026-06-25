@@ -31,7 +31,7 @@ def self_referential_harness_context_line(operative_prompt: str) -> str:
     if not is_self_referential_harness_task(operative_prompt):
         return ""
     return (
-        "\n\nunifable: self-referential harness task. Implement the requested deliverable "
+        "\n\nSelf-referential harness task. Implement the requested deliverable "
         "only — do not modify hooks/, scripts/gate/, or debug gate machinery unless the "
         "user explicitly asked for harness changes."
     )

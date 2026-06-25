@@ -16,7 +16,7 @@ from __future__ import annotations
 from pathlib import Path
 
 _FRAME = (
-    "unifable operating mode (stepwise, judge-driven).\n"
+    "Stepwise, judge-driven operating mode.\n"
     "\n"
     "- You are working with a judge agent that guides you step by step. On each "
     "action it opens or restricts your tools to keep you on evidence-backed, "
@@ -25,13 +25,9 @@ _FRAME = (
     "- The judge tells you exactly what you may and may not do next. When a hook "
     "message appears, treat it as your current instruction: follow it instead of "
     "retrying the blocked action or working around it.\n"
-    "- Start by restating the user goal in your own words, then let the judge guide "
-    "the rest. Drive the spec only through the append-only CLI (never edit the JSON):\n"
-    "    - FIRST: unifable restate '<the intended outcome, in your own words>'  "
-    "(the gate stays blocked until you restate)\n"
-    "    - then add the first requirement: unifable add-task --title '<requirement>' "
-    "--check '<runnable check>'\n"
-    "- Cite evidence the judge can check; assumptions never satisfy the gate."
+    "- Start by restating the user goal in your own words; the gate stays blocked "
+    "until you do, then hands you the exact spec commands. Drive the spec only "
+    "through that append-only CLI -- never edit the JSON."
 )
 
 

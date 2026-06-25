@@ -6,7 +6,7 @@ Codex's exit-0 contract (codex-rs/hooks/src/engine/output_parser.rs):
   - parse stdout as JSON; if it is a JSON OBJECT, use it.
   - else if it "looks like JSON" (trimmed starts with '{' or '[') -> FAIL.
   - else -> treat as plain-text additionalContext (fine).
-The router's inline discipline blocks start with "[unifable:...]" — a leading
+The router's inline discipline blocks start with "[...]" — a leading
 '[' that Codex reads as a malformed JSON array. The fix wraps matches in a JSON
 object. This test replicates Codex's decision exactly and asserts no prompt
 triggers FAIL.
@@ -68,7 +68,7 @@ def main() -> int:
                 hso = obj.get("hookSpecificOutput", {})
                 ctx = hso.get("additionalContext") or ""
                 ok = ok and hso.get("hookEventName") == "UserPromptSubmit" and bool(ctx)
-                ok = ok and ctx.startswith("[unifable:")
+                ok = ok and ctx.startswith("[")
             except json.JSONDecodeError:
                 ok = False
         if not ok:

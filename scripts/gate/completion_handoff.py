@@ -204,7 +204,7 @@ def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> 
     ledger = load_ledger(input_data)
     if COMPLETION_HANDOFF_BLOCK_CAP > 0 and int(ledger.get("completion_handoff_blocks") or 0) >= COMPLETION_HANDOFF_BLOCK_CAP:
         return {
-            "systemMessage": ("unifable completion handoff block cap reached; allowing stop with a possibly unresolved handoff.")
+            "systemMessage": ("Completion handoff block cap reached; allowing stop with a possibly unresolved handoff.")
         }
 
     user_goal = ""

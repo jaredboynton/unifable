@@ -291,4 +291,4 @@ def format_override_context(mode: str, reason: str, *, by: str = "judge") -> str
     grade = grade_for_mode(mode)
     detail = reason.strip() or "grade classified"
     source = "judge grade classification" if by == "judge" else "operator override"
-    return f"unifable: task mode {mode} ({grade}) by {source}. {detail}"
+    return f"Task mode {mode} ({grade}) by {source}. {detail}"

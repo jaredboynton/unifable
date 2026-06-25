@@ -219,7 +219,7 @@ def plan_mode_context_line(plan: dict[str, Any]) -> str:
         return ""
     host = str(plan.get("host") or "host")
     return (
-        f"\n\nunifable: host Plan Mode is active ({host}). "
+        f"\n\nHost Plan Mode is active ({host}). "
         "Repo-tracked writes are forbidden this turn. "
         "Deliverable is a plan artifact only "
         "(Cursor: CreatePlan / ~/.cursor/plans; Claude: ExitPlanMode / ~/.claude/plans; "

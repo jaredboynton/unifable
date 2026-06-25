@@ -51,9 +51,11 @@ def test_sessionstart_emits_thin_frame(tmp_path) -> None:
     assert rc == 0
     payload = json.loads(out or "{}")
     ctx = payload.get("hookSpecificOutput", {}).get("additionalContext", "")
-    # Thin frame: judge relationship + restate-first.
+    # Thin frame: judge relationship + restate-first. The literal spec commands
+    # live in the first-prompt scaffold onboarding, not the standing frame.
     assert "judge" in ctx.lower()
-    assert "unifable restate" in ctx
+    assert "restat" in ctx.lower()
+    assert "unifable restate" not in ctx
     # The old fat operating-mode block must be gone.
     assert "malformed compounds" not in ctx
     assert "rg/grep/ast-grep" not in ctx

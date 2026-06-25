@@ -44,7 +44,7 @@ CASES = [
     # --- must stay CLEAN (Codex-style plain-string tool_response, success) ---
     (
         "cat prints the word 'failure'",
-        bash("cat hooks.json", "...unifable gate observed a tool failure. Do not report completion..."),
+        bash("cat hooks.json", "...Tool failure observed. Do not report completion..."),
         False,
     ),
     ("passing pytest '0 failed'", bash("pytest", "=== 12 passed, 0 failed in 1.2s ==="), False),

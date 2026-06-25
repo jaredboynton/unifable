@@ -583,9 +583,9 @@ def _evidence_lift_allows(
             consume_lift(state)
             save_breaker(input_data, state)
             print(
-                f"unifable judge: evidence gate lifted -- {scope}"
+                f"Evidence gate lifted — {scope}"
                 if scope
-                else "unifable judge: evidence gate lifted for this step.",
+                else "Evidence gate lifted for this step.",
                 file=sys.stderr,
             )
             return True
@@ -1025,5 +1025,5 @@ if __name__ == "__main__":
         raise
     except Exception as exc:  # noqa: BLE001 — fail open
         emit_json({})
-        print(f"unifable pre-tool hook failed open: {exc}", file=sys.stderr)
+        print(f"Pre-tool hook failed open: {exc}", file=sys.stderr)
         raise SystemExit(0)

@@ -36,7 +36,7 @@ GROUNDING_FLOOR = frozenset(
 )
 
 _DEFAULT_BLOCK_REASON = (
-    "unifable director: that tool is out of scope for the current step. "
+    "That tool is out of scope for the current step. "
     "Follow the judge's directive for what to do next."
 )
 

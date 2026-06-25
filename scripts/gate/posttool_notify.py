@@ -115,7 +115,7 @@ def prepare_posttool_parts(
                 out.append(f"Hint: {filtered}")
                 updates["posttool_last_failure_hint_hash"] = _body_hash(f"{failure_sig}:{filtered}")
             continue
-        if part.startswith("unifable spec update:") and "Judge added frontier" in part:
+        if part.startswith("Spec update:") and "Judge added frontier" in part:
             compact = compact_discovery_context(ledger, part)
             if compact:
                 out.append(compact)

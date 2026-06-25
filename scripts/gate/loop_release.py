@@ -393,7 +393,7 @@ def format_loop_lift_context(ledger: dict[str, Any]) -> str:
         remaining = int(ledger.get("loop_lift_stops_remaining") or 0)
         scope = str(ledger.get("loop_lift_scope") or "").strip()
         return (
-            "unifable completion loop lift (provisional):\n"
+            "Completion loop lift (provisional):\n"
             f"{reason}\n"
             f"Stop lifts remaining: {remaining}. Stay within scope: {scope}"
         )
@@ -406,7 +406,7 @@ def provisional_allow_message(ledger: dict[str, Any]) -> str:
     scope = str(ledger.get("loop_lift_scope") or "").strip()
     reason = str(ledger.get("loop_lift_reason") or "").strip()
     return (
-        "unifable completion breaker: provisional Stop lift active. "
+        "Completion breaker: provisional Stop lift active. "
         f"{reason} Stay within scope: {scope}. "
         f"Lifts remaining after this stop: {remaining}."
     )

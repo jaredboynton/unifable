@@ -70,7 +70,7 @@ def test_sequential_same_signature_second_and_third_are_silent():
         rc2, err2 = _run_pre_tool(payload, data_root=tmp)
         rc3, err3 = _run_pre_tool(payload, data_root=tmp)
         assert rc1 == 2 and rc2 == 2 and rc3 == 2
-        assert "pre-edit gate" in err1
+        assert "Bash blocked" in err1
         assert err2.strip() == ""
         assert err3.strip() == ""
 
@@ -92,7 +92,7 @@ def test_parallel_blocks_emit_one_stderr():
         assert all(rc == 2 for rc, _ in results)
         non_empty = [err for _, err in results if err.strip()]
         assert len(non_empty) == 1
-        assert "pre-edit gate" in non_empty[0]
+        assert "Bash blocked" in non_empty[0]
 
 
 def test_epoch_reset_allows_full_message_again():
@@ -100,7 +100,7 @@ def test_epoch_reset_allows_full_message_again():
         payload = _bash_payload(cwd=tmp)
         rc1, err1 = _run_pre_tool(payload, data_root=tmp)
         assert rc1 == 2
-        assert "pre-edit gate" in err1
+        assert "Bash blocked" in err1
 
         from ledger import ledger_path  # noqa: E402
 
@@ -114,7 +114,7 @@ def test_epoch_reset_allows_full_message_again():
 
         rc2, err2 = _run_pre_tool(payload, data_root=tmp)
         assert rc2 == 2
-        assert "pre-edit gate" in err2
+        assert "Bash blocked" in err2
 
 
 def test_emit_fail_open_still_blocks_with_message(monkeypatch):
@@ -133,6 +133,20 @@ def test_emit_fail_open_still_blocks_with_message(monkeypatch):
         full_message="Bash blocked (research phase): nl not whitelisted.",
     )
     assert rc == 2
+
+
+def test_emit_pretool_block_has_no_channel_prefix(capsys):
+    input_data = {"session_id": "no-prefix", "cwd": "/tmp", "turn_id": "t1"}
+    rc = emit_pretool_block(
+        input_data,
+        kind="bash",
+        detail="nl",
+        full_message="Bash blocked (research phase): nl not whitelisted.",
+    )
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert not err.startswith("unifable pre-edit gate:")
+    assert "Bash blocked" in err
 
 
 def test_mixed_block_kinds_second_is_compact_not_full_footer(tmp_path, capsys):

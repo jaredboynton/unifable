@@ -321,7 +321,7 @@ def main() -> int:
                             update_ledger(input_data, record_discovery)
                             ids = ", ".join(t["id"] for t in added)
                             discovery_context = (
-                                "unifable spec update:\n"
+                                "Spec update:\n"
                                 f"Judge added frontier approach(s): {ids}. Explore ALL frontiers"
                                 " thoroughly (check each one). The judge compares evidence on Stop"
                                 " and may adopt the best over primary.\n" + format_approach_board(spec)
@@ -364,7 +364,7 @@ def main() -> int:
             parts.append(breaker_status_context)
         _emit_context(input_data, parts, guidance_map=guidance_map, failure_sig=_sig)
         parts = [
-            "unifable gate observed a tool failure. Do not report completion until "
+            "Tool failure observed. Do not report completion until "
             "it is fixed, isolated as a known baseline, or explicitly documented.",
         ]
         if citation_context:
@@ -376,7 +376,7 @@ def main() -> int:
         parts: list[str] = []
         if failure and not spec_context:
             parts.append(
-                "unifable gate observed a tool failure. Do not report completion until "
+                "Tool failure observed. Do not report completion until "
                 "it is fixed, isolated as a known baseline, or explicitly documented."
             )
         if citation_context:
@@ -397,5 +397,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:  # noqa: BLE001 — fail open
-        emit_json({"systemMessage": f"unifable gate post-tool hook failed open: {exc}"})
+        emit_json({"systemMessage": f"Gate post-tool hook failed open: {exc}"})
         raise SystemExit(0)

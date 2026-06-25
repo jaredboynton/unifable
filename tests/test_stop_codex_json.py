@@ -127,7 +127,7 @@ def test_hook_output_finalize_codex_unit():
     payload = {"decision": "block", "reason": "breaker CLOSED"}
     out = finalize_stop_payload(
         payload,
-        validate_ctx="unifable spec update (stop validation):\nT1: do work",
+        validate_ctx="Spec update (stop validation):\nT1: do work",
         host="codex",
     )
     assert "hookSpecificOutput" not in out

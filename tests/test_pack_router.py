@@ -62,7 +62,7 @@ def test_match_routes(
 def test_format_context_inline_single(routes: list[pack_router.PackRoute]) -> None:
     matched = pack_router.match_routes("debug the bug", routes)
     ctx = pack_router.format_context(matched, packs_root="/plugin/root")
-    assert ctx.startswith("[unifable:investigation]")
+    assert ctx.startswith("[investigation]")
     assert "Investigation protocol" in ctx
     assert "investigation-protocol.txt" not in ctx
     assert "/plugin/root/packs/" not in ctx
@@ -71,11 +71,11 @@ def test_format_context_inline_single(routes: list[pack_router.PackRoute]) -> No
 def test_format_context_inline_multi(routes: list[pack_router.PackRoute]) -> None:
     matched = pack_router.match_routes("debug html implement subagent", routes)
     ctx = pack_router.format_context(matched, packs_root="${CLAUDE_PLUGIN_ROOT}")
-    assert "[unifable:investigation]" in ctx
-    assert "[unifable:grounding]" in ctx
-    assert "[unifable:domain-verify]" in ctx
-    assert "[unifable:subagent-brief]" in ctx
-    assert ctx.count("[unifable:") == len(matched)
+    assert "[investigation]" in ctx
+    assert "[grounding]" in ctx
+    assert "[domain-verify]" in ctx
+    assert "[subagent-brief]" in ctx
+    assert all(f"[{r.tag}]" in ctx for r in matched)
 
 
 def test_route_prompt_returns_envelope(routes: list[pack_router.PackRoute]) -> None:
@@ -83,12 +83,42 @@ def test_route_prompt_returns_envelope(routes: list[pack_router.PackRoute]) -> N
     assert out is not None
     hso = out["hookSpecificOutput"]
     assert hso["hookEventName"] == "UserPromptSubmit"
-    assert "[unifable:investigation]" in hso["additionalContext"]
+    assert "[investigation]" in hso["additionalContext"]
     assert "Investigation protocol" in hso["additionalContext"]
 
 
 def test_route_prompt_empty_when_no_match() -> None:
     assert pack_router.route_prompt("hello there", root=REPO) is None
+
+
+def test_route_prompt_ignores_pasted_corpus() -> None:
+    """The router must match the operative instruction, not pasted corpus.
+
+    A prompt that pastes a large body full of pack keywords (render, subagent,
+    design, debug) and ends with an unrelated instruction must NOT fire the packs
+    keyed off the paste -- otherwise pasting a hook dump injects every pack."""
+    corpus = (
+        "render an svg chart on the canvas for the website\n"
+        "delegate this to a subagent and orchestrate in parallel\n"
+        "design the architecture and choose an approach\n"
+        "debug this failing crash traceback\n"
+    ) * 40
+    # The corpus alone is full of routing signal ...
+    assert pack_router.match_routes(corpus, pack_router.load_manifest(REPO))
+    # ... but the operative instruction after the user-turn marker has none.
+    prompt = corpus + "\n> what is the capital of France"
+    assert pack_router.route_prompt(prompt, root=REPO) is None
+
+
+def test_route_prompt_caps_packs_with_suppression_marker() -> None:
+    """When more than the cap match, emit the cap and disclose the suppression."""
+    prompt = "debug and implement and design and render and delegate all at once"
+    out = pack_router.route_prompt(prompt, root=REPO)
+    assert out is not None
+    ctx = out["hookSpecificOutput"]["additionalContext"]
+    matched = pack_router.match_routes(prompt, pack_router.load_manifest(REPO))[: pack_router._MAX_PACKS]
+    assert all(f"[{r.tag}]" in ctx for r in matched)
+    assert "suppress" in ctx.lower()
 
 
 def test_route_prompt_suppresses_previously_fired_tags_for_session(tmp_path: Path, monkeypatch) -> None:
@@ -97,7 +127,7 @@ def test_route_prompt_suppresses_previously_fired_tags_for_session(tmp_path: Pat
 
     first = pack_router.route_prompt("debug failing test", root=REPO, input_data=payload)
     assert first is not None
-    assert "[unifable:investigation]" in first["hookSpecificOutput"]["additionalContext"]
+    assert "[investigation]" in first["hookSpecificOutput"]["additionalContext"]
 
     second = pack_router.route_prompt("debug failing test again", root=REPO, input_data=payload)
     assert second is None
@@ -105,8 +135,8 @@ def test_route_prompt_suppresses_previously_fired_tags_for_session(tmp_path: Pat
     third = pack_router.route_prompt("debug and implement the pipeline", root=REPO, input_data=payload)
     assert third is not None
     ctx = third["hookSpecificOutput"]["additionalContext"]
-    assert "[unifable:investigation]" not in ctx
-    assert "[unifable:domain-verify]" in ctx
+    assert "[investigation]" not in ctx
+    assert "[domain-verify]" in ctx
 
     ledger = load_ledger(payload)
     assert ledger["router_matched_tags"] == ["domain-verify"]
@@ -151,9 +181,9 @@ def test_router_sh_integration(tmp_path: Path) -> None:
     assert proc.returncode == 0
     obj = json.loads(proc.stdout.strip())
     ctx = obj["hookSpecificOutput"]["additionalContext"]
-    assert "[unifable:investigation]" in ctx
-    assert "[unifable:domain-verify]" in ctx
-    assert "[unifable:subagent-brief]" in ctx
+    assert "[investigation]" in ctx
+    assert "[domain-verify]" in ctx
+    assert "[subagent-brief]" in ctx
     assert "Investigation protocol" in ctx
     assert "Domain verification recipes" in ctx
     assert "Subagent brief template" in ctx

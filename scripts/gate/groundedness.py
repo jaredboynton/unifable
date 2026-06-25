@@ -1151,24 +1151,24 @@ def monitor_provisional_judge(
 
 def _provisional_lift_message(reason: str, scope: str) -> str:
     return (
-        f"unifable breaker: provisional lift — {reason} "
+        f"Breaker: provisional lift — {reason} "
         f"Stay within scope: {scope}. Mutations allowed until grounded; minor drift yields "
         "advisory hints only."
     )
 
 
 def _disarm_message() -> str:
-    return "unifable breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
+    return "Breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
 
 
 def _needed_message(needed: str) -> str:
-    return f"unifable breaker: still armed. {needed}"
+    return f"Breaker: still armed. {needed}"
 
 
 def _fail_open_message(count: int, claim: str) -> str:
     detail = f" Claim: {claim}" if claim else ""
     return (
-        f"unifable breaker auto-released after {count} consecutive blocks (fail-open). "
+        f"Breaker auto-released after {count} consecutive blocks (fail-open). "
         "The flagged claim was never grounded; Write/Edit/Bash are unrestricted again -- "
         f"verify it yourself before relying on it.{detail}"
     )
@@ -1177,7 +1177,7 @@ def _fail_open_message(count: int, claim: str) -> str:
 def _stale_arm_message(claim: str) -> str:
     detail = f" (claim: {claim})" if claim else ""
     return (
-        "unifable breaker: cleared a stale groundedness arm from a previous "
+        "Breaker: cleared a stale groundedness arm from a previous "
         f"prompt/session{detail}; Write/Edit/Bash are unrestricted."
     )
 
@@ -1270,7 +1270,7 @@ def record_verdict(state: dict, key: str, now: float, verdict: int, steering: st
 
 def _release_log(count: int) -> None:
     try:
-        sys.stderr.write(f"[unifable breaker] auto-released after {count} consecutive blocks (fail-open)\n")
+        sys.stderr.write(f"[breaker] auto-released after {count} consecutive blocks (fail-open)\n")
     except Exception:
         pass
 
@@ -1370,7 +1370,7 @@ def evaluate_pre_tool(
                 # Surface only a CHANGED directive, so steady work on one step does
                 # not re-emit the same line every debounce window (token-aware).
                 if directive and directive != str(state.get("breaker_last_directive_surfaced") or ""):
-                    msg = f"unifable director: {directive}"
+                    msg = directive
                     existing = str(state.get("breaker_pending_notify") or "")
                     state["breaker_pending_notify"] = f"{existing}\n{msg}".strip() if existing else msg
                     state["breaker_last_directive_surfaced"] = directive

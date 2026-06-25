@@ -665,7 +665,7 @@ def _relocate_spec(from_path: Path, canonical_root: Path, session_id: str | None
     except OSError:
         pass
     print(
-        f"unifable: relocated spec from fragmented dirhash to canonical project root ({dest}).",
+        f"Relocated spec from fragmented dirhash to canonical project root ({dest}).",
         file=sys.stderr,
     )
     return dest
@@ -2728,19 +2728,19 @@ def spec_template() -> dict[str, Any]:
 
 _CONTRACT: dict[str, str] = {
     "LIGHT": (
-        "unifable spec contract — LIGHT grade. "
+        "Spec contract — LIGHT grade. "
         "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' (non-empty string) "
         "and 'acceptance_criteria' (list with >=1 {check, evidence} entry). "
         "Evidence must be live command output — no placeholders."
     ),
     "STANDARD": (
-        "unifable spec contract — STANDARD grade. "
+        "Spec contract — STANDARD grade. "
         "Before editing: drive the auto-created spec via the spec.py CLI so it carries'restated_goal' "
         "and 'acceptance_criteria' (>=1 {check: <runnable command>, evidence: <live output>}). "
         "Evidence must be observed tool output, not assumed."
     ),
     "HEAVY": (
-        "unifable spec contract — HEAVY grade (frontier-first workflow with adoption). "
+        "Spec contract — HEAVY grade (frontier-first workflow with adoption). "
         "Before editing: restated_goal, citation evidence, >=2 frontier approach tasks, "
         "and 1 primary approach task. Judge adjudicates frontiers on Stop "
         "(rejected_approach / still_viable / accepted_approach). When all frontiers "

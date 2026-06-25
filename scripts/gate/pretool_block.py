@@ -36,7 +36,7 @@ try:
 except ImportError:  # pragma: no cover
     fcntl = None  # type: ignore[assignment]
 
-GATE_PREFIX = "unifable pre-edit gate: "
+GATE_PREFIX = ""
 
 _WHITELIST_DETAIL_RE = re.compile(r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE)
 _PIPELINE_DETAIL_RE = re.compile(r"^(\S+) is not an allowed read-only pipeline sink$", re.IGNORECASE)
@@ -127,7 +127,7 @@ def format_bash_research_block(why: str, session_id: str) -> str:
 def format_bash_policy_block(why: str, session_id: str) -> str:
     """Compact full block for Bash commands disallowed even after unlock."""
     why = " ".join(str(why or "").split())
-    return f"Bash blocked by unifable policy: {why}.\n{_session_line(session_id)}"
+    return f"Bash blocked by policy: {why}.\n{_session_line(session_id)}"
 
 
 def format_delegation_block(tool_name: str, session_id: str) -> str:

@@ -55,7 +55,7 @@ def test_stop_payload_rendering_tracks_host_visible_difference():
     assert "hookSpecificOutput" in claude
     assert "additionalContext" in claude["hookSpecificOutput"]
     assert "hookSpecificOutput" not in codex
-    assert "unifable spec update (stop validation)" in codex["reason"]
+    assert "Spec update (stop validation)" in codex["reason"]
 
 
 def test_all_docs_render_deterministically():
@@ -82,11 +82,11 @@ def test_router_fixture_renders_matched_pack_context():
     assert isinstance(ctx, str)
     assert ctx.strip(), "router fixture produced empty additionalContext"
     for tag in (
-        "[unifable:investigation]",
-        "[unifable:grounding]",
-        "[unifable:decision-trace]",
-        "[unifable:domain-verify]",
-        "[unifable:subagent-brief]",
+        "[investigation]",
+        "[grounding]",
+        "[decision-trace]",
+        "[domain-verify]",
+        "[subagent-brief]",
     ):
         assert tag in ctx, f"router fixture missing pack tag {tag}"
 
@@ -94,7 +94,7 @@ def test_router_fixture_renders_matched_pack_context():
 def test_generated_hook_docs_contain_router_pack_context():
     for host in ("claude", "codex"):
         doc = generate_docs.render_hook_doc(host)
-        assert "[unifable:investigation]" in doc, f"{host} hook doc missing router pack context (fixture returned empty)"
+        assert "[investigation]" in doc, f"{host} hook doc missing router pack context (fixture returned empty)"
 
 
 def test_generated_docs_write_and_check_round_trip(tmp_path):

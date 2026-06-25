@@ -83,7 +83,7 @@ def test_build_spec_context_from_output_roundtrip():
         )
     combined = "stdout noise\n" + buf.getvalue()
     ctx = mn.build_spec_context_from_output(combined)
-    assert not ctx.startswith("unifable spec update:")
+    assert not ctx.startswith("Spec update:")
     assert "judge rejected the evidence" in ctx
     assert "Judge:" not in ctx
     assert "Hint:" not in ctx
@@ -119,7 +119,7 @@ def test_post_tool_restate_compacts_to_headline_and_next_action():
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert ctx.startswith("Goal restated. Add at least one:")
     assert "unifable add-task" in ctx
-    assert "unifable spec update:" not in ctx
+    assert "Spec update:" not in ctx
     assert "goal:" not in ctx
     assert "breaker: CLOSED" not in ctx
 
@@ -172,7 +172,7 @@ def test_build_stop_validate_context_dispute_rejected():
     ]
     headlines = ["T5: dispute rejected"]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
-    assert ctx.startswith("unifable spec update (stop validation):")
+    assert ctx.startswith("Spec update (stop validation):")
     assert "T5 [XX] impossible req" in ctx
     # judge reason rides the unresolved action inline, exactly once.
     assert DISPUTE_REJECT_REASON in ctx
@@ -268,7 +268,7 @@ def test_spec_board_not_duplicated_across_channels():
     only; the short alarm stays in reason (no cross-channel duplication)."""
     import gate_stop
 
-    board = "unifable spec update (stop validation):\n  [XX] T1 (req) something\nbreaker: CLOSED (1 left: T1)"
+    board = "Spec update (stop validation):\n  [XX] T1 (req) something\nbreaker: CLOSED (1 left: T1)"
     payload = {"decision": "block", "reason": "breaker CLOSED: 1 task(s) not validated (T1)."}
     gate_stop._attach_validate_context(payload, board)
     ctx = (payload.get("hookSpecificOutput") or {}).get("additionalContext") or ""
@@ -362,7 +362,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
         }
         out = _run_post_tool(payload)
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "unifable spec update:" not in ctx
+    assert "Spec update:" not in ctx
     assert "judge rejected the evidence" in ctx
     assert LONG_JUDGE in ctx
     assert "[--] T4" not in ctx
@@ -386,7 +386,7 @@ def test_post_tool_add_task_reload_fallback_when_stderr_missing():
         }
         out = _run_post_tool(payload)
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "unifable spec update:" not in ctx
+        assert "Spec update:" not in ctx
         assert "T1:" in ctx
         assert LONG_JUDGE in ctx
         assert "[--] T4" not in ctx

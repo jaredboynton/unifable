@@ -637,7 +637,7 @@ def build_stop_validate_context(
     action = format_stop_unresolved_actions(spec, changed_ids)
     notes = _stop_non_task_notes(raw_msgs)
 
-    header = "unifable spec update (stop validation):"
+    header = "Spec update (stop validation):"
     core = f"{header}\n{action}"
     if not notes:
         return core, len(core) > limit

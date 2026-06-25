@@ -41,6 +41,19 @@ def main() -> int:
         ),
     ]
 
+    # Uncertainty must not be stated twice in one block: the actionable hedge
+    # paragraph covers it, so the bare "Risk flags: uncertainty." enumeration is
+    # folded away when uncertainty is the only flag.
+    only_uncertain = context_for_mode("normal", ["uncertainty"])
+    multi_flag = context_for_mode("normal", ["uncertainty", "churn"])
+    fold_checks = [
+        ("Risk flags:" not in only_uncertain, "uncertainty-only omits Risk-flags enumeration"),
+        ("The prompt hedges" in only_uncertain, "uncertainty hedge paragraph still present"),
+        ("Risk flags: churn." in multi_flag, "other flags still enumerated"),
+        ("uncertainty" not in multi_flag.split("hedges")[0], "uncertainty excluded from the enumeration line"),
+    ]
+    checks.extend(fold_checks)
+
     for ok, label in checks:
         print(f"[{'PASS' if ok else 'FAIL'}] {label}")
         if not ok:

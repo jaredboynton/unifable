@@ -138,7 +138,7 @@ def test_no_reclassify_line_on_first_prompt(tmp_path, monkeypatch):
         lambda *a, **k: {"mode": "normal", "risk_flags": [], "reason": "routine", "evidence_profile": "code"},
     )
     ctx = _run_prompt({"session_id": "fresh", "prompt": "first task here", "cwd": str(tmp_path)})
-    assert "unifable reclassified" not in ctx
+    assert "Reclassified:" not in ctx
 
 
 # --------------------------------------------------------------------------- #

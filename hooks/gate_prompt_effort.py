@@ -19,7 +19,7 @@ from pathlib import Path
 HEAVY_EFFORT = {"xhigh", "max", "ultracode"}
 
 _PLAYBOOK_CORE = """\
-unifable execution playbook active (effort=heavy). Adopt the discipline below as \
+Execution playbook active (effort=heavy). Adopt the discipline below as \
 standing procedure for the rest of this session:
 
 Working style: Lead with the outcome. Stay within the requested scope (no \
@@ -152,5 +152,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:  # noqa: BLE001 — fail open
-        _emit({"systemMessage": f"unifable effort hook failed open: {exc}"})
+        _emit({"systemMessage": f"Effort hook failed open: {exc}"})
         raise SystemExit(0)

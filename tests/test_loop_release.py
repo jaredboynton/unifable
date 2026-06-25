@@ -302,7 +302,7 @@ def test_gate_stop_provisional_lift_shown_exactly_once(tmp_path, monkeypatch):
     assert blob.count("loop lift (provisional)") == 1
     assert blob.count("stop lifts remaining") == 1
     # The single survivor is the full format_loop_lift_context block in additionalContext.
-    assert "unifable completion loop lift (provisional)" in ac.lower()
+    assert "completion loop lift (provisional)" in ac.lower()
 
 
 def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):

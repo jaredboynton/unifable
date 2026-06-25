@@ -379,7 +379,7 @@ def heavy_workflow_brief(spec: dict[str, Any] | None = None, phase: str | None =
     """Full additionalContext body for first HEAVY trigger and block messages."""
     phase = phase or (compute_heavy_phase(spec) if spec else "declare")
     lines = [
-        "unifable HEAVY workflow (frontier-first with adoption):",
+        "HEAVY workflow (frontier-first with adoption):",
         f"  current phase: {phase}",
         "  declare -> frontier -> {adopted | primary} -> done",
         "",

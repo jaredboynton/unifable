@@ -54,10 +54,10 @@ def test_scaffold_tutorial_once_per_session(tmp_path, monkeypatch):
     monkeypatch.delenv("UNIFABLE_GRADE", raising=False)
     base = {"session_id": "scaffold-once", "cwd": str(tmp_path)}
     ctx1 = _run_prompt({**base, "prompt": "first task in session"}, monkeypatch)
-    assert "evidence spec auto-created" in ctx1
+    assert "Evidence spec auto-created" in ctx1
     assert "unifable restate" in ctx1
     ctx2 = _run_prompt({**base, "prompt": "second message same session"}, monkeypatch)
-    assert "evidence spec auto-created" not in ctx2
+    assert "Evidence spec auto-created" not in ctx2
     assert "unifable restate" not in ctx2 or "scaffold updated" in ctx2
 
 

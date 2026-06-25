@@ -60,7 +60,7 @@ def _format_scaffold_onboarding(
     except Exception:
         pass
     block = (
-        f"\n\nunifable: evidence spec auto-created at {path}.{profile_note} "
+        f"\n\nEvidence spec auto-created at {path}.{profile_note} "
         f"Drive it via the append-only CLI (never edit the JSON); the director judge guides each step from there:\n"
         f"  - FIRST: unifable restate '<the intended outcome, in your own words>' (the gate stays blocked until you restate)\n"
         f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
@@ -186,7 +186,7 @@ def main() -> int:
     # line above does not tell the model the gate's requirements just changed.
     if prior_active and (effective_grade != prior_grade or evidence_profile != prior_profile):
         detail = (reason or "").strip() or "reclassified"
-        line = f"\n\nunifable reclassified: {detail}"
+        line = f"\n\nReclassified: {detail}"
         if effective_grade != prior_grade:
             line += f" Grade now {effective_grade} (was {prior_grade})."
         if evidence_profile != prior_profile:
@@ -213,7 +213,7 @@ def main() -> int:
 
             update_ledger(input_data, _mark_scaffold)
         elif path and scaffold_changes:
-            context += "\n\nunifable spec scaffold updated: " + "; ".join(scaffold_changes) + "."
+            context += "\n\nSpec scaffold updated: " + "; ".join(scaffold_changes) + "."
 
     try:
         if ledger.get("inject_heavy_brief"):
@@ -237,5 +237,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:  # noqa: BLE001 — fail open, never block on our own bug
-        emit_json({"systemMessage": f"unifable gate prompt hook failed open: {exc}"})
+        emit_json({"systemMessage": f"Gate prompt hook failed open: {exc}"})
         raise SystemExit(0)

@@ -515,7 +515,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
 
     ledger = load_ledger(input_data)
     if GOAL_STOP_BLOCK_CAP > 0 and int(ledger.get("goal_stop_blocks") or 0) >= GOAL_STOP_BLOCK_CAP:
-        return {"systemMessage": ("unifable goal stop hook block cap reached; allowing stop with an incomplete goals.py plan.")}
+        return {"systemMessage": ("Goal stop hook block cap reached; allowing stop with an incomplete goals.py plan.")}
 
     condition = _goal_condition(plan, goal)
     transcript = _transcript_for_goal_judge(input_data.get("transcript_path"), input_data)
@@ -545,7 +545,7 @@ def goal_stop_decision(input_data: dict, cwd: str) -> dict | None:
         _mark_goal(cwd, session_id, plan, gid, "failed", reason)
         ledger["goal_stop_blocks"] = 0
         save_ledger(input_data, ledger)
-        return {"systemMessage": f"unifable goal failed and was cleared from Stop blocking: [{gid}] {reason}"}
+        return {"systemMessage": f"Goal failed and was cleared from Stop blocking: [{gid}] {reason}"}
 
     ledger["goal_stop_blocks"] = int(ledger.get("goal_stop_blocks") or 0) + 1
     save_ledger(input_data, ledger)
@@ -897,5 +897,5 @@ if __name__ == "__main__":
     try:
         raise SystemExit(main())
     except Exception as exc:  # noqa: BLE001 — fail open
-        emit_json({"systemMessage": f"unifable gate stop hook failed open: {exc}"})
+        emit_json({"systemMessage": f"Stop hook failed open: {exc}"})
         raise SystemExit(0)

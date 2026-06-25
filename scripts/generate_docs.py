@@ -140,18 +140,24 @@ def collect_hook_specs(host: str) -> list[HookSpec]:
 def _run_router_fixture() -> dict[str, Any]:
     """Render a sample UserPromptSubmit router (pack signal) context.
 
-    Runs the production pack_router.route_prompt against the repo manifest so
-    the rendered output reflects what a matched prompt actually injects. The
-    prompt is chosen to hit every route keyword so the example is comprehensive.
+    The prompt is chosen to hit every route keyword so the reference doc catalogs
+    every pack. The live router caps how many packs fire per prompt
+    (pack_router._MAX_PACKS); for documentation completeness this fixture renders
+    all matched packs via format_context rather than the capped route_prompt path.
     """
     prompt = "debug html architecture implement subagent"
     import pack_router
 
-    root = ROOT
-    out = pack_router.route_prompt(prompt, root=root)
-    if out:
-        return out
-    return {}
+    routes = pack_router.load_manifest(ROOT)
+    matched = pack_router.match_routes(prompt, routes)
+    if not matched:
+        return {}
+    return {
+        "hookSpecificOutput": {
+            "hookEventName": "UserPromptSubmit",
+            "additionalContext": pack_router.format_context(matched, packs_root=str(ROOT)),
+        }
+    }
 
 
 def _sample_stop_payload(host: str) -> dict[str, Any]:
@@ -160,7 +166,7 @@ def _sample_stop_payload(host: str) -> dict[str, Any]:
         "reason": "breaker CLOSED: 1 task(s) not validated (T1).",
     }
     validate_ctx = (
-        "unifable spec update (stop validation):\n"
+        "Spec update (stop validation):\n"
         "Action required:\n"
         "  T1 [--] Generated docs are reproducible and current\n"
         "    judge: Run python3 scripts/generate_docs.py --check."
@@ -183,9 +189,9 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
 
     post_context = "Requirement T2 added: Generated docs implementation tests pass.\nT2: Generated docs implementation tests pass"
     test_context = (
-        "unifable test-after-edit: pytest selected tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
+        "Test-after-edit: pytest selected tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
     )
-    breaker_context = "unifable breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
+    breaker_context = "Breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
     session_start_context = context_block.build_session_context()
 
     return [
@@ -317,7 +323,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
         HookScenario(
             name="Stop fail-open warning",
             event="Stop",
-            stdout={"systemMessage": "unifable gate stop hook failed open: sample error"},
+            stdout={"systemMessage": "Stop hook failed open: sample error"},
         ),
     ]
 

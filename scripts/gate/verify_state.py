@@ -126,7 +126,7 @@ def reset_completion_stall(ledger: dict[str, Any]) -> None:
 def completion_runaway_warning(incomplete_count: int) -> str:
     """Loud escalation emitted when the completion breaker releases on a runaway."""
     return (
-        "unifable completion breaker RELEASED after "
+        "Completion breaker RELEASED after "
         f"{COMPLETION_MAX_STALLED_BLOCKS} consecutive stops with no net progress "
         f"({incomplete_count} requirement(s) still unvalidated). The judge was "
         "adding requirements at least as fast as they validate (a runaway). "
@@ -168,12 +168,12 @@ def should_block_stop(ledger: dict[str, Any], grade: str | None = None) -> tuple
     if grade == "HEAVY" and changed and not verified:
         return (
             True,
-            "unifable gate: run the narrowest verification command for the changed behavior before final response, or record why none applies.",
+            "Run the narrowest verification command for the changed behavior before final response, or record why none applies.",
         )
     return False, ""
 
 
 def warning_after_max_blocks(ledger: dict[str, Any]) -> str:
     if int(ledger.get("stop_blocks") or 0) >= MAX_STOP_BLOCKS and not has_successful_verification(ledger):
-        return "unifable gate: verification evidence is still missing — include that gap in the final report."
+        return "Verification evidence is still missing — include that gap in the final report."
     return ""

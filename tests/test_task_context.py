@@ -19,7 +19,7 @@ def test_self_referential_harness_task_detected():
     )
     assert tc.is_self_referential_harness_task(prompt)
     line = tc.self_referential_harness_context_line(prompt)
-    assert "self-referential harness task" in line
+    assert "Self-referential harness task" in line
     assert "hooks/" in line
     assert "scripts/gate/" in line
 

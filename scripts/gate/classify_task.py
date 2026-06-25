@@ -56,9 +56,13 @@ def context_for_mode(
     *,
     first_prompt: bool = True,
 ) -> str:
-    lines = [f"unifable gate -- task mode: {mode}."]
+    lines = [f"Task mode: {mode}."]
     if risk_flags:
-        lines.append("Risk flags: " + ", ".join(risk_flags) + ".")
+        # "uncertainty" gets its own actionable paragraph below, so don't also
+        # name it in the bare enumeration -- that states the same signal twice.
+        shown = [f for f in risk_flags if f != "uncertainty"]
+        if shown:
+            lines.append("Risk flags: " + ", ".join(shown) + ".")
     if mode == "quick":
         lines.append("Keep it concise; no forced verification.")
     elif mode == "normal":

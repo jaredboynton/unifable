@@ -2429,7 +2429,7 @@ You adjudicate whether an autonomous coding agent is trapped in a COMPLETION sui
 ### User
 
 ```json
-{"goal": "Generate docs for hook outputs and judge prompts.", "signal": "same requirement keeps failing", "completion_stop_blocks": 4, "hard_cap": 12, "completion_stall_blocks": 3, "loop_same_set_streak": 3, "incomplete_episode": "T1", "fragmentation": null, "tasks": [{"id": "T1", "title": "Generated docs are current", "status": "pending", "added_by": "agent", "judge_reason": ""}, {"id": "T2", "title": "Judge-owned stale requirement", "status": "failed", "added_by": "judge", "judge_reason": "sample reason"}], "recent_activity": "python3 scripts/generate_docs.py --check"}
+{"goal": "Generate docs for hook outputs and judge prompts.", "signal": "same requirement keeps failing", "completion_stop_blocks": 4, "hard_cap": null, "completion_stall_blocks": 3, "loop_same_set_streak": 3, "incomplete_episode": "T1", "fragmentation": null, "tasks": [{"id": "T1", "title": "Generated docs are current", "status": "pending", "added_by": "agent", "judge_reason": ""}, {"id": "T2", "title": "Judge-owned stale requirement", "status": "failed", "added_by": "judge", "judge_reason": "sample reason"}], "recent_activity": "python3 scripts/generate_docs.py --check"}
 ```
 
 ### Function Schema
@@ -2482,7 +2482,7 @@ You adjudicate whether an autonomous coding agent is trapped in a COMPLETION sui
     "item": {
       "content": [
         {
-          "text": "QUESTION: {\"goal\": \"Generate docs for hook outputs and judge prompts.\", \"signal\": \"same requirement keeps failing\", \"completion_stop_blocks\": 4, \"hard_cap\": 12, \"completion_stall_blocks\": 3, \"loop_same_set_streak\": 3, \"incomplete_episode\": \"T1\", \"fragmentation\": null, \"tasks\": [{\"id\": \"T1\", \"title\": \"Generated docs are current\", \"status\": \"pending\", \"added_by\": \"agent\", \"judge_reason\": \"\"}, {\"id\": \"T2\", \"title\": \"Judge-owned stale requirement\", \"status\": \"failed\", \"added_by\": \"judge\", \"judge_reason\": \"sample reason\"}], \"recent_activity\": \"python3 scripts/generate_docs.py --check\"}",
+          "text": "QUESTION: {\"goal\": \"Generate docs for hook outputs and judge prompts.\", \"signal\": \"same requirement keeps failing\", \"completion_stop_blocks\": 4, \"hard_cap\": null, \"completion_stall_blocks\": 3, \"loop_same_set_streak\": 3, \"incomplete_episode\": \"T1\", \"fragmentation\": null, \"tasks\": [{\"id\": \"T1\", \"title\": \"Generated docs are current\", \"status\": \"pending\", \"added_by\": \"agent\", \"judge_reason\": \"\"}, {\"id\": \"T2\", \"title\": \"Judge-owned stale requirement\", \"status\": \"failed\", \"added_by\": \"judge\", \"judge_reason\": \"sample reason\"}], \"recent_activity\": \"python3 scripts/generate_docs.py --check\"}",
           "type": "input_text"
         }
       ],
