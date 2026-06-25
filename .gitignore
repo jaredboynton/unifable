@@ -8,5 +8,6 @@ __pycache__/
 *.fablize-bak.*
 benchmark/results/
 skills/explore/scripts/bench/results/
+scripts/gate/bench/
 .sisyphus/
 .jscpd-report/
