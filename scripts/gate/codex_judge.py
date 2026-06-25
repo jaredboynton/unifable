@@ -94,6 +94,73 @@ BATCH_MAX_INFLIGHT = int(os.environ.get("UNIFABLE_JUDGE_BATCH_MAX") or 128)
 
 _HANDSHAKE_TIMEOUT = HANDSHAKE_TIMEOUT  # back-compat alias
 
+# --- Reask on malformed output ------------------------------------------------
+# gpt-realtime-2 occasionally emits a malformed structured response under load:
+# empty function-call arguments (the model skips the required tool call), a
+# wrong-shape object, invalid JSON, or a per-response ``response.failed``. These
+# are not transport/auth failures -- the response completed, the content is just
+# bad -- so feeding the reason back and re-issuing the request almost always
+# recovers on the next try. This mirrors the explore skill submit-phase reask
+# loop (scripts/realtime-trace.mjs runSubmitPhase, ``reask`` default 1) and the
+# documented Realtime recovery of re-issuing ``response.create`` after a failed
+# response. One reask only; bounded by the per-call deadline so it can never
+# double the host Stop-hook budget.
+REASK_ENABLED = (os.environ.get("UNIFABLE_JUDGE_REASK") or "1").strip().lower() not in (
+    "0",
+    "false",
+    "no",
+    "off",
+)
+REASK_ATTEMPTS = max(0, int(os.environ.get("UNIFABLE_JUDGE_REASK_ATTEMPTS") or 1))
+# Minimum seconds that must remain on the deadline before starting a reask
+# (a direct-path reask pays a fresh TLS+WS+auth handshake). Skip otherwise and
+# let the malformed output surface, so the caller's fail-open handles it.
+REASK_FLOOR = _env_float("UNIFABLE_JUDGE_REASK_FLOOR", 10.0)
+
+# Error-message fragments that mean the failure is operational (not bad output)
+# and must NOT be reasked -- re-issuing cannot help and a daemon reask on a dead
+# socket is wasted work (the caller falls back to a direct call instead).
+_DIRECT_INELIGIBLE = ("handshake rejected",)  # has its own force-refresh retry
+_DAEMON_INELIGIBLE = (
+    "judge websocket closed",
+    "judge websocket unavailable",
+    "timed out",  # RuntimeError/TimeoutError from submit -- let caller fall back
+)
+
+
+def _reask_eligible(err_msg: str, ineligible: tuple[str, ...]) -> bool:
+    """True if a failure message looks like malformed output (worth one reask).
+
+    Operational failures whose fragments appear in ``ineligible`` return False so
+    the caller skips the reask and surfaces the error for fail-open fallback."""
+    low = (err_msg or "").lower()
+    return not any(frag.lower() in low for frag in ineligible)
+
+
+def _reask_reason_from_text(text: str) -> str | None:
+    """Classify captured structured output: None if it is a JSON object, else a
+    short reason string (empty / invalid JSON / not an object)."""
+    stripped = (text or "").strip()
+    if not stripped:
+        return "realtime stream produced no structured output"
+    try:
+        obj = json.loads(stripped)
+    except json.JSONDecodeError as exc:
+        return f"output is not valid json: {exc}"
+    if not isinstance(obj, dict):
+        return "output is not a json object"
+    return None
+
+
+def _augment_user_text(user_text: str, reason: str) -> str:
+    """Append the failure reason to the user text so the reask sees it (explore's
+    ``PREVIOUS SUBMIT FAILED`` pattern). Left uncapped; the sender caps per the
+    256k field limit before transmit."""
+    return (
+        f"{user_text}\n\nPREVIOUS JUDGE CALL FAILED: {reason}\n"
+        "Return the complete valid object again, calling the tool exactly once."
+    )
+
 
 def _realtime_reasoning_config(effort: str | None = None) -> dict[str, Any]:
     """Realtime `reasoning.effort` for gpt-realtime-2 judge/breaker calls."""
@@ -390,6 +457,7 @@ def ask_structured(
     auth_path: str | os.PathLike[str] | None = None,
     timeout: float = READ_TIMEOUT,
     on_usage: Callable[[dict[str, int]], None] | None = None,
+    reask: bool | None = None,
 ) -> dict[str, Any]:
     """Ask gpt-realtime-2 for one structured object via a required function tool.
 
@@ -399,89 +467,161 @@ def ask_structured(
 
     When ``on_usage`` is given it is called once with the parsed token-usage record
     from ``response.done`` (input/output/cached/total tokens) so callers can track
-    prompt-cache effectiveness. Never raises out of the usage path."""
+    prompt-cache effectiveness. Never raises out of the usage path.
+
+    On malformed structured output (empty args, invalid JSON, not an object, or a
+    per-response ``response.failed``) the failure reason is fed back and the
+    request re-issued, up to ``REASK_ATTEMPTS`` extra tries (default 1) when
+    ``reask`` is True/None-and-enabled. Each attempt shares one per-call deadline
+    so reasking can never exceed the caller's ``timeout`` (and the host Stop-hook
+    budget). Operational failures (handshake rejection, websocket closed) are not
+    reasked -- they have their own recovery or surface for fail-open fallback."""
+    from transcript_tail import JUDGE_EFFECTIVE_MAX_CHARS, cap_judge_message
+
     rendered = render_structured_request(system, user, schema, schema_name=schema_name)
     session_update = rendered["session.update"]
     question = rendered["conversation.item.create"]
     response_create = rendered["response.create"]
+    user_cap = JUDGE_EFFECTIVE_MAX_CHARS - len(_QUESTION_PREFIX)
 
-    def _once(force_refresh: bool) -> str:
-        tokens = _fresh_tokens(auth_path, force=force_refresh)
-        sock = _ws_connect(tokens, model, _HANDSHAKE_TIMEOUT)
+    if reask is None:
+        reask = REASK_ENABLED
+    attempts = 1 + (REASK_ATTEMPTS if reask else 0)
+    deadline = time.monotonic() + timeout
+    user_text = user
+    attempt = 0
+    while True:
         try:
-            _send_text(sock, session_update)
-            _send_text(sock, question)
-            _send_text(sock, response_create)
-            args_buf: list[str] = []
-            args_done: str | None = None
-            text_buf: list[str] = []
-            deadline = time.monotonic() + timeout
-            while time.monotonic() < deadline:
-                opcode, payload = _read_frame(sock)
-                if opcode == 0x8:  # close
-                    break
-                if opcode == 0x9:  # ping -> pong
-                    sock.sendall(_encode_frame(payload, opcode=0xA))
-                    continue
-                if opcode not in (0x0, 0x1, 0x2):
-                    continue
-                try:
-                    env = json.loads(payload.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue  # never log raw frames (may carry bearer material)
-                kind = env.get("type", "")
-                if kind == "response.output_text.delta":
-                    d = env.get("delta")
-                    if isinstance(d, str):
-                        text_buf.append(d)
-                elif kind == "response.function_call_arguments.delta":
-                    d = env.get("delta")
-                    if isinstance(d, str):
-                        args_buf.append(d)
-                elif kind == "response.function_call_arguments.done":
-                    a = env.get("arguments")
-                    if isinstance(a, str):
-                        args_done = a
-                elif kind in ("error", "response.failed"):
-                    err = env.get("error") if kind == "error" else (env.get("response") or {}).get("error")
-                    raise JudgeError(_provider_error(err))
-                elif kind in ("response.done", "response.completed"):
-                    args_done = args_done or _function_args_from_done(env)
-                    if on_usage is not None:
-                        try:
-                            from judge_usage import parse_usage
+            text = _ask_once(
+                auth_path,
+                model,
+                session_update,
+                question,
+                response_create,
+                user_text,
+                user_cap,
+                deadline,
+                on_usage,
+            )
+        except JudgeError as exc:
+            msg = str(exc)
+            if "handshake rejected" in msg:
+                # token may be stale; force-refresh + retry once (independent of reask)
+                text = _ask_once(
+                    auth_path,
+                    model,
+                    session_update,
+                    question,
+                    response_create,
+                    user_text,
+                    user_cap,
+                    deadline,
+                    on_usage,
+                    force_refresh=True,
+                )
+            elif (
+                attempt + 1 < attempts
+                and _reask_eligible(msg, _DIRECT_INELIGIBLE)
+                and time.monotonic() < deadline - REASK_FLOOR
+            ):
+                user_text = _augment_user_text(user_text, msg)
+                attempt += 1
+                continue
+            else:
+                raise
+        reason = _reask_reason_from_text(text)
+        if reason is None:
+            return json.loads(text.strip())
+        if attempt + 1 < attempts and time.monotonic() < deadline - REASK_FLOOR:
+            user_text = _augment_user_text(user_text, reason)
+            attempt += 1
+            continue
+        raise JudgeError(reason)
 
-                            usage = parse_usage(env)
-                            if usage is not None:
-                                on_usage(usage)
-                        except Exception:
-                            pass  # usage is best-effort; never fail the judge
-                    break
-            chosen = args_done or ("".join(args_buf) if args_buf else "") or "".join(text_buf)
-            if not chosen.strip():
-                raise JudgeError("realtime stream produced no structured output")
-            return chosen
-        finally:
+
+def _ask_once(
+    auth_path: str | os.PathLike[str] | None,
+    model: str,
+    session_update: dict[str, Any],
+    question: dict[str, Any],
+    response_create: dict[str, Any],
+    user_text: str,
+    user_cap: int,
+    deadline: float,
+    on_usage: Callable[[dict[str, int]], None] | None,
+    *,
+    force_refresh: bool = False,
+) -> str:
+    """One connect + session.update + ask + read, returning the captured args/text.
+
+    Shared by each attempt of ``ask_structured`` (and its handshake-refresh retry).
+    ``user_text`` is capped per the 256k field limit and written into ``question``
+    before transmit so a reask can substitute augmented text. Raises JudgeError on
+    any auth/transport/protocol failure or empty structured output."""
+    from transcript_tail import cap_judge_message
+
+    tokens = _fresh_tokens(auth_path, force=force_refresh)
+    sock = _ws_connect(tokens, model, _HANDSHAKE_TIMEOUT)
+    try:
+        question["item"]["content"][0]["text"] = f"{_QUESTION_PREFIX}{cap_judge_message(user_text, user_cap)}"
+        _send_text(sock, session_update)
+        _send_text(sock, question)
+        _send_text(sock, response_create)
+        args_buf: list[str] = []
+        args_done: str | None = None
+        text_buf: list[str] = []
+        while time.monotonic() < deadline:
+            opcode, payload = _read_frame(sock)
+            if opcode == 0x8:  # close
+                break
+            if opcode == 0x9:  # ping -> pong
+                sock.sendall(_encode_frame(payload, opcode=0xA))
+                continue
+            if opcode not in (0x0, 0x1, 0x2):
+                continue
             try:
-                sock.sendall(_encode_frame(b"", opcode=0x8))
-                sock.close()
-            except OSError:
-                pass
+                env = json.loads(payload.decode("utf-8"))
+            except (UnicodeDecodeError, json.JSONDecodeError):
+                continue  # never log raw frames (may carry bearer material)
+            kind = env.get("type", "")
+            if kind == "response.output_text.delta":
+                d = env.get("delta")
+                if isinstance(d, str):
+                    text_buf.append(d)
+            elif kind == "response.function_call_arguments.delta":
+                d = env.get("delta")
+                if isinstance(d, str):
+                    args_buf.append(d)
+            elif kind == "response.function_call_arguments.done":
+                a = env.get("arguments")
+                if isinstance(a, str):
+                    args_done = a
+            elif kind in ("error", "response.failed"):
+                err = env.get("error") if kind == "error" else (env.get("response") or {}).get("error")
+                raise JudgeError(_provider_error(err))
+            elif kind in ("response.done", "response.completed"):
+                args_done = args_done or _function_args_from_done(env)
+                if on_usage is not None:
+                    try:
+                        from judge_usage import parse_usage
 
-    try:
-        text = _once(force_refresh=False)
-    except JudgeError as exc:
-        if "handshake rejected" in str(exc):
-            text = _once(force_refresh=True)  # token may be stale; refresh + retry once
-        else:
-            raise
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError as exc:
-        raise JudgeError(f"output is not valid json: {exc}") from exc
-    if not isinstance(obj, dict):
-        raise JudgeError("output is not a json object")
-    return obj
+                        usage = parse_usage(env)
+                        if usage is not None:
+                            on_usage(usage)
+                    except Exception:
+                        pass  # usage is best-effort; never fail the judge
+                break
+        chosen = args_done or ("".join(args_buf) if args_buf else "") or "".join(text_buf)
+        if not chosen.strip():
+            raise JudgeError("realtime stream produced no structured output")
+        return chosen
+    finally:
+        try:
+            sock.sendall(_encode_frame(b"", opcode=0x8))
+            sock.close()
+        except OSError:
+            pass
+
 
 
 # ---------------------------------------------------------------------------
