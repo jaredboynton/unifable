@@ -81,15 +81,15 @@ HANDSHAKE_TIMEOUT = _env_float("UNIFABLE_JUDGE_HANDSHAKE", 15.0)
 READ_TIMEOUT = _env_float("UNIFABLE_JUDGE_TIMEOUT", 90.0)
 REFRESH_TIMEOUT = _env_float("UNIFABLE_JUDGE_REFRESH_TIMEOUT", 15.0)
 # Ceiling on out-of-band responses launched on one socket per batch; larger
-# batches are chunked so no socket exceeds it. Set from measurement, not a guess:
-# a single socket runs ~192 concurrent out-of-band responses with zero loss and
-# starts dropping at ~224. The Realtime API never hard-caps or rate-errors these
-# (it "finishes" every response.create up to 272+); the failure is SILENT -- a
-# completed response with empty structured output (the model skips the required
-# tool call under load), which ask_structured_batch maps to a per-slot JudgeError.
-# So we cap below the 224 degradation onset: 128 was 100% clean across repeated
-# samples, leaving wide margin. Probabilistic with high variance, hence the margin.
-# See docs: https://developers.openai.com/api/docs/guides/realtime-conversations
+# batches are chunked so no socket exceeds it. Set from measurement, not a guess.
+# Re-validated live 2026-06-25 (skills/explore/docs/benchmarks/realtime-concurrency.md):
+# gpt-realtime-2 was 100% clean at M=128 and dropped ~11% at M=224; gpt-realtime-mini
+# was clean at BOTH 128 and 224. The Realtime API never hard-caps or rate-errors
+# these; the failure is SILENT -- a completed response with empty structured output
+# (the model skips the required tool call under load), which ask_structured_batch
+# maps to a per-slot JudgeError. 128 keeps wide margin below the full model's ~224
+# degradation onset (mini has more headroom). Probabilistic with high variance,
+# hence the margin. See docs: https://developers.openai.com/api/docs/guides/realtime-conversations
 BATCH_MAX_INFLIGHT = int(os.environ.get("UNIFABLE_JUDGE_BATCH_MAX") or 128)
 
 _HANDSHAKE_TIMEOUT = HANDSHAKE_TIMEOUT  # back-compat alias

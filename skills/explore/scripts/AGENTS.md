@@ -44,10 +44,15 @@ files.
 ## Warm Daemon Pool (search, websearch, trace)
 
 - Search, websearch, and trace all reuse the shared warm-socket daemon pool via
-  `lib/daemon-client.mjs` (process pool, default 8 slots; see `scripts/gate/
+  `lib/daemon-client.mjs` (process pool, default 4 slots; see `scripts/gate/
   realtime_daemon.py`). The daemon is one-shot per request and never on the
   correctness path: every helper fails open (returns null) so the caller falls
   back to a live-session turn and then the agentic loop.
+- Pool size 4 and per-socket in-flight 128 are MEASURED, not folklore
+  (`docs/benchmarks/realtime-concurrency.md`): a 4-socket pool beat 8 and 16 on a
+  16-wide fan-out (both models), and there is no account concurrent-session cap
+  (32/32 sockets connected). Re-run `scripts/gate/bench_realtime_concurrency.py`
+  before changing either cap; do not re-confirm what that doc already records.
 - Warm the pool concurrently with other startup work (`warmDaemonPool`); the
   first cold call pays a one-time daemon spawn (~7-8s) that is not
   representative of warm latency.

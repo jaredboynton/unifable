@@ -48,12 +48,15 @@ const CONNECT_TIMEOUT_MS = envFloat("EXPLORE_SEARCH_DAEMON_CONNECT", 0.5) * 1000
 const SPAWN_WAIT_MS = envFloat("EXPLORE_SEARCH_DAEMON_SPAWN_WAIT", 5.0) * 1000;
 const REQUEST_TIMEOUT_MS = envFloat("EXPLORE_SEARCH_DAEMON_REQUEST", 20.0) * 1000;
 // Process-pool size: independent warm daemon processes give true PARALLEL
-// latency (one socket serializes response reads through a single io-thread, so
-// 16 concurrent out-of-band responses on one socket take ~2.9s vs ~1.1s spread
-// across a pool). Measured ceiling: OpenAI throttles concurrent sessions around
-// 8, so a pool of 8 (with N>8 batched 2+ per socket) matches a pool of 16 while
-// spawning half the processes. Tune with EXPLORE_SEARCH_DAEMON_POOL.
-const POOL_SIZE = Math.max(1, envInt("EXPLORE_SEARCH_DAEMON_POOL", 8));
+// latency, but a SMALLER pool wins. Measured live (both models, N=16 fan-out;
+// skills/explore/docs/benchmarks/realtime-concurrency.md): P=4 beat P=8 beat
+// P=16 (gpt-realtime-2 1539/1725/2731ms; mini 984/1561/2617ms). More sockets
+// only adds connect/handshake contention. There is NO account concurrent-session
+// cap (32/32 sockets connected cleanly) -- the small-pool win is latency, not an
+// API session limit. So the default is 4, not the prior folklore 8. One socket
+// can still carry ~128 in-flight responses for throughput (the judge path); this
+// pool optimizes latency. Tune with EXPLORE_SEARCH_DAEMON_POOL.
+const POOL_SIZE = Math.max(1, envInt("EXPLORE_SEARCH_DAEMON_POOL", 4));
 
 export function daemonEnabled() {
   return process.env.EXPLORE_SEARCH_DAEMON !== "0";
