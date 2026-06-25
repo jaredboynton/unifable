@@ -101,6 +101,7 @@ def test_response_create_payload_is_out_of_band_with_tool():
     assert payload["type"] == "response.create"
     assert resp["conversation"] == "none"  # out of band -> parallelizable
     assert resp["tool_choice"] == "required"
+    assert resp["reasoning"] == {"effort": "low"}
     assert resp["tools"][0]["name"] == "verdict"
     assert resp["metadata"] == {"cid": "3"}
     assert resp["input"][0]["content"][0]["text"].endswith("1+1=2?")

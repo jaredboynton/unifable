@@ -86,6 +86,16 @@ def test_summary_requires_all_four_benchmark_cells(tmp_path):
     assert summarize.missing_conditions(incomplete) == {"codex:baseline"}
 
 
+def test_selected_conditions_filters_benchmark_cells(tmp_path):
+    bench = _load_module("bench.py", "benchmark_bench_conditions")
+
+    selected = bench.selected_conditions(["codex-unifable"])
+    bench.dry_run(tmp_path / "raw", selected)
+
+    assert [condition.slug for condition in selected] == ["codex-unifable"]
+    assert sorted(path.name for path in (tmp_path / "raw").iterdir()) == ["codex-unifable"]
+
+
 def test_hermetic_home_installs_explore_skill(tmp_path, monkeypatch):
     bench = _load_module("bench.py", "benchmark_bench_explore")
     monkeypatch.setattr(bench, "WORKSPACE_ROOT", tmp_path / "workspaces")

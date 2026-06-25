@@ -44,6 +44,7 @@ CONDITIONS = (
     Condition("codex", "gpt-5.5", "xhigh", True),
     Condition("codex", "gpt-5.5", "xhigh", False),
 )
+CONDITIONS_BY_SLUG = {condition.slug: condition for condition in CONDITIONS}
 
 # Hermetic Claude config dir contents. The only difference between the two Claude
 # cells is the unifable plugin (added via --plugin-dir for the unifable cell); the
@@ -502,8 +503,14 @@ def run_with_tuistory(condition: Condition, raw_dir: Path, task_path: Path, time
     return run_dir
 
 
-def dry_run(raw_dir: Path) -> None:
-    for idx, condition in enumerate(CONDITIONS, start=1):
+def selected_conditions(slugs: list[str] | None) -> tuple[Condition, ...]:
+    if not slugs:
+        return CONDITIONS
+    return tuple(CONDITIONS_BY_SLUG[slug] for slug in slugs)
+
+
+def dry_run(raw_dir: Path, conditions: tuple[Condition, ...] = CONDITIONS) -> None:
+    for idx, condition in enumerate(conditions, start=1):
         run_dir = raw_dir / condition.slug
         _write_session_files(
             run_dir,
@@ -521,6 +528,12 @@ def main() -> int:
     parser.add_argument("--task", type=Path, default=DEFAULT_TASK)
     parser.add_argument("--timeout", type=int, default=1800)
     parser.add_argument("--repeats", type=int, default=1, help="runs per condition; means are aggregated over repeats")
+    parser.add_argument(
+        "--condition",
+        action="append",
+        choices=tuple(CONDITIONS_BY_SLUG),
+        help="run only this benchmark cell; repeat the flag for multiple cells",
+    )
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--driver", choices=("tuistory",), default="tuistory")
     args = parser.parse_args()
@@ -529,11 +542,12 @@ def main() -> int:
     raw_dir = result_dir / "raw"
     raw_dir.mkdir(parents=True, exist_ok=True)
     repeats = max(1, args.repeats)
+    conditions = selected_conditions(args.condition)
     if args.dry_run:
-        dry_run(raw_dir)
+        dry_run(raw_dir, conditions)
     else:
         for repeat in range(1, repeats + 1):
-            for condition in CONDITIONS:
+            for condition in conditions:
                 cell_id = condition.slug if repeats == 1 else f"{condition.slug}-r{repeat}"
                 run_with_tuistory(condition, raw_dir, args.task, args.timeout, cell_id=cell_id)
 

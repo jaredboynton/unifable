@@ -165,6 +165,48 @@ def test_whitelisted_exec_command_is_release_tool_with_input():
     )
 
 
+def test_whitelisted_exec_js_tools_exec_command_is_release_tool():
+    aw = "a" + "w" + "ait"
+    assert gb.is_release_tool(
+        "exec",
+        {
+            "tool_name": "exec",
+            "tool_input": {
+                "code": f"{aw} tools.exec_command({{ cmd: 'rg -n pat hooks/hooks.json' }})"
+            },
+        },
+    )
+    assert not gb.is_release_tool(
+        "exec",
+        {
+            "tool_name": "exec",
+            "tool_input": {"code": f"{aw} tools.exec_command({{ cmd: 'npm test' }})"},
+        },
+    )
+
+
+def test_view_image_is_release_tool():
+    assert gb.is_release_tool("view_image")
+    assert gb.is_release_tool(
+        "view_image",
+        {"tool_name": "view_image", "tool_input": {"path": "assets/x.png"}},
+    )
+
+
+def test_mcp_read_like_with_path_is_release_tool():
+    assert gb.is_release_tool(
+        "mcp__octocode__githubGetFileContent",
+        {
+            "tool_name": "mcp__octocode__githubGetFileContent",
+            "tool_input": {"queries": [{"path": "src/x.py"}]},
+        },
+    )
+    assert not gb.is_release_tool(
+        "mcp__foo__createIssue",
+        {"tool_name": "mcp__foo__createIssue", "tool_input": {"path": "src/x.py"}},
+    )
+
+
 def _repl_code(expr: str) -> str:
     aw = "a" + "w" + "ait"
     return f"{aw} {expr}"

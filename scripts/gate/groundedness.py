@@ -73,7 +73,7 @@ except ImportError:  # pragma: no cover
 MUTATION_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch", "Bash"})
 
 # PostToolUse tools that can trigger the release judge while armed.
-RELEASE_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead"})
+RELEASE_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead", "view_image"})
 
 # Debounce: the ARM judge fires at most once per this many seconds per key.
 JUDGE_WINDOW_SECONDS = 15
@@ -192,6 +192,17 @@ def _imminent_read_target(input_data: dict | None) -> str:
         return ""
     tool = str(input_data.get("tool_name") or "")
     if tool not in RELEASE_TOOLS:
+        try:
+            from parse_tool_result import _mcp_tool_is_read_like, is_mcp_tool, read_targets
+        except ImportError:
+            from scripts.gate.parse_tool_result import (  # pragma: no cover
+                _mcp_tool_is_read_like,
+                is_mcp_tool,
+                read_targets,
+            )
+        if is_mcp_tool(tool) and _mcp_tool_is_read_like(tool):
+            paths = read_targets(input_data)
+            return paths[0] if paths else ""
         return ""
     inp = input_data.get("tool_input")
     if not isinstance(inp, dict):
@@ -689,31 +700,48 @@ def is_release_tool(tool_name: str, input_data: dict | None = None) -> bool:
     try:
         from bash_classify import is_allowed_research_bash
         from parse_tool_result import (
-            _REPL_BASH_CMD_RE,
             _REPL_CAT_RE,
             _REPL_READ_PATH_RE,
+            _REPL_VIEW_IMAGE_PATH_RE,
+            _REPL_WEBFETCH_URL_RE,
+            _mcp_tool_is_read_like,
             command_from_input,
+            is_mcp_tool,
             is_repl_tool,
             is_shell_tool,
+            read_targets,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
     except ImportError:
         from scripts.gate.bash_classify import is_allowed_research_bash  # pragma: no cover
         from scripts.gate.parse_tool_result import (  # pragma: no cover
-            _REPL_BASH_CMD_RE,
             _REPL_CAT_RE,
             _REPL_READ_PATH_RE,
+            _REPL_VIEW_IMAGE_PATH_RE,
+            _REPL_WEBFETCH_URL_RE,
+            _mcp_tool_is_read_like,
             command_from_input,
+            is_mcp_tool,
             is_repl_tool,
             is_shell_tool,
+            read_targets,
             repl_code_from_input,
+            repl_shell_cmds_from_code,
         )
+    if is_mcp_tool(tool) and _mcp_tool_is_read_like(tool):
+        return bool(read_targets(input_data))
     if is_repl_tool(tool):
         code = repl_code_from_input(input_data)
-        bash_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
-        if bash_cmds:
-            return all(is_allowed_research_bash(cmd)[0] for cmd in bash_cmds)
-        return bool(_REPL_READ_PATH_RE.search(code) or _REPL_CAT_RE.search(code))
+        shell_cmds = repl_shell_cmds_from_code(code)
+        if shell_cmds:
+            return all(is_allowed_research_bash(cmd)[0] for cmd in shell_cmds)
+        return bool(
+            _REPL_READ_PATH_RE.search(code)
+            or _REPL_CAT_RE.search(code)
+            or _REPL_VIEW_IMAGE_PATH_RE.search(code)
+            or _REPL_WEBFETCH_URL_RE.search(code)
+        )
     if is_shell_tool(tool):
         allowed, _ = is_allowed_research_bash(command_from_input(input_data))
         return allowed

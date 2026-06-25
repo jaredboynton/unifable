@@ -41,7 +41,7 @@ if [ "$#" -eq 1 ] && [ -d "$1" ]; then
       codex_out)  echo "gpt5.5" ;;
       gemini_out) echo "gemini3.5flash" ;;
       kimi_out)   echo "kimi2.7" ;;
-      devin_out)  echo "glm5.2" ;;
+      glm_out)    echo "glm5.1" ;;
       *)          echo "$1" ;;
     esac
   }
