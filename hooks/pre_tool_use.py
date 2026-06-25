@@ -501,6 +501,100 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
     return 0
 
 
+def _lift_goal(input_data: dict, cwd: str) -> str:
+    """Best-effort user goal for the lift judge: spec restated goal, else prompt."""
+    try:
+        spec = load_spec(cwd, _task_id(input_data))
+        if isinstance(spec, dict):
+            goal = str(spec.get("restated_goal") or "").strip()
+            if goal:
+                return goal
+    except Exception:
+        pass
+    try:
+        ledger = load_ledger(input_data)
+        return str(ledger.get("prompt") or ledger.get("operative_prompt") or "").strip()
+    except Exception:
+        return ""
+
+
+def _is_mutating_bash(command: str | None) -> bool:
+    """True when a shell command actually mutates (cp/mv/rm/touch/redirect/...).
+
+    The lift only applies to blocked MUTATIONS the gate is wrongly stopping. A
+    non-whitelisted READ (cat/nl/pwd/echo) keeps its deterministic research-phase
+    block -- the agent should use Read/Grep/Glob or a whitelisted command -- so it
+    must never trigger a lift judge call. Mirrors `_bash_protected_write`'s test."""
+    cmd = command or ""
+    if not cmd:
+        return False
+    try:
+        from parse_tool_result import MUTATING_BASH_RE
+    except Exception:
+        return False
+    return bool(MUTATING_BASH_RE.search(cmd)) or bool(_BASH_EXTRA_MUTATE_RE.search(cmd))
+
+
+def _evidence_lift_allows(
+    input_data: dict,
+    tool_name: str,
+    cwd: str,
+    *,
+    command: str | None = None,
+    paths: list[str] | None = None,
+) -> bool:
+    """Judge-granted lift of the research-phase evidence block (fail-closed).
+
+    Called ONLY when the deterministic gate is about to block a mutation, and ONLY
+    after the absolute guards (PROTECTED_PATHS, dangerous-env) have already passed,
+    so a lift can never open those. Returns True to allow this exact action: either
+    a still-budgeted prior grant covers it, or the judge approves it now on this
+    same PreToolUse call (seamless -- the main model never sees a block or retries).
+    Any error or denial returns False, leaving today's block in place."""
+    try:
+        from breaker_state import load_breaker, save_breaker
+        from gate_lift import (
+            bump_judge_calls,
+            consume_lift,
+            judge_budget_left,
+            judge_gate_lift,
+            lift_allows,
+            lift_from_state,
+            record_lift,
+        )
+
+        state = load_breaker(input_data)
+        if lift_allows(lift_from_state(state), tool_name, command, paths):
+            consume_lift(state)
+            save_breaker(input_data, state)
+            return True
+        if not judge_budget_left(state):
+            return False
+        decision = judge_gate_lift(
+            goal=_lift_goal(input_data, cwd),
+            tool_name=tool_name,
+            command=command or "",
+            paths=paths or [],
+        )
+        bump_judge_calls(state)
+        if int(decision.get("lift", 0) or 0) == 1:
+            scope = str(decision.get("scope") or "")
+            record_lift(state, tool_name, command, paths, scope)
+            consume_lift(state)
+            save_breaker(input_data, state)
+            print(
+                f"unifable judge: evidence gate lifted -- {scope}"
+                if scope
+                else "unifable judge: evidence gate lifted for this step.",
+                file=sys.stderr,
+            )
+            return True
+        save_breaker(input_data, state)
+        return False
+    except Exception:
+        return False
+
+
 def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: str = "Bash") -> int:
     """Research-phase whitelist for shell tools (Bash, exec_command, REPL).
 
@@ -575,6 +669,8 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
         for cmd in bash_cmds:
             allowed, why = is_allowed_research_bash(cmd)
             if not allowed:
+                if _is_mutating_bash(cmd) and _evidence_lift_allows(input_data, tool_name, cwd, command=cmd):
+                    continue
                 return _block(
                     input_data,
                     kind="bash",
@@ -585,6 +681,8 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: st
 
     allowed, why = is_allowed_research_bash(command)
     if not allowed:
+        if _is_mutating_bash(command) and _evidence_lift_allows(input_data, tool_name, cwd, command=command):
+            return 0
         return _block(
             input_data,
             kind="bash",
@@ -852,6 +950,10 @@ def main() -> int:
 
         rc = _enforce_spec(input_data, cwd, write_target=target)
         if rc == 0:
+            return _allow_notify(input_data, breaker_notify, hygiene_headlines)
+        # Evidence gate would block this write. PROTECTED_PATHS already passed above,
+        # so the judge may lift the research-phase block for a legitimate write.
+        if _evidence_lift_allows(input_data, tool_name, cwd, paths=targets):
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return _gate_block(rc, breaker_notify)
 

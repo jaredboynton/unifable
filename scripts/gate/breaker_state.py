@@ -62,6 +62,12 @@ DEFAULT_BREAKER: dict[str, Any] = {
     # directive is not re-emitted every debounce window (token-aware/minimal).
     "breaker_last_directive_surfaced": "",
     "breaker_claim": "",
+    # Judge-granted evidence-gate lift (scripts/gate/gate_lift.py): a scoped grant
+    # ({signature, command, paths, scope, uses}) authorizing one blocked mutation,
+    # plus a per-session synchronous lift-judge call counter that bounds runaway
+    # judging. Must live in DEFAULT_BREAKER or load_breaker drops it on every load.
+    "breaker_gate_lift": {},
+    "breaker_gate_lift_calls": 0,
     "breaker_armed_at": 0.0,
     "breaker_block_count": 0,
     "breaker_provisional": False,
