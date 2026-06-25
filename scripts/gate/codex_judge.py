@@ -20,6 +20,9 @@ task's check output actually validates the task (verdict 1=validated/0=fail), so
 gpt-realtime-2 caps each message field at 256,000 characters. ask_structured
 applies cap_judge_message() to system and user text before sending.
 
+Judge/breaker Realtime sessions set ``reasoning.effort`` (default ``low`` via
+``UNIFABLE_JUDGE_REASONING_EFFORT``), matching explore's explore-phase default.
+
 Public API:
     ask_structured(system, user, schema, *, schema_name="result", model=MODEL,
                    auth_path=None, timeout=180.0) -> dict
@@ -58,6 +61,7 @@ ORIGINATOR = "codex_cli_rs"  # protocol.rs build_request
 # OAuth bearer (tokens.access_token in ~/.codex/auth.json) -- the same path
 # cse-tools uses, no platform API key. Override with UNIFABLE_JUDGE_MODEL.
 MODEL = os.environ.get("UNIFABLE_JUDGE_MODEL", "gpt-realtime-2")
+REASONING_EFFORT = (os.environ.get("UNIFABLE_JUDGE_REASONING_EFFORT") or "low").strip() or "low"
 
 _QUESTION_PREFIX = "QUESTION: "
 
@@ -89,6 +93,12 @@ REFRESH_TIMEOUT = _env_float("UNIFABLE_JUDGE_REFRESH_TIMEOUT", 15.0)
 BATCH_MAX_INFLIGHT = int(os.environ.get("UNIFABLE_JUDGE_BATCH_MAX") or 128)
 
 _HANDSHAKE_TIMEOUT = HANDSHAKE_TIMEOUT  # back-compat alias
+
+
+def _realtime_reasoning_config(effort: str | None = None) -> dict[str, Any]:
+    """Realtime `reasoning.effort` for gpt-realtime-2 judge/breaker calls."""
+    e = (effort or REASONING_EFFORT).strip() or "low"
+    return {"reasoning": {"effort": e}}
 
 
 class JudgeError(Exception):
@@ -352,6 +362,7 @@ def render_structured_request(
                 "output_modalities": ["text"],
                 "tools": [tool],
                 "tool_choice": "required",
+                **_realtime_reasoning_config(),
             },
         },
         "conversation.item.create": {
@@ -600,6 +611,7 @@ def _response_create(req: dict[str, Any], cid: int) -> dict[str, Any]:
             "instructions": system,
             "tools": [tool],
             "tool_choice": "required",
+            **_realtime_reasoning_config(),
             "metadata": {"cid": str(cid)},
             "input": [
                 {
