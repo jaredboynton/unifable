@@ -82,7 +82,7 @@ def test_ask_structured_caps_before_send(monkeypatch):
                 "response": {"output": [{"type": "function_call", "arguments": '{"verdict":1}'}]},
             }
         ).encode()
-        return 0x1, payload
+        return True, 0x1, payload  # (fin, opcode, payload)
 
     def capture_send(sock, obj):
         captured.append(obj)

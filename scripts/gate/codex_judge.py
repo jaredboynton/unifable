@@ -322,9 +322,10 @@ def _encode_frame(payload: bytes, opcode: int = 0x1) -> bytes:
     return bytes(out)
 
 
-def _read_frame(sock: ssl.SSLSocket) -> tuple[int, bytes]:
-    """Read one server frame -> (opcode, payload). Server frames are unmasked."""
+def _read_frame(sock: ssl.SSLSocket) -> tuple[bool, int, bytes]:
+    """Read one server frame -> (fin, opcode, payload). Server frames are unmasked."""
     b0, b1 = _read_exactly(sock, 2)
+    fin = bool(b0 & 0x80)
     opcode = b0 & 0x0F
     masked = b1 & 0x80
     length = b1 & 0x7F
@@ -336,7 +337,35 @@ def _read_frame(sock: ssl.SSLSocket) -> tuple[int, bytes]:
     payload = _read_exactly(sock, length) if length else b""
     if masked:
         payload = bytes(b ^ mask[i % 4] for i, b in enumerate(payload))
-    return opcode, payload
+    return fin, opcode, payload
+
+
+def _read_message(sock: ssl.SSLSocket) -> tuple[int, bytes]:
+    """Read one logical message, reassembling fragments (RFC 6455 5.4).
+
+    Returns (opcode, payload). Control frames (close 0x8 / ping 0x9 / pong 0xA)
+    are never fragmented and pass straight through for the caller to handle. A
+    data message split across a non-FIN frame + continuation (0x0) frames is
+    joined into one payload; a ping arriving between fragments is answered inline
+    so reassembly can continue, and a close ends it.
+    """
+    fin, opcode, payload = _read_frame(sock)
+    if opcode in (0x8, 0x9, 0xA) or fin:
+        return opcode, payload
+    data_opcode = opcode  # 0x1 text / 0x2 binary; continuations carry 0x0
+    chunks = [payload]
+    while True:
+        fin, opcode, payload = _read_frame(sock)
+        if opcode == 0x8:  # close mid-message
+            return opcode, payload
+        if opcode == 0x9:  # ping mid-message -> pong, keep reading
+            sock.sendall(_encode_frame(payload, opcode=0xA))
+            continue
+        if opcode == 0xA:  # pong -> ignore
+            continue
+        chunks.append(payload)
+        if fin:
+            return data_opcode, b"".join(chunks)
 
 
 def _send_text(sock: ssl.SSLSocket, obj: Any) -> None:
@@ -577,7 +606,7 @@ def _ask_once(
         args_done: str | None = None
         text_buf: list[str] = []
         while time.monotonic() < deadline:
-            opcode, payload = _read_frame(sock)
+            opcode, payload = _read_message(sock)
             if opcode == 0x8:  # close
                 break
             if opcode == 0x9:  # ping -> pong
@@ -784,7 +813,7 @@ def _batch_once(
         while len(state["finished"]) < len(chunk) and not state["session_error"]:
             if time.monotonic() >= deadline:
                 break
-            opcode, payload = _read_frame(sock)
+            opcode, payload = _read_message(sock)
             if opcode == 0x8:
                 break
             if opcode == 0x9:

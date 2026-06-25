@@ -195,7 +195,7 @@ class JudgeDaemon:
         while first or ws.pending():
             first = False
             ws.settimeout(FRAME_READ_TIMEOUT)
-            opcode, payload = cj._read_frame(ws)
+            opcode, payload = cj._read_message(ws)
             if opcode == 0x8:  # close
                 raise OSError("websocket close frame")
             if opcode == 0x9:  # ping -> pong (keepalive; unanswered -> 1011 disconnect)
