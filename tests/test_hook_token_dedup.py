@@ -11,6 +11,8 @@ REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
+import pytest  # noqa: E402
+
 import gate_prompt  # noqa: E402
 import pre_tool_use  # noqa: E402
 from ledger import update_ledger  # noqa: E402
@@ -19,6 +21,15 @@ from plan_mode import mark_plan_mode_prompt_notified  # noqa: E402
 from posttool_notify import filter_breaker_status, prepare_posttool_parts  # noqa: E402
 from pretool_block import format_bash_research_block, format_delegation_block  # noqa: E402
 from spec import format_spec_validation_block, spec_template  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _isolate_unifable_data(tmp_path, monkeypatch):
+    """Each test gets a private UNIFABLE_DATA dir so ledger/breaker state never
+    leaks across runs. Without this, tests that persist ledger state (e.g. the
+    posttool breaker-line dedup) self-pollute the default data dir and fail on the
+    second run."""
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
 
 
 def _run_prompt(payload: dict, monkeypatch) -> str:

@@ -72,6 +72,14 @@ def ask_structured(
     """Judge one structured object, preferring the session daemon, else direct."""
     import codex_judge
 
+    # Hermetic test knob: when set, the judge is deterministically unreachable so a
+    # hook's breaker/director/Stop judging fails open regardless of whether the dev
+    # machine has live Realtime credentials. This makes judge-orthogonal gate tests
+    # (evidence gate, citations) deterministic instead of silently depending on
+    # credential presence. Production never sets it; the gate stays always-on.
+    if os.environ.get("UNIFABLE_JUDGE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on"):
+        raise codex_judge.JudgeError("judge offline (UNIFABLE_JUDGE_OFFLINE)")
+
     input_data = _SESSION.get()
 
     if input_data is None:

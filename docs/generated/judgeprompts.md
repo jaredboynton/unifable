@@ -116,6 +116,9 @@ risk_flags: free-form short tags for risks the gates should know about. Empty ar
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -270,6 +273,9 @@ You self-correct judge-added requirements the coding agent CANNOT fix. The agent
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -492,6 +498,9 @@ Stripped tail of the agent session: tool results, hook outputs, and conversation
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -736,6 +745,9 @@ You are a strict, adversarial validator for a software task. Given the goal, one
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -975,6 +987,9 @@ Before adding new_requirements, compare PURPOSE against current_requirements -- 
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1150,6 +1165,9 @@ You are a senior engineer comparing frontier approaches that were ALL explored. 
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1316,6 +1334,9 @@ You are validating delivery of the evidence-backed PRIMARY fallback approach. Th
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1503,6 +1524,9 @@ You identify realistic cutting-edge frontier approaches worth exploring before c
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1632,6 +1656,9 @@ You are a strict adjudicator. An agent claims a REQUIRED task is impossible and 
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1733,6 +1760,9 @@ You are a calm, senior engineering lead watching an agent that appears to be stu
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1769,7 +1799,7 @@ Schema name: `groundedness`
 ### System
 
 ```text
-You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, name the claim, write a steering prompt restricting tools to read-only (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), never blocked commands. Otherwise verdict=0, steering and claim MUST be empty. Call the function exactly once.
+You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, name the claim, write a steering prompt restricting tools to read-only (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), never blocked commands. Otherwise verdict=0, steering and claim MUST be empty. SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a terse `directive` naming the single best next action toward the goal, and a `tool_scope` (allow/deny tool names) keeping the model in the right phase for that action. The directive and tool_scope are independent of the arm verdict. Call the function exactly once.
 ```
 
 ### User
@@ -1788,6 +1818,10 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
       "description": "When verdict=1, the ONE specific unproven claim, in 1-2 sentences, so a later release check can decide whether THAT claim has since been grounded. Empty string when verdict=0.",
       "type": "string"
     },
+    "directive": {
+      "description": "STEPWISE DIRECTOR (independent of verdict): ONE short imperative sentence telling the model exactly what to do NEXT toward the goal -- the single most useful next action given the transcript and the spec board (e.g. 'Read scripts/gate/spec.py to confirm the task schema before editing.', 'Run the failing check and paste its output.', 'Restate the goal, then add the first requirement.'). Be terse and concrete; name a file/command only if it already appears in the transcript or board. Empty only when there is genuinely nothing to add.",
+      "type": "string"
+    },
     "load_bearing": {
       "description": "1 only if any unproven assertion is LOAD-BEARING for the work currently in progress in the transcript -- the user's request, the file/check the model is about to mutate or run, or a fact the model must treat as settled to proceed with THAT work. 0 for narration, background explanations, speculative root-cause stories about host/tool errors the model is not using to drive the immediate action, passing asides, or claims the model retracted or labeled uncertain. Claims about unifable/fablize HARNESS state (LIGHT/quick waiver, evidence spec validation, provisional lift, hook block messages, breaker armed/disarmed, whether edits are allowed) are self-referential and NOT verifiable -- set load_bearing=0. When load_bearing=0, verdict MUST be 0.",
       "enum": [
@@ -1799,6 +1833,29 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
     "steering": {
       "description": "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI, the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh) and websearch.sh (~/.agents/skills/explore/scripts/websearch.sh), unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER steer the model to run a command that the breaker blocks (node, npm test, edits); prefer reading source files, result fields, and fixture thresholds already in the repo. For a claim about THIS repo's code/config, say what files to read. For in-repo conventions already documented (version bump via just version, AGENTS.md release rules), steer to those repo files -- not SemVer.org or external docs. For EXTERNAL or platform/API behavior, steer in order: (1) authoritative documentation (web search / WebFetch) when it exists; (2) community prior art where others have reverse-engineered the same behavior (GitHub repos, gists, issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy is found, tell the model to dig in and start empirical reverse-engineering (capture/read an actual response: HTTP body fields, status, sample payload). Prior art is a starting point, not a substitute for verifying behavior that matters to the user goal. NEVER steer toward verifying unifable/fablize harness gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those claims are self-referential and must not arm. Do NOT insist on official docs alone when community RE or fresh probing is the correct path. NEVER steer toward blocked shell commands. Name a specific path only if it already appears in the transcript. Empty when verdict=0.",
       "type": "string"
+    },
+    "tool_scope": {
+      "additionalProperties": false,
+      "description": "STEPWISE DIRECTOR tool gate for the NEXT step. allow: if non-empty, ONLY these tool names may run; deny: these tool names are blocked. Use to keep the model in the right phase -- e.g. research (allow reads/Grep/Glob, deny Edit/Write), implement (allow Edit/Write/Bash), verify (allow Bash). Read/Grep/Glob/WebSearch/WebFetch are always reachable regardless, so never rely on denying them. Leave both arrays empty to impose no restriction this step.",
+      "properties": {
+        "allow": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deny": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "allow",
+        "deny"
+      ],
+      "type": "object"
     },
     "verdict": {
       "description": "1 ONLY if load_bearing=1 AND the model stated something confidently without backing it up; else 0.",
@@ -1869,7 +1926,9 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
     "steering",
     "claim",
     "load_bearing",
-    "verify"
+    "verify",
+    "directive",
+    "tool_scope"
   ],
   "type": "object"
 }
@@ -1902,10 +1961,13 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
   },
   "session.update": {
     "session": {
-      "instructions": "You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, name the claim, write a steering prompt restricting tools to read-only (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), never blocked commands. Otherwise verdict=0, steering and claim MUST be empty. Call the function exactly once.",
+      "instructions": "You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, name the claim, write a steering prompt restricting tools to read-only (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), never blocked commands. Otherwise verdict=0, steering and claim MUST be empty. SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a terse `directive` naming the single best next action toward the goal, and a `tool_scope` (allow/deny tool names) keeping the model in the right phase for that action. The directive and tool_scope are independent of the arm verdict. Call the function exactly once.",
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -1916,6 +1978,10 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
             "properties": {
               "claim": {
                 "description": "When verdict=1, the ONE specific unproven claim, in 1-2 sentences, so a later release check can decide whether THAT claim has since been grounded. Empty string when verdict=0.",
+                "type": "string"
+              },
+              "directive": {
+                "description": "STEPWISE DIRECTOR (independent of verdict): ONE short imperative sentence telling the model exactly what to do NEXT toward the goal -- the single most useful next action given the transcript and the spec board (e.g. 'Read scripts/gate/spec.py to confirm the task schema before editing.', 'Run the failing check and paste its output.', 'Restate the goal, then add the first requirement.'). Be terse and concrete; name a file/command only if it already appears in the transcript or board. Empty only when there is genuinely nothing to add.",
                 "type": "string"
               },
               "load_bearing": {
@@ -1929,6 +1995,29 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
               "steering": {
                 "description": "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash (cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh, unifusion scripts, unifable spec CLI, the explore skill's trace.sh (~/.agents/skills/explore/scripts/trace.sh) and websearch.sh (~/.agents/skills/explore/scripts/websearch.sh), unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of evidence that would disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER steer the model to run a command that the breaker blocks (node, npm test, edits); prefer reading source files, result fields, and fixture thresholds already in the repo. For a claim about THIS repo's code/config, say what files to read. For in-repo conventions already documented (version bump via just version, AGENTS.md release rules), steer to those repo files -- not SemVer.org or external docs. For EXTERNAL or platform/API behavior, steer in order: (1) authoritative documentation (web search / WebFetch) when it exists; (2) community prior art where others have reverse-engineered the same behavior (GitHub repos, gists, issues, blog posts -- WebSearch/WebFetch); (3) if nothing recent or trustworthy is found, tell the model to dig in and start empirical reverse-engineering (capture/read an actual response: HTTP body fields, status, sample payload). Prior art is a starting point, not a substitute for verifying behavior that matters to the user goal. NEVER steer toward verifying unifable/fablize harness gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those claims are self-referential and must not arm. Do NOT insist on official docs alone when community RE or fresh probing is the correct path. NEVER steer toward blocked shell commands. Name a specific path only if it already appears in the transcript. Empty when verdict=0.",
                 "type": "string"
+              },
+              "tool_scope": {
+                "additionalProperties": false,
+                "description": "STEPWISE DIRECTOR tool gate for the NEXT step. allow: if non-empty, ONLY these tool names may run; deny: these tool names are blocked. Use to keep the model in the right phase -- e.g. research (allow reads/Grep/Glob, deny Edit/Write), implement (allow Edit/Write/Bash), verify (allow Bash). Read/Grep/Glob/WebSearch/WebFetch are always reachable regardless, so never rely on denying them. Leave both arrays empty to impose no restriction this step.",
+                "properties": {
+                  "allow": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "deny": {
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "required": [
+                  "allow",
+                  "deny"
+                ],
+                "type": "object"
               },
               "verdict": {
                 "description": "1 ONLY if load_bearing=1 AND the model stated something confidently without backing it up; else 0.",
@@ -1999,7 +2088,9 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
               "steering",
               "claim",
               "load_bearing",
-              "verify"
+              "verify",
+              "directive",
+              "tool_scope"
             ],
             "type": "object"
           },
@@ -2124,6 +2215,9 @@ TRANSCRIPT (what the model has since read/run/cited):
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -2279,6 +2373,9 @@ TRANSCRIPT:
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -2408,6 +2505,9 @@ You adjudicate whether an autonomous coding agent is trapped in a COMPLETION sui
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -2543,6 +2643,9 @@ ARGUMENTS: {"cwd": "${REPO_ROOT}", "session_id": "sample-session"}
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {
@@ -2678,6 +2781,9 @@ QUESTION: {"user_goal": "Analyze benchmark overhead.", "grade": "STANDARD", "las
       "output_modalities": [
         "text"
       ],
+      "reasoning": {
+        "effort": "low"
+      },
       "tool_choice": "required",
       "tools": [
         {

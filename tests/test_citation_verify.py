@@ -305,6 +305,9 @@ def _run(hook, payload, data_dir, grade="STANDARD"):
     env = dict(os.environ)
     env["UNIFABLE_DATA"] = data_dir
     env["UNIFABLE_GRADE"] = grade
+    # Citation cross-check is judge-orthogonal: keep the breaker/director judge
+    # hermetically offline so output does not depend on live Realtime credentials.
+    env["UNIFABLE_JUDGE_OFFLINE"] = "1"
     env.pop("CLAUDE_CODE_SESSION_ID", None)
     env.pop("CODEX_THREAD_ID", None)
     p = subprocess.run(

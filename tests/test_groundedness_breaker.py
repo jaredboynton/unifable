@@ -8,7 +8,7 @@ Each test maps to a requirement of the breaker:
   R6  verdict 1 -> steering prompt returned + mutation blocked until evidence read
   R7  verdict 0 -> no steering, model sees nothing (no block)
   R8  release via PostToolUse after Read/WebFetch with fresh tool output
-  R9  arm judge debounced: <=1 call / 15s per session+user-prompt key
+  R9  arm judge debounced: <=1 call / 3s per session+user-prompt key
   R10 safety cap: after max_blocks consecutive blocks on one arm, fail open
 Run: python3 -m pytest tests/test_groundedness_breaker.py -q
 """
@@ -284,15 +284,16 @@ def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
     assert steering == needed
 
 
-def test_arm_judge_debounced_at_most_once_per_15s_per_key(monkeypatch):
+def test_arm_judge_debounced_at_most_once_per_3s_per_key(monkeypatch):
+    # Stepwise harness: the per-tool judge debounce tightened from 15s to 3s.
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "t")
     judge = RoutingJudge(arm=(0, "", ""))
     state = _state()
     gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=judge)
-    gb.evaluate_pre_tool(_pre("Bash"), state, now=5.0, active_task="P", judge=judge)
-    gb.evaluate_pre_tool(_pre("Bash"), state, now=14.9, active_task="P", judge=judge)
+    gb.evaluate_pre_tool(_pre("Bash"), state, now=1.0, active_task="P", judge=judge)
+    gb.evaluate_pre_tool(_pre("Bash"), state, now=2.9, active_task="P", judge=judge)
     assert judge.arm_calls == 1
-    gb.evaluate_pre_tool(_pre("Bash"), state, now=15.0, active_task="P", judge=judge)
+    gb.evaluate_pre_tool(_pre("Bash"), state, now=3.0, active_task="P", judge=judge)
     assert judge.arm_calls == 2
 
 

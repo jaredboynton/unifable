@@ -52,6 +52,15 @@ DEFAULT_BREAKER: dict[str, Any] = {
     "breaker_judge_call_at": 0.0,
     "breaker_armed": False,
     "breaker_steering": "",
+    # Stepwise director: the minimal next-step instruction and the tool scope the
+    # director judge persists on each debounced call. The PreToolUse hook enforces
+    # breaker_tool_scope deterministically (no judge call) via tool_scope.in_scope;
+    # breaker_directive is surfaced to the model as the current instruction.
+    "breaker_directive": "",
+    "breaker_tool_scope": {},
+    # Last director directive actually surfaced to the model, so an unchanged
+    # directive is not re-emitted every debounce window (token-aware/minimal).
+    "breaker_last_directive_surfaced": "",
     "breaker_claim": "",
     "breaker_armed_at": 0.0,
     "breaker_block_count": 0,

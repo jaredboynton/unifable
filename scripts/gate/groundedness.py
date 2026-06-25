@@ -9,7 +9,10 @@ transcript: (1) did the model say something CONFIDENTLY WITHOUT BACKING IT UP, a
 (2) is that assertion LOAD-BEARING for the work currently in progress (the user
 request, the imminent edit/check, the decision driving the next tool)? Only when
 both hold (verdict 1) does the breaker arm and block mutation tools. The arm judge
-is DEBOUNCED to at most once per JUDGE_WINDOW_SECONDS (15s) per session+prompt key.
+is DEBOUNCED to at most once per JUDGE_WINDOW_SECONDS (3s) per session+prompt key.
+On the same call it also returns a minimal next-step DIRECTIVE and a TOOL_SCOPE
+(the stepwise director): these are persisted to breaker state and enforced
+deterministically by tool_scope.in_scope, with no extra judge round-trip.
 Prior DISARM/FAIL_OPEN events in the injected breaker records prevent re-arming
 the same claim.
 
@@ -75,8 +78,14 @@ MUTATION_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply
 # PostToolUse tools that can trigger the release judge while armed.
 RELEASE_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead"})
 
-# Debounce: the ARM judge fires at most once per this many seconds per key.
-JUDGE_WINDOW_SECONDS = 15
+# Debounce: the per-tool judge fires at most once per this many seconds per key.
+# Stepwise harness: tightened from 15s to 3s so the director directive + tool
+# scope refresh roughly every action without a round-trip on every single call.
+JUDGE_WINDOW_SECONDS = 3
+
+# Token budget for the director's minimal next-step directive (chars). Kept tight
+# so per-step guidance stays cheap; the judge is told to be terse, this enforces it.
+DIRECTIVE_MAX_CHARS = 400
 
 # Coalesce window: once any judge has fired for a key, concurrent PreToolUse
 # processes from the same parallel tool-call batch (which all judge the identical
@@ -460,8 +469,37 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "required": ["must_contain", "must_not_contain"],
             "additionalProperties": False,
         },
+        "directive": {
+            "type": "string",
+            "description": (
+                "STEPWISE DIRECTOR (independent of verdict): ONE short imperative sentence telling "
+                "the model exactly what to do NEXT toward the goal -- the single most useful next "
+                "action given the transcript and the spec board (e.g. 'Read scripts/gate/spec.py to "
+                "confirm the task schema before editing.', 'Run the failing check and paste its "
+                "output.', 'Restate the goal, then add the first requirement.'). Be terse and "
+                "concrete; name a file/command only if it already appears in the transcript or board. "
+                "Empty only when there is genuinely nothing to add."
+            ),
+        },
+        "tool_scope": {
+            "type": "object",
+            "description": (
+                "STEPWISE DIRECTOR tool gate for the NEXT step. allow: if non-empty, ONLY these tool "
+                "names may run; deny: these tool names are blocked. Use to keep the model in the right "
+                "phase -- e.g. research (allow reads/Grep/Glob, deny Edit/Write), implement (allow "
+                "Edit/Write/Bash), verify (allow Bash). Read/Grep/Glob/WebSearch/WebFetch are always "
+                "reachable regardless, so never rely on denying them. Leave both arrays empty to "
+                "impose no restriction this step."
+            ),
+            "properties": {
+                "allow": {"type": "array", "items": {"type": "string"}},
+                "deny": {"type": "array", "items": {"type": "string"}},
+            },
+            "required": ["allow", "deny"],
+            "additionalProperties": False,
+        },
     },
-    "required": ["verdict", "steering", "claim", "load_bearing", "verify"],
+    "required": ["verdict", "steering", "claim", "load_bearing", "verify", "directive", "tool_scope"],
     "additionalProperties": False,
 }
 
@@ -599,7 +637,11 @@ _JUDGE_SYSTEM = (
     "(Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. "
     "Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), "
     "never blocked commands. "
-    "Otherwise verdict=0, steering and claim MUST be empty. Call the function exactly once."
+    "Otherwise verdict=0, steering and claim MUST be empty. "
+    "SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a "
+    "terse `directive` naming the single best next action toward the goal, and a `tool_scope` "
+    "(allow/deny tool names) keeping the model in the right phase for that action. The directive "
+    "and tool_scope are independent of the arm verdict. Call the function exactly once."
 )
 
 _DISARM_SYSTEM = (
@@ -889,11 +931,39 @@ def verify_claim_predicate(predicate: Any, cwd: str) -> str:
         return "unverifiable"
 
 
+def _parse_director_fields(obj: dict[str, Any]) -> tuple[str, dict[str, Any]]:
+    """Extract the stepwise director's (directive, tool_scope) from a judge object.
+
+    Token-aware: the directive is truncated to DIRECTIVE_MAX_CHARS. The tool_scope
+    is normalized to {allow: [str], deny: [str]} (anything malformed -> empty), and
+    the directive is folded in as scope['directive'] so tool_scope.in_scope can
+    surface it as the block reason. Fail-safe: any error yields ('', {})."""
+    try:
+        directive = str(obj.get("directive") or "").strip()
+        if len(directive) > DIRECTIVE_MAX_CHARS:
+            directive = directive[: DIRECTIVE_MAX_CHARS - 3].rstrip() + "..."
+        raw = obj.get("tool_scope")
+        scope: dict[str, Any] = {}
+        if isinstance(raw, dict):
+            allow = [t for t in (raw.get("allow") or []) if isinstance(t, str)]
+            deny = [t for t in (raw.get("deny") or []) if isinstance(t, str)]
+            if allow:
+                scope["allow"] = allow
+            if deny:
+                scope["deny"] = deny
+        if scope and directive:
+            scope["directive"] = directive
+        return directive, scope
+    except Exception:
+        return "", {}
+
+
 def arm_judge(
     segment: str,
     events: list[dict[str, Any]] | None = None,
     judge: JudgeFn | None = None,
     input_data: dict | None = None,
+    out: dict[str, Any] | None = None,
 ) -> tuple[int, str, str]:
     if not segment.strip():
         return 0, "", ""
@@ -915,6 +985,12 @@ def arm_judge(
         if room > 0:
             user = segment + cap_judge_message(append, room)
     obj = fn(_JUDGE_SYSTEM, user, _JUDGE_SCHEMA)
+    # Stepwise director: capture the directive + tool_scope from the SAME judge
+    # object, independent of the arm verdict and its suppressions below.
+    if out is not None:
+        directive, scope = _parse_director_fields(obj)
+        out["directive"] = directive
+        out["tool_scope"] = scope
     load_bearing = int(obj.get("load_bearing", 0) or 0) == 1
     verdict = 1 if int(obj.get("verdict", 0) or 0) == 1 else 0
     if verdict == 1 and not load_bearing:
@@ -1243,10 +1319,33 @@ def evaluate_pre_tool(
         if not armed and not coalesce and should_judge(state, key, now):
             segment = judge_transcript(input_data, events)
             state["breaker_judge_call_at"] = now
-            verdict, steering, claim = arm_judge(segment, events=events, judge=judge, input_data=input_data)
+            director_out: dict[str, Any] = {}
+            verdict, steering, claim = arm_judge(
+                segment, events=events, judge=judge, input_data=input_data, out=director_out
+            )
             if verdict == 1 and claim and claim_already_adjudicated(claim, events):
                 verdict, steering, claim = 0, "", ""
             record_verdict(state, key, now, verdict, steering, claim)
+            # Stepwise director: persist directive + scope from this (debounced)
+            # call. When arming, the breaker owns the block, so clear the scope and
+            # let steering carry the instruction. When disarmed, enforce the scope
+            # and surface the directive on the allow path (~once per debounce window).
+            if verdict == 1:
+                state["breaker_directive"] = ""
+                state["breaker_tool_scope"] = {}
+                state["breaker_last_directive_surfaced"] = ""
+            else:
+                directive = str(director_out.get("directive") or "")
+                scope = director_out.get("tool_scope")
+                state["breaker_directive"] = directive
+                state["breaker_tool_scope"] = scope if isinstance(scope, dict) else {}
+                # Surface only a CHANGED directive, so steady work on one step does
+                # not re-emit the same line every debounce window (token-aware).
+                if directive and directive != str(state.get("breaker_last_directive_surfaced") or ""):
+                    msg = f"unifable director: {directive}"
+                    existing = str(state.get("breaker_pending_notify") or "")
+                    state["breaker_pending_notify"] = f"{existing}\n{msg}".strip() if existing else msg
+                    state["breaker_last_directive_surfaced"] = directive
         elif armed:
             claim = str(state.get("breaker_claim") or "")
             if claim and not coalesce:

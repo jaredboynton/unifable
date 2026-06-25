@@ -39,12 +39,16 @@ completion gate for load-bearing behavior.
   `${CLAUDE_PLUGIN_ROOT}`. Adding a hook means adding it here, not just writing
   the script.
 - `hooks/session_start.py` — SessionStart: refreshes the stable `~/.unifable`
-  runtime, then injects the standing operating-mode context via
-  `additionalContext` (`scripts/gate/context_block.py`). This replaced the old
-  static CLAUDE.md/AGENTS.md block injection — the posture now ships only when
-  the plugin is enabled, and setup.sh / install scripts strip stale blocks.
+  runtime, then injects the thin judge-relationship frame via `additionalContext`
+  (`scripts/gate/context_block.py`). The model is no longer front-loaded with the
+  full operating-mode posture — the frame only says a director judge guides it step
+  by step and to restate the goal first; the per-tool director supplies step-by-step
+  guidance at runtime. Ships only when the plugin is enabled; setup.sh / install
+  scripts strip stale blocks.
 - `hooks/pre_tool_use.py` — the PreToolUse entrypoint: evidence gate + protected
-  paths + the groundedness breaker. Fail-open on malformed input by design.
+  paths + the groundedness breaker, which doubles as the stepwise director (per-tool
+  directive + tool scope, enforced via `scripts/gate/tool_scope.py`). Fail-open on
+  malformed input by design.
 - `hooks/gate_post_tool.py` — PostToolUse: logs real activity (read_paths,
   fetched_urls, ran_commands) and verification results into the ledger. The
   breaker's release gate and citation checks read this log.
@@ -72,7 +76,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.98          # or: just version patch|minor|major
+just version 1.9.99          # or: just version patch|minor|major
 
 ```
 

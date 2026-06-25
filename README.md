@@ -93,10 +93,13 @@ What happens at each stage:
    fix, a normal task, or a deep task (`judge_grade_classify`, `scripts/gate/grade_override.py`) —
    which sets how strict the evidence gate is for the turn. Fail-open to a normal task on any judge or
    transport error.
-2. **Before each mutating tool — PreToolUse.** The judge arms the groundedness breaker on an
-   unproven, load-bearing, confident claim and blocks the edit or delegation until it is grounded;
-   reads, web, and whitelisted research Bash stay free (`scripts/gate/groundedness.py`, debounced to
-   one judge call per 15s).
+2. **Before each tool call — PreToolUse.** The per-tool judge is the stepwise *director*: on every
+   tool call (debounced to one judge call per 3s) it emits a minimal next-step directive and a tool
+   scope, both persisted to breaker state. The directive is surfaced to the model (when it changes)
+   and the scope is enforced deterministically by `scripts/gate/tool_scope.py` while the spec is
+   unvalidated. The same judge still arms the groundedness breaker on an unproven, load-bearing,
+   confident claim and blocks the edit or delegation until it is grounded; reads, web, and whitelisted
+   research Bash stay free (`scripts/gate/groundedness.py`).
 3. **After every tool — PostToolUse.** Real activity (files read, URLs fetched, commands run,
    failures) is parsed into the per-session ledger and the spec's citations sync automatically; a
    repeated failure spends one judge call for an advisory `judge_hint`, and a deep task that has not
@@ -107,7 +110,9 @@ What happens at each stage:
    any active multi-step goal from the transcript, and `completion_handoff_decision`
    (`scripts/gate/completion_handoff.py`) blocks when the agent ends by deferring autonomous work.
    Stop stays blocked until every requirement is validated, retracted, or superseded, and the agent
-   is not dangling permission-seeking follow-ups.
+   is not dangling permission-seeking follow-ups. A "turn" here is one tool call, so Stop is rare; when
+   it blocks, the gate hands back the live director directive (`tool_scope.current_directive`) so the
+   blocked Stop becomes a guided-iterative-continuation of the goal loop.
 
 Where the judge decides, and what it falls back to:
 
@@ -168,11 +173,14 @@ and `unifable dispute` (argue a requirement is impossible; only the judge can re
 is always on (no env disable) and fails open on malformed input, so a bug in the gate never bricks a
 session.
 
-The **Fable orchestrator posture** (delegate-first) is delivered as always-on context loaded once
-per session via the **SessionStart hook** (`hooks/session_start.py` -> `scripts/gate/context_block.py`).
-On Claude it is reinforced by the **Fable output style** (`output-styles/fable.md`, set by
-`install/claude.sh`). The posture ships only when the plugin is enabled -- it is not injected into
-host memory files, so it does not pollute context for other CLI tools.
+The model is **not** front-loaded with a large standing posture. The **SessionStart hook**
+(`hooks/session_start.py` -> `scripts/gate/context_block.py`) injects only a thin
+judge-relationship frame: it tells the model a director judge guides it step by step (opening and
+restricting tools, tending the spec) and to restate the goal first. All step-by-step guidance is
+delivered at runtime by the per-tool director, not front-loaded here. On Claude the posture is
+reinforced by the **Fable output style** (`output-styles/fable.md`, set by `install/claude.sh`). The
+frame ships only when the plugin is enabled -- it is not injected into host memory files, so it does
+not pollute context for other CLI tools.
 
 ## Consistent checking
 

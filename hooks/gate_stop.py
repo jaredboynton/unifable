@@ -129,6 +129,23 @@ def _attach_validate_context(payload: dict, ctx: str) -> None:
         hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
 
 
+def _director_continuation(input_data: dict) -> str:
+    """The live director directive, for guided-iterative-continuation on a blocked
+    Stop. A "turn" is one tool call; Stop is the rare moment the model thinks it is
+    done. Handing back the current directive keeps the goal loop going with the same
+    per-tool-call guidance. Fail-open to "" (a missing directive never blocks)."""
+    try:
+        from breaker_state import load_breaker
+        from tool_scope import current_directive
+
+        directive = current_directive(load_breaker(input_data)).strip()
+        if not directive:
+            return ""
+        return f"Live director directive (continue the goal loop; do not stop yet): {directive}"
+    except Exception:
+        return ""
+
+
 def _emit_stop_payload(
     payload: dict,
     input_data: dict,
@@ -137,6 +154,14 @@ def _emit_stop_payload(
     loop_lift_ctx: str = "",
     digest_path: str = "",
 ) -> None:
+    # Stop-prevention: on a blocked Stop, append the live director directive to the
+    # continuation context so the rare end-of-session attempt becomes a guided
+    # iterative continuation. Only on block -- a clean allow-stop must emit {} so it
+    # does not re-engage the session.
+    if payload.get("decision") == "block":
+        directive_ctx = _director_continuation(input_data)
+        if directive_ctx:
+            loop_lift_ctx = _merge_reason_parts(loop_lift_ctx, directive_ctx)
     try:
         from hook_output import finalize_stop_payload
 

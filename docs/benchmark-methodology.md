@@ -39,12 +39,13 @@ Both vendors bill a cache hit at **0.1x the base input price**:
   cached rate is explicitly 10% of input
   (<https://developers.openai.com/api/docs/pricing>).
 
-unifable injects a standing operating-mode context block at session start
-(`hooks/session_start.py`). That block is cached once and re-read on every turn,
-so it inflates `cache_read` — and therefore `total_tokens` — without a
-proportional increase in real cost or real work. A metric dominated by cache
-reads makes the harness *punish* the very mechanism (a stable cached preamble)
-that it is supposed to reward.
+unifable injects a thin judge-relationship frame at session start
+(`hooks/session_start.py`); per-tool guidance (the director directive) is delivered
+at runtime, not as a large cached preamble. Any standing context that is cached
+once and re-read on every turn inflates `cache_read` — and therefore
+`total_tokens` — without a proportional increase in real cost or real work. A
+metric dominated by cache reads makes the harness *punish* the very mechanism (a
+stable cached prefix) that it is supposed to reward.
 
 There is also a vendor normalization trap: Anthropic reports `input_tokens` net
 of cache, while OpenAI/Codex reports `input_tokens` inclusive of cached tokens.

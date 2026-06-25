@@ -711,6 +711,73 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
         return None, ""  # fail open on any breaker/judge failure
 
 
+def _is_gated_tool(tool_name: str) -> bool:
+    """True when tool_name is one the PreToolUse hook gates (writes, delegation, or
+    a shell tool). The director scope only restricts among these; everything else
+    (reads, web, empty/unknown) is never scope-blocked."""
+    if tool_name in WRITE_TOOLS or tool_name in DELEGATION_TOOLS:
+        return True
+    try:
+        from parse_tool_result import is_shell_tool
+    except ImportError:  # pragma: no cover
+        from scripts.gate.parse_tool_result import is_shell_tool
+    return bool(is_shell_tool(tool_name))
+
+
+def _spec_validated(input_data: dict, cwd: str) -> bool:
+    """True when the evidence spec for this task is validated (action phase).
+
+    Mirrors the unlock check in _enforce_delegation: LIGHT is always unlocked; a
+    STANDARD+ task is unlocked once its spec validates with backed citations."""
+    grade = _effective_grade(input_data)
+    if grade == "LIGHT":
+        return True
+    task_id = _task_id(input_data)
+    spec = load_spec(cwd, task_id)
+    if spec is None:
+        return False
+    profile = _evidence_profile(input_data, spec)
+    ok, _ = validate_spec(spec, grade, require_evidence=True, evidence_profile=profile)
+    return bool(ok) and not _citation_reasons(spec, input_data, cwd, require_commands=False)
+
+
+def _enforce_tool_scope(input_data: dict, tool_name: str, breaker_notify: str) -> int | None:
+    """Block an out-of-scope tool per the director's persisted scope. Fail-open.
+
+    Reads the just-persisted breaker state (no judge call) and runs the pure
+    tool_scope predicate. The director's HARD tool-gating is subordinate to the
+    evidence gate: it applies only while the spec is unvalidated (the research /
+    grounding phase, where it keeps the agent reading and restating). Once the
+    spec validates (action phase), the director is advisory -- the breaker still
+    guards overconfidence, but the director must not override a legitimately
+    unlocked edit. Returns a blocking exit code when out of scope, else None."""
+    try:
+        from breaker_state import load_breaker
+        from tool_scope import in_scope, scope_from_state
+
+        # Only enforce scope for tools this hook actually gates (writes, delegation,
+        # shell). An empty or unknown tool (e.g. malformed/empty stdin) must never be
+        # scope-blocked -- reads/web stay free via the grounding floor anyway.
+        if not _is_gated_tool(tool_name):
+            return None
+        state = load_breaker(input_data)
+        scope = scope_from_state(state)
+        if not scope:
+            return None
+        ok, reason = in_scope(tool_name, scope)
+        if ok:
+            return None
+        cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
+        if _spec_validated(input_data, cwd):
+            return None  # action phase: director is advisory, not blocking
+        return _gate_block(
+            _block(input_data, kind="scope", detail=tool_name, message=reason),
+            breaker_notify,
+        )
+    except Exception:
+        return None  # fail open on any error
+
+
 def main() -> int:
     input_data = read_stdin_json()
 
@@ -735,6 +802,16 @@ def main() -> int:
             breaker_block = None
         if breaker_block is not None:
             return breaker_block
+
+    # --- Per-step tool scope (deterministic; no judge call) ---
+    #     The director judge persisted a tool scope on its last debounced call.
+    #     Enforce it here with a pure predicate: an out-of-scope mutation/bash/
+    #     delegation tool is blocked with the director's directive as the reason.
+    #     Reads/web never reach this hook (matcher), and the grounding floor in
+    #     tool_scope.in_scope keeps them reachable regardless. Fail-open on any error.
+    scope_block = _enforce_tool_scope(input_data, tool_name, breaker_notify)
+    if scope_block is not None:
+        return scope_block
 
     # --- Write tools: protected paths + evidence gate (unconditional) ---
     if tool_name in WRITE_TOOLS:

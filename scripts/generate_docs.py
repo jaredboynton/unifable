@@ -190,7 +190,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
 
     return [
         HookScenario(
-            name="SessionStart operating-mode context",
+            name="SessionStart thin judge-relationship frame",
             event="SessionStart",
             stdout={
                 "hookSpecificOutput": {

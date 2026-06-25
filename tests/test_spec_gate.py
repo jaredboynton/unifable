@@ -92,6 +92,12 @@ def run_pre_tool(
     # These tests prove the FORMAT evidence gate; citation truth-checking (activity
     # backs the citations) is covered in tests/test_citation_verify.py.
     env["UNIFABLE_VERIFY_CITATIONS"] = "0"
+    # These tests assert the deterministic evidence gate, not the breaker/director
+    # judge. Make the judge hermetically offline so the result does not depend on
+    # whether the dev machine has live Realtime credentials (with a reachable judge
+    # the director would add additionalContext on the allow path). Callers that test
+    # the judge can re-enable it via env_extra.
+    env["UNIFABLE_JUDGE_OFFLINE"] = "1"
     if spec_gate is not None:
         env["UNIFABLE_SPEC_GATE"] = spec_gate
     if evidence_gate is not None:
@@ -1124,6 +1130,7 @@ def test_empty_stdin_fails_open():
     env = dict(os.environ)
     env["UNIFABLE_SPEC_GATE"] = "1"
     env["UNIFABLE_GRADE"] = "STANDARD"
+    env["UNIFABLE_JUDGE_OFFLINE"] = "1"  # hermetic: no live breaker/director judge
     proc = subprocess.run(
         [PY, str(HOOKS / "pre_tool_use.py")],
         input="",

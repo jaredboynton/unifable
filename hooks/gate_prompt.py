@@ -61,24 +61,18 @@ def _format_scaffold_onboarding(
         pass
     block = (
         f"\n\nunifable: evidence spec auto-created at {path}.{profile_note} "
-        f"Drive it via the append-only CLI (never edit the JSON):\n"
-        f"  - FIRST: unifable restate '<your restatement of the intended outcome>' "
-        f"(the seeded goal is the raw prompt; the gate stays blocked until you restate)\n"
+        f"Drive it via the append-only CLI (never edit the JSON); the director judge guides each step from there:\n"
+        f"  - FIRST: unifable restate '<the intended outcome, in your own words>' (the gate stays blocked until you restate)\n"
         f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
         f"{task_guidance}\n"
     )
     if heavy_scaffold:
         block += (
-            "  - HEAVY: unifable set-primary --title '...' --check '...'\n"
-            "  - HEAVY: unifable add-frontier --title '...' --check '...' (>=2; judge may auto-add)\n"
-            "  - HEAVY workflow: explore ALL frontiers, judge picks the best on stop\n"
+            "  - HEAVY: unifable set-primary / add-frontier (>=2 frontiers; judge may auto-add and picks the best on stop)\n"
         )
     block += (
-        "  - if a requirement is genuinely impossible: unifable dispute "
-        "--task <id> --evidence '<proof>' (the judge adjudicates on stop; only it can retract)\n"
-        "Citations sync from your reads/fetches automatically; on stop, pending "
-        "requirements get fresh checks, failed/disputed ones are re-adjudicated; "
-        "superseded tasks ([SS]) no longer block completion."
+        "  - if a requirement is genuinely impossible: unifable dispute --task <id> --evidence '<proof>' "
+        "(only the judge can retract). Citations sync from your reads automatically."
     )
     return block
 
