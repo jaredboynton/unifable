@@ -21,7 +21,7 @@ import re
 import shlex
 from typing import Any
 
-from ledger import classify_path_kind, redact
+from ledger import SECRET_PATTERNS, classify_path_kind, redact
 
 VERIFY_RE = re.compile(
     r"(?i)\b("
@@ -320,12 +320,170 @@ def mcp_evidence(input_data: dict[str, Any], limit: int = MCP_EVIDENCE_CHARS) ->
     return f"{tool}: {body}"
 
 
+# --------------------------------------------------------------------------- #
+# Research-output compression (explore trace.sh / websearch.sh stdout)
+# --------------------------------------------------------------------------- #
+# The legacy path fed this stdout through ledger.redact, which flattens newlines
+# and HEAD-truncates to the budget. trace.sh/websearch.sh put their high-signal
+# payload -- source URLs, file:line code refs, and the closing Recommendation /
+# Key-files summary -- across the body and at the TAIL, so head-truncation drops
+# exactly what an evidence_only research judge adjudicates against, and the
+# flatten erases its section structure. Benchmarked against the alternatives
+# (tail-only, head+tail) on real explore out.md files, an order-preserving
+# salience filter wins on signal recall at the same budget -- see
+# tests/test_research_evidence_compress.py.
+_RESEARCH_GATHER_CAP = 200_000  # never pre-truncate realistic explore output before the filter
+_RB_HEADER_RE = re.compile(r"^\s{0,3}#{1,6}\s+\S")
+_RB_FENCE_REF_RE = re.compile(r"^\s*`{3,}[\w.+-]*\s*\d+:\d+:[^\s`]+")  # ```120:140:path opener
+_RB_INLINE_REF_RE = re.compile(r"(?<![:\w/])(?:[\w.\-]+/)*[\w.\-]+\.[A-Za-z]{1,6}:\d+\b")
+_RB_URL_RE = re.compile(r"https?://[^\s)>\]\"'|]+")
+_RB_TABLE_RE = re.compile(r"^\s*\|.*\|\s*$")
+_RB_KEYWORD_RE = re.compile(
+    r"(?i)\b(recommendation|verified fact|key files?|summary|conclusion|caveat|gotcha|takeaway|important)\b"
+)
+_RB_MERMAID_OPEN_RE = re.compile(r"^\s*`{3,}\s*mermaid\b")
+_RB_FENCE_CLOSE_RE = re.compile(r"^\s*`{3,}\s*$")
+
+
+def _gather_response_text(value: Any, cap: int) -> str:
+    """Collect stdout/stderr/etc. joined by NEWLINES (not flattened), bounded by cap.
+
+    Mirrors response_text's field walk but preserves line structure and applies
+    no truncation/redaction -- compress_research_output owns those."""
+    parts: list[str] = []
+
+    def walk(item: Any) -> None:
+        if sum(len(p) for p in parts) > cap:
+            return
+        if isinstance(item, str):
+            parts.append(item)
+        elif isinstance(item, dict):
+            for key in ("stdout", "stderr", "output", "message", "text", "content", "error", "summary"):
+                if key in item:
+                    walk(item[key])
+            if not parts:
+                for child in item.values():
+                    walk(child)
+        elif isinstance(item, list):
+            for child in item[:20]:
+                walk(child)
+
+    walk(value)
+    return "\n".join(parts)[:cap]
+
+
+def _redact_keep_lines(text: str) -> str:
+    """Apply SECRET_PATTERNS line-wise, preserving newlines (unlike ledger.redact)."""
+    out: list[str] = []
+    for line in str(text or "").splitlines():
+        v = line
+        for pattern in SECRET_PATTERNS:
+            v = pattern.sub("[REDACTED]", v)
+        out.append(v)
+    return "\n".join(out)
+
+
+def compress_research_output(text: str, budget: int = RESEARCH_BASH_EVIDENCE_CHARS) -> str:
+    """Budget-bounded, newline-preserving, secret-redacted research-evidence text.
+
+    Order-preserving salience filter: keeps the opening summary, the closing
+    conclusion (last header to EOF), and every high-signal line (URLs, file:line
+    code refs, section headers, table rows, keyword lines); collapses mermaid
+    bodies; fills the remaining budget with surrounding prose and marks dropped
+    runs. A final head-preserving tail-trim backstops the budget. Returns the
+    redacted text unchanged when it already fits."""
+    if budget <= 0:
+        return ""
+    s = _redact_keep_lines(text)
+    if len(s) <= budget:
+        return s
+    lines = s.split("\n")
+
+    # mermaid block bodies -> single placeholder line
+    masked: list[str | None] = []
+    in_mermaid = False
+    for ln in lines:
+        if _RB_MERMAID_OPEN_RE.match(ln):
+            in_mermaid = True
+            masked.append(ln)
+            continue
+        if in_mermaid:
+            if _RB_FENCE_CLOSE_RE.match(ln):
+                in_mermaid = False
+                masked.append("[mermaid diagram omitted]")
+                masked.append(ln)
+            else:
+                masked.append(None)
+            continue
+        masked.append(ln)
+    lines = [x for x in masked if x is not None]
+    n = len(lines)
+
+    nonempty = [i for i, ln in enumerate(lines) if ln.strip()]
+    head_idx = set(nonempty[:4])
+    critical = set(head_idx) | set(nonempty[-14:])
+    last_hdr = max((i for i, ln in enumerate(lines) if _RB_HEADER_RE.match(ln)), default=None)
+    if last_hdr is not None:
+        critical |= set(range(last_hdr, n))
+
+    def tier(i: int, ln: str) -> int:
+        if i in critical:
+            return 0
+        if _RB_URL_RE.search(ln) or _RB_FENCE_REF_RE.match(ln) or _RB_INLINE_REF_RE.search(ln):
+            return 0
+        if _RB_HEADER_RE.match(ln) or _RB_TABLE_RE.match(ln) or _RB_KEYWORD_RE.search(ln):
+            return 1
+        return 2
+
+    tiers = [tier(i, ln) for i, ln in enumerate(lines)]
+    keep = [False] * n
+    used = 0
+    for want in (0, 1, 2):
+        for i in range(n):
+            if keep[i] or tiers[i] != want:
+                continue
+            cost = len(lines[i]) + 1
+            if used + cost > budget:
+                if want == 0:
+                    continue  # skip an oversized critical line, keep scanning
+                break
+            keep[i] = True
+            used += cost
+        if want != 0 and used >= budget:
+            break
+
+    out: list[str] = []
+    run = 0
+    for i in range(n):
+        if keep[i]:
+            if run:
+                out.append(f"[... {run} lines ...]")
+                run = 0
+            out.append(lines[i])
+        else:
+            run += 1
+    if run:
+        out.append(f"[... {run} lines ...]")
+    result = "\n".join(out)
+    if len(result) > budget:  # backstop: keep the head, tail-trim the rest
+        head = "\n".join(lines[i] for i in sorted(head_idx))
+        marker = "\n[... omitted ...]\n"
+        room = budget - len(head) - len(marker)
+        if room > 0:
+            result = head + marker + result[-room:]
+        else:
+            result = result[: max(0, budget - 3)] + "..."
+    return result
+
+
 def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BASH_EVIDENCE_CHARS) -> str | None:
     """Compact ``<script>: <result>`` evidence for explore trace.sh/websearch.sh Bash.
 
     Captured into ledger['tool_evidence'] and surfaced to the Stop validation
     judge so research requirements can be adjudicated against the actual
-    retrieval output, not just the command string in ran_commands."""
+    retrieval output, not just the command string in ran_commands. The stdout is
+    compressed with compress_research_output (newline-preserving, secret-redacted,
+    salience-budgeted) instead of the legacy redact flatten+head-truncate."""
     if str(input_data.get("tool_name") or "") != "Bash":
         return None
     cmd = command_from_input(input_data).strip()
@@ -334,8 +492,8 @@ def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BAS
     script = _explore_script_in_bash_command(cmd)
     if not script:
         return None
-    body = response_text(input_data.get("tool_response", input_data), limit)
-    body = redact(body, limit).strip()
+    raw = _gather_response_text(input_data.get("tool_response", input_data), _RESEARCH_GATHER_CAP)
+    body = compress_research_output(raw, limit).strip()
     if not body:
         return None
     return f"{script}: {body}"
