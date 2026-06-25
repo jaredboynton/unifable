@@ -254,6 +254,52 @@ def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     assert "hookSpecificOutput" not in out2
 
 
+def test_gate_stop_provisional_lift_shown_exactly_once(tmp_path, monkeypatch):
+    """A provisional lift that still blocks Stop must surface the lift exactly once:
+    the full format_loop_lift_context block in additionalContext only -- never echoed
+    onto the reason channel, never duplicated as a truncated Notes line."""
+    monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
+    import gate_stop
+    import spec as spec_mod
+
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    monkeypatch.setenv("UNIFABLE_GRADE", "STANDARD")
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "ship"
+    s["repo_context"] = [{"cite": "a.py:1", "why": "read this session"}]
+    s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
+    s["tasks"] = [_task("T1", "failed")]
+    save_spec(str(tmp_path), "loopdup", s)
+
+    led = load_ledger({"session_id": "loopdup", "cwd": str(tmp_path)})
+    led["completion_stop_blocks"] = 3
+    led["completion_stall_blocks"] = 3
+    lr.update_loop_signature(led, ["T1"])
+    save_ledger({"session_id": "loopdup", "cwd": str(tmp_path)}, led)
+
+    monkeypatch.setattr(spec_mod, "run_check", lambda check, cwd=".", timeout=None: (1, "fail"))
+    monkeypatch.setattr(spec_mod, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(0, "no", [], "") for _ in items])
+
+    verdict = lr.LoopReleaseVerdict(True, "provisional", "loop detected on T1", "rewrite the check", [], 1)
+    with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
+        out = _run_stop(gate_stop, {"session_id": "loopdup", "cwd": str(tmp_path)})
+
+    assert out.get("decision") == "block"
+    reason = out.get("reason") or ""
+    ac = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert "breaker CLOSED" in reason
+    # Fix A: the lift block is not echoed onto the reason channel (short alarm only).
+    assert reason.lower().count("loop lift (provisional)") == 0
+    # Fix A + B: the lift appears exactly once across both channels -- no truncated
+    # Notes echo and no second full copy.
+    blob = (reason + "\n" + ac).lower()
+    assert blob.count("loop lift (provisional)") == 1
+    assert blob.count("stop lifts remaining") == 1
+    # The single survivor is the full format_loop_lift_context block in additionalContext.
+    assert "unifable completion loop lift (provisional)" in ac.lower()
+
+
 def test_gate_stop_loop_judge_decline_surfaced(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop

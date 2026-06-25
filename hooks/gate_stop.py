@@ -320,7 +320,11 @@ def _handle_completion_loop_release(
         )
         verdict = judge_completion_loop_release(spec, ledger, signal=signal, recent=recent)
         headlines, _lift_msg = apply_loop_release_verdict(spec, ledger, verdict)
-        if headlines:
+        # Provisional lifts are rendered in full by format_loop_lift_context
+        # (loop_lift_ctx); re-adding the truncated announcement headline here would
+        # double the lift in additionalContext (Notes echo). Permanent retractions
+        # have no loop_lift_ctx, so their board headlines must still flow.
+        if headlines and verdict.lift != "provisional":
             val_msgs = list(val_msgs) + headlines
             validate_ctx, _ = _build_stop_validate_context(spec, val_msgs)
         save_spec(cwd, task_key, spec)
@@ -735,8 +739,10 @@ def main() -> int:
                         hint = _completion_stop_hint(input_data, spec, incomplete)
                         if hint:
                             ev_reason += "\n\n" + hint
-                        if loop_lift_ctx:
-                            ev_reason += "\n\n" + loop_lift_ctx
+                        # loop_lift_ctx is continuation guidance, not the short alarm:
+                        # _emit_stop_payload -> finalize_stop_payload already routes it to
+                        # additionalContext (Claude) / reason (Codex) exactly once. Appending
+                        # it here too would double-emit the same lift block.
                 else:
                     try:
                         _led = load_ledger(input_data)

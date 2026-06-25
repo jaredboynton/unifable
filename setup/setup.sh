@@ -78,7 +78,7 @@ mkdir -p "$HOME/.unifable"
 python3 - "$scope" "$ts" "$host" <<'PY'
 import json, sys, os
 p = os.path.expanduser("~/.unifable/progress.json")
-json.dump({"setup_done": True, "scope": sys.argv[1], "host": sys.argv[3], "version": "1.9.103", "ts": int(sys.argv[2])}, open(p, "w"))
+json.dump({"setup_done": True, "scope": sys.argv[1], "host": sys.argv[3], "version": "1.9.104", "ts": int(sys.argv[2])}, open(p, "w"))
 PY
 
 echo "unifable setup complete ($host/$scope) — applies from the next session."
