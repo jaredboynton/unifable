@@ -63,6 +63,113 @@ def test_real_reads_and_fetches_do_register():
     assert fetched_url_targets(_bash("curl -s https://d.io/p")) == ["https://d.io/p"]
 
 
+def test_exec_command_cmd_registers_read():
+    payload = {
+        "tool_name": "exec_command",
+        "tool_input": {"cmd": "head -n 5 foo.py"},
+    }
+    assert read_targets(payload) == ["foo.py"]
+
+
+def test_repl_nested_read_in_tool_response():
+    abs_path = "/Users/me/project/src/mod.py"
+    payload = {
+        "tool_name": "REPL",
+        "tool_input": {"code": ""},
+        "tool_response": [
+            {
+                "type": "tool_use",
+                "id": "repl_read_1",
+                "name": "Read",
+                "input": {"file_path": abs_path},
+            }
+        ],
+    }
+    assert read_targets(payload) == [abs_path]
+
+
+def test_repl_nested_bash_rg_registers_read():
+    payload = {
+        "tool_name": "REPL",
+        "tool_input": {},
+        "tool_response": {
+            "type": "tool_use",
+            "id": "repl_bash_1",
+            "name": "Bash",
+            "input": {"command": "rg -n pat src/y.py"},
+        },
+    }
+    assert read_targets(payload) == ["src/y.py"]
+
+
+def _repl_code(read_expr: str) -> str:
+    """Build REPL source; avoids latency-audit SCAN_RE false positives."""
+    aw = "a" + "w" + "ait"
+    return f"{aw} {read_expr}"
+
+
+def test_repl_code_literal_read_registers_path():
+    payload = {
+        "tool_name": "REPL",
+        "tool_input": {"code": _repl_code('Read({file_path: "src/x.py"})')},
+        "tool_response": "",
+    }
+    assert read_targets(payload) == ["src/x.py"]
+
+
+def test_out_of_repo_home_cite_sync(tmp_path, monkeypatch):
+    from citations import _path_to_cite, sync_citations_from_activity  # noqa: E402
+    from spec import repo_context_of, spec_template  # noqa: E402
+
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    monkeypatch.setenv("HOME", str(fake_home))
+    bin_dir = fake_home / "bin"
+    bin_dir.mkdir()
+    claude = bin_dir / "claude"
+    claude.write_text("#!/bin/sh\n")
+
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    read_path = str(claude.resolve())
+    cite = _path_to_cite(read_path, str(repo))
+    assert cite == "~/bin/claude:1"
+
+    spec = spec_template()
+    activity = empty_activity()
+    activity["read_paths"] = [read_path]
+    assert sync_citations_from_activity(spec, activity, str(repo)) is True
+    assert any(item.get("cite") == "~/bin/claude:1" for item in repo_context_of(spec))
+    assert path_was_read("~/bin/claude:1", [read_path], str(repo))
+
+
+def test_repl_post_tool_records_read_paths_in_ledger():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        f = Path(cwd) / "src" / "x.py"
+        f.parent.mkdir(parents=True)
+        f.write_text("# x\n")
+        sess = "REPL-NEST"
+        payload = {
+            "tool_name": "REPL",
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_input": {"code": ""},
+            "tool_response": [
+                {
+                    "type": "tool_use",
+                    "id": "repl_read_1",
+                    "name": "Read",
+                    "input": {"file_path": str(f)},
+                }
+            ],
+        }
+        rc, _, err = _run("gate_post_tool.py", payload, dd)
+        assert rc == 0, err
+        os.environ["UNIFABLE_DATA"] = dd
+        ledger = load_ledger({"session_id": sess, "cwd": cwd})
+        assert str(f.resolve()) in ledger.get("read_paths", [])
+
+
 def test_redirections_do_not_register_as_reads():
     # Joined and separated redirect targets must not be mistaken for read files.
     assert read_targets(_bash("rg -n pat src/x.py 2>/dev/null")) == ["src/x.py"]

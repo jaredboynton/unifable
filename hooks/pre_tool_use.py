@@ -501,22 +501,63 @@ def _enforce_spec(input_data: dict, cwd: str, *, write_target: str | None = None
     return 0
 
 
-def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
-    """Research-phase whitelist for Bash (unconditional, no env disable).
+def _enforce_bash(input_data: dict, tool_input: dict, cwd: str, *, tool_name: str = "Bash") -> int:
+    """Research-phase whitelist for shell tools (Bash, exec_command, REPL).
 
     Research phase (no valid spec): allow only cd, ls, glob, rg, trace.sh, websearch.sh,
     and the user-facing unifusion skill scripts so the agent can explore or run a panel
     before unlock. Action phase (valid spec): all shell commands are allowed.
     LIGHT waives entirely."""
-    command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
-    blocked_env = blocked_agent_env_reason(command)
-    if blocked_env:
-        return _block(
-            input_data,
-            kind="bash",
-            detail=normalize_bash_detail(blocked_env),
-            message=format_bash_policy_block(blocked_env, _task_id(input_data)),
+    try:
+        from parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            _REPL_CAT_RE,
+            _REPL_READ_PATH_RE,
+            command_from_input,
+            is_repl_tool,
+            repl_code_from_input,
         )
+    except ImportError:
+        from scripts.gate.parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            _REPL_CAT_RE,
+            _REPL_READ_PATH_RE,
+            command_from_input,
+            is_repl_tool,
+            repl_code_from_input,
+        )
+
+    if is_repl_tool(tool_name):
+        code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
+        bash_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+        if bash_cmds:
+            for cmd in bash_cmds:
+                blocked_env = blocked_agent_env_reason(cmd)
+                if blocked_env:
+                    return _block(
+                        input_data,
+                        kind="bash",
+                        detail=normalize_bash_detail(blocked_env),
+                        message=format_bash_policy_block(blocked_env, _task_id(input_data)),
+                    )
+        elif not (_REPL_READ_PATH_RE.search(code) or _REPL_CAT_RE.search(code)):
+            return _block(
+                input_data,
+                kind="bash",
+                detail="repl-not-research",
+                message=format_bash_research_block("REPL code is not a whitelisted research read", _task_id(input_data)),
+            )
+        command = bash_cmds[0] if bash_cmds else ""
+    else:
+        command = command_from_input({"tool_name": tool_name, "tool_input": tool_input})
+        blocked_env = blocked_agent_env_reason(command)
+        if blocked_env:
+            return _block(
+                input_data,
+                kind="bash",
+                detail=normalize_bash_detail(blocked_env),
+                message=format_bash_policy_block(blocked_env, _task_id(input_data)),
+            )
 
     grade = _effective_grade(input_data)
     if grade == "LIGHT":
@@ -530,6 +571,18 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
         if ok and not _citation_reasons(spec, input_data, cwd, require_commands=False):
             return 0  # action phase unlocked
 
+    if is_repl_tool(tool_name):
+        for cmd in bash_cmds:
+            allowed, why = is_allowed_research_bash(cmd)
+            if not allowed:
+                return _block(
+                    input_data,
+                    kind="bash",
+                    detail=normalize_bash_detail(why),
+                    message=format_bash_research_block(why, task_id),
+                )
+        return 0
+
     allowed, why = is_allowed_research_bash(command)
     if not allowed:
         return _block(
@@ -540,6 +593,41 @@ def _enforce_bash(input_data: dict, tool_input: dict, cwd: str) -> int:
         )
 
     return 0
+
+
+def _shell_research_passes(input_data: dict, tool_name: str, tool_input: dict) -> bool:
+    """True when a shell/REPL call is allowed research (breaker bypass)."""
+    try:
+        from parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            _REPL_CAT_RE,
+            _REPL_READ_PATH_RE,
+            command_from_input,
+            is_repl_tool,
+            is_shell_tool,
+            repl_code_from_input,
+        )
+    except ImportError:
+        from scripts.gate.parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            _REPL_CAT_RE,
+            _REPL_READ_PATH_RE,
+            command_from_input,
+            is_repl_tool,
+            is_shell_tool,
+            repl_code_from_input,
+        )
+
+    if not is_shell_tool(tool_name):
+        return False
+    if is_repl_tool(tool_name):
+        code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
+        bash_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+        if bash_cmds:
+            return all(is_allowed_research_bash(cmd)[0] for cmd in bash_cmds)
+        return bool(_REPL_READ_PATH_RE.search(code) or _REPL_CAT_RE.search(code))
+    allowed, _ = is_allowed_research_bash(command_from_input({"tool_name": tool_name, "tool_input": tool_input}))
+    return allowed
 
 
 def _enforce_delegation(input_data: dict, tool_name: str, cwd: str) -> int:
@@ -643,11 +731,8 @@ def main() -> int:
     #     Whitelisted research Bash (cd/ls/glob/rg/trace.sh/websearch.sh/unifusion scripts/spec CLI) still passes. ---
     breaker_block, breaker_notify = _enforce_breaker(input_data)
     if breaker_block is not None:
-        if tool_name == "Bash":
-            command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
-            allowed, _ = is_allowed_research_bash(command)
-            if allowed:
-                breaker_block = None
+        if _shell_research_passes(input_data, tool_name, tool_input):
+            breaker_block = None
         if breaker_block is not None:
             return breaker_block
 
@@ -681,33 +766,51 @@ def main() -> int:
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return _gate_block(rc, breaker_notify)
 
-    # --- Bash: research whitelist (unconditional) ---
-    if tool_name == "Bash":
-        command = str(tool_input.get("command") or "") if isinstance(tool_input, dict) else ""
+    # --- Shell tools: research whitelist (unconditional) ---
+    try:
+        from parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            command_from_input,
+            is_repl_tool,
+            is_shell_tool,
+            repl_code_from_input,
+        )
+    except ImportError:
+        from scripts.gate.parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            command_from_input,
+            is_repl_tool,
+            is_shell_tool,
+            repl_code_from_input,
+        )
 
-        # Guard 0: PROTECTED_PATHS for shell mutation, BEFORE grade/validation
-        # checks. After a spec validates the action phase allows all shell, so a
-        # `> spec.json` / `sed -i ... spec.json` / `rm spec.json` / apply_patch
-        # heredoc would otherwise mutate gate state. Runs unconditionally.
-        protected_hit = _bash_protected_write(command, cwd)
-        if protected_hit:
-            return _gate_block(
-                _block(
-                    input_data,
-                    kind="protected",
-                    detail="bash",
-                    message=(
-                        f"shell mutation of protected unifable state file '{protected_hit}' is not allowed. "
-                        "The specs/ and ledger state are CLI-only: create and mutate specs via "
-                        "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
-                        "never with a shell redirect, sed, rm, tee, or apply_patch heredoc."
+    if is_shell_tool(tool_name):
+        if is_repl_tool(tool_name):
+            code = repl_code_from_input({"tool_name": tool_name, "tool_input": tool_input})
+            shell_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+        else:
+            shell_cmds = [command_from_input({"tool_name": tool_name, "tool_input": tool_input})]
+
+        for command in shell_cmds:
+            protected_hit = _bash_protected_write(command, cwd)
+            if protected_hit:
+                return _gate_block(
+                    _block(
+                        input_data,
+                        kind="protected",
+                        detail="bash",
+                        message=(
+                            f"shell mutation of protected unifable state file '{protected_hit}' is not allowed. "
+                            "The specs/ and ledger state are CLI-only: create and mutate specs via "
+                            "`unifable` (restate / add-task / set-primary / add-frontier / dispute), "
+                            "never with a shell redirect, sed, rm, tee, or apply_patch heredoc."
+                        ),
                     ),
-                ),
-                breaker_notify,
-            )
+                    breaker_notify,
+                )
 
         hygiene_headlines = _run_spec_hygiene(input_data, cwd)
-        rc = _enforce_bash(input_data, tool_input, cwd)
+        rc = _enforce_bash(input_data, tool_input, cwd, tool_name=tool_name)
         if rc == 0:
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return _gate_block(rc, breaker_notify)

@@ -66,10 +66,13 @@ WRITE_TOOLS = {"Edit", "Write", "NotebookEdit", "MultiEdit"}
 # AND silently dropping the read/fetch from the citation ledger.
 CONTENT_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead", "FetchMcpResource"})
 _FETCH_TOOL_RE = re.compile(
-    r"(?i)(?:webfetch|fetchmcpresource|mcp.*fetch|exa|browser|web.?fetch|mcp_resource)",
+    r"(?i)(?:webfetch|fetchmcpresource|mcp.*fetch|exa|browser|web.?fetch|mcp_resource|web_fetch)",
 )
 _URL_INPUT_KEYS = ("url", "urls", "uri", "href", "link", "page_url", "website", "source")
-COMMAND_RESULT_TOOLS = {"Bash", "apply_patch"}
+SHELL_TOOLS = frozenset({"Bash", "REPL", "exec_command", "Shell"})
+REPL_JS_TOOLS = frozenset({"exec", "js", "javascript", "node_repl__js", "mcp__node_repl__js"})
+STRUCTURED_READ_TOOLS = frozenset({"Read", "Grep", "Glob", "NotebookRead"})
+COMMAND_RESULT_TOOLS = {"Bash", "REPL", "exec_command", "Shell", "apply_patch"}
 
 # A host-reported exit status embedded in command output (Claude Code prefixes Bash
 # output with "Bash exited with code N"). Authoritative when present.
@@ -484,6 +487,113 @@ def compress_research_output(text: str, budget: int = RESEARCH_BASH_EVIDENCE_CHA
     return result
 
 
+def is_shell_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    return name in SHELL_TOOLS or name in REPL_JS_TOOLS
+
+
+def is_repl_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    return name == "REPL" or name in REPL_JS_TOOLS
+
+
+_REPL_READ_PATH_RE = re.compile(
+    r"(?:Read|Grep|Glob|NotebookRead)\s*\(\s*\{[^}]*?"
+    r"(?:file_path|path|notebook_path)\s*:\s*['\"]([^'\"]+)['\"]",
+    re.DOTALL,
+)
+_REPL_WEBFETCH_URL_RE = re.compile(
+    r"WebFetch\s*\(\s*\{[^}]*?url\s*:\s*['\"]([^'\"]+)['\"]",
+    re.DOTALL,
+)
+_REPL_CAT_RE = re.compile(r"(?:^|[^A-Za-z0-9_$])cat\s*\(\s*['\"]([^'\"]+)['\"]")
+_REPL_BASH_CMD_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_$])(?:Bash|sh)\s*\(\s*\{[^}]*command\s*:\s*['\"]([^'\"]+)['\"]",
+    re.DOTALL,
+)
+
+
+def repl_code_from_input(input_data: dict[str, Any]) -> str:
+    """REPL / JS-REPL source text from tool_input (code, input, or bare str)."""
+    ti = input_data.get("tool_input")
+    if isinstance(ti, dict):
+        for key in ("code", "input", "script", "source"):
+            value = ti.get(key)
+            if isinstance(value, str) and value.strip():
+                return value
+    if isinstance(ti, str):
+        return ti
+    return ""
+
+
+def _paths_from_structured_tool(name: str, ti: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    if name in STRUCTURED_READ_TOOLS:
+        for key in ("file_path", "path", "notebook_path"):
+            value = ti.get(key)
+            if value:
+                out.append(str(value))
+    if name == "Bash":
+        out.extend(_bash_read_files(str(ti.get("command") or "")))
+    return out
+
+
+def _urls_from_structured_tool(name: str, ti: dict[str, Any]) -> list[str]:
+    out: list[str] = []
+    if name == "WebFetch" and ti.get("url"):
+        out.append(str(ti["url"]))
+    if name == "Bash":
+        out.extend(_bash_fetch_urls(str(ti.get("command") or "")))
+    return out
+
+
+def _walk_nested_tool_activity(value: Any, reads: list[str], fetches: list[str]) -> None:
+    """Extract nested Read/Bash/WebFetch tool_use blocks from REPL tool_response."""
+    if isinstance(value, dict):
+        name = str(value.get("name") or "")
+        inp = value.get("input") or value.get("tool_input") or {}
+        if isinstance(inp, dict) and name:
+            reads.extend(_paths_from_structured_tool(name, inp))
+            fetches.extend(_urls_from_structured_tool(name, inp))
+        for child in value.values():
+            _walk_nested_tool_activity(child, reads, fetches)
+    elif isinstance(value, list):
+        for child in value:
+            _walk_nested_tool_activity(child, reads, fetches)
+
+
+def _paths_from_repl_code(code: str) -> list[str]:
+    out: list[str] = []
+    for m in _REPL_READ_PATH_RE.finditer(code):
+        out.append(m.group(1))
+    for m in _REPL_CAT_RE.finditer(code):
+        out.append(m.group(1))
+    for m in _REPL_BASH_CMD_RE.finditer(code):
+        out.extend(_bash_read_files(m.group(1)))
+    return out
+
+
+def _urls_from_repl_code(code: str) -> list[str]:
+    out: list[str] = []
+    for m in _REPL_WEBFETCH_URL_RE.finditer(code):
+        out.append(m.group(1))
+    for m in _REPL_BASH_CMD_RE.finditer(code):
+        out.extend(_bash_fetch_urls(m.group(1)))
+    return out
+
+
+def repl_nested_activity(input_data: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Read paths and fetch URLs implied by a REPL tool call (code + nested results)."""
+    reads: list[str] = []
+    fetches: list[str] = []
+    code = repl_code_from_input(input_data)
+    if code:
+        reads.extend(_paths_from_repl_code(code))
+        fetches.extend(_urls_from_repl_code(code))
+    _walk_nested_tool_activity(input_data.get("tool_response"), reads, fetches)
+    return reads, fetches
+
+
 def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BASH_EVIDENCE_CHARS) -> str | None:
     """Compact ``<script>: <result>`` evidence for explore trace.sh/websearch.sh Bash.
 
@@ -492,7 +602,7 @@ def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BAS
     retrieval output, not just the command string in ran_commands. The stdout is
     compressed with compress_research_output (newline-preserving, secret-redacted,
     salience-budgeted) instead of the legacy redact flatten+head-truncate."""
-    if str(input_data.get("tool_name") or "") != "Bash":
+    if not is_shell_tool(str(input_data.get("tool_name") or "")):
         return None
     cmd = command_from_input(input_data).strip()
     if not cmd:
@@ -509,20 +619,20 @@ def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BAS
 
 def read_targets(input_data: dict[str, Any]) -> list[str]:
     """Files this tool call actually read: Read.file_path, Grep/Glob.path,
-    NotebookRead.notebook_path, and command-position read-style Bash."""
+    NotebookRead.notebook_path, command-position read-style shell, and REPL nested reads."""
     tool = str(input_data.get("tool_name") or "")
     ti = input_data.get("tool_input")
     out: list[str] = []
     if isinstance(ti, dict):
-        if tool in ("Read", "Grep", "Glob", "NotebookRead"):
-            for key in ("file_path", "path", "notebook_path"):
-                value = ti.get(key)
-                if value:
-                    out.append(str(value))
-        if tool == "Bash":
-            out.extend(_bash_read_files(str(ti.get("command") or "")))
-    elif isinstance(ti, str) and tool == "Bash":
+        if tool in STRUCTURED_READ_TOOLS:
+            out.extend(_paths_from_structured_tool(tool, ti))
+        if is_shell_tool(tool):
+            out.extend(_bash_read_files(command_from_input(input_data)))
+    elif isinstance(ti, str) and is_shell_tool(tool):
         out.extend(_bash_read_files(ti))
+    if is_repl_tool(tool):
+        repl_reads, _ = repl_nested_activity(input_data)
+        out.extend(repl_reads)
     return [p for p in out if p]
 
 
@@ -537,11 +647,14 @@ def fetched_url_targets(input_data: dict[str, Any]) -> list[str]:
         if tool == "WebFetch" and ti.get("url"):
             out.append(str(ti.get("url")))
         out.extend(_urls_from_mapping(ti))
-        if tool == "Bash":
-            out.extend(_bash_fetch_urls(str(ti.get("command") or "")))
-    elif isinstance(ti, str) and tool == "Bash":
+        if is_shell_tool(tool):
+            out.extend(_bash_fetch_urls(command_from_input(input_data)))
+    elif isinstance(ti, str) and is_shell_tool(tool):
         out.extend(_bash_fetch_urls(ti))
-    if tool == "Bash":
+    if is_repl_tool(tool):
+        _, repl_fetches = repl_nested_activity(input_data)
+        out.extend(repl_fetches)
+    if is_shell_tool(tool):
         cmd = command_from_input(input_data)
         if _explore_script_in_bash_command(cmd):
             # websearch.sh / trace.sh embed source URLs in stdout, not the argv.
@@ -563,8 +676,8 @@ def fetched_url_targets(input_data: dict[str, Any]) -> list[str]:
 
 
 def ran_command(input_data: dict[str, Any]) -> str | None:
-    """The Bash command this tool call executed (normalized), else None."""
-    if str(input_data.get("tool_name") or "") != "Bash":
+    """The shell command this tool call executed (normalized), else None."""
+    if not is_shell_tool(str(input_data.get("tool_name") or "")):
         return None
     cmd = command_from_input(input_data).strip()
     return cmd or None
@@ -573,7 +686,10 @@ def ran_command(input_data: dict[str, Any]) -> str | None:
 def command_from_input(input_data: dict[str, Any]) -> str:
     tool_input = input_data.get("tool_input")
     if isinstance(tool_input, dict):
-        return str(tool_input.get("command") or tool_input.get("description") or "")
+        for key in ("command", "cmd", "description"):
+            value = tool_input.get(key)
+            if value:
+                return str(value)
     if isinstance(tool_input, str):
         return tool_input
     return ""
@@ -677,7 +793,7 @@ def changed_kinds(input_data: dict[str, Any]) -> list[str]:
         return sorted({classify_path_kind(path.strip()) for path in paths})
     tool_name = str(input_data.get("tool_name") or "")
     command = command_from_input(input_data)
-    if tool_name == "Bash" and MUTATING_BASH_RE.search(command):
+    if is_shell_tool(tool_name) and MUTATING_BASH_RE.search(command):
         return ["other"]
     return []
 

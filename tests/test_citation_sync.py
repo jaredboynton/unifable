@@ -62,3 +62,19 @@ def test_idempotent_replay_appends_nothing(tmp_path):
     assert sink == {}
     assert len(spec.get("repo_context", [])) == before_repo
     assert len(spec.get("prior_art", [])) == before_prior
+
+
+def test_repl_activity_idempotent_replay_appends_nothing(tmp_path):
+    f = tmp_path / "src" / "mod.py"
+    f.parent.mkdir(parents=True)
+    f.write_text("# x\n")
+    spec = spec_template()
+    activity = _activity(reads=[str(f.resolve())])
+
+    assert sync_citations_from_activity(spec, activity, str(tmp_path)) is True
+    before = len(spec.get("repo_context", []))
+
+    sink: dict[str, list[str]] = {}
+    assert sync_citations_from_activity(spec, activity, str(tmp_path), added_sink=sink) is False
+    assert sink == {}
+    assert len(spec.get("repo_context", [])) == before

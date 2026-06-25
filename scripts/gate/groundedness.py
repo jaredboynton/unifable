@@ -684,18 +684,40 @@ def is_release_tool(tool_name: str, input_data: dict | None = None) -> bool:
     tool = str(tool_name or "")
     if tool in RELEASE_TOOLS:
         return True
-    if tool != "Bash":
-        return False
     if not isinstance(input_data, dict):
         return False
     try:
         from bash_classify import is_allowed_research_bash
-        from parse_tool_result import command_from_input
+        from parse_tool_result import (
+            _REPL_BASH_CMD_RE,
+            _REPL_CAT_RE,
+            _REPL_READ_PATH_RE,
+            command_from_input,
+            is_repl_tool,
+            is_shell_tool,
+            repl_code_from_input,
+        )
     except ImportError:
         from scripts.gate.bash_classify import is_allowed_research_bash  # pragma: no cover
-        from scripts.gate.parse_tool_result import command_from_input  # pragma: no cover
-    allowed, _ = is_allowed_research_bash(command_from_input(input_data))
-    return allowed
+        from scripts.gate.parse_tool_result import (  # pragma: no cover
+            _REPL_BASH_CMD_RE,
+            _REPL_CAT_RE,
+            _REPL_READ_PATH_RE,
+            command_from_input,
+            is_repl_tool,
+            is_shell_tool,
+            repl_code_from_input,
+        )
+    if is_repl_tool(tool):
+        code = repl_code_from_input(input_data)
+        bash_cmds = [m.group(1) for m in _REPL_BASH_CMD_RE.finditer(code)]
+        if bash_cmds:
+            return all(is_allowed_research_bash(cmd)[0] for cmd in bash_cmds)
+        return bool(_REPL_READ_PATH_RE.search(code) or _REPL_CAT_RE.search(code))
+    if is_shell_tool(tool):
+        allowed, _ = is_allowed_research_bash(command_from_input(input_data))
+        return allowed
+    return False
 
 
 def _encode_cwd(cwd: str) -> str:

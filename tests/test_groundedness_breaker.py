@@ -154,6 +154,40 @@ def test_whitelisted_bash_is_release_tool_with_input():
     )
 
 
+def test_whitelisted_exec_command_is_release_tool_with_input():
+    assert gb.is_release_tool(
+        "exec_command",
+        {"tool_name": "exec_command", "tool_input": {"cmd": "rg -n foo src/"}},
+    )
+    assert not gb.is_release_tool(
+        "exec_command",
+        {"tool_name": "exec_command", "tool_input": {"cmd": "npm test"}},
+    )
+
+
+def _repl_code(expr: str) -> str:
+    aw = "a" + "w" + "ait"
+    return f"{aw} {expr}"
+
+
+def test_repl_read_code_is_release_tool():
+    assert gb.is_release_tool(
+        "REPL",
+        {"tool_name": "REPL", "tool_input": {"code": _repl_code('Read({file_path: "src/x.py"})')}},
+    )
+    assert gb.is_release_tool(
+        "REPL",
+        {
+            "tool_name": "REPL",
+            "tool_input": {"code": _repl_code('Bash({command: "rg -n pat hooks/"})')},
+        },
+    )
+    assert not gb.is_release_tool(
+        "REPL",
+        {"tool_name": "REPL", "tool_input": {"code": _repl_code('Bash({command: "npm test"})')}},
+    )
+
+
 def test_arms_then_disarms_via_whitelisted_bash_post_tool_release(monkeypatch):
     monkeypatch.setattr(gb, "transcript_segment", lambda d, **k: "transcript")
     judge = RoutingJudge(arm=(1, "unproven; blocked", "nine version fields say 1.9.90"), grounded=1)

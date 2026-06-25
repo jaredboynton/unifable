@@ -100,7 +100,7 @@ def merge_activity(*activities: dict[str, list[str]]) -> dict[str, list[str]]:
 
 def _abs(path: str, cwd: str) -> str:
     try:
-        p = Path(path)
+        p = Path(path).expanduser()
         if not p.is_absolute():
             p = Path(cwd) / p
         return str(p.resolve())
@@ -127,6 +127,8 @@ def path_was_read(cite: str, read_paths: list[str], cwd: str) -> bool:
     # cite 'scripts/gate/spec.py'). A bare basename ('spec.py') is NOT accepted --
     # it would let any same-named file credit the citation.
     rel = raw.lstrip("./")
+    if rel.startswith("~/"):
+        rel = rel[2:]
     if "/" in rel:
         needle = "/" + rel
         if any(r.replace(os.sep, "/").endswith(needle) for r in reads):
@@ -183,7 +185,7 @@ def _cite_path_exists(cite: str, cwd: str) -> bool:
     if not raw:
         return False
     try:
-        p = Path(raw)
+        p = Path(raw).expanduser()
         if not p.is_absolute():
             p = Path(cwd) / p
         return p.is_file()
@@ -294,8 +296,9 @@ def format_citation_verify_message(reasons: list[str]) -> str:
     footnotes: list[str] = []
     if any(r.startswith("repo_context[") for r in items):
         footnotes.append(
-            "Do not hand-author repo_context in the spec CLI — Read/Grep each file first; "
-            "citations sync automatically from tool activity (the gate verifies against what you actually read)."
+            "Do not hand-author repo_context in the spec CLI — Read/Grep/Glob/WebFetch and "
+            "whitelisted shell/REPL reads sync citations automatically (the gate verifies against "
+            "what you actually read)."
         )
     if any(r.startswith("prior_art[") for r in items):
         footnotes.append("Fetch each URL (WebFetch or curl) before citing it as prior art.")
@@ -367,7 +370,7 @@ def _scan_blocks(content: Any, act: dict[str, list[str]], cwd: str) -> None:
         pseudo_full = {**pseudo_input, "tool_response": result}
         if detect_failure(pseudo_full):
             continue
-        for p in read_targets(pseudo_input):
+        for p in read_targets(pseudo_full):
             act["read_paths"].append(_abs(p, cwd))
         act["fetched_urls"].extend(fetched_url_targets(pseudo_full))
         rc = ran_command(pseudo_input)
@@ -434,13 +437,21 @@ _MISSING_FILE_RE = re.compile(
 
 
 def _path_to_cite(abs_path: str, cwd: str) -> str:
-    """Convert an absolute read path to a repo-relative path:line cite."""
+    """Convert an absolute read path to a path:line cite (repo-relative, ~/, or absolute)."""
     try:
-        p = Path(abs_path).resolve()
+        p = Path(abs_path).expanduser().resolve()
         root = Path(cwd).resolve()
-        rel = p.relative_to(root)
-        return f"{rel.as_posix()}:1"
-    except (ValueError, OSError):
+        try:
+            rel = p.relative_to(root)
+            return f"{rel.as_posix()}:1"
+        except ValueError:
+            home = Path.home().resolve()
+            try:
+                rel_home = p.relative_to(home)
+                return f"~/{rel_home.as_posix()}:1"
+            except ValueError:
+                return f"{p.as_posix()}:1"
+    except (OSError, ValueError):
         name = Path(abs_path).name
         if "/" in str(abs_path).replace(os.sep, "/"):
             parts = str(abs_path).replace(os.sep, "/").split("/")

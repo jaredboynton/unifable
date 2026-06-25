@@ -101,7 +101,8 @@ _ORCH_POSTURE = (
 
 _RESEARCH_REFLEXES = (
     "- Avoid two common research walls. (1) Bash synonyms: rg/grep/ast-grep, glob/ls not find, "
-    "head/wc/tail not cat, no pwd; python3 -c unlocks post-spec only. "
+    "head/wc/tail not cat, no pwd; python3 -c unlocks post-spec only. REPL/exec_command "
+    "shorthand reads (rg, head, Read via REPL) sync repo_context the same as native Read/Grep. "
     "(2) Read before naming locations -- citing unread paths arms the breaker."
 )
 

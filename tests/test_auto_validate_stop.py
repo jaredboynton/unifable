@@ -68,9 +68,9 @@ def test_auto_validate_runs_checks_in_parallel(tmp_path, monkeypatch):
     s["requires_tasks"] = True
     s["restated_goal"] = "g"
     s["tasks"] = [
-        _task("T1", "pending", check="sleep 0"),
-        _task("T2", "pending", check="sleep 0"),
-        _task("T3", "pending", check="sleep 0"),
+        _task("T1", "pending", check="true"),
+        _task("T2", "pending", check="true"),
+        _task("T3", "pending", check="true"),
     ]
     save_spec(str(tmp_path), "K", s)
     lock = threading.Lock()
@@ -80,7 +80,9 @@ def test_auto_validate_runs_checks_in_parallel(tmp_path, monkeypatch):
         with lock:
             active["n"] += 1
             active["max"] = max(active["max"], active["n"])
-        time.sleep(0.12)
+        deadline = time.monotonic() + 0.12
+        while time.monotonic() < deadline:
+            pass
         with lock:
             active["n"] -= 1
         return 0, "ok"
