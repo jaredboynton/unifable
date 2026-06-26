@@ -318,7 +318,8 @@ _VALIDATE_ALL_SYSTEM = (
     "- evidence_only=true (a validate entry): the requirement has NO runnable shell "
     "check; its exit_code/output are null BY DESIGN, not a failure. Decide "
     "satisfaction SOLELY from the top-level `evidence` corpus (file reads, URL "
-    "fetches, ran commands, MCP tool results, recorded verification runs) and the "
+    "fetches, ran commands, captured command outputs, MCP tool results, recorded "
+    "verification runs) and the "
     "session transcript. Return "
     "verdict 1 when that captured evidence shows the requirement met; verdict 0 only "
     "when the evidence is absent or contradicts it. Do NOT tell the agent to convert "
@@ -659,6 +660,7 @@ def _evidence_payload(evidence: dict[str, Any] | None) -> dict[str, list[str]] |
         "read_paths": _take("read_paths", 30),
         "fetched_urls": _take("fetched_urls", 20),
         "ran_commands": _take("ran_commands", 20),
+        "command_outputs": _take("command_outputs", 20),
         "tool_results": _take("tool_evidence", 30),
         "verifications": _take("verifications", 20),
     }

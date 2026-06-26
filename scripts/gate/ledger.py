@@ -94,6 +94,11 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # (Slack/Jira/GitHub/etc.). MCP results are the real evidence corpus for
     # research tasks, so they are surfaced to the Stop validation judge.
     "tool_evidence": [],
+    # command_outputs: "<command>: <compressed output>" for successful generic
+    # shell calls (curl probes, cat of a config, etc.). ran_commands records the
+    # command STRING only; this carries the OUTPUT so the Stop evidence_only judge
+    # can see probe proof instead of relying on the budget-capped transcript tail.
+    "command_outputs": [],
     # PreToolUse block dedup (pretool_block.py): one full stderr message per
     # (epoch, signature) when parallel hooks fire on the same turn.
     "pretool_block_epoch": "",
@@ -261,6 +266,7 @@ def load_ledger(input_data: dict[str, Any]) -> dict[str, Any]:
         "fetched_urls",
         "ran_commands",
         "tool_evidence",
+        "command_outputs",
         "loop_lift_retracted",
         "loop_events",
         "router_matched_tags",
@@ -315,7 +321,7 @@ def trim_ledger(ledger: dict[str, Any]) -> None:
     # Activity log lists are backed by the db.activity table (deduplicated rows,
     # no array to cap). Keep an in-memory bound only so a single load-modify-save
     # cycle does not balloon the dict; the DB itself holds the full session set.
-    for key in ("read_paths", "fetched_urls", "ran_commands", "tool_evidence"):
+    for key in ("read_paths", "fetched_urls", "ran_commands", "tool_evidence", "command_outputs"):
         ledger[key] = ledger.get(key, [])[-2000:]
 
 

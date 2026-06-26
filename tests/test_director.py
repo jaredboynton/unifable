@@ -129,6 +129,67 @@ def test_unchanged_directive_not_resurfaced(monkeypatch) -> None:
     assert "unifable director:" not in n2
 
 
+def test_paraphrased_directive_not_resurfaced(monkeypatch) -> None:
+    """The real re-request failure mode: the judge RE-WORDS an already-surfaced
+    instruction every debounce window. Byte-exact dedup (the old `!=` check) misses
+    it, so the model is repeatedly told to redo work it just did. Near-duplicate
+    suppression must keep the paraphrase silent."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
+    a = (
+        "Capture and attach proof artifacts for the primary finding by gathering the "
+        "relevant recorded request/response evidence and linking it to the failed T7 finding."
+    )
+    b = (
+        "Capture and attach the proof artifacts for the primary finding by gathering the "
+        "relevant recorded request/response evidence and any supporting configuration "
+        "excerpts, then summarize how they demonstrate the account/catalog behavior."
+    )
+    dj = DirectorJudge(verdict=0, directive=a)
+    state = default_breaker()
+    _, _, n1 = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=dj)
+    assert "Capture and attach proof artifacts" in n1
+    # Next debounce window: the judge paraphrases the SAME step -> must stay silent.
+    dj.directive = b
+    _, _, n2 = gb.evaluate_pre_tool(_pre("Bash"), state, now=3.0, active_task="P", judge=dj)
+    assert dj.arm_calls == 2  # the judge did fire again
+    assert "supporting configuration" not in n2  # but the paraphrase was NOT surfaced
+    assert b not in n2
+
+
+def test_genuinely_new_directive_is_resurfaced(monkeypatch) -> None:
+    """The dedup must not over-suppress: a directive for a DIFFERENT step (low token
+    overlap) still surfaces after a prior one."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
+    a = "Capture and attach proof artifacts for the primary finding from the recorded evidence."
+    c = "Run the live responses probe with model gpt and reasoning xhigh; record the http status."
+    dj = DirectorJudge(verdict=0, directive=a)
+    state = default_breaker()
+    _, _, n1 = gb.evaluate_pre_tool(_pre("Bash"), state, now=0.0, active_task="P", judge=dj)
+    assert "proof artifacts" in n1
+    dj.directive = c
+    _, _, n2 = gb.evaluate_pre_tool(_pre("Bash"), state, now=3.0, active_task="P", judge=dj)
+    assert "live responses probe" in n2
+
+
+def test_directives_near_duplicate_metric() -> None:
+    """The deterministic backstop: a paraphrase is a duplicate, a different step is
+    not, and degenerate/terse inputs fail safe (never spuriously suppressed)."""
+    from breaker_runtime import directives_near_duplicate
+
+    a = "Capture and attach proof artifacts for the primary finding from the recorded evidence."
+    para = "Capture and attach the proof artifacts for the primary finding using the recorded evidence corpus."
+    other = "Run the live responses probe with gpt and reasoning xhigh; record the http status code."
+    assert directives_near_duplicate(a, para) is True
+    assert directives_near_duplicate(a, other) is False
+    assert directives_near_duplicate(a, a) is True
+    # Degenerate inputs fail safe (treated as NOT duplicates -> nothing suppressed).
+    assert directives_near_duplicate("", a) is False
+    assert directives_near_duplicate(a, "") is False
+    # Terse directives fall back to exact match (no spurious suppression).
+    assert directives_near_duplicate("Read foo.py", "Read bar.py") is False
+    assert directives_near_duplicate("Read foo.py", "Read foo.py") is True
+
+
 def test_arming_clears_director_scope(monkeypatch) -> None:
     monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     dj = DirectorJudge(verdict=1)

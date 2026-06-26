@@ -26,6 +26,7 @@ from model_notify import (
 from parse_tool_result import (
     changed_kinds,
     command_from_input,
+    command_output_evidence,
     detect_failure,
     fetched_url_targets,
     mcp_evidence,
@@ -213,6 +214,7 @@ def main() -> int:
     ran = ran_command(input_data) if executed_ok else None
     mcp_ev = mcp_evidence(input_data) if executed_ok else None
     research_ev = research_bash_evidence(input_data) if executed_ok else None
+    cmd_out = command_output_evidence(input_data) if executed_ok else None
     tool_name = str(input_data.get("tool_name") or "unknown")
 
     def apply(ledger):
@@ -237,6 +239,9 @@ def main() -> int:
             add_unique(ledger, "tool_evidence", [research_ev])
         if mcp_ev or research_ev:
             ledger["tool_evidence"] = ledger["tool_evidence"][-60:]
+        if cmd_out:
+            add_unique(ledger, "command_outputs", [cmd_out])
+            ledger["command_outputs"] = ledger["command_outputs"][-60:]
 
     ledger = update_ledger(input_data, apply)
 

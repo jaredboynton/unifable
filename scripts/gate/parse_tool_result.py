@@ -696,6 +696,39 @@ def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BAS
     return f"{script}: {body}"
 
 
+COMMAND_OUTPUT_EVIDENCE_CHARS = 2000
+
+
+def command_output_evidence(input_data: dict[str, Any], limit: int = COMMAND_OUTPUT_EVIDENCE_CHARS) -> str | None:
+    """Compact ``<command>: <output>`` evidence for a successful generic shell call.
+
+    Closes the Stop-gate gap where ran_commands recorded the command STRING but not
+    its output: a probe like `curl ...` (HTTP body) or `cat catalog.json` (an ETag)
+    is neither MCP, an explore script, nor a VERIFY_RE command, so its output lived
+    only in the budget-capped transcript tail and the evidence_only judge could not
+    see the proof. Captured into ledger['command_outputs'] and surfaced to the Stop
+    validation judge as its own corpus category.
+
+    Deferred to research_bash_evidence for explore trace.sh/websearch.sh (richer
+    capture) to avoid double-recording. Output is compressed with
+    compress_research_output (newline-preserving, secret-redacted, salience-budgeted).
+    Returns None for non-shell tools, empty output, or explore-script commands."""
+    if not is_shell_tool(str(input_data.get("tool_name") or "")):
+        return None
+    cmd = command_from_input(input_data).strip()
+    if not cmd:
+        return None
+    if _explore_script_in_bash_command(cmd):
+        return None  # research_bash_evidence owns explore-script output
+    raw = _gather_response_text(input_data.get("tool_response", input_data), _RESEARCH_GATHER_CAP)
+    cmd_label = " ".join(cmd.split())[:200]
+    head = f"{cmd_label}: "
+    body = compress_research_output(raw, max(0, limit - len(head))).strip()
+    if not body:
+        return None
+    return f"{head}{body}"
+
+
 def read_targets(input_data: dict[str, Any]) -> list[str]:
     """Files this tool call actually read: Read.file_path, Grep/Glob.path,
     NotebookRead.notebook_path, command-position read-style shell, and REPL nested reads."""

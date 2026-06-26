@@ -26,6 +26,7 @@ try:
         _stale_arm_message,
         _user_goal_block,
         breaker_key,
+        directives_near_duplicate,
         disarm,
         is_mutation_tool,
         is_release_tool,
@@ -60,6 +61,7 @@ except ImportError:  # pragma: no cover
         _stale_arm_message,
         _user_goal_block,
         breaker_key,
+        directives_near_duplicate,
         disarm,
         is_mutation_tool,
         is_release_tool,
@@ -171,9 +173,13 @@ def evaluate_pre_tool(
                 scope = director_out.get("tool_scope")
                 state["breaker_directive"] = directive
                 state["breaker_tool_scope"] = scope if isinstance(scope, dict) else {}
-                # Surface only a CHANGED directive, so steady work on one step does
-                # not re-emit the same line every debounce window (token-aware).
-                if directive and directive != str(state.get("breaker_last_directive_surfaced") or ""):
+                # Surface a directive only when it is genuinely NEW work. Byte-exact
+                # equality misses the real re-request failure mode -- the judge
+                # re-WORDING an already-satisfied step every debounce window -- so a
+                # near-duplicate of the last surfaced directive stays silent too.
+                if directive and not directives_near_duplicate(
+                    directive, str(state.get("breaker_last_directive_surfaced") or "")
+                ):
                     msg = directive
                     existing = str(state.get("breaker_pending_notify") or "")
                     state["breaker_pending_notify"] = f"{existing}\n{msg}".strip() if existing else msg

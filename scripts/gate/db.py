@@ -50,6 +50,7 @@ ACTIVITY_LIST_TO_KIND = {
     "fetched_urls": "fetched_url",
     "ran_commands": "ran_command",
     "tool_evidence": "tool_evidence",
+    "command_outputs": "command_output",
 }
 ACTIVITY_KIND_TO_LIST = {v: k for k, v in ACTIVITY_LIST_TO_KIND.items()}
 

@@ -36,6 +36,7 @@ from typing import Any
 from parse_tool_result import (
     _SHELL_OPERATORS,
     _tokens,
+    command_output_evidence,
     detect_failure,
     fetched_url_targets,
     ran_command,
@@ -64,7 +65,7 @@ def enabled() -> bool:
 
 
 def empty_activity() -> dict[str, list[str]]:
-    return {"read_paths": [], "fetched_urls": [], "ran_commands": [], "tool_evidence": []}
+    return {"read_paths": [], "fetched_urls": [], "ran_commands": [], "tool_evidence": [], "command_outputs": []}
 
 
 def activity_from_ledger(ledger: dict[str, Any]) -> dict[str, list[str]]:
@@ -73,15 +74,16 @@ def activity_from_ledger(ledger: dict[str, Any]) -> dict[str, list[str]]:
         value = ledger.get(key)
         if isinstance(value, list):
             out[key] = [str(x) for x in value if x]
-    tool_ev = ledger.get("tool_evidence")
-    if isinstance(tool_ev, list):
-        out["tool_evidence"] = [str(x) for x in tool_ev if x]
+    for key in ("tool_evidence", "command_outputs"):
+        value = ledger.get(key)
+        if isinstance(value, list):
+            out[key] = [str(x) for x in value if x]
     return out
 
 
 def merge_activity(*activities: dict[str, list[str]]) -> dict[str, list[str]]:
     out = empty_activity()
-    for key in (*ACTIVITY_KEYS, "tool_evidence"):
+    for key in (*ACTIVITY_KEYS, "tool_evidence", "command_outputs"):
         seen: set[str] = set()
         merged: list[str] = []
         for act in activities:
@@ -394,6 +396,9 @@ def _scan_blocks(content: Any, act: dict[str, list[str]], cwd: str) -> None:
         ev = research_bash_evidence(pseudo_full)
         if ev:
             act["tool_evidence"].append(ev)
+        cmd_out = command_output_evidence(pseudo_full)
+        if cmd_out:
+            act["command_outputs"].append(cmd_out)
 
 
 def _scan_file(path: Path, act: dict[str, list[str]]) -> None:

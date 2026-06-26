@@ -9,6 +9,7 @@ helpers.
 from __future__ import annotations
 
 import os
+import re
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -72,6 +73,63 @@ JUDGE_WINDOW_SECONDS = 3
 
 
 DIRECTIVE_MAX_CHARS = 400
+
+
+_DIRECTIVE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
+# Generic instruction scaffolding; two directives that share only these words carry
+# no evidence of being the same step, so they are dropped before the overlap test.
+_DIRECTIVE_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "and", "or", "to", "of", "for", "in", "on", "then", "with",
+        "that", "this", "it", "is", "are", "be", "by", "as", "at", "from", "into",
+        "your", "you", "do", "not", "any", "all", "so", "its", "their", "them", "how",
+        "what", "via", "use", "using", "should", "must",
+    }
+)
+
+
+DIRECTIVE_NEAR_DUP_THRESHOLD = 0.7
+
+
+_DIRECTIVE_DEDUP_MIN_TOKENS = 4
+
+
+def _directive_tokens(text: str) -> set[str]:
+    toks = _DIRECTIVE_TOKEN_RE.findall(str(text or "").lower())
+    return {t for t in toks if t not in _DIRECTIVE_STOPWORDS}
+
+
+def directives_near_duplicate(a: str, b: str, threshold: float = DIRECTIVE_NEAR_DUP_THRESHOLD) -> bool:
+    """True when two director directives are paraphrases of the SAME step.
+
+    The breaker surfaces a directive only when it is genuinely new work. Byte-exact
+    equality catches identical re-emissions, but the real re-request failure mode is
+    the judge RE-WORDING an already-satisfied instruction every debounce window
+    (e.g. "Capture and attach proof artifacts ..." -> "Capture and attach THE proof
+    artifacts ... then summarize ..."), which slips past `!=` and tells the model to
+    redo work it just did.
+
+    Metric: the overlap coefficient over content tokens (stopwords dropped) --
+    |A and B| / min(|A|, |B|). Overlap (not Jaccard) is deliberate: a paraphrase that
+    ADDS detail inflates the union and would push Jaccard below threshold, yet the
+    shared core instruction still fills most of the SHORTER directive. Fail-safe: a
+    too-short directive (< _DIRECTIVE_DEDUP_MIN_TOKENS content tokens) falls back to
+    exact match, so a terse new instruction is never spuriously suppressed.
+    """
+    sa = str(a or "").strip()
+    sb = str(b or "").strip()
+    if not sa or not sb:
+        return False
+    if sa == sb:
+        return True
+    ta = _directive_tokens(sa)
+    tb = _directive_tokens(sb)
+    smaller = min(len(ta), len(tb))
+    if smaller < _DIRECTIVE_DEDUP_MIN_TOKENS:
+        return sa == sb
+    return (len(ta & tb) / smaller) >= threshold
 
 
 BREAKER_MAX_BLOCKS_DEFAULT = 3

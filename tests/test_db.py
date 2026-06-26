@@ -45,6 +45,7 @@ def test_session_roundtrip_splits_activity_and_dedups():
         "fetched_urls": ["https://x/y"],
         "ran_commands": ["pytest -q"],
         "tool_evidence": ["mcp: foo"],
+        "command_outputs": ["curl https://x: HTTP 400 body", "curl https://x: HTTP 400 body"],  # dup collapses
         "pretool_block_counts": {"bash": 2},
     }
     db.session_save("S1", led, session_id="sid", project_root="/repo")
@@ -55,6 +56,7 @@ def test_session_roundtrip_splits_activity_and_dedups():
     assert sorted(out["read_paths"]) == ["/a/b.py", "/a/c.py"]
     assert out["fetched_urls"] == ["https://x/y"]
     assert out["tool_evidence"] == ["mcp: foo"]
+    assert out["command_outputs"] == ["curl https://x: HTTP 400 body"]
 
 
 def test_session_load_absent_is_none():
