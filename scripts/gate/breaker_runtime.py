@@ -27,10 +27,13 @@ try:
         append_event,
         clear_provisional_lift,
         lift_provisional,
+        record_adjudicated_claim,
         render_events,
     )
+    from transcript_locate import locate_transcript as _locate_transcript
     from transcript_tail import (
         TRANSCRIPT_TOKEN_BUDGET,
+        latest_user_prompt_fingerprint,
         stripped_transcript_tail,
         tail_tokens,
     )
@@ -45,10 +48,13 @@ except ImportError:  # pragma: no cover
         append_event,
         clear_provisional_lift,
         lift_provisional,
+        record_adjudicated_claim,
         render_events,
     )
+    from scripts.gate.transcript_locate import locate_transcript as _locate_transcript
     from scripts.gate.transcript_tail import (
         TRANSCRIPT_TOKEN_BUDGET,
+        latest_user_prompt_fingerprint,
         stripped_transcript_tail,
         tail_tokens,
     )
@@ -354,6 +360,7 @@ def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bo
     """Record release outcome on `state`. Returns (fully_disarmed, lift_notify_message)."""
     if verdict.grounded:
         append_event(state, "DISARM", claim=claim, grounded=True)
+        record_adjudicated_claim(state, claim)
         disarm(state)
         return True, ""
     if verdict.provisional and verdict.lift_reason and verdict.lift_scope:
@@ -375,6 +382,29 @@ def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bo
 
 def breaker_key(session_id: str, active_task: str) -> str:
     return f"{session_id or 'no-session'}|{active_task or ''}"
+
+
+def resolve_task_lineage(input_data: dict, active_task: str) -> str:
+    """Task-lineage component for breaker_key, robust to an empty active_task.
+
+    The ledger's per-prompt ``active_task`` hash is the preferred signal, but in
+    production it is empty ~90% of the time when the breaker runs (gate_prompt has
+    not re-pinned it for this turn, notably after a /compact). An empty component
+    collapses ``breaker_key`` to ``session|`` for EVERY prompt in the session, so
+    the stale-arm drop (which fires only on key change) never triggers and a prior
+    task's arm leaks into the next task. When active_task is empty we fall back to
+    a fingerprint of the latest human user prompt -- stable within a task, distinct
+    across tasks -- so task boundaries are tracked reliably. Fail-safe: any error
+    or a missing transcript returns the original (possibly empty) active_task, so
+    behavior never regresses below today's."""
+    at = str(active_task or "").strip()
+    if at:
+        return at
+    try:
+        fp = latest_user_prompt_fingerprint(_locate_transcript(input_data))
+    except Exception:
+        return at
+    return fp or at
 
 
 def should_judge(state: dict, key: str, now: float, window: float = JUDGE_WINDOW_SECONDS) -> bool:

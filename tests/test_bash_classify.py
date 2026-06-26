@@ -46,6 +46,11 @@ ALLOWED = [
     "unifable add-frontier --title f --check true",
     "unifable-spec restate 'do the thing well'",
     "python3 scripts/gate/spec.py restate 'do the thing well'",
+    # Read-only python -c inspection: pure read/parse/print, no write/process/network.
+    'python3 -c "import json; print(1)"',
+    "python3 -c 'import json,sys; d=json.load(open(\"f.json\")); print(d[\"k\"])'",
+    'python -c "print(open(\'x.txt\').read())"',
+    'python3 -c "import sys; [print(l) for l in open(\'a.log\')]"',
     "unifable dispute --task T1 --evidence proof",
     "unifable-spec add-task --title t --check true",
     "unifable-spec dispute --task T1 --evidence proof",
@@ -111,6 +116,18 @@ BLOCKED = [
     "python3 evil.py",
     "python3 scripts/gate/other.py status",
     "python3 /tmp/spec.py add-task --title t --check true",
+    # Non-spec.py SCRIPT FILES stay blocked: a file's contents cannot be proven
+    # read-only from the command line, so only inline -c is eligible.
+    "python3 read_only_looking.py",
+    # python -c that can write / spawn / reach the network stays blocked.
+    'python3 -c "import subprocess; subprocess.run([\'ls\'])"',
+    'python3 -c "import os; os.system(\'rm -rf x\')"',
+    'python3 -c "import socket; socket.socket()"',
+    'python3 -c "import urllib.request as u; u.urlopen(\'http://x\')"',
+    "python3 -c \"open('out.txt','w').write('x')\"",
+    'python3 -c "from pathlib import Path; Path(\'o\').write_text(\'x\')"',
+    'python3 -c "import shutil; shutil.rmtree(\'d\')"',
+    'python3 -c "import os; os.remove(\'f\')"',
     "unifable add-task --title t --check true && cat /etc/passwd",
     "pytest tests/ -q",
     "npm test",

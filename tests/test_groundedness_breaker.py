@@ -363,6 +363,80 @@ def test_new_user_prompt_drops_stale_arm(monkeypatch):
     assert any(e.get("kind") == "STALE_ARM_DROPPED" for e in state["events"])
 
 
+def test_new_prompt_drops_stale_arm_on_research_bash(monkeypatch):
+    """A stale ARM from task A must clear on task B's first GATED tool even when
+    that tool is a whitelisted research Bash -- not only on a mutation tool. The
+    breaker matcher includes Bash, so a research Bash reaches evaluate_pre_tool;
+    it must not eat a block from the previous task's arm."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(arm=(0, "", ""))
+    state = _state()
+    gb.arm(state, gb.breaker_key("S", "P1"), 0.0, "blocked", "claim X")
+    assert state["breaker_armed"] is True
+    research = {"tool_name": "Bash", "session_id": "S", "tool_input": {"command": "rg foo src/"}}
+    blocked, _, _ = gb.evaluate_pre_tool(research, state, now=1.0, active_task="P2", judge=judge)
+    assert blocked is False and state["breaker_armed"] is False
+    assert any(e.get("kind") == "STALE_ARM_DROPPED" for e in state["events"])
+
+
+def test_new_prompt_drops_stale_provisional_lift(monkeypatch):
+    """A stale PROVISIONAL lift from task A must clear on task B's first gated tool.
+
+    The provisional branch in evaluate_pre_tool returns early; without the stale
+    drop preceding it, a task-A provisional lift would run the release/monitor
+    judges against task B's transcript and surface task-A scope -- gating
+    unrelated work. The drop must fire first so task B is judged fresh."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    judge = RoutingJudge(arm=(0, "", ""))
+    state = _state()
+    # Seed a provisional lift owned by task A (key S|P1).
+    from breaker_state import lift_provisional
+
+    state["breaker_key"] = gb.breaker_key("S", "P1")
+    lift_provisional(state, "claim A", "reason A", "scope A", "notify A")
+    assert state["breaker_provisional"] is True
+    # Task B's first mutation tool: stale drop fires, fresh arm-judge runs (verdict 0).
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit", session="S"), state, now=1.0, active_task="P2", judge=judge)
+    assert blocked is False
+    assert state["breaker_provisional"] is False
+    assert any(e.get("kind") == "STALE_ARM_DROPPED" for e in state["events"])
+    # The fresh arm-judge ran for task B (provisional branch did not short-circuit it).
+    assert judge.arm_calls == 1
+    # No task-A monitor/release judging happened against task B's transcript.
+    assert judge.monitor_calls == 0
+
+
+def test_empty_active_task_does_not_collapse_key_across_prompts(monkeypatch):
+    """RC1: in production `active_task` is empty ~90% of the time when the breaker
+    runs (gate_prompt has not re-pinned it, e.g. after /compact). With the old
+    keying, breaker_key('S','') == 'S|' for BOTH prompts, so the stale-arm drop
+    (which fires only on key change) never triggers and task A's arm leaks into
+    task B. The breaker must derive task lineage from the transcript's latest user
+    prompt when active_task is empty, so two distinct prompts get distinct keys."""
+    # Lineage falls back to the latest-user-prompt fingerprint when active_task is
+    # empty; mock it to return per-task fingerprints (the real extractor is unit
+    # tested in test_transcript_lineage.py).
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    fp = {"v": "fpA"}
+    monkeypatch.setattr("breaker_runtime.latest_user_prompt_fingerprint", lambda p: fp["v"], raising=False)
+    # Task A transcript ends with user prompt 1; arm against it.
+    judge_arm = RoutingJudge(arm=(1, "blocked: prove it", "the parser bug is X"))
+    state = _state()
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit", session="S"), state, now=0.0, active_task="", judge=judge_arm)
+    assert blocked is True and state["breaker_armed"] is True
+    key_a = state["breaker_key"]
+    # Task B: a DIFFERENT user prompt, active_task still empty (post-compact).
+    fp["v"] = "fpB"
+    judge_b = RoutingJudge(arm=(0, "", ""))
+    pre_b = {"tool_name": "Edit", "session_id": "S", "cwd": "/repo",
+             "transcript_path": "/tmp/does-not-exist-but-segment-mocked"}
+    blocked_b, _, _ = gb.evaluate_pre_tool(pre_b, state, now=1.0, active_task="", judge=judge_b)
+    # Task B must NOT be blocked by task A's arm: the keys must differ so the stale
+    # drop fires (or the fresh judge runs), not collapse to a shared 'S|'.
+    assert state["breaker_key"] != key_a, "empty active_task must not collapse two prompts to one key"
+    assert blocked_b is False, "task A's stale arm must not gate task B"
+
+
 def test_debounce_key_is_session_plus_user_prompt(monkeypatch):
     monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "t")
     judge = FakeJudge([(1, "blocked")])
@@ -758,6 +832,61 @@ def test_adjudicated_events_prevent_re_arm(monkeypatch):
     assert called_system_prompt[0] == gb._JUDGE_SYSTEM
     assert "do NOT flag any of the following claims" in called_user[0]
     assert "- my claim" in called_user[0]
+
+
+def test_adjudication_survives_event_log_overflow(monkeypatch):
+    """RC2: claim_already_adjudicated must not lose a resolved claim when the
+    bounded `events` log (MAX_EVENTS) ages out the DISARM event. The durable
+    `breaker_adjudicated_claims` list carries the guard so a long session (or a
+    /compact that keeps the same session+cwd) cannot re-arm a resolved claim."""
+    from breaker_state import MAX_EVENTS, append_event, claim_already_adjudicated, default_breaker
+
+    state = default_breaker()
+    # Disarm a claim, then flood the log past MAX_EVENTS so the DISARM ages out.
+    append_event(state, "DISARM", claim="the parser bug is X", grounded=True)
+    from breaker_runtime import _apply_release  # disarm path records the durable claim
+    # Simulate the durable record the disarm path writes.
+    state.setdefault("breaker_adjudicated_claims", [])
+    if "the parser bug is X" not in state["breaker_adjudicated_claims"]:
+        state["breaker_adjudicated_claims"].append("the parser bug is X")
+    for i in range(MAX_EVENTS + 5):
+        append_event(state, "NEEDED", claim=f"noise {i}", needed="x")
+    # The DISARM event is gone from the trimmed log...
+    assert not any(e.get("kind") == "DISARM" for e in state["events"])
+    # ...but the durable list still suppresses re-arm.
+    assert claim_already_adjudicated(
+        "the parser bug is X", state["events"], extra_claims=state["breaker_adjudicated_claims"]
+    )
+
+
+def test_paraphrased_claim_blocked_by_token_overlap():
+    """RC2: a post-compact judge re-wording an already-resolved claim must not
+    re-arm. Substring containment misses paraphrases; token-overlap catches them."""
+    from breaker_state import claim_already_adjudicated
+
+    events = [{"kind": "DISARM", "claim": "the daemon mis-maps the Account ARR Tier option field", "grounded": True}]
+    # A reworded restatement of the SAME resolved claim (no substring containment).
+    paraphrase = "Account ARR Tier option field is mis-mapped by the daemon causing the 400"
+    assert claim_already_adjudicated(paraphrase, events)
+    # An unrelated claim is NOT suppressed.
+    assert not claim_already_adjudicated("the summary was auto-rewritten on create", events)
+
+
+def test_unresolved_arm_persists_across_compact(monkeypatch):
+    """RC2 counterpart: a genuinely-armed UNRESOLVED claim must survive a compact
+    (same session+cwd). Nothing in the breaker disarms on compact; only a fresh
+    grounded judge verdict clears it. This pins that an armed claim is NOT dropped
+    merely because the transcript was compacted."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    monkeypatch.setattr("breaker_runtime.latest_user_prompt_fingerprint", lambda p: "same-task", raising=False)
+    judge = RoutingJudge(arm=(1, "blocked: prove it", "claim still unproven"), grounded=0)
+    state = _state()
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit", session="S"), state, now=0.0, active_task="", judge=judge)
+    assert blocked is True and state["breaker_armed"] is True
+    # Simulate compact: same session, active_task empty, SAME task fingerprint, and
+    # the release judge still says not grounded. The arm must remain.
+    blocked2, _, _ = gb.evaluate_pre_tool(_pre("Edit", session="S"), state, now=5.0, active_task="", judge=judge)
+    assert blocked2 is True and state["breaker_armed"] is True
 
 
 def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):

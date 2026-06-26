@@ -26,7 +26,12 @@ _FRAME = (
     "message appears, treat it as your current instruction: follow it instead of "
     "retrying the blocked action or working around it.\n"
     "- Restate the user goal in your own words first. The gate then hands you the "
-    "exact spec commands; drive the spec through the append-only CLI."
+    "exact spec commands; drive the spec through the append-only CLI.\n"
+    "- In the research phase, inspect with Read/Grep/Glob. A python3 -c that only "
+    "reads and prints is allowed; one that writes a file, spawns a process, or "
+    "reaches the network is blocked until the spec validates -- don't retry it.\n"
+    "- A groundedness arm from a previous task clears automatically on your next "
+    "action in a new task. Don't work around a stale block; just proceed."
 )
 
 

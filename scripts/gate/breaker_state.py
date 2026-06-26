@@ -12,6 +12,7 @@ import contextlib
 import copy
 import json
 import os
+import re
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -63,6 +64,11 @@ DEFAULT_BREAKER: dict[str, Any] = {
     # judging. Must live in DEFAULT_BREAKER or load_breaker drops it on every load.
     "breaker_gate_lift": {},
     "breaker_gate_lift_calls": 0,
+    # Durable adjudicated-claims guard: every claim resolved via DISARM or
+    # FAIL_OPEN is appended here so the re-arm suppression survives the bounded
+    # `events` trim (MAX_EVENTS) and a /compact. Bounded, deduped. Must live in
+    # DEFAULT_BREAKER or load_breaker drops it on every load.
+    "breaker_adjudicated_claims": [],
     "breaker_armed_at": 0.0,
     "breaker_block_count": 0,
     "breaker_provisional": False,
@@ -188,15 +194,87 @@ def adjudicated_claims(events: list[dict[str, Any]]) -> list[str]:
     return claims
 
 
-def claim_already_adjudicated(claim: str, events: list[dict[str, Any]]) -> bool:
+# Generic claim scaffolding dropped before the token-overlap test so two claims
+# that share only filler ("the", "is", "a") are not treated as the same claim.
+_CLAIM_STOPWORDS = frozenset(
+    {
+        "the", "a", "an", "and", "or", "to", "of", "for", "in", "on", "then", "with",
+        "that", "this", "it", "is", "are", "be", "by", "as", "at", "from", "into",
+        "not", "any", "all", "so", "its", "their", "them", "was", "were", "has", "have",
+        "causing", "because", "due", "via", "field",
+    }
+)
+_CLAIM_TOKEN_RE = re.compile(r"[a-z0-9]+")
+# Overlap-coefficient threshold above which a claim counts as a paraphrase of an
+# already-adjudicated one. Mirrors DIRECTIVE_NEAR_DUP_THRESHOLD in breaker_runtime;
+# kept high so only genuine restatements (not merely topical overlap) are caught.
+_CLAIM_OVERLAP_THRESHOLD = 0.7
+_CLAIM_OVERLAP_MIN_TOKENS = 4
+
+
+def _claim_tokens(text: str) -> set[str]:
+    return {t for t in _CLAIM_TOKEN_RE.findall(str(text or "").lower()) if t not in _CLAIM_STOPWORDS}
+
+
+def _claims_paraphrase(a: str, b: str) -> bool:
+    """True when two claims are paraphrases of each other (overlap coefficient).
+
+    Overlap (|A and B| / min(|A|,|B|)), not Jaccard: a paraphrase that ADDS detail
+    inflates the union and would sink Jaccard below threshold, yet the shared core
+    still fills most of the shorter claim. Both claims must clear a minimum token
+    count, so a terse claim never spuriously matches on one or two shared words."""
+    ta, tb = _claim_tokens(a), _claim_tokens(b)
+    smaller = min(len(ta), len(tb))
+    if smaller < _CLAIM_OVERLAP_MIN_TOKENS:
+        return False
+    return (len(ta & tb) / smaller) >= _CLAIM_OVERLAP_THRESHOLD
+
+
+def claim_already_adjudicated(
+    claim: str,
+    events: list[dict[str, Any]],
+    extra_claims: list[str] | None = None,
+) -> bool:
+    """True when *claim* matches an already-adjudicated (DISARM/FAIL_OPEN) claim.
+
+    Sources scanned: the bounded `events` log PLUS `extra_claims` -- the durable
+    `breaker_adjudicated_claims` list, which survives the MAX_EVENTS trim and a
+    /compact so a resolved claim cannot silently re-arm. Matching: exact, then
+    bidirectional substring containment, then token-overlap paraphrase, so a judge
+    re-wording a resolved claim after compact does not slip through."""
     normalized = claim.strip().lower()
     if not normalized:
         return False
-    for old in adjudicated_claims(events):
+    candidates = list(adjudicated_claims(events))
+    for old in extra_claims or []:
+        old_s = str(old or "").strip()
+        if old_s and old_s not in candidates:
+            candidates.append(old_s)
+    for old in candidates:
         old_norm = old.strip().lower()
+        if not old_norm:
+            continue
         if normalized == old_norm or normalized in old_norm or old_norm in normalized:
             return True
+        if _claims_paraphrase(normalized, old_norm):
+            return True
     return False
+
+
+def record_adjudicated_claim(state: dict[str, Any], claim: str) -> None:
+    """Append *claim* to the durable adjudicated-claims list (bounded, deduped).
+
+    Called on every DISARM and FAIL_OPEN so the suppression guard does not depend
+    on the bounded event log. Bounded by MAX_EVENTS to stay small."""
+    c = str(claim or "").strip()
+    if not c:
+        return
+    lst = state.get("breaker_adjudicated_claims")
+    if not isinstance(lst, list):
+        lst = []
+    if c not in lst:
+        lst.append(c)
+    state["breaker_adjudicated_claims"] = lst[-MAX_EVENTS:]
 
 
 def append_event(state: dict[str, Any], kind: str, **fields: Any) -> None:
@@ -325,6 +403,8 @@ def load_breaker(input_data: dict[str, Any]) -> dict[str, Any]:
         state.update({key: data.get(key, value) for key, value in state.items()})
     if not isinstance(state.get("events"), list):
         state["events"] = []
+    if not isinstance(state.get("breaker_adjudicated_claims"), list):
+        state["breaker_adjudicated_claims"] = []
     trim_breaker(state)
     return state
 

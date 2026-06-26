@@ -33,6 +33,7 @@ try:
         judge_transcript,
         max_blocks,
         record_verdict,
+        resolve_task_lineage,
         should_coalesce,
         should_judge,
     )
@@ -41,6 +42,7 @@ try:
         breaker_lock,
         claim_already_adjudicated,
         load_breaker,
+        record_adjudicated_claim,
         reinstate,
         save_breaker,
     )
@@ -68,6 +70,7 @@ except ImportError:  # pragma: no cover
         judge_transcript,
         max_blocks,
         record_verdict,
+        resolve_task_lineage,
         should_coalesce,
         should_judge,
     )
@@ -76,6 +79,7 @@ except ImportError:  # pragma: no cover
         breaker_lock,
         claim_already_adjudicated,
         load_breaker,
+        record_adjudicated_claim,
         reinstate,
         save_breaker,
     )
@@ -97,7 +101,7 @@ def evaluate_pre_tool(
     costs one judge call, not N. The locked wrapper (evaluate_pre_tool_locked) is
     the only caller that sets it; direct callers keep the original behavior."""
     tool = str(input_data.get("tool_name") or "")
-    key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
+    key = breaker_key(str(input_data.get("session_id") or ""), resolve_task_lineage(input_data, active_task))
     events = state.get("events") if isinstance(state.get("events"), list) else []
     notify_out = ""
     stale_notify = ""
@@ -157,7 +161,9 @@ def evaluate_pre_tool(
             verdict, steering, claim = arm_judge(
                 segment, events=events, judge=judge, input_data=input_data, out=director_out
             )
-            if verdict == 1 and claim and claim_already_adjudicated(claim, events):
+            if verdict == 1 and claim and claim_already_adjudicated(
+                claim, events, extra_claims=state.get("breaker_adjudicated_claims")
+            ):
                 verdict, steering, claim = 0, "", ""
             record_verdict(state, key, now, verdict, steering, claim)
             # Stepwise director: persist directive + scope from this (debounced)
@@ -208,6 +214,7 @@ def evaluate_pre_tool(
                 _release_log(count)
                 claim = str(state.get("breaker_claim") or "")
                 append_event(state, "FAIL_OPEN", claim=claim, block_count=count)
+                record_adjudicated_claim(state, claim)
                 disarm(state)
                 return False, "", _fail_open_message(count, claim)
         state["breaker_pending_notify"] = ""
@@ -240,7 +247,7 @@ def evaluate_pre_tool_locked(
     can inspect the event log (e.g. for REINSTATE)."""
     with breaker_lock(input_data, timeout):
         state = load_breaker(input_data)
-        key = breaker_key(str(input_data.get("session_id") or ""), str(active_task or ""))
+        key = breaker_key(str(input_data.get("session_id") or ""), resolve_task_lineage(input_data, active_task))
         coalesce = should_coalesce(state, key, now)
         block, steering, notify = evaluate_pre_tool(input_data, state, now, active_task, judge=judge, coalesce=coalesce)
         save_breaker(input_data, state)

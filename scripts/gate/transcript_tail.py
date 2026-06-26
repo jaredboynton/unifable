@@ -277,6 +277,77 @@ def stripped_transcript_tail(path: str | os.PathLike[str] | None, max_tokens: in
     return tail_tokens(stripped_transcript(raw), max_tokens)
 
 
+def _is_human_user_turn(record: dict[str, Any]) -> str:
+    """Return the human prompt text when *record* is a genuine user turn, else "".
+
+    A transcript carries two kinds of ``role:user`` records: the human's typed
+    prompt (``content`` is a string, or a list of text/non-tool blocks) and the
+    host's tool-result turns (``content`` is a list containing ``tool_result``
+    blocks). Only the former marks a task boundary, so tool-result turns are
+    rejected: they recur many times within one task and would make the lineage
+    fingerprint unstable."""
+    if not isinstance(record, dict):
+        return ""
+    msg = record.get("message") if isinstance(record.get("message"), dict) else record
+    role = msg.get("role") or record.get("role")
+    if role != "user":
+        return ""
+    content = msg.get("content")
+    if content is None:
+        content = record.get("content")
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        # Reject any turn that carries a tool_result block -- that is a host turn.
+        for item in content:
+            if isinstance(item, dict) and (item.get("type") == "tool_result" or item.get("tool_use_id")):
+                return ""
+        texts = []
+        for item in content:
+            if isinstance(item, str):
+                texts.append(item)
+            elif isinstance(item, dict) and isinstance(item.get("text"), str):
+                texts.append(item["text"])
+        return "\n".join(t for t in texts if t).strip()
+    return ""
+
+
+def latest_user_prompt_fingerprint(path: str | os.PathLike[str] | None) -> str:
+    """Stable 16-hex fingerprint of the latest HUMAN user prompt in a transcript.
+
+    Used as the breaker's task-lineage fallback when the ledger's per-prompt
+    ``active_task`` is empty (the common case in production -- e.g. after a
+    /compact, gate_prompt has not re-pinned it). The fingerprint is derived from
+    the most recent genuine human prompt (see ``_is_human_user_turn``), which is
+    constant for the duration of that task and distinct across tasks, so two
+    different prompts in one session get distinct breaker keys without re-judging
+    within a task. Returns "" when no transcript or no human turn is found, so the
+    caller falls back to the empty component (no regression vs today)."""
+    if not path:
+        return ""
+    p = Path(path)
+    if not p.is_file():
+        return ""
+    try:
+        lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return ""
+    for line in reversed(lines):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        text = _is_human_user_turn(record)
+        if text:
+            import hashlib
+
+            return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
+    return ""
+
+
 def stripped_transcript_retained(
     path: str | os.PathLike[str] | None,
     max_tokens: int = TRANSCRIPT_TOKEN_BUDGET,

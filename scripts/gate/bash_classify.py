@@ -448,6 +448,68 @@ def _validate_git_readonly(rest: list[str]) -> tuple[bool, str]:
     return True, ""
 
 
+# Tokens in a `python -c` body that prove (or strongly imply) it can write to
+# disk, spawn a process, or reach the network. Presence of ANY blocks the relaxed
+# read-only allowance -- default-deny: the body is permitted only when none match.
+_PY_UNSAFE_RE = re.compile(
+    r"""
+    \bsubprocess\b
+    | \bos\s*\.\s*(?:system|popen|exec[lv]?[ep]*|spawn\w*|remove|unlink|rename|replace|mkdir|makedirs|rmdir|rmtree|truncate|chmod|chown|symlink|link)\b
+    | \bsocket\b
+    | \b(?:urllib|requests|httplib|http\s*\.\s*client|ftplib|smtplib|telnetlib|asyncio|aiohttp|paramiko)\b
+    | \bshutil\b
+    | \bpty\b
+    | \bctypes\b
+    | \b__import__\b
+    | \beval\b | \bexec\b | \bcompile\b
+    | \bsys\s*\.\s*(?:stdin)\b
+    | \.\s*(?:write|writelines|write_text|write_bytes|truncate|unlink|mkdir|rmdir|rename|replace|chmod)\s*\(
+    | \bopen\s*\([^)]*['"][rbt]*[wax]\+?[rbt]*['"]   # open(..., 'w'/'a'/'x'/'r+'): write/append modes
+    """,
+    re.VERBOSE,
+)
+
+
+def _readonly_python_segment(rest: list[str]) -> tuple[bool, str]:
+    """Classify a `python[3] -c <code>` segment as provably read-only.
+
+    Default-deny. The body is allowed ONLY when it is an inline `-c` program with
+    no token implying a write, process spawn, or network reach (see _PY_UNSAFE_RE).
+    A script FILE (`python3 foo.py`) is never eligible here -- its contents are not
+    on the command line, so read-only cannot be shown; that path stays blocked.
+    Mirrors the conservative posture of _command_substitution_reason: permit the
+    safe shape, reject anything that could escape read-only."""
+    code: str | None = None
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok == "-c":
+            code = rest[i + 1] if i + 1 < len(rest) else ""
+            break
+        # Combined `-c<code>` is unusual for python but handle it defensively.
+        if tok.startswith("-c") and len(tok) > 2:
+            code = tok[2:]
+            break
+        if tok in ("-I", "-S", "-E", "-B", "-u", "-O", "-OO", "-q", "-X"):
+            i += 1
+            # -X takes a value; skip it too.
+            if tok == "-X" and i < len(rest):
+                i += 1
+            continue
+        # First non-flag token is a script path, not `-c` -> not eligible.
+        break
+    if code is None:
+        return False, ""  # not a `-c` invocation; caller falls through to block
+    unsafe = _PY_UNSAFE_RE.search(code)
+    if unsafe:
+        return (
+            False,
+            "python -c is allowed only for read-only inspection; this body can write, "
+            "spawn a process, or reach the network",
+        )
+    return True, ""
+
+
 def _spec_cli_segment(rest: list[str]) -> tuple[bool, str]:
     """Classify a `python[3] ...` segment that may invoke the gate's spec CLI."""
     script = ""
@@ -574,6 +636,14 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
+        # Not a spec.py call: allow a provably read-only inline `-c` program.
+        # A `-c` body with an unsafe token returns (False, reason); a non-`-c`
+        # invocation (script file) returns (False, "") and falls through to block.
+        ro_ok, ro_reason = _readonly_python_segment(rest)
+        if ro_ok:
+            return True, ""
+        if ro_reason:
+            return False, ro_reason
     if base in _AST_GREP_NAMES:
         return _validate_ast_grep_readonly(rest)
     if base == "git":

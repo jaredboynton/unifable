@@ -66,6 +66,16 @@ def test_frame_drops_the_old_standing_posture() -> None:
         assert gone not in ctx, f"thin frame still carries removed fragment: {gone!r}"
 
 
+def test_frame_carries_preflight_guidance() -> None:
+    """The frame warns ahead of two known avoidable blockers: a read-only python3
+    -c is allowed (writing one is not), and a stale arm clears on the next action
+    in a new task. This is guidance only -- the enforcement lives in the hooks."""
+    ctx = context_block.build_session_context().lower()
+    assert "python3 -c" in ctx
+    assert "read" in ctx and ("network" in ctx or "process" in ctx)
+    assert "stale" in ctx or "previous task" in ctx
+
+
 def test_frame_is_thin() -> None:
     ctx = context_block.build_session_context()
     # Far below the old ~3KB block. The thin frame is a short paragraph.
