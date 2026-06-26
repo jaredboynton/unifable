@@ -25,9 +25,8 @@ _FRAME = (
     "- The judge tells you exactly what you may and may not do next. When a hook "
     "message appears, treat it as your current instruction: follow it instead of "
     "retrying the blocked action or working around it.\n"
-    "- Start by restating the user goal in your own words; the gate stays blocked "
-    "until you do, then hands you the exact spec commands. Drive the spec only "
-    "through that append-only CLI -- never edit the JSON."
+    "- Restate the user goal in your own words first. The gate then hands you the "
+    "exact spec commands; drive the spec through the append-only CLI."
 )
 
 

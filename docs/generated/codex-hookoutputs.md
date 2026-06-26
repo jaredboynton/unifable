@@ -27,7 +27,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "Stepwise, judge-driven operating mode.\n\n- You are working with a judge agent that guides you step by step. On each action it opens or restricts your tools to keep you on evidence-backed, thoroughly-researched approaches, and it tends a goal spec on your behalf -- marking tasks complete and adding new ones as the work clarifies.\n- The judge tells you exactly what you may and may not do next. When a hook message appears, treat it as your current instruction: follow it instead of retrying the blocked action or working around it.\n- Start by restating the user goal in your own words; the gate stays blocked until you do, then hands you the exact spec commands. Drive the spec only through that append-only CLI -- never edit the JSON.",
+    "additionalContext": "Stepwise, judge-driven operating mode.\n\n- You are working with a judge agent that guides you step by step. On each action it opens or restricts your tools to keep you on evidence-backed, thoroughly-researched approaches, and it tends a goal spec on your behalf -- marking tasks complete and adding new ones as the work clarifies.\n- The judge tells you exactly what you may and may not do next. When a hook message appears, treat it as your current instruction: follow it instead of retrying the blocked action or working around it.\n- Restate the user goal in your own words first. The gate then hands you the exact spec commands; drive the spec through the append-only CLI.",
     "hookEventName": "SessionStart"
   }
 }
