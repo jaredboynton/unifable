@@ -107,3 +107,81 @@ def test_run_explore_search_empty_when_script_missing(monkeypatch):
 
 def test_run_explore_search_empty_on_blank_query():
     assert bj.run_explore_search("   ", "/tmp") == ""
+
+
+# --- gpt-realtime-2-authored command self-resolution (recon/exec lane) ---------
+
+
+def _cmd_arm_obj(**over):
+    base = {"resolve_query": "", "verify_cmd": "rg -q PATTERN scripts/x.py"}
+    base.update(over)
+    return _arm_obj(**base)
+
+
+def test_command_self_resolve_de_escalates_on_exit0_and_grounded(monkeypatch):
+    monkeypatch.setenv("UNIFABLE_BREAKER_SELF_RESOLVE", "1")
+    import recon_lane
+
+    monkeypatch.setattr(
+        recon_lane,
+        "run_validation_command",
+        lambda cmd, cwd: {"ran": True, "allowed": True, "exit_code": 0, "output": "match", "reason": ""},
+    )
+    monkeypatch.setattr(bj, "disarm_judge", lambda claim, seg, **k: bj.ReleaseVerdict(True, "", True, False, "", ""))
+    out = bj.arm_judge("transcript", events=[], judge=_judge_returning(_cmd_arm_obj()), input_data={"cwd": "/tmp"})
+    assert out == (0, "", "")
+
+
+def test_command_self_resolve_keeps_arm_on_nonzero_exit(monkeypatch):
+    monkeypatch.setenv("UNIFABLE_BREAKER_SELF_RESOLVE", "1")
+    import recon_lane
+
+    called = {"judge": False}
+
+    def _no_disarm(*_a, **_k):
+        called["judge"] = True
+        return bj.ReleaseVerdict(True, "", True, False, "", "")
+
+    monkeypatch.setattr(
+        recon_lane,
+        "run_validation_command",
+        lambda cmd, cwd: {"ran": True, "allowed": True, "exit_code": 1, "output": "", "reason": ""},
+    )
+    monkeypatch.setattr(bj, "disarm_judge", _no_disarm)
+    verdict, _s, claim = bj.arm_judge("transcript", events=[], judge=_judge_returning(_cmd_arm_obj()), input_data={"cwd": "/tmp"})
+    assert verdict == 1 and claim
+    assert not called["judge"]  # release judge never consulted on non-zero exit
+
+
+def test_command_self_resolve_keeps_arm_when_blocked(monkeypatch):
+    monkeypatch.setenv("UNIFABLE_BREAKER_SELF_RESOLVE", "1")
+    import recon_lane
+
+    # A mutating command is gated by the host and never runs -> arm stands.
+    monkeypatch.setattr(
+        recon_lane,
+        "run_validation_command",
+        lambda cmd, cwd: {"ran": False, "allowed": False, "exit_code": None, "output": "", "reason": "not read-only"},
+    )
+    verdict, _s, _c = bj.arm_judge(
+        "transcript", events=[], judge=_judge_returning(_cmd_arm_obj(verify_cmd="rm -rf x")), input_data={"cwd": "/tmp"}
+    )
+    assert verdict == 1
+
+
+def test_command_self_resolve_noop_without_verify_cmd(monkeypatch):
+    monkeypatch.setenv("UNIFABLE_BREAKER_SELF_RESOLVE", "1")
+    import recon_lane
+
+    called = {"run": False}
+
+    def _flag_run(*_a, **_k):
+        called["run"] = True
+        return {"ran": True, "allowed": True, "exit_code": 0, "output": "", "reason": ""}
+
+    monkeypatch.setattr(recon_lane, "run_validation_command", _flag_run)
+    verdict, _s, _c = bj.arm_judge(
+        "transcript", events=[], judge=_judge_returning(_cmd_arm_obj(verify_cmd="")), input_data={"cwd": "/tmp"}
+    )
+    assert verdict == 1 and not called["run"]
+

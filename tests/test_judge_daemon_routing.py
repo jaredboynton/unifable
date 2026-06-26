@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 import realtime_daemon as jd  # noqa: E402
+import judge_client as jc  # noqa: E402
 
 
 def _worker():
@@ -129,6 +130,26 @@ def test_pick_worker_ties_break_low_index():
         w.idx = i
     # All idle -> lowest index wins.
     assert d._pick_worker().idx == 0
+
+
+def test_sock_path_default_model_is_legacy_unsuffixed():
+    # gpt-realtime-2 (DEFAULT_MODEL) MUST keep the original un-suffixed socket so
+    # the judge daemon process and prompt-cache stickiness are unchanged.
+    path = jc._sock_path("abc123")
+    assert path.name == "abc123.sock"
+    assert jc._sock_path("abc123", jc.DEFAULT_MODEL).name == "abc123.sock"
+
+
+def test_sock_path_other_model_is_namespaced():
+    # A non-default model gets a stable per-model hash suffix so it never shares a
+    # socket/process with the gpt-realtime-2 judge.
+    mini = jc._sock_path("abc123", "gpt-realtime-mini")
+    assert mini.name != "abc123.sock"
+    assert mini.name.startswith("abc123-")
+    assert mini.name.endswith(".sock")
+    # Deterministic + model-distinct.
+    assert mini == jc._sock_path("abc123", "gpt-realtime-mini")
+    assert mini != jc._sock_path("abc123", "some-other-model")
 
 
 if __name__ == "__main__":

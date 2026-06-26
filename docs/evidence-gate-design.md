@@ -229,6 +229,69 @@ When a genuinely new replacement is needed, `new_requirements` may include optio
 batch Stop adjudication cannot re-fail siblings already superseded in the same pass.
 Regression: `tests/test_supersession.py`.
 
+## Central Realtime daemon — one process per (session, model)
+
+The judge/breaker/Stop hooks and the explore skill share ONE daemon implementation
+(`scripts/gate/realtime_daemon.py`): a warm-WebSocket server, single instance per
+key via flock, idle-shutdown, worker pool. Consolidation is on the client side
+(`scripts/gate/judge_client.py`): sockets are model-namespaced so both models run
+under the same daemon codebase and socket convention.
+
+- `DEFAULT_MODEL` (`gpt-realtime-2`, overridable via `UNIFABLE_JUDGE_MODEL`) keeps
+  the legacy un-suffixed socket `<data>/judged/<session_key>.sock` so the judge's
+  process and gpt-realtime-2 prompt-cache stickiness are byte-identical.
+- Any other model (e.g. the recon/exec lane's `gpt-realtime-mini`) gets
+  `<session_key>-<sha1(model)[:8]>.sock` and its own spawned daemon process
+  (`_spawn` passes `UNIFABLE_JUDGE_MODEL=<model>`, which the daemon reads as
+  `cj.MODEL`), so distinct models never share a session/socket.
+- `daemon_ask(..., model=)` and `judge_transport.ask_structured(..., model=)`
+  thread the model through; default (None / gpt-realtime-2) is unchanged. Fail-open
+  is preserved: a daemon miss falls back to a direct `codex_judge.ask_structured`.
+- Concurrency caps are the measured ones (`docs/benchmarks/realtime-concurrency.md`,
+  local-only): explore pool `POOL_SIZE=4`, `BATCH_MAX_INFLIGHT=128`.
+
+Regression: `tests/test_judge_daemon_routing.py` (model-namespaced socket keys;
+gpt-realtime-2 default stays `<key>.sock`).
+
+## Recon/exec lane — gpt-realtime-mini as gpt-realtime-2's parallel lane
+
+`scripts/gate/recon_lane.py`. mini is NEVER a decision-maker: it only executes
+gpt-realtime-2-authored read-only commands and reports recon observations. The host
+gates; gpt-realtime-2 (or a deterministic exit code) decides.
+
+- `run_validation_command(cmd, cwd)` — gates `cmd` through the read-only allowlist
+  (`bash_classify.is_allowed_research_bash`) FIRST, runs allowed commands via the
+  Stop gate's `run_check`, and returns `{ran, allowed, exit_code, output, reason}`.
+  A mutating/non-allowlisted command never runs. No judgment is produced here.
+- `recon_gather(questions, cwd, model)` / `coalesce_recon` — fan out read-only
+  context questions to the mini daemon, coalesce observations into one evidence
+  blob for gpt-realtime-2. mini only reports `{found, where, note}`; it never ranks,
+  decides, or proposes a command. Fully fail-open (no session / daemon miss / error
+  -> inert).
+
+Two wired uses, both fail-open and de-escalate/evidence-only:
+
+- **Breaker command self-resolution** (`breaker_judges._self_resolve_via_command`,
+  schema field `verify_cmd`): when gpt-realtime-2 authors a single read-only command
+  whose exit code settles a flagged claim, the lane gates + runs it; on exit 0 plus a
+  grounded release the arm DE-ESCALATES — instead of forcing the model to re-run it.
+  A blocked command, a non-zero exit, or any error leaves the arm intact, so it can
+  only REMOVE a false arm, never add a block (mirrors the `resolve_query` /
+  `verify` predicate paths). Regression: `tests/test_groundedness_self_resolve.py`.
+- **Validated-with-evidence** (`spec_stop_validate._apply_check_result`): when a task
+  validates off a runnable check the gpt-realtime-2 Stop judge accepted, the task
+  records `validated_by = "`<check>` (exit <code>)"` and the headline reads
+  "validated by `<check>` (exit 0)". The judge still decides (verdict==1); the check
+  + deterministic exit are the recorded evidence behind that decision, never a mini
+  opinion. Advisory `judge_hint` stays reserved for unresolved tasks (the
+  validated-task hint contract in `tests/test_judge_hint.py` is preserved).
+  Regression: `tests/test_auto_validate_stop.py`, `tests/test_recon_lane.py`.
+
+Invariants enforced everywhere: mini executes/reports only (never proposes, judges,
+or marks a task); every mini-run command passes the read-only allowlist first;
+fail-open on any miss; auto-validate requires BOTH gpt-realtime-2 authorship AND a
+deterministic exit-0.
+
 ## Rollout
 
 Unconditional (always on, no env disable), fail-open on malformed input. Graded: LIGHT waives;

@@ -217,6 +217,37 @@ def test_auto_validate_passes_pending_task(tmp_path, monkeypatch):
     assert msgs
 
 
+def test_validated_runnable_check_records_evidence(tmp_path, monkeypatch):
+    """A task validated off a runnable check records HOW (validated_by = cmd + exit)."""
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "pending", check="rg -q foo bar.py")]
+    save_spec(str(tmp_path), "K", s)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items])
+    spec, msgs = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    t = spec["tasks"][0]
+    assert t["status"] == "validated"
+    assert t.get("validated_by") == "`rg -q foo bar.py` (exit 0)"
+    assert any("validated by `rg -q foo bar.py` (exit 0)" in m for m in msgs)
+
+
+def test_validated_prose_check_has_no_command_evidence(tmp_path, monkeypatch):
+    """A prose (non-runnable) acceptance criterion validates without a validated_by command."""
+    s = spec_template()
+    s["requires_tasks"] = True
+    s["restated_goal"] = "g"
+    s["tasks"] = [_task("T1", "pending", check="Slack search returned a relevant direct message")]
+    save_spec(str(tmp_path), "K", s)
+    monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".", timeout=None: (0, "ok"))
+    monkeypatch.setattr(ssv, "judge_tasks", lambda sp, items, *, transcript="", **kw: [(1, "ok", [], "") for _ in items])
+    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
+    t = spec["tasks"][0]
+    assert t["status"] == "validated"
+    assert not t.get("validated_by")
+
+
 def test_front_failures_do_not_starve_back_tasks(tmp_path, monkeypatch):
     s = spec_template()
     s["requires_tasks"] = True

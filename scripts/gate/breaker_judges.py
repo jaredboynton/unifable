@@ -233,6 +233,46 @@ def _self_resolve_via_search(
         return False
 
 
+def _self_resolve_via_command(
+    claim: str,
+    verify_cmd: Any,
+    segment: str,
+    cwd: str,
+    *,
+    user_goal: str = "",
+) -> bool:
+    """Read-only self-resolution via a gpt-realtime-2-AUTHORED command run on the
+    recon/exec lane. gpt-realtime-2 authors the command; the host gates it through
+    the read-only allowlist and runs it; the captured (exit, output) are fed back
+    to the release judge, which decides. mini/the lane contribute ZERO judgment.
+
+    Returns True to DE-ESCALATE (do not arm). Fail-open: disabled, empty command,
+    a non-read-only command (never runs), a non-zero exit, or any error returns
+    False so the arm verdict stands -- this can only REMOVE a false arm, never add
+    a block."""
+    if not _self_resolve_enabled():
+        return False
+    cmd = str(verify_cmd or "").strip()
+    if not cmd:
+        return False
+    try:
+        from recon_lane import run_validation_command
+
+        res = run_validation_command(cmd, cwd)
+        # Deterministic gate: the command must have actually run read-only AND exited
+        # 0. A blocked/mutating command or a non-zero exit leaves the arm intact.
+        if not res.get("ran") or res.get("exit_code") != 0:
+            return False
+        out = str(res.get("output") or "")
+        enriched = (
+            f"{segment}\n\n[breaker self-resolution] read-only command `{cmd}` exited 0; output:\n{out}"
+        )
+        verdict = disarm_judge(claim, enriched, user_goal=user_goal)
+        return bool(getattr(verdict, "grounded", False))
+    except Exception:
+        return False
+
+
 def _parse_director_fields(obj: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Extract the stepwise director's (directive, tool_scope) from a judge object.
 
@@ -323,6 +363,14 @@ def arm_judge(
         # the breaker could check here. De-escalate-only; disabled/empty/timeout/error
         # leaves the arm verdict intact, so it can never add a block.
         if _self_resolve_via_search(claim, obj.get("resolve_query"), segment, cwd):
+            return 0, "", ""
+        # Read-only command self-resolution: if the judge authored a single read-only
+        # command whose exit code settles the claim, the recon/exec lane gates it
+        # (read-only allowlist) and runs it; on exit 0 + grounded release the arm
+        # de-escalates -- instead of forcing the model to re-run what the breaker can
+        # run here. De-escalate-only: a blocked/mutating command, a non-zero exit, or
+        # any error leaves the arm verdict intact, so it can never add a block.
+        if _self_resolve_via_command(claim, obj.get("verify_cmd"), segment, cwd):
             return 0, "", ""
     return verdict, steering, claim
 

@@ -67,9 +67,14 @@ def ask_structured(
     schema: dict[str, Any],
     *,
     schema_name: str = "result",
+    model: str | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    """Judge one structured object, preferring the session daemon, else direct."""
+    """Judge one structured object, preferring the session daemon, else direct.
+
+    ``model`` selects the per-model warm daemon (and the direct-call model). The
+    default (None) keeps the gpt-realtime-2 judge path byte-identical; pass e.g.
+    ``model="gpt-realtime-mini"`` to run on the recon/exec lane's daemon."""
     import codex_judge
 
     # Hermetic test knob: when set, the judge is deterministically unreachable so a
@@ -80,18 +85,26 @@ def ask_structured(
     if os.environ.get("UNIFABLE_JUDGE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on"):
         raise codex_judge.JudgeError("judge offline (UNIFABLE_JUDGE_OFFLINE)")
 
+    # Only pass model to direct calls when explicitly set, so the default path
+    # stays exactly codex_judge's own MODEL default (byte-identical judge).
+    direct_model_kwargs: dict[str, Any] = {} if model is None else {"model": model}
+
     input_data = _SESSION.get()
 
     if input_data is None:
         # No bound session (CLI / tests / subagents): exactly a direct call, with
         # the original signature -- no usage sink, nothing to record against.
-        return codex_judge.ask_structured(system, user, schema, schema_name=schema_name, **kwargs)
+        return codex_judge.ask_structured(
+            system, user, schema, schema_name=schema_name, **direct_model_kwargs, **kwargs
+        )
 
     if _daemon_enabled():
         try:
-            from judge_client import daemon_ask
+            from judge_client import DEFAULT_MODEL, daemon_ask
 
-            obj, usage = daemon_ask(input_data, system, user, schema, schema_name=schema_name)
+            obj, usage = daemon_ask(
+                input_data, system, user, schema, schema_name=schema_name, model=model or DEFAULT_MODEL
+            )
             if isinstance(obj, dict):
                 _record(input_data, usage)
                 return obj
@@ -99,9 +112,13 @@ def ask_structured(
             pass  # fall through to a direct call
 
     if not _accepts_on_usage(codex_judge.ask_structured):
-        return codex_judge.ask_structured(system, user, schema, schema_name=schema_name, **kwargs)
+        return codex_judge.ask_structured(
+            system, user, schema, schema_name=schema_name, **direct_model_kwargs, **kwargs
+        )
 
     def _sink(usage: dict[str, int]) -> None:
         _record(input_data, usage)
 
-    return codex_judge.ask_structured(system, user, schema, schema_name=schema_name, on_usage=_sink, **kwargs)
+    return codex_judge.ask_structured(
+        system, user, schema, schema_name=schema_name, on_usage=_sink, **direct_model_kwargs, **kwargs
+    )

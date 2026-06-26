@@ -346,6 +346,12 @@ def _apply_check_result(
         task["judge_reason"] = f"Superseded by adopted frontier {wid}."
     else:
         task["status"] = "validated" if verdict == 1 else "failed"
+    # Validated-with-evidence: when a task validates off a runnable check, record
+    # HOW it was proven (the command + its deterministic exit) so the board and the
+    # main model see the grounding, not just a status flip. The judge still decides
+    # (verdict==1); the check + exit are the evidence behind that decision.
+    if task["status"] == "validated" and is_runnable_check(str(task.get("check") or "")):
+        task["validated_by"] = f"`{str(task.get('check') or '').strip()}` (exit {exit_code})"
     advance_primary_if_ready(spec)
     sync_heavy_phase(spec)
     if kind == "frontier" and task["status"] == "accepted_approach":
@@ -355,7 +361,10 @@ def _apply_check_result(
         if all_frontiers_rejected(spec):
             headline += " All frontiers rejected — primary phase unlocked."
     elif verdict == 1:
-        headline = f"{tid} check passed (exit {exit_code}); judge accepted the evidence."
+        if task.get("validated_by"):
+            headline = f"{tid} validated by {task['validated_by']}; judge accepted the evidence."
+        else:
+            headline = f"{tid} check passed (exit {exit_code}); judge accepted the evidence."
         if added:
             headline += f" Judge added {', '.join(added)}."
         if all_tasks_validated(spec)[0]:

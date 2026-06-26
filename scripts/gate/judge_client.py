@@ -1,10 +1,18 @@
 #!/usr/bin/env python3
-"""Hook-side client for the per-session judge daemon.
+"""Hook-side client for the per-session realtime daemon (model-namespaced).
 
-`daemon_ask` connects to (or lazily spawns) the session's judge daemon and runs
-one structured judge over the warm WebSocket. It NEVER raises for an operational
-failure: it returns ``(None, None)`` so judge_transport falls back to a direct
-``codex_judge.ask_structured`` (the unifable fail-open prime directive).
+`daemon_ask` connects to (or lazily spawns) the session's daemon for a given
+MODEL and runs one structured request over the warm WebSocket. The default model
+(gpt-realtime-2) keeps the original socket path so existing judge behavior is
+byte-identical; other models (e.g. gpt-realtime-mini, the recon/exec lane) get
+their own per-model socket + process so a mini pool never shares a session/socket
+with the gpt-realtime-2 judge. This mirrors the explore skill's daemon-client.mjs
+namespacing -- one central daemon (scripts/gate/realtime_daemon.py), per-model
+warm sockets.
+
+It NEVER raises for an operational failure: it returns ``(None, None)`` so
+judge_transport falls back to a direct ``codex_judge.ask_structured`` (the
+unifable fail-open prime directive).
 
 Stdlib only.
 
@@ -13,6 +21,7 @@ Stdlib only.
 
 from __future__ import annotations
 
+import hashlib
 import os
 import socket
 import subprocess
@@ -22,6 +31,10 @@ from pathlib import Path
 from typing import Any
 
 _HERE = Path(__file__).resolve().parent
+
+# The proven judge default. gpt-realtime-2 keeps the legacy un-suffixed socket so
+# its daemon process and prompt-cache stickiness are unchanged by consolidation.
+DEFAULT_MODEL = os.environ.get("UNIFABLE_JUDGE_MODEL", "gpt-realtime-2").strip() or "gpt-realtime-2"
 
 
 def _env_float(name: str, default: float) -> float:
@@ -42,8 +55,14 @@ def _daemon_dir() -> Path:
     return data_root() / "judged"
 
 
-def _sock_path(session_key: str) -> Path:
-    return _daemon_dir() / f"{session_key}.sock"
+def _sock_path(session_key: str, model: str = DEFAULT_MODEL) -> Path:
+    # gpt-realtime-2 keeps the legacy un-suffixed path (cache/behavior identical);
+    # every other model gets a short model-hash suffix so distinct models never
+    # share a daemon process or socket (mirrors daemon-client.mjs sockKey).
+    if model == DEFAULT_MODEL:
+        return _daemon_dir() / f"{session_key}.sock"
+    tag = hashlib.sha1(model.encode("utf-8", "replace")).hexdigest()[:8]
+    return _daemon_dir() / f"{session_key}-{tag}.sock"
 
 
 def _session_key(input_data: dict[str, Any]) -> str:
@@ -59,12 +78,16 @@ def _connect(path: Path, timeout: float) -> socket.socket:
     return conn
 
 
-def _spawn(session_key: str, path: Path) -> None:
+def _spawn(session_key: str, path: Path, model: str = DEFAULT_MODEL) -> None:
     daemon = _HERE / "realtime_daemon.py"
     try:
         devnull = open(os.devnull, "wb")
     except OSError:
         devnull = None
+    # The daemon reads its model from UNIFABLE_JUDGE_MODEL (cj.MODEL); pass the
+    # requested model so a mini daemon and a gpt-realtime-2 daemon never collide.
+    env = dict(os.environ)
+    env["UNIFABLE_JUDGE_MODEL"] = model
     try:
         subprocess.Popen(
             [sys.executable, str(daemon), "--session-key", session_key, "--sock", str(path)],
@@ -74,12 +97,13 @@ def _spawn(session_key: str, path: Path) -> None:
             start_new_session=True,
             close_fds=True,
             cwd=str(_HERE),
+            env=env,
         )
     except Exception:
         pass
 
 
-def _connect_or_spawn(session_key: str, path: Path) -> socket.socket | None:
+def _connect_or_spawn(session_key: str, path: Path, model: str = DEFAULT_MODEL) -> socket.socket | None:
     try:
         return _connect(path, CONNECT_TIMEOUT)
     except OSError:
@@ -88,7 +112,7 @@ def _connect_or_spawn(session_key: str, path: Path) -> socket.socket | None:
         _daemon_dir().mkdir(parents=True, exist_ok=True)
     except OSError:
         return None
-    _spawn(session_key, path)
+    _spawn(session_key, path, model)
     deadline = time.monotonic() + SPAWN_WAIT
     while time.monotonic() < deadline:
         time.sleep(0.05)
@@ -106,14 +130,16 @@ def daemon_ask(
     schema: dict[str, Any],
     *,
     schema_name: str = "result",
+    model: str = DEFAULT_MODEL,
     timeout: float = REQUEST_TIMEOUT,
 ) -> tuple[dict[str, Any] | None, dict[str, int] | None]:
-    """Run one structured judge via the daemon. (None, None) signals fallback."""
+    """Run one structured request via the per-(session,model) daemon. (None, None)
+    signals fallback (the daemon is never on the correctness path)."""
     from judge_ipc import recv_msg, send_msg
 
     session_key = _session_key(input_data)
-    path = _sock_path(session_key)
-    conn = _connect_or_spawn(session_key, path)
+    path = _sock_path(session_key, model)
+    conn = _connect_or_spawn(session_key, path, model)
     if conn is None:
         return None, None
     try:

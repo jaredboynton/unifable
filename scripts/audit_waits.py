@@ -30,6 +30,7 @@ COVERED = {
     "scripts/gate/judge_client.py",
     "scripts/gate/realtime_daemon.py",
     "scripts/gate/judge_transport.py",
+    "scripts/gate/recon_lane.py",
     "scripts/gate/runtime_sync.py",
     "scripts/gate/spec_io.py",
     "scripts/gate/spec_stop_validate.py",
