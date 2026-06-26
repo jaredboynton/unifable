@@ -11,3 +11,4 @@ skills/explore/scripts/bench/results/
 scripts/gate/bench/
 .sisyphus/
 .jscpd-report/
+.claude/

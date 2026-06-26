@@ -25,6 +25,15 @@ WORKSPACE_ROOT = Path(os.environ.get("UNIFABLE_BENCH_WORKSPACE_ROOT", Path(tempf
 TOKEN_RE = re.compile(r"(?P<key>input|output|cached|total)[ _-]?tokens[^0-9]*(?P<value>[0-9][0-9,]*)", re.I)
 
 
+# --- Benchmark cell config (DRY: edit here, not in CONDITIONS/CODEX_CONFIG_BASE) ---
+CLAUDE_HOST = "claude"
+CODEX_HOST = "codex"
+CLAUDE_MODEL = "opus-4.8"      # stored in meta.json; the Claude CLI uses --model opus (see _command_for)
+CLAUDE_CLI_MODEL = "opus"      # the --model flag the claude CLI actually accepts
+CODEX_MODEL = "gpt-5.5"
+DEFAULT_EFFORT = "medium"      # reasoning effort for both hosts; overrides CODEX_CONFIG_BASE at runtime
+
+
 @dataclass(frozen=True)
 class Condition:
     host: str
@@ -39,10 +48,10 @@ class Condition:
 
 
 CONDITIONS = (
-    Condition("claude", "opus-4.8", "xhigh", True),
-    Condition("claude", "opus-4.8", "xhigh", False),
-    Condition("codex", "gpt-5.5", "xhigh", True),
-    Condition("codex", "gpt-5.5", "xhigh", False),
+    Condition(CLAUDE_HOST, CLAUDE_MODEL, DEFAULT_EFFORT, True),
+    Condition(CLAUDE_HOST, CLAUDE_MODEL, DEFAULT_EFFORT, False),
+    Condition(CODEX_HOST, CODEX_MODEL, DEFAULT_EFFORT, True),
+    Condition(CODEX_HOST, CODEX_MODEL, DEFAULT_EFFORT, False),
 )
 CONDITIONS_BY_SLUG = {condition.slug: condition for condition in CONDITIONS}
 
@@ -69,7 +78,7 @@ CLAUDE_SETTINGS: dict[str, object] = {
     },
     "permissions": {"defaultMode": "bypassPermissions"},
     "includeCoAuthoredBy": False,
-    "model": "opus",
+    "model": CLAUDE_CLI_MODEL,
     "alwaysThinkingEnabled": True,
     "autoCompactEnabled": True,
 }
@@ -77,14 +86,14 @@ CLAUDE_SETTINGS: dict[str, object] = {
 # Clean, fast Codex config: never prompt, full access, fast tier, no apps
 # instructions, no multi-agent/subagent hint scaffolding (so Codex stays
 # single-agent). The unifable plugin block is appended only for the unifable cell.
-CODEX_CONFIG_BASE = """approval_policy = "never"
-model = "gpt-5.5"
+CODEX_CONFIG_BASE = f"""approval_policy = "never"
+model = "{CODEX_MODEL}"
 model_context_window = 1000000
 sandbox_mode = "danger-full-access"
 suppress_unstable_features_warning = true
 service_tier = "fast"
 include_apps_instructions = false
-model_reasoning_effort = "high"
+model_reasoning_effort = "{DEFAULT_EFFORT}"
 personality = "none"
 """
 
@@ -228,7 +237,7 @@ def _command_for(condition: Condition, task_path: Path, worktree: Path) -> str:
             "stream-json",
             "--verbose",
             "--model",
-            "opus",
+            CLAUDE_CLI_MODEL,
             "--effort",
             condition.effort,
             "--permission-mode",
