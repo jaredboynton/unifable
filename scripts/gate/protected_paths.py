@@ -34,7 +34,7 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
     the global keyed spec store (<data_root>/specs/).
 
     Specs are CLI-only: the model mutates them via unifable (restate / add-task /
-    set-primary / add-frontier / dispute), never with Edit/Write. Hand-editing
+    set-primary / add-frontier), never with Edit/Write. Hand-editing
     the spec JSON is blocked so an agent cannot delete tasks or fake a validated
     status. The spec now lives globally under <data_root>/specs/<dir>/<session>/,
     so that root is protected too; the repo-local .unifable/ (findings, residual

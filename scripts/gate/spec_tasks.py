@@ -53,7 +53,7 @@ def all_tasks_validated(spec: dict[str, Any]) -> tuple[bool, list[str]]:
     legacy acceptance-criteria specs are unaffected -- UNLESS it carries
     `requires_tasks` (set by the auto-creation hook): such a spec must gain >=1
     requirement before it can complete, so an empty one blocks. The agent adds
-    requirements; only the judge removes them (via dispute -> retracted).
+    requirements; only the judge resolves obsolete or superseded work.
 
     HEAVY specs with approach tasks use frontier-first completion rules."""
     if _is_heavy_spec(spec):
@@ -212,7 +212,7 @@ def _apply_supersedes_bundle(
 ) -> list[str]:
     """Apply supersedes[] from a newly added requirement. Judge-added targets retract;
     agent-authored targets become superseded (non-blocking). Fails open on bad ids."""
-    open_statuses = frozenset({"pending", "delivered", "failed", "disputed"})
+    open_statuses = frozenset({"pending", "delivered", "failed"})
     by_id = {str(t.get("id")): t for t in (spec.get("tasks") or []) if isinstance(t, dict)}
     headlines: list[str] = []
     base_reason = reason or f"Superseded by {new_tid}"

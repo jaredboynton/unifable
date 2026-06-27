@@ -623,12 +623,15 @@ def collect_judge_prompts() -> list[JudgePrompt]:
         ),
     )
     cases += _capture_call(
-        "Dispute adjudication",
+        "Task-board reconciliation",
         "scripts/gate/spec.py",
-        lambda: spec_mod.judge_dispute(
+        lambda: spec_mod.judge_reconcile_spec(
             copy.deepcopy(sample_spec),
-            copy.deepcopy(standard_task),
-            "The requirement was superseded by generated-doc checks.",
+            {
+                "command_outputs": [
+                    "python3 scripts/generate_docs.py --check -> 0 mismatches; generated docs are current",
+                ]
+            },
         ),
     )
     cases += _capture_call(

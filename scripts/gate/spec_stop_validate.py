@@ -3,7 +3,7 @@
 
 The completion gate's machinery -- auto_validate_spec runs each pending task's
 runnable check (in parallel, under a wall-clock budget), feeds results to the judge,
-applies adjustments/disputes, and self-heals judge-owned requirements. Host-agnostic;
+applies adjustments, and self-heals judge-owned requirements. Host-agnostic;
 re-exported by the spec.py facade.
 """
 
@@ -35,7 +35,6 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         _apply_adjustments,
         _judge_context,
         _judge_owned_open_tasks,
-        judge_dispute,
         judge_heal_own_requirements,
         judge_task,
         judge_tasks,
@@ -69,7 +68,6 @@ except ImportError:  # pragma: no cover
         _apply_adjustments,
         _judge_context,
         _judge_owned_open_tasks,
-        judge_dispute,
         judge_heal_own_requirements,
         judge_task,
         judge_tasks,
@@ -93,50 +91,6 @@ _OUTPUT_LIMIT = 4000  # cap on captured check output stored in the spec
 
 
 _CHECK_TIMEOUT = 600
-
-
-def _apply_dispute_verdict(
-    spec: dict[str, Any],
-    task: dict[str, Any],
-    verdict: int,
-    reason: str,
-) -> list[str]:
-    """Apply an impossibility-dispute verdict. Mutates spec in place."""
-    tid = str(task.get("id") or "")
-    headlines: list[str] = []
-    task["attempts"] = int(task.get("attempts") or 0) + 1
-    task["judge_verdict"] = verdict
-    task["judge_reason"] = reason
-    task["status"] = "retracted" if verdict == 1 else "failed"
-    if verdict != 1:
-        notify_spec_update(
-            spec,
-            f"Dispute rejected for {tid}.",
-            highlight_task=tid,
-        )
-        headlines.append(f"{tid}: dispute rejected")
-    else:
-        headline = f"{tid} retracted: judge accepted impossibility/obsolescence."
-        if all_tasks_validated(spec)[0]:
-            headline += " Completion breaker open."
-        notify_spec_update(
-            spec,
-            headline,
-            highlight_task=tid,
-        )
-        headlines.append(headline)
-    return headlines
-
-
-def _apply_dispute(spec: dict[str, Any], task: dict[str, Any], *, plan_mode: dict[str, Any] | None = None) -> list[str]:
-    """Adjudicate a disputed task and apply the verdict. Mutates spec in place."""
-    verdict, reason = judge_dispute(
-        spec,
-        task,
-        str(task.get("dispute_evidence") or ""),
-        plan_mode=plan_mode,
-    )
-    return _apply_dispute_verdict(spec, task, verdict, reason)
 
 
 def _should_replay_failed_check(task: dict[str, Any]) -> bool:
@@ -205,8 +159,6 @@ def _apply_runnable_check_result(it: dict[str, Any], exit_code: int, output: str
 
 def _collect_stop_validate_item(task: dict[str, Any]) -> dict[str, Any]:
     """Build one stop-validation item; runnable checks may stay pending for parallel run."""
-    if task.get("status") == "disputed":
-        return {"task": task, "kind": "dispute"}
     check = str(task.get("check") or "")
     if not is_runnable_check(check):
         return {
@@ -388,10 +340,7 @@ def _validate_one_task(
     *,
     transcript_path: str | None = None,
 ) -> list[str]:
-    """Validate ONE task (dispute adjudication or check+judge). Mutates spec in place."""
-    if task.get("status") == "disputed":
-        _, plan_mode = _judge_context(transcript_path)
-        return _apply_dispute(spec, task, plan_mode=plan_mode)
+    """Validate ONE task (check+judge). Mutates spec in place."""
     exit_code, output = _check_inputs_for_task(task, cwd, deadline=None)
     transcript, plan_mode = _judge_context(transcript_path)
     if transcript:
@@ -435,9 +384,8 @@ def auto_validate_spec(
 
     Open tasks (including failed) get fresh checks bounded by the remaining
     wall-clock budget unless ``replay_failed`` is set on the task. Runnable
-    checks run concurrently (``UNIFABLE_CHECK_PARALLELISM``, default 8). Disputed
-    tasks are adjudicated in the same unified judge call as
-    validation tasks. One ask_structured round-trip judges all tasks together
+    checks run concurrently (``UNIFABLE_CHECK_PARALLELISM``, default 8). One
+    ask_structured round-trip judges all tasks together
     from shared context (goal, board, transcript, check outputs). When
     time_budget is set, check runs stop at the deadline; remaining tasks stay
     open and are picked up on the next stop."""
@@ -485,29 +433,26 @@ def auto_validate_spec(
                 messages.append(h)
         for it, (verdict, reason, new_reqs, frontier_outcome) in zip(items, verdicts):
             task = it["task"]
-            if it.get("kind") == "dispute":
-                messages.extend(_apply_dispute_verdict(spec, task, verdict, reason))
-            else:
-                revised = task.pop("_revise_this_stop", None)
-                exit_code, output = it["exit_code"], it["output"]
-                if task.pop("_check_stale", None):
-                    exit_code, output = _check_inputs_for_task(task, cwd, deadline)
-                if revised and verdict != 1:
-                    task["status"] = "pending"
-                    continue
-                messages.extend(
-                    _apply_check_result(
-                        spec,
-                        task,
-                        exit_code,
-                        output,
-                        verdict,
-                        reason,
-                        new_reqs,
-                        frontier_outcome=frontier_outcome,
-                        prior_exit=it.get("prior_exit"),
-                    )
+            revised = task.pop("_revise_this_stop", None)
+            exit_code, output = it["exit_code"], it["output"]
+            if task.pop("_check_stale", None):
+                exit_code, output = _check_inputs_for_task(task, cwd, deadline)
+            if revised and verdict != 1:
+                task["status"] = "pending"
+                continue
+            messages.extend(
+                _apply_check_result(
+                    spec,
+                    task,
+                    exit_code,
+                    output,
+                    verdict,
+                    reason,
+                    new_reqs,
+                    frontier_outcome=frontier_outcome,
+                    prior_exit=it.get("prior_exit"),
                 )
+            )
 
     # HEAVY adoption: deterministic finalization once frontiers are terminal.
     if _is_heavy_spec(spec):

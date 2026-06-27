@@ -36,7 +36,7 @@ def test_permanent_lift_retracts_redundant_judge_tasks():
         "tasks": [
             _task("T1", "validated", "agent"),
             _task("T5", "failed", "judge"),
-            _task("T6", "disputed", "judge"),
+            _task("T6", "failed", "judge"),
         ],
     }
     verdict = LoopReleaseVerdict(

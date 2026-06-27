@@ -80,7 +80,7 @@ flowchart TB
   UPS["UserPromptSubmit<br/>grade the task: quick / normal / deep"] --> PTU
   PTU["PreToolUse — every tool<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
   POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; suggest approaches on a deep task"] --> STOP
-  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_dispute)<br/>completion handoff judge (completion_handoff_decision)"]
+  STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_tasks)<br/>reconcile captured evidence (judge_reconcile_spec)<br/>completion handoff judge (completion_handoff_decision)"]
   UPS -.-> CJ
   PTU -.-> CJ
   POST -.-> CJ
@@ -106,8 +106,8 @@ What happens at each stage:
    repeated failure spends one judge call for an advisory `judge_hint`, and a deep task that has not
    yet laid out enough candidate approaches triggers `judge_discover_frontiers`.
 4. **On Stop — completion gate.** `auto_validate_spec` (`scripts/gate/spec.py`) runs each open
-   requirement's check and the judge renders a verdict (`judge_task` / `judge_tasks`), adjudicates
-   impossibility disputes (`judge_dispute`), and `completion_handoff_decision`
+   requirement's check, the judge renders a verdict (`judge_task` / `judge_tasks`), reconciles
+   obsolete or superseded requirements from captured evidence (`judge_reconcile_spec`), and `completion_handoff_decision`
    (`scripts/gate/completion_handoff.py`) blocks when the agent ends by deferring autonomous work.
    Stop stays blocked until every requirement is validated, retracted, or superseded, and the agent
    is not dangling permission-seeking follow-ups. A "turn" here is one tool call, so Stop is rare; when
@@ -121,7 +121,7 @@ Where the judge decides, and what it falls back to:
 | UserPromptSubmit | `judge_grade_classify` | how deep the task is -> how strict the gate is | fail-open: treat as a normal task |
 | PreToolUse | `arm_judge` / `disarm_judge` | arm or release the groundedness breaker | fail-open: tool allowed |
 | PostToolUse | `judge_hint`, `judge_discover_frontiers` | advisory nudge; suggest approaches for a deep task | fail-open: no hint |
-| Stop | `judge_task` / `judge_tasks`, `judge_dispute` | validate or reject each requirement; accept or deny disputes | fail-open allow; dispute defaults to reject |
+| Stop | `judge_task` / `judge_tasks`, `judge_reconcile_spec` | validate or reject each requirement; retract, revise, or supersede only when captured evidence supports it | fail-open allow |
 | Stop | `completion_handoff_decision` | agent may end turn vs deferring autonomous work | fail-open allow after cap |
 
 What the judge catches:
@@ -130,7 +130,7 @@ What the judge catches:
 |---|---|
 | Worker claims a requirement is "validated" but the check output disagrees | Reads the actual check output, marks the task `failed`, Stop stays blocked (`judge_task`) |
 | A confident, load-bearing claim is asserted before an edit with no evidence | Arms the breaker; the edit is blocked until the claim is grounded by a read or tool output (`groundedness.py`) |
-| Worker argues a requirement is impossible to dodge it | `judge_dispute` accepts only with proof and defaults to reject (verdict 0), so impossibility is never granted by default |
+| Captured evidence shows a requirement is obsolete or implementation moved | `judge_reconcile_spec` may retract, revise, or supersede the task, but only when the cited evidence is in the session ledger |
 | The same failure class repeats and the worker is looping | One `judge_hint` offers a concrete next step — advisory only, it never unblocks anything |
 | A deep task starts without two or more candidate approaches | `judge_discover_frontiers` proposes candidate approach tasks before work on the chosen one is allowed |
 | Agent ends with permission-seeking or deferred autonomous work | `completion_handoff_decision` blocks Stop and forces the work through (`completion_handoff.py`) |
@@ -168,7 +168,8 @@ research stay available so the worker can gather that evidence; a valid spec unl
 
 The spec is **append-only and CLI-only** — never hand-edited. The worker drives it with
 `unifable restate` (state the intended outcome), `unifable add-task` (add a requirement + its check),
-and `unifable dispute` (argue a requirement is impossible; only the judge can retract it). The gate
+`unifable add-frontier`, and `unifable set-primary`. Lifecycle changes are judge-owned and come from
+captured evidence, not a worker-side lifecycle command. The gate
 is always on (no env disable) and fails open on malformed input, so a bug in the gate never bricks a
 session.
 
@@ -191,7 +192,7 @@ Checking is continuous, not a one-shot at the end:
   what the worker actually did, kept current in the background on every tool call.
 - On **Stop**, `auto_validate_spec` in `scripts/gate/spec.py` validates open requirements:
   every open task gets a fresh harness check (failed tasks re-run unless `replay_failed` is set);
-  disputed impossibility claims are adjudicated. When Stop **blocks**, feedback is packaged as a
+  captured evidence can also retract, revise, or supersede stale requirements. When Stop **blocks**, feedback is packaged as a
   **priority digest** (`build_stop_validate_context` in `scripts/gate/model_notify.py`):
   **Action required** first (full judge reasoning for tasks adjudicated this stop), then a collapsed
   delta summary, then a compact incomplete-only board. Stale failed tasks no longer replay prior
@@ -201,8 +202,8 @@ Checking is continuous, not a one-shot at the end:
   blocks — on Claude Code, Stop `additionalContext` continues the turn, so a clean pass emits `{}`
   and lets the session end.
 - **Completion is blocked** until every requirement is validated, retracted, or superseded —
-  the worker cannot declare done with open requirements. Only the judge can retract one
-  (by accepting a dispute) or supersede agent-authored tasks via a replacement bundle.
+  the worker cannot declare done with open requirements. Only the judge can retract or supersede one,
+  and only from captured evidence.
 
 By default the completion loop runs until the work is genuinely complete: the Stop-block safety
 caps **default to `0` (infinite)**, so the breaker never auto-releases Stop on block count alone.
@@ -229,7 +230,7 @@ trap a session.
 
 The judge surfaces feedback in two distinct paths:
 
-- **Verdict feedback** — `judge_task` / `judge_dispute` return a single `reason` that explains
+- **Verdict feedback** — `judge_task` returns a single `reason` that explains
   why evidence failed and, when `verdict=0`, one concrete next step. On Stop, tasks changed this
   stop appear first in an **Action required** section (full `judge:` + optional `hint:`); the
   blocking `reason` repeats short `Action:` lines for the same tasks. PostToolUse still emits

@@ -27,7 +27,7 @@ _HARNESS_SELF_REF_RE = re.compile(
 
 _TASK_BOARD_STATUS_CLAIM_RE = re.compile(
     r"(?:"
-    r"\bT\d+\b[^\n.]{0,100}\b(?:validated|retracted|failed|disputed|superseded|"
+    r"\bT\d+\b[^\n.]{0,100}\b(?:validated|retracted|failed|superseded|"
     r"\[OK\]|\[XX\]|\[--\]|\[~~\]|flipped\s+to|already\s+(?:done|validated|ok))"
     r"|(?:validated|retracted|failed|\[OK\]|\[XX\]|already\s+(?:done|validated))"
     r"[^\n.]{0,60}\bT\d+\b"

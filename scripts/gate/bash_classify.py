@@ -41,10 +41,9 @@ _UNIFUSION_SCRIPT_NAMES = frozenset(
 )
 _PY_INTERPRETERS = frozenset({"python", "python3"})
 # The agent may drive the evidence spec ONLY through these append-only subcommands.
-# Creation is automatic (the gate_prompt hook), and removal is judge-only, so
-# `create`/`init` and any `--force` are NOT here -- they would let the agent
-# overwrite or wipe a spec. dispute records an impossibility claim (judge-adjudicated).
-_SPEC_APPEND_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
+# Creation is automatic (the gate_prompt hook), and lifecycle removal is judge-owned,
+# so `create`/`init`, removal subcommands, and any `--force` are NOT here.
+_SPEC_APPEND_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier"})
 _SPEC_CLI_NAMES = frozenset({"unifable", "unifable-spec"})
 _WRAPPERS = frozenset({"sudo", "command", "env", "nice", "nohup", "time", "stdbuf"})
 _ENVVAR_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")

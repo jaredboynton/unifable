@@ -35,7 +35,7 @@ def test_judge_prompt_capture_covers_known_schema_names():
         "validate_all",
         "task_verdict",
         "frontier_discover",
-        "dispute_verdict",
+        "reconcile_spec",
         "hint",
         "groundedness",
         "loop_release",

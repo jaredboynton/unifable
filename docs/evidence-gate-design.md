@@ -42,11 +42,11 @@ agent thrashes through edits first and only "cites" at the end.
   gate's pass condition, now richer). Citations sync from ledger activity automatically
   (`sync_citations_from_activity` in `scripts/gate/citations.py`); on Stop, `auto_validate_spec`
   runs fresh checks for every open task (including failed; set ``replay_failed`` on
-  a task to replay stored output instead), and adjudicates disputed impossibility
-  claims (`scripts/gate/spec.py`). Resolved statuses are
+  a task to replay stored output instead), and reconciles stale requirements from
+  captured evidence (`scripts/gate/spec.py`). Resolved statuses are
   `validated`, `retracted`, and `superseded` (agent tasks replaced by a judge-added requirement
   via `supersedes: [ids]` — non-blocking). Agent-facing CLI: `unifable restate`,
-  `unifable add-task`, and `unifable dispute`. A failed task is re-checked
+  `unifable add-task`, `unifable add-frontier`, and `unifable set-primary`. A failed task is re-checked
   automatically on the next Stop (no manual retry); fix the cause and stop again.
 
 ## PreToolUse block stderr (change-only dedup)
@@ -135,7 +135,7 @@ applies the same cap at send time as a backstop. Regression: `tests/test_transcr
 
 Verdict paths and proactive nudges are separate:
 
-- **Verdict feedback** — `judge_task` / `judge_dispute` (`scripts/gate/spec.py`) return one `reason`
+- **Verdict feedback** — `judge_task` (`scripts/gate/spec.py`) returns one `reason`
   string (why evidence failed plus a next step when `verdict=0`). The task board shows it once via
   the inline `judge:` row; `notify_spec_update` and Stop validation emit headline + board only (no
   separate `Judge:` / `Hint:` stderr preamble).

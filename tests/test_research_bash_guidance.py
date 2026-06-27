@@ -36,12 +36,12 @@ def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
     assert rbg.resolve_explore_trace_sh() is None
     assert rbg.resolve_explore_websearch_sh() is None
-    summary = rbg.bash_allowed_summary()
-    assert "trace.sh" not in summary
-    assert "websearch.sh" not in summary
-    assert "explore" not in summary.lower()
-    assert "read-only python/python3 -c" in summary
-    assert "unifusion scripts" in summary
+    assert (
+        rbg.bash_allowed_summary()
+        == "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, "
+        "read-only git, git add/commit/push (no --force), read-only python/python3 -c, "
+        "unifusion scripts, unifable spec CLI"
+    )
 
 
 def test_resolve_finds_agents_skill_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -88,9 +88,7 @@ def test_trace_only_without_websearch(tmp_path: Path, monkeypatch: pytest.Monkey
     _clear_cache()
     assert rbg.resolve_explore_trace_sh() is not None
     assert rbg.resolve_explore_websearch_sh() is None
-    summary = rbg.bash_allowed_summary()
-    assert "trace.sh" in summary
-    assert "websearch.sh" not in summary
+    assert "explore trace.sh" in rbg.bash_allowed_summary()
 
 
 def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -124,6 +122,13 @@ def test_markdown_placeholders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) 
 
     _write_explore_skill(tmp_path / ".agents" / "skills" / "explore")
     _clear_cache()
-    assert "`trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`)" in rbg.explore_trace_list_item_md()
-    assert "`websearch.sh` (`~/.agents/skills/explore/scripts/websearch.sh`)" in rbg.explore_trace_list_item_md()
-    assert rbg.explore_trace_inline_md().endswith(", ")
+    assert (
+        rbg.explore_trace_list_item_md()
+        == ", the explore skill's `trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`) "
+        "and `websearch.sh` (`~/.agents/skills/explore/scripts/websearch.sh`)"
+    )
+    assert (
+        rbg.explore_trace_inline_md()
+        == "the explore skill's `trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`) "
+        "and `websearch.sh` (`~/.agents/skills/explore/scripts/websearch.sh`), "
+    )

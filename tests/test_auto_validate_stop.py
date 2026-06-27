@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from types import SimpleNamespace
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
@@ -15,7 +14,6 @@ import spec as spec_mod  # noqa: E402
 import spec_judge  # noqa: E402
 import spec_stop_validate as ssv  # noqa: E402
 from spec import all_tasks_validated, auto_validate_spec, load_spec, save_spec, spec_template  # noqa: E402
-from spec_cli import _cmd_dispute
 from spec_stop_validate import _apply_check_result  # noqa: E402
 
 
@@ -31,14 +29,14 @@ def _seed_repo_cite_file(tmp_path: Path) -> None:
 
 
 def test_auto_validate_one_judge_call_for_all_tasks(tmp_path, monkeypatch):
-    """Every open task (validate + dispute) goes through a single judge_tasks call."""
+    """Every open task goes through a single judge_tasks call."""
     s = spec_template()
     s["requires_tasks"] = True
     s["restated_goal"] = "g"
     s["tasks"] = [
         _task("T1", "pending"),
         _task("T2", "failed", exit=1, output="prior"),
-        _task("T3", "disputed", dispute_evidence="blocked upstream"),
+        _task("T3", "failed", exit=1, output="prior"),
     ]
     save_spec(str(tmp_path), "K", s)
     calls = {"n": 0}
@@ -47,7 +45,7 @@ def test_auto_validate_one_judge_call_for_all_tasks(tmp_path, monkeypatch):
         calls["n"] += 1
         assert len(items) == 3
         kinds = {it.get("kind") for it in items}
-        assert kinds == {"validate", "dispute"}
+        assert kinds == {"validate"}
         return [(1, "ok", [], "") for _ in items]
 
     monkeypatch.setattr(ssv, "run_check", lambda check, cwd=".": (0, "ok"))
@@ -277,21 +275,6 @@ def test_front_failures_do_not_starve_back_tasks(tmp_path, monkeypatch):
     assert all(by_id[f"T{i}"]["status"] == "failed" for i in range(1, 4))
 
 
-def test_auto_validate_adjudicates_dispute(tmp_path, monkeypatch):
-    s = spec_template()
-    s["requires_tasks"] = True
-    s["tasks"] = [_task("T1", "failed")]
-    save_spec(str(tmp_path), "K", s)
-    args = SimpleNamespace(root=str(tmp_path), task_id="K", task="T1", evidence="impossible")
-    _cmd_dispute(args)
-    monkeypatch.setattr(ssv, "judge_dispute", lambda sp, t, e: (1, "accepted"))
-    monkeypatch.setattr(ssv, "judge_tasks",
-        lambda sp, items, *, transcript="", **kw: [(1, "accepted", [], "") for _ in items],
-    )
-    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
-    assert spec["tasks"][0]["status"] == "retracted"
-
-
 def _run_stop(gate_stop, payload):
     captured = {"out": {}}
     gate_stop.read_stdin_json = lambda: payload
@@ -350,11 +333,9 @@ def test_stop_passthrough_empty_when_breaker_open(tmp_path, monkeypatch):
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out == {}
-    assert "hookSpecificOutput" not in out
-    assert "decision" not in out
 
 
-def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
+def test_stop_forwards_validation_rejection(tmp_path, monkeypatch):
     monkeypatch.setenv("UNIFABLE_VERIFY_CITATIONS", "0")
     import gate_stop
 
@@ -368,9 +349,7 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     s["prior_art"] = [{"cite": "https://example.com", "why": "fetched this session"}]
     s["tasks"] = [_task("T1", "failed")]
     save_spec(str(tmp_path), "sess", s)
-    args = SimpleNamespace(root=str(tmp_path), task_id="sess", task="T1", evidence="not possible")
-    _cmd_dispute(args)
-    reason = "Rejected. The evidence does not prove impossibility."
+    reason = "Rejected. The evidence does not prove completion."
     monkeypatch.setattr(ssv, "judge_tasks",
         lambda sp, items, *, transcript="", **kw: [(0, reason, [], "") for _ in items],
     )

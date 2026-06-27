@@ -73,9 +73,8 @@ def _format_scaffold_onboarding(
             "- unifable add-frontier --title '<second distinct approach>' --check '<exploration check>'\n"
         )
     block += (
-        "\nIf impossible:\n"
-        "unifable dispute --task <id> --evidence '<proof>'\n\n"
-        "Cite only files you read and URLs you fetched this session.\n"
+        "\nCite only files you read and URLs you fetched this session.\n"
+        "The judge reconciles obsolete, superseded, or impossible requirements from captured evidence.\n"
         "See the HEAVY brief before frontier or primary edits."
     )
     return block

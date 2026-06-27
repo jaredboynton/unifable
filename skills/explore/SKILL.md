@@ -1,8 +1,9 @@
 ---
 name: explore
 description: >-
-  Deep behavioral codebase trace via trace.sh (gpt-realtime-2). Use for
-  multi-file flow and how/why questions with grounded code citations.
+  Deep behavioral codebase trace via trace.sh, plus fast code-locate via
+  search.sh (both gpt-realtime-2). Use for multi-file flow and how/why questions
+  with grounded code citations, or to locate where something lives.
 metadata:
   author: Jared Boynton
   version: "0.9.0"
@@ -11,27 +12,32 @@ metadata:
 
 # Explore
 
-Run from the repo root:
+Run from the repo root. The skill installs to the stable runtime at
+`~/.unifable/current/skills/explore` (refreshed to the newest version on each
+session); invoke it there regardless of which CLI or plugin cache is active:
 
 ```bash
-~/.agents/skills/explore/scripts/trace.sh "<question>"
+~/.unifable/current/skills/explore/scripts/trace.sh "<question>"
 ```
 
-Requires `node`, `rg`, and Codex OAuth (`codex login`). Run `~/.agents/skills/explore/scripts/setup.sh` once to verify deps.
+Requires `node`, `rg`, and Codex OAuth (`codex login`). Run
+`~/.unifable/current/skills/explore/scripts/setup.sh` once to verify deps.
 
-## External research (websearch)
+## Fast code-locate (search)
 
 ```bash
-~/.agents/skills/explore/scripts/websearch.sh "<research goal>"
+~/.unifable/current/skills/explore/scripts/search.sh "<natural-language query>"
 ```
 
-Default path is gpt-realtime-2 via `websearch-rt.sh`: two rounds (web_run via Codex `alpha/search`, pointer submit) with search reasoning `low` and submit `minimal`. Requires Codex OAuth and `curl`.
+`search.sh` is an agentic ripgrep loop with gpt-realtime-2 as the brain — fast
+locate, the complement to `trace.sh`'s deep behavioral understanding.
 
-| Entry | Backend |
-|---|---|
-| `websearch.sh` | Default RT delegate (2-round alpha + pointer submit) |
-| `websearch-rt.sh` | Direct gpt-realtime-2 + Codex alpha/search |
+**Tools:** `search.sh` (fast locate, gpt-realtime-2), `map.sh` (repo prefetch),
+`trace.sh` / `trace-rt.sh` (deep trace, gpt-realtime-2).
 
-**Tools:** `search.sh` (fast locate, gpt-realtime-2), `map.sh` (repo prefetch), `trace.sh` / `trace-rt.sh` (deep trace, gpt-realtime-2), `websearch.sh` / `websearch-rt.sh` (external research, gpt-realtime-2).
+External research lives in the sibling **explore-websearch** skill
+(`websearch.sh`).
 
-Superseded variants (cursor/gemini/grok trace, gemini websearch, Cerebras search), benchmarks, and probes are retired and live under `scripts/archive/` — not maintained, not part of the supported path.
+Superseded variants (cursor/gemini/grok trace, gemini websearch, Cerebras
+search), benchmarks, and probes are retired and live under `scripts/archive/` —
+not maintained, not part of the supported path.

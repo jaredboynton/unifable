@@ -80,15 +80,6 @@ def test_add_task_only_title_gives_actionable_error(repo, data):
     assert load_spec(str(repo), "sess-bad") is None
 
 
-def test_dispute_positional(repo, data):
-    assert _run(["add-task", "req", "true"], repo, "sess-disp", data).returncode == 0
-    res = _run(["dispute", "T1", "subject removed by pivot"], repo, "sess-disp", data)
-    assert res.returncode == 0, res.stderr
-    loaded = load_spec(str(repo), "sess-disp")
-    assert loaded["tasks"][0]["status"] == "disputed"
-    assert loaded["tasks"][0]["dispute_evidence"] == "subject removed by pivot"
-
-
 def test_restate_accepts_goal_flag_alias(repo, data):
     # restate uses a positional goal; --goal is accepted as an alias so the
     # common mistake succeeds instead of dead-ending on an unrecognized arg.

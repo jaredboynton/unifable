@@ -348,10 +348,9 @@ Schema name: `validate_all`
 You are a strict adversarial validator. Adjudicate ALL open requirements in ONE pass, plus optional session transcript context. For each entry in tasks_to_adjudicate:
 - kind=validate: does check output prove genuine completion? (standard skepticism)
 - evidence_only=true (a validate entry): the requirement has NO runnable shell check; its exit_code/output are null BY DESIGN, not a failure. Decide satisfaction SOLELY from the top-level `evidence` corpus (file reads, URL fetches, ran commands, captured command outputs, MCP tool results, recorded verification runs) and the session transcript. Return verdict 1 when that captured evidence shows the requirement met; verdict 0 only when the evidence is absent or contradicts it. Do NOT tell the agent to convert the check into a shell command or to write a repo file -- a research requirement is proven by its retrievals, not by a grep.
-- kind=dispute: accept (verdict 1) only on the dispute-adjudication grounds below -- proven impossibility OR proven obsolescence (the constrained subject was removed by a pivot); reject mere difficulty.
 - approach_kind=frontier: return outcome rejected_approach, still_viable, or accepted_approach. Verdict 1 when check passed.
 - approach_kind=primary: validate primary delivery after frontiers ruled out.
-Return task_verdicts (same fields as single-task validation). Before adding new_requirements, compare PURPOSE against current_requirements -- what outcome the task enforces when satisfied, not just title wording. Skip if any existing task (especially validated) already obligates the same outcome; duplicates trap completion. Include supersedes: [ids] when replacing broken checks (superseded agent tasks become non-blocking; judge tasks retract). Prefer adjust_requirements revise over adding a parallel requirement. Prefer structural manifest/version-field checks over brittle literal-string or version-pinning requirements; write checks that read version fields from repo manifests and compare -- a check that fails on every version bump traps completion. Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal. Reject evidence that only grep-matches a frozen version string when the goal needs a structural manifest comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements in THIS response, never by instructing the agent. You may ADJUST requirements via adjust_requirements on any task verdict. reason is the only agent-visible feedback. On verdict=0 for agent tasks: explain why + one concrete next step (read a file, fix code, run a check). On verdict=1: brief confirmation. Never instruct the agent to fix judge-owned checks. For kind=dispute: accept (verdict 1) if impossibility_evidence genuinely proves impossibility OR proven obsolescence (see OBSOLESCENCE below); reject (verdict 0) if merely hard or inconvenient. When session_context.plan_mode_enabled is true, accept disputes where evidence shows the check requires repo-tracked mutation that host Plan Mode forbade for this turn. OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a specific behavior, route, file, or code path that was REMOVED because the implementation pivoted, AND the impossibility_evidence contains a failable check (e.g. a repo grep) whose captured output proves that subject is now ABSENT (zero matches, or the file is gone). A requirement whose subject no longer exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. Still reject (verdict 0) when the subject still exists in the repo, when the agent merely preferred a different approach without removing the old one, or when no captured absence proof is provided.
+Return task_verdicts (same fields as single-task validation). Before adding new_requirements, compare PURPOSE against current_requirements -- what outcome the task enforces when satisfied, not just title wording. Skip if any existing task (especially validated) already obligates the same outcome; duplicates trap completion. Include supersedes: [ids] when replacing broken checks (superseded agent tasks become non-blocking; judge tasks retract). Prefer adjust_requirements revise over adding a parallel requirement. Prefer structural manifest/version-field checks over brittle literal-string or version-pinning requirements; write checks that read version fields from repo manifests and compare -- a check that fails on every version bump traps completion. Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal. Reject evidence that only grep-matches a frozen version string when the goal needs a structural manifest comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements in THIS response, never by instructing the agent. You may ADJUST requirements via adjust_requirements on any task verdict. reason is the only agent-visible feedback. On verdict=0 for agent tasks: explain why + one concrete next step (read a file, fix code, run a check). On verdict=1: brief confirmation. Never instruct the agent to fix judge-owned checks.
 
 --- SESSION TRANSCRIPT (context only; not proof) ---
 Stripped tail of the agent session: tool results, hook outputs, and conversation. Use it to understand what the model did and to avoid re-deriving requirements already satisfied in current_requirements or evidenced here. Return verdict 1 only when the check output proves the task; transcript context alone is never sufficient proof -- EXCEPT for evidence_only requirements, which have no runnable check and ARE adjudicated from the top-level evidence corpus plus this transcript.
@@ -494,7 +493,7 @@ Stripped tail of the agent session: tool results, hook outputs, and conversation
   },
   "session.update": {
     "session": {
-      "instructions": "You are a strict adversarial validator. Adjudicate ALL open requirements in ONE pass, plus optional session transcript context. For each entry in tasks_to_adjudicate:\n- kind=validate: does check output prove genuine completion? (standard skepticism)\n- evidence_only=true (a validate entry): the requirement has NO runnable shell check; its exit_code/output are null BY DESIGN, not a failure. Decide satisfaction SOLELY from the top-level `evidence` corpus (file reads, URL fetches, ran commands, captured command outputs, MCP tool results, recorded verification runs) and the session transcript. Return verdict 1 when that captured evidence shows the requirement met; verdict 0 only when the evidence is absent or contradicts it. Do NOT tell the agent to convert the check into a shell command or to write a repo file -- a research requirement is proven by its retrievals, not by a grep.\n- kind=dispute: accept (verdict 1) only on the dispute-adjudication grounds below -- proven impossibility OR proven obsolescence (the constrained subject was removed by a pivot); reject mere difficulty.\n- approach_kind=frontier: return outcome rejected_approach, still_viable, or accepted_approach. Verdict 1 when check passed.\n- approach_kind=primary: validate primary delivery after frontiers ruled out.\nReturn task_verdicts (same fields as single-task validation). Before adding new_requirements, compare PURPOSE against current_requirements -- what outcome the task enforces when satisfied, not just title wording. Skip if any existing task (especially validated) already obligates the same outcome; duplicates trap completion. Include supersedes: [ids] when replacing broken checks (superseded agent tasks become non-blocking; judge tasks retract). Prefer adjust_requirements revise over adding a parallel requirement. Prefer structural manifest/version-field checks over brittle literal-string or version-pinning requirements; write checks that read version fields from repo manifests and compare -- a check that fails on every version bump traps completion. Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal. Reject evidence that only grep-matches a frozen version string when the goal needs a structural manifest comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements in THIS response, never by instructing the agent. You may ADJUST requirements via adjust_requirements on any task verdict. reason is the only agent-visible feedback. On verdict=0 for agent tasks: explain why + one concrete next step (read a file, fix code, run a check). On verdict=1: brief confirmation. Never instruct the agent to fix judge-owned checks. For kind=dispute: accept (verdict 1) if impossibility_evidence genuinely proves impossibility OR proven obsolescence (see OBSOLESCENCE below); reject (verdict 0) if merely hard or inconvenient. When session_context.plan_mode_enabled is true, accept disputes where evidence shows the check requires repo-tracked mutation that host Plan Mode forbade for this turn. OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a specific behavior, route, file, or code path that was REMOVED because the implementation pivoted, AND the impossibility_evidence contains a failable check (e.g. a repo grep) whose captured output proves that subject is now ABSENT (zero matches, or the file is gone). A requirement whose subject no longer exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. Still reject (verdict 0) when the subject still exists in the repo, when the agent merely preferred a different approach without removing the old one, or when no captured absence proof is provided.\n\n--- SESSION TRANSCRIPT (context only; not proof) ---\nStripped tail of the agent session: tool results, hook outputs, and conversation. Use it to understand what the model did and to avoid re-deriving requirements already satisfied in current_requirements or evidenced here. Return verdict 1 only when the check output proves the task; transcript context alone is never sufficient proof -- EXCEPT for evidence_only requirements, which have no runnable check and ARE adjudicated from the top-level evidence corpus plus this transcript.\n\n<record line=\"000001\" role=\"assistant\">sample</record>",
+      "instructions": "You are a strict adversarial validator. Adjudicate ALL open requirements in ONE pass, plus optional session transcript context. For each entry in tasks_to_adjudicate:\n- kind=validate: does check output prove genuine completion? (standard skepticism)\n- evidence_only=true (a validate entry): the requirement has NO runnable shell check; its exit_code/output are null BY DESIGN, not a failure. Decide satisfaction SOLELY from the top-level `evidence` corpus (file reads, URL fetches, ran commands, captured command outputs, MCP tool results, recorded verification runs) and the session transcript. Return verdict 1 when that captured evidence shows the requirement met; verdict 0 only when the evidence is absent or contradicts it. Do NOT tell the agent to convert the check into a shell command or to write a repo file -- a research requirement is proven by its retrievals, not by a grep.\n- approach_kind=frontier: return outcome rejected_approach, still_viable, or accepted_approach. Verdict 1 when check passed.\n- approach_kind=primary: validate primary delivery after frontiers ruled out.\nReturn task_verdicts (same fields as single-task validation). Before adding new_requirements, compare PURPOSE against current_requirements -- what outcome the task enforces when satisfied, not just title wording. Skip if any existing task (especially validated) already obligates the same outcome; duplicates trap completion. Include supersedes: [ids] when replacing broken checks (superseded agent tasks become non-blocking; judge tasks retract). Prefer adjust_requirements revise over adding a parallel requirement. Prefer structural manifest/version-field checks over brittle literal-string or version-pinning requirements; write checks that read version fields from repo manifests and compare -- a check that fails on every version bump traps completion. Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal. Reject evidence that only grep-matches a frozen version string when the goal needs a structural manifest comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements in THIS response, never by instructing the agent. You may ADJUST requirements via adjust_requirements on any task verdict. reason is the only agent-visible feedback. On verdict=0 for agent tasks: explain why + one concrete next step (read a file, fix code, run a check). On verdict=1: brief confirmation. Never instruct the agent to fix judge-owned checks.\n\n--- SESSION TRANSCRIPT (context only; not proof) ---\nStripped tail of the agent session: tool results, hook outputs, and conversation. Use it to understand what the model did and to avoid re-deriving requirements already satisfied in current_requirements or evidenced here. Return verdict 1 only when the check output proves the task; transcript context alone is never sufficient proof -- EXCEPT for evidence_only requirements, which have no runnable check and ARE adjudicated from the top-level evidence corpus plus this transcript.\n\n<record line=\"000001\" role=\"assistant\">sample</record>",
       "output_modalities": [
         "text"
       ],
@@ -1582,22 +1581,27 @@ You identify realistic cutting-edge frontier approaches worth exploring before c
 }
 ```
 
-## Dispute adjudication
+## Task-board reconciliation
 
 Source: `scripts/gate/spec.py`
 
-Schema name: `dispute_verdict`
+Schema name: `reconcile_spec`
 
 ### System
 
 ```text
-You are a strict adjudicator. An agent claims a REQUIRED task is impossible or obsolete and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely proves the task cannot be done -- a real, demonstrated blocker, not a preference, a difficulty, or an excuse. Reject (verdict 0) if the evidence is weak, the task is merely hard or inconvenient, or the agent is dodging work; in reason, tell the agent bluntly what real proof would be required. Do not accept a claim that work is 'complete' here -- this is only about whether the requirement is genuinely impossible or obsolete. reason is the only agent-visible feedback. On verdict=0 for agent tasks: explain why + one concrete next step (read a file, fix code, run a check). On verdict=1: brief confirmation. Never instruct the agent to fix judge-owned checks. OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a specific behavior, route, file, or code path that was REMOVED because the implementation pivoted, AND the impossibility_evidence contains a failable check (e.g. a repo grep) whose captured output proves that subject is now ABSENT (zero matches, or the file is gone). A requirement whose subject no longer exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. Still reject (verdict 0) when the subject still exists in the repo, when the agent merely preferred a different approach without removing the old one, or when no captured absence proof is provided.
+You reconcile an autonomous coding task board from newly captured evidence. The worker can add requirements and evidence but cannot remove or close tasks by command; lifecycle changes are judge-owned. Return actions only when evidence_refs cite captured evidence from the payload. Actions:
+- retract: mark an open task resolved only when evidence proves true impossibility, obsolescence because the constrained file/route/behavior was removed or absent, or duplicate/subsumed scope. Never retract for mere difficulty or preference.
+- revise: fix a broken or stale requirement title/check.
+- supersede: create one concrete replacement requirement with title+check and supersedes ids for old tasks.
+- add_requirement: add a missing requirement that is not already covered.
+Prefer revise or supersede over parallel duplicates. Return no action when uncertain. Before adding new_requirements, compare PURPOSE against current_requirements -- what outcome the task enforces when satisfied, not just title wording. Skip if any existing task (especially validated) already obligates the same outcome; duplicates trap completion. Include supersedes: [ids] when replacing broken checks (superseded agent tasks become non-blocking; judge tasks retract). Prefer adjust_requirements revise over adding a parallel requirement. Prefer structural manifest/version-field checks over brittle literal-string or version-pinning requirements; write checks that read version fields from repo manifests and compare -- a check that fails on every version bump traps completion. Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal. Reject evidence that only grep-matches a frozen version string when the goal needs a structural manifest comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements in THIS response, never by instructing the agent.
 ```
 
 ### User
 
 ```json
-{"goal": "Generate docs for hook outputs and judge prompts.", "task_title": "Generated docs are current", "check": "python3 scripts/generate_docs.py --check", "impossibility_evidence": "The requirement was superseded by generated-doc checks.", "current_requirements": [{"id": "T1", "title": "Generated docs are current", "check": "python3 scripts/generate_docs.py --check", "status": "pending", "added_by": "agent"}, {"id": "T2", "title": "Judge-owned stale requirement", "check": "python3 -c 'print(1)'", "status": "failed", "added_by": "judge"}], "session_context": {"plan_mode_enabled": false, "plan_mode_host": ""}}
+{"goal": "Generate docs for hook outputs and judge prompts.", "current_requirements": [{"id": "T1", "title": "Generated docs are current", "check": "python3 scripts/generate_docs.py --check", "status": "pending", "added_by": "agent"}, {"id": "T2", "title": "Judge-owned stale requirement", "check": "python3 -c 'print(1)'", "status": "failed", "added_by": "judge"}], "session_context": {"plan_mode_enabled": false, "plan_mode_host": ""}, "evidence": {"read_paths": [], "fetched_urls": [], "ran_commands": [], "command_outputs": ["python3 scripts/generate_docs.py --check -> 0 mismatches; generated docs are current"], "tool_results": [], "verifications": []}}
 ```
 
 ### Function Schema
@@ -1606,20 +1610,59 @@ You are a strict adjudicator. An agent claims a REQUIRED task is impossible or o
 {
   "additionalProperties": false,
   "properties": {
+    "actions": {
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "retract",
+              "revise",
+              "supersede",
+              "add_requirement"
+            ],
+            "type": "string"
+          },
+          "check": {
+            "type": "string"
+          },
+          "evidence_refs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "supersedes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "reason",
+          "evidence_refs"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "reason": {
       "type": "string"
-    },
-    "verdict": {
-      "enum": [
-        0,
-        1
-      ],
-      "type": "integer"
     }
   },
   "required": [
-    "verdict",
-    "reason"
+    "actions"
   ],
   "type": "object"
 }
@@ -1633,7 +1676,7 @@ You are a strict adjudicator. An agent claims a REQUIRED task is impossible or o
     "item": {
       "content": [
         {
-          "text": "QUESTION: {\"goal\": \"Generate docs for hook outputs and judge prompts.\", \"task_title\": \"Generated docs are current\", \"check\": \"python3 scripts/generate_docs.py --check\", \"impossibility_evidence\": \"The requirement was superseded by generated-doc checks.\", \"current_requirements\": [{\"id\": \"T1\", \"title\": \"Generated docs are current\", \"check\": \"python3 scripts/generate_docs.py --check\", \"status\": \"pending\", \"added_by\": \"agent\"}, {\"id\": \"T2\", \"title\": \"Judge-owned stale requirement\", \"check\": \"python3 -c 'print(1)'\", \"status\": \"failed\", \"added_by\": \"judge\"}], \"session_context\": {\"plan_mode_enabled\": false, \"plan_mode_host\": \"\"}}",
+          "text": "QUESTION: {\"goal\": \"Generate docs for hook outputs and judge prompts.\", \"current_requirements\": [{\"id\": \"T1\", \"title\": \"Generated docs are current\", \"check\": \"python3 scripts/generate_docs.py --check\", \"status\": \"pending\", \"added_by\": \"agent\"}, {\"id\": \"T2\", \"title\": \"Judge-owned stale requirement\", \"check\": \"python3 -c 'print(1)'\", \"status\": \"failed\", \"added_by\": \"judge\"}], \"session_context\": {\"plan_mode_enabled\": false, \"plan_mode_host\": \"\"}, \"evidence\": {\"read_paths\": [], \"fetched_urls\": [], \"ran_commands\": [], \"command_outputs\": [\"python3 scripts/generate_docs.py --check -> 0 mismatches; generated docs are current\"], \"tool_results\": [], \"verifications\": []}}",
           "type": "input_text"
         }
       ],
@@ -1652,7 +1695,7 @@ You are a strict adjudicator. An agent claims a REQUIRED task is impossible or o
   },
   "session.update": {
     "session": {
-      "instructions": "You are a strict adjudicator. An agent claims a REQUIRED task is impossible or obsolete and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely proves the task cannot be done -- a real, demonstrated blocker, not a preference, a difficulty, or an excuse. Reject (verdict 0) if the evidence is weak, the task is merely hard or inconvenient, or the agent is dodging work; in reason, tell the agent bluntly what real proof would be required. Do not accept a claim that work is 'complete' here -- this is only about whether the requirement is genuinely impossible or obsolete. reason is the only agent-visible feedback. On verdict=0 for agent tasks: explain why + one concrete next step (read a file, fix code, run a check). On verdict=1: brief confirmation. Never instruct the agent to fix judge-owned checks. OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a specific behavior, route, file, or code path that was REMOVED because the implementation pivoted, AND the impossibility_evidence contains a failable check (e.g. a repo grep) whose captured output proves that subject is now ABSENT (zero matches, or the file is gone). A requirement whose subject no longer exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. Still reject (verdict 0) when the subject still exists in the repo, when the agent merely preferred a different approach without removing the old one, or when no captured absence proof is provided.",
+      "instructions": "You reconcile an autonomous coding task board from newly captured evidence. The worker can add requirements and evidence but cannot remove or close tasks by command; lifecycle changes are judge-owned. Return actions only when evidence_refs cite captured evidence from the payload. Actions:\n- retract: mark an open task resolved only when evidence proves true impossibility, obsolescence because the constrained file/route/behavior was removed or absent, or duplicate/subsumed scope. Never retract for mere difficulty or preference.\n- revise: fix a broken or stale requirement title/check.\n- supersede: create one concrete replacement requirement with title+check and supersedes ids for old tasks.\n- add_requirement: add a missing requirement that is not already covered.\nPrefer revise or supersede over parallel duplicates. Return no action when uncertain. Before adding new_requirements, compare PURPOSE against current_requirements -- what outcome the task enforces when satisfied, not just title wording. Skip if any existing task (especially validated) already obligates the same outcome; duplicates trap completion. Include supersedes: [ids] when replacing broken checks (superseded agent tasks become non-blocking; judge tasks retract). Prefer adjust_requirements revise over adding a parallel requirement. Prefer structural manifest/version-field checks over brittle literal-string or version-pinning requirements; write checks that read version fields from repo manifests and compare -- a check that fails on every version bump traps completion. Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal. Reject evidence that only grep-matches a frozen version string when the goal needs a structural manifest comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements in THIS response, never by instructing the agent.",
       "output_modalities": [
         "text"
       ],
@@ -1663,24 +1706,63 @@ You are a strict adjudicator. An agent claims a REQUIRED task is impossible or o
       "tools": [
         {
           "description": "Return the structured result. Call exactly once with the complete object.",
-          "name": "dispute_verdict",
+          "name": "reconcile_spec",
           "parameters": {
             "additionalProperties": false,
             "properties": {
+              "actions": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "action": {
+                      "enum": [
+                        "retract",
+                        "revise",
+                        "supersede",
+                        "add_requirement"
+                      ],
+                      "type": "string"
+                    },
+                    "check": {
+                      "type": "string"
+                    },
+                    "evidence_refs": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "supersedes": {
+                      "items": {
+                        "type": "string"
+                      },
+                      "type": "array"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "action",
+                    "reason",
+                    "evidence_refs"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              },
               "reason": {
                 "type": "string"
-              },
-              "verdict": {
-                "enum": [
-                  0,
-                  1
-                ],
-                "type": "integer"
               }
             },
             "required": [
-              "verdict",
-              "reason"
+              "actions"
             ],
             "type": "object"
           },

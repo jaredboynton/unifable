@@ -16,7 +16,7 @@ _PLAN_MODE_EMPTY: dict[str, Any] = {"enabled": False, "host": "", "marker": ""}
 PLAN_MODE_DIRECTIVE = (
     "Plan Mode: repo-tracked writes forbidden; deliver a plan artifact only "
     "(CreatePlan / ExitPlanMode / proposed_plan block). Spec checks must not "
-    "require new repo files — use plan-based checks or unifable dispute on stop."
+    "require new repo files -- use plan-based checks."
 )
 
 _CURSOR_PLAN_ACTIVE_RE = re.compile(

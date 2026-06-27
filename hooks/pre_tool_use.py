@@ -99,7 +99,7 @@ DELEGATION_TOOLS = frozenset(_DELEGATION_TOOLS)
 
 _PROTECTED_CLI = (
     "Specs/ledger are CLI-only via `unifable` "
-    "(restate / add-task / set-primary / add-frontier / dispute); "
+    "(restate / add-task / set-primary / add-frontier); "
     "never hand-edit the JSON."
 )
 

@@ -154,46 +154,46 @@ def test_format_spec_status_multi_judge_with_show_judge_for():
     assert "judge:" not in text.split("T2")[1].split("T3")[0]
 
 
-DISPUTE_REJECT_REASON = "Rejected. The evidence does not prove impossibility."
-DISPUTE_ACCEPT_REASON = "The upstream API has no such endpoint; genuinely impossible."
+VALIDATION_REJECT_REASON = "Rejected. The evidence does not prove completion."
+RETRACT_REASON = "Obsolete route removed; folded into the daemon-backed session layer."
 
 
-def test_build_stop_validate_context_dispute_rejected():
+def test_build_stop_validate_context_validation_rejected():
     spec = _sample_spec()
     spec["tasks"] = [
         {
             "id": "T5",
-            "title": "impossible req",
+            "title": "Wire the daemon-backed session layer",
             "check": "true",
             "status": "failed",
-            "judge_reason": DISPUTE_REJECT_REASON,
+            "judge_reason": VALIDATION_REJECT_REASON,
         }
     ]
-    headlines = ["T5: dispute rejected"]
+    headlines = ["T5 check ran (exit 1); judge rejected the evidence."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert ctx.startswith("Action required:")
-    assert "T5 [XX] impossible req" in ctx
+    assert "T5 [XX] Wire the daemon-backed session layer" in ctx
     # judge reason rides the unresolved action inline, exactly once.
-    assert DISPUTE_REJECT_REASON in ctx
-    assert ctx.count(DISPUTE_REJECT_REASON) == 1
+    assert VALIDATION_REJECT_REASON in ctx
+    assert ctx.count(VALIDATION_REJECT_REASON) == 1
 
 
-def test_build_stop_validate_context_dispute_accepted():
+def test_build_stop_validate_context_retracted_task_is_omitted():
     spec = _sample_spec()
     spec["tasks"] = [
         {
             "id": "T6",
-            "title": "impossible req",
+            "title": "Standalone OAuth broker",
             "check": "true",
             "status": "retracted",
-            "judge_reason": DISPUTE_ACCEPT_REASON,
+            "judge_reason": RETRACT_REASON,
         }
     ]
-    headlines = ["T6 retracted — judge accepted impossibility. Completion breaker open."]
+    headlines = ["Judge retracted T6: Obsolete route removed; folded into the daemon-backed session layer."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert "Action required:" not in ctx
     assert "T6" not in ctx
-    assert DISPUTE_ACCEPT_REASON not in ctx
+    assert RETRACT_REASON not in ctx
     assert "Spec complete: all tasks validated." in ctx
 
 
@@ -249,14 +249,14 @@ def test_stop_context_omits_resolved_tasks():
     spec["restated_goal"] = "g"
     spec["tasks"] = [
         {"id": "T1", "title": "old done", "check": "true", "status": "validated"},
-        {"id": "T2", "title": "freshly retracted", "check": "true", "status": "retracted", "judge_reason": DISPUTE_ACCEPT_REASON},
+        {"id": "T2", "title": "freshly retracted", "check": "true", "status": "retracted", "judge_reason": RETRACT_REASON},
     ]
-    headlines = ["T2 retracted — judge accepted impossibility."]
+    headlines = ["Judge retracted T2: Obsolete route removed; folded into the daemon-backed session layer."]
     ctx, _ = mn.build_stop_validate_context(spec, headlines)
     assert "done (" not in ctx
     assert "old done" not in ctx
     assert "freshly retracted" not in ctx
-    assert DISPUTE_ACCEPT_REASON not in ctx
+    assert RETRACT_REASON not in ctx
     assert "Spec complete: all tasks validated." in ctx
 
 

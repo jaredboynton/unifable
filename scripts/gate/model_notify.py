@@ -22,15 +22,14 @@ _HEADLINE_MAX = 320
 _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)")
 _SUBCMD_RE = re.compile(
     r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)\s+"
-    r"(restate|add-task|set-primary|add-frontier|dispute|contract|where)\b"
+    r"(restate|add-task|set-primary|add-frontier|contract|where)\b"
 )
 
-MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier", "dispute"})
+MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier"})
 
 _ADDED_STDOUT_RE = re.compile(r"^Added (T\d+)\b", re.IGNORECASE)
 _PRIMARY_STDOUT_RE = re.compile(r"^Primary approach set: (T\d+)\b", re.IGNORECASE)
 _FRONTIER_STDOUT_RE = re.compile(r"^Frontier approach added: (T\d+)\b", re.IGNORECASE)
-_DISPUTE_STDOUT_RE = re.compile(r"^(T\d+) -> disputed\b", re.IGNORECASE)
 _RESTATE_STDOUT_RE = re.compile(r"restated_goal set\b", re.IGNORECASE)
 
 _TASK_ID_RE = re.compile(r"\bT(\d+)\b")
@@ -44,7 +43,6 @@ _STATUS_MARKS = {
     "failed": "XX",
     "delivered": "..",
     "pending": "--",
-    "disputed": "??",
     "retracted": "~~",
     "superseded": "SS",
     "blocked": "BL",
@@ -759,9 +757,6 @@ def parse_mutating_spec_stdout(subcommand: str | None, stdout: str) -> str | Non
         return m.group(1).upper() if m else None
     if sub == "add-frontier":
         m = _FRONTIER_STDOUT_RE.match(first)
-        return m.group(1).upper() if m else None
-    if sub == "dispute":
-        m = _DISPUTE_STDOUT_RE.match(first)
         return m.group(1).upper() if m else None
     if sub == "restate" and _RESTATE_STDOUT_RE.search(text):
         return "restate"

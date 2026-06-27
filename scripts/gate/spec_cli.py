@@ -2,7 +2,7 @@
 """Command-line interface for the unifable spec artifact (unifable).
 
 The `unifable` subcommands the model drives the spec with -- restate / add-task /
-set-primary / add-frontier / dispute / contract / doctor -- plus argv dispatch.
+set-primary / add-frontier / contract / doctor -- plus argv dispatch.
 Specs are CLI-only (never model-writable via Edit/Write). Re-exported by the
 spec.py facade, which keeps the runnable __main__ entry point.
 """
@@ -29,7 +29,7 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         spec_path,
     )
     from spec_schema import GRADES, spec_template
-    from spec_tasks import _new_task, append_frontier_task, find_task, set_primary_task
+    from spec_tasks import _new_task, append_frontier_task, set_primary_task
 except ImportError:  # pragma: no cover
     from scripts.gate.heavy_workflow import frontier_tasks
     from scripts.gate.model_notify import format_spec_status, notify_spec_update
@@ -46,7 +46,7 @@ except ImportError:  # pragma: no cover
         spec_path,
     )
     from scripts.gate.spec_schema import GRADES, spec_template
-    from scripts.gate.spec_tasks import _new_task, append_frontier_task, find_task, set_primary_task
+    from scripts.gate.spec_tasks import _new_task, append_frontier_task, set_primary_task
 
 
 # Copy-pasteable correct invocations, surfaced both in argparse errors (via
@@ -60,7 +60,6 @@ _USAGE_HINTS = {
     ),
     "set-primary": "Try: unifable set-primary --title '<approach>' --check '<runnable proof>'.",
     "add-frontier": "Try: unifable add-frontier --title '<approach>' --check '<exploration check>'.",
-    "dispute": "Try: unifable dispute --task <id> --evidence '<proof>'.",
     "restate": "Try: unifable restate '<goal in your own words>' (positional goal, not --goal).",
 }
 
@@ -100,26 +99,6 @@ def _resolve_title_check(args: argparse.Namespace, label: str) -> tuple[str | No
         print(f"{label} needs {', '.join(missing)}. {_USAGE_HINTS[label]}", file=sys.stderr)
         return None, None
     return title, check
-
-
-def _resolve_task_evidence(args: argparse.Namespace) -> tuple[str | None, str | None]:
-    """Resolve dispute's task/evidence from flags, falling back to positional args."""
-    task = args.task
-    evidence = args.evidence
-    rest = list(getattr(args, "rest", []) or [])
-    if task is None and rest:
-        task = rest.pop(0)
-    if evidence is None and rest:
-        evidence = rest.pop(0)
-    missing: list[str] = []
-    if not task:
-        missing.append("--task <id>")
-    if not evidence:
-        missing.append("--evidence '<proof>'")
-    if missing:
-        print(f"dispute needs {', '.join(missing)}. {_USAGE_HINTS['dispute']}", file=sys.stderr)
-        return None, None
-    return task, evidence
 
 
 def _cmd_contract(args: argparse.Namespace) -> int:
@@ -235,37 +214,6 @@ def _cmd_restate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_dispute(args: argparse.Namespace) -> int:
-    """Agent submits evidence that a requirement is impossible or obsolete (its
-    constrained subject was removed by a pivot). This only records the claim
-    (status -> disputed); the harness adjudicates on stop."""
-    task_id, evidence = _resolve_task_evidence(args)
-    if task_id is None:
-        return 2
-    spec = load_spec(args.root, args.task_id)
-    task = find_task(spec, task_id) if spec else None
-    if task is None:
-        print(f"Task {task_id} not found.", file=sys.stderr)
-        return 1
-    if task.get("status") == "validated":
-        print(f"{task_id} is already validated; nothing to dispute.", file=sys.stderr)
-        return 1
-    if task.get("status") == "retracted":
-        print(f"{task_id} is already retracted.", file=sys.stderr)
-        return 1
-    task["status"] = "disputed"
-    task["dispute_evidence"] = evidence
-    save_spec(args.root, args.task_id, spec)
-    print(f"{task_id} -> disputed. The harness adjudicates impossibility/obsolescence claims on stop.")
-    notify_spec_update(
-        spec,
-        f"{task_id} disputed as impossible/obsolete.",
-        highlight_task=task_id,
-        surface="stdout_only",
-    )
-    return 0
-
-
 def _cmd_doctor_session_env(args: argparse.Namespace) -> int:
     # Always emit a machine-scannable diagnostic for the env-resolved session.
     # This line appears in Bash tool results so probes can validate whether the
@@ -362,16 +310,6 @@ def main(argv: list[str] | None = None) -> int:
     p_rejected.add_argument("--check", help="Runnable exploration check.")
     p_rejected.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
 
-    p_dispute = sub.add_parser(
-        "dispute",
-        help="Submit evidence a requirement is impossible or obsolete (its subject was removed); harness adjudicates on stop.",
-    )
-    p_dispute.add_argument("--task", help="Task id, e.g. T1.")
-    p_dispute.add_argument(
-        "--evidence", help="Proof the requirement cannot be satisfied: impossibility, or for obsolescence a failable check whose captured output shows the removed subject is absent (the judge adjudicates it)."
-    )
-    p_dispute.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
-
     p_doctor = sub.add_parser("doctor", help="Operator diagnostics.")
     doctor_sub = p_doctor.add_subparsers(dest="doctor_cmd")
     doctor_sub.add_parser("session-env", help="Show canonical spec path and session env diagnostics.")
@@ -386,7 +324,6 @@ def main(argv: list[str] | None = None) -> int:
         "add-task": _cmd_add_task,
         "set-primary": _cmd_set_primary,
         "add-frontier": _cmd_add_frontier,
-        "dispute": _cmd_dispute,
         "doctor": _cmd_doctor,
     }
     handler = dispatch.get(args.cmd)

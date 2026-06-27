@@ -118,32 +118,6 @@ def test_add_frontier_success_is_silent():
         assert ctx == ""
 
 
-def test_dispute_success_is_silent():
-    spec = spec_template()
-    spec["requires_tasks"] = True
-    spec["tasks"] = [
-        {"id": "T1", "title": "req", "check": "true", "status": "failed"},
-    ]
-    with tempfile.TemporaryDirectory() as tmp:
-        os.environ["UNIFABLE_DATA"] = tmp
-        save_spec(tmp, "dispute", spec)
-        ctx = _ctx(
-            {
-                "session_id": "dispute",
-                "cwd": tmp,
-                "tool_name": "Bash",
-                "tool_input": {
-                    "command": "unifable dispute T1 --evidence impossible",
-                },
-                "tool_response": {
-                    "exit_code": 0,
-                    "stdout": "T1 -> disputed. The harness adjudicates impossibility/obsolescence claims on stop.",
-                },
-            }
-        )
-        assert ctx == ""
-
-
 def test_restate_with_no_tasks_emits_add_task_only():
     spec = spec_template()
     spec["requires_tasks"] = True

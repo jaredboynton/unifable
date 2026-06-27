@@ -21,7 +21,6 @@ from spec import (  # noqa: E402
 )
 from spec_cli import (
     _cmd_add_task,  # noqa: E402
-    _cmd_dispute,
     _cmd_restate,
 )
 
@@ -41,43 +40,6 @@ def test_requires_tasks_empty_spec_blocks_completion():
 def test_retracted_counts_as_resolved():
     s = {"requires_tasks": True, "tasks": [_task("T1", "validated"), _task("T2", "retracted")]}
     assert all_tasks_validated(s) == (True, [])
-
-
-def test_disputed_does_not_resolve():
-    s = {"requires_tasks": True, "tasks": [_task("T1", "validated"), _task("T2", "disputed")]}
-    ok, incomplete = all_tasks_validated(s)
-    assert not ok and incomplete == ["T2"]
-
-
-def _seed(tmp_path, status="failed"):
-    s = spec_template()
-    s["requires_tasks"] = True
-    s["restated_goal"] = "do x"
-    s["tasks"] = [_task("T1", status)]
-    save_spec(str(tmp_path), "K", s)
-    return SimpleNamespace(root=str(tmp_path), task_id="K", task="T1")
-
-
-def test_dispute_sets_status_and_stores_evidence(tmp_path):
-    args = _seed(tmp_path)
-    args.evidence = "the upstream API has no such endpoint; 404 on every variant"
-    rc = _cmd_dispute(args)
-    assert rc == 0
-    t = load_spec(str(tmp_path), "K")["tasks"][0]
-    assert t["status"] == "disputed"
-    assert "404" in t["dispute_evidence"]
-
-
-def test_auto_validate_accepts_dispute_and_retracts(tmp_path, monkeypatch):
-    args = _seed(tmp_path)
-    args.evidence = "proven impossible"
-    _cmd_dispute(args)
-    monkeypatch.setattr(ssv, "judge_dispute", lambda s, t, e: (1, "genuinely impossible"))
-    monkeypatch.setattr(ssv, "judge_tasks",
-        lambda sp, items, *, transcript="", plan_mode=None, **_kw: [(1, "genuinely impossible", [], "") for _ in items],
-    )
-    spec, _ = auto_validate_spec(load_spec(str(tmp_path), "K"), str(tmp_path))
-    assert spec["tasks"][0]["status"] == "retracted"
 
 
 def test_auto_validate_appends_judge_requirements(tmp_path, monkeypatch):

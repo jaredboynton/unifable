@@ -253,7 +253,7 @@ def main() -> int:
         from heavy_workflow import format_approach_board, frontier_tasks
         from spec_hygiene import apply_spec_hygiene
         from spec_io import load_spec, resolve_session_id, save_spec
-        from spec_judge import judge_discover_frontiers
+        from spec_judge import judge_discover_frontiers, judge_reconcile_spec
 
         task_id = resolve_session_id(input_data, default=None)
         grade = resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
@@ -262,8 +262,10 @@ def main() -> int:
             spec = load_spec(cwd, task_id)
             activity = activity_from_ledger(ledger)
             citation_added: dict[str, list[str]] = {}
+            evidence_changed = bool(reads or fetched or ran or mcp_ev or research_ev or cmd_out or verification)
             if spec and apply_spec_hygiene(spec, activity, cwd, added_sink=citation_added)[0]:
                 save_spec(cwd, task_id, spec)
+                evidence_changed = True
                 _cite_headline = _citation_sync_headline(citation_added)
                 if _cite_headline:
                     try:
@@ -274,6 +276,15 @@ def main() -> int:
                         pass
                     if _cite_headline:
                         citation_context = build_citation_sync_context(_cite_headline)
+            if spec and evidence_changed and not (tool_name == "Bash" and is_spec_cli_command(command)):
+                headlines = judge_reconcile_spec(
+                    spec,
+                    activity,
+                    transcript_path=str(input_data.get("transcript_path") or "") or None,
+                )
+                if headlines:
+                    save_spec(cwd, task_id, spec)
+                    discovery_context = "Spec update:\n" + "\n".join(headlines[:4])
             if spec and grade == "HEAVY" and tool_name in research_tools and len(frontier_tasks(spec)) < 2:
                 if grade == "HEAVY":
                     n_tools = int(ledger.get("frontier_research_tools") or 0) + 1
@@ -294,11 +305,14 @@ def main() -> int:
 
                             update_ledger(input_data, record_discovery)
                             ids = ", ".join(t["id"] for t in added)
-                            discovery_context = (
+                            frontier_context = (
                                 "Spec update:\n"
                                 f"Judge added frontier approach(s): {ids}. Explore ALL frontiers"
                                 " thoroughly (check each one). The judge compares evidence on Stop"
                                 " and may adopt the best over primary.\n" + format_approach_board(spec)
+                            )
+                            discovery_context = (
+                                discovery_context + "\n" + frontier_context if discovery_context else frontier_context
                             )
     except Exception:
         pass

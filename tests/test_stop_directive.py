@@ -52,10 +52,8 @@ def test_allow_stop_does_not_inject_directive(tmp_path, monkeypatch) -> None:
 
     captured: dict = {}
     monkeypatch.setattr(gate_stop, "emit_json", lambda d: captured.update({"out": d}))
-    # No decision:block -> a clean allow-stop. The directive must NOT appear.
     gate_stop._emit_stop_payload({}, input_data)
-    blob = json.dumps(captured.get("out", {}))
-    assert "Read scripts/gate/spec.py first." not in blob
+    assert captured.get("out") == {}
 
 
 def test_blocked_stop_no_directive_when_unset(tmp_path, monkeypatch) -> None:

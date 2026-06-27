@@ -35,12 +35,16 @@ except ImportError:  # pragma: no cover
     from scripts.gate.cli_install import parse_version
 
 # Top-level entries copied from a cache version into ~/.unifable/versions/<v>.
+# `skills` ships the explore/unifusion skill bodies into the stable runtime so they
+# resolve from ~/.unifable/current/skills regardless of which CLI or cache invoked
+# the plugin, and self-update to the newest version on each SessionStart sync.
 _RUNTIME_TREE = (
     "hooks",
     "scripts",
     "packs",
     "bin",
     "setup",
+    "skills",
     ".claude-plugin",
     ".codex-plugin",
     ".devin-plugin",

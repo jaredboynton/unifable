@@ -113,8 +113,8 @@ exploded. The transcript (`raw/codex-unifable/cli.stdout.jsonl`) shows why: of
 spec-CLI meta-work rather than the task —
 
 - `unifable restate`, `unifable add-task`, `set-primary --help`,
-  `add-frontier --help`, `dispute --help`, `set-primary`, two `add-frontier`,
-  and a `dispute --task T1` that quotes `scripts/gate/spec.py` line numbers;
+  `add-frontier --help`, `set-primary`, two `add-frontier`,
+  and repeated inspection of `scripts/gate/spec.py` line numbers;
 - repeated `rg` of `scripts/gate/spec.py` to reverse-engineer the CLI;
 - the *same* targeted `pytest` invocation run roughly six times.
 

@@ -17,7 +17,14 @@ _EXPLORE_NAME_RE = re.compile(r"(?m)^name:\s*explore\s*$")
 
 EXPLORE_SCRIPT_BASENAMES = ("trace.sh", "websearch.sh", "search.sh")
 
+# The stable central runtime (~/.unifable/current/skills/explore) is preferred:
+# runtime_sync seeds it from the newest plugin version every SessionStart, so it
+# resolves regardless of which CLI or plugin cache is active and survives deletion
+# of the legacy hand-maintained host copies below. The explore skill's scripts/
+# holds all three entrypoints (trace.sh, search.sh, websearch.sh); the sibling
+# explore-websearch skill is a thin delegating entrypoint over the same code.
 _DEFAULT_EXPLORE_ROOTS = (
+    ".unifable/current/skills/explore",
     ".agents/skills/explore",
     ".claude/skills/explore",
     ".cursor/skills/explore",
@@ -207,5 +214,5 @@ def allowed_research_bash_detail() -> str:
         f"{explore_clause}, "
         "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
         "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
-        "(unifable restate|add-task|set-primary|add-frontier|dispute; legacy unifable-spec alias still accepted)"
+        "(unifable restate|add-task|set-primary|add-frontier; legacy unifable-spec alias still accepted)"
     )

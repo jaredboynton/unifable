@@ -131,8 +131,7 @@ def completion_runaway_warning(incomplete_count: int) -> str:
         f"({incomplete_count} requirement(s) still unvalidated). The judge was "
         "adding requirements at least as fast as they validate (a runaway). "
         "Surfacing for human review instead of trapping the session -- inspect "
-        "the spec and reset it (or dispute the spurious requirements) if these "
-        "are not real."
+        "the spec and evidence if these requirements are not real."
     )
 
 

@@ -51,11 +51,8 @@ ALLOWED = [
     "python3 -c 'import json,sys; d=json.load(open(\"f.json\")); print(d[\"k\"])'",
     'python -c "print(open(\'x.txt\').read())"',
     'python3 -c "import sys; [print(l) for l in open(\'a.log\')]"',
-    "unifable dispute --task T1 --evidence proof",
     "unifable-spec add-task --title t --check true",
-    "unifable-spec dispute --task T1 --evidence proof",
     "python3 scripts/gate/spec.py add-task --title t --check true",
-    "python3 scripts/gate/spec.py dispute --task T1 --evidence proof",
     "rg foo | head",
     "rg foo | head -20",
     "ls && rg foo | head",
@@ -192,3 +189,30 @@ def test_explore_script_in_command_detects_websearch_and_trace():
     assert explore_script_in_command('bash ./websearch.sh "goal"') == "websearch.sh"
     assert explore_script_in_command("~/.agents/skills/explore/scripts/trace.sh q") == "trace.sh"
     assert explore_script_in_command("rg foo") is None
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected"),
+    [
+        (
+            "unifable reject-frontier --title stale",
+            "not an append-only subcommand",
+        ),
+        (
+            "unifable-spec reject-frontier --title stale",
+            "not an append-only subcommand",
+        ),
+        (
+            "python3 scripts/gate/spec.py reject-frontier --title stale",
+            "not an append-only subcommand",
+        ),
+        (
+            "unifable add-task --force",
+            "spec CLI --force is not allowed",
+        ),
+    ],
+)
+def test_spec_cli_only_allows_append_only_research_commands(cmd, expected):
+    allowed, reason = is_allowed_research_bash(cmd)
+    assert allowed is False
+    assert expected in reason

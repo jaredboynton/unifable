@@ -2,7 +2,7 @@
 """Judge prompts, schemas, and structured-judge calls for the spec gate (unifable).
 
 All gpt-realtime-2 adjudication of requirement tasks: system prompts, JSON schemas,
-verdict normalization, and the judge_* entry points (validate / dispute / discover /
+verdict normalization, and the judge_* entry points (validate / reconcile / discover /
 heal / frontier comparison). Judge transport is imported lazily so the module loads
 without a live judge. Host-agnostic; re-exported by the spec.py facade.
 """
@@ -22,7 +22,12 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     from model_notify import notify_spec_update
     from spec_tasks import (
         RESOLVED_STATUSES,
+        JUDGE_MAX_UNRESOLVED_ADDED,
+        _apply_supersedes_bundle,
         _current_requirements_payload,
+        _filter_judge_new_requirements,
+        _new_task,
+        _normalize_title,
         append_frontier_task,
     )
 except ImportError:  # pragma: no cover
@@ -35,7 +40,12 @@ except ImportError:  # pragma: no cover
     from scripts.gate.model_notify import notify_spec_update
     from scripts.gate.spec_tasks import (
         RESOLVED_STATUSES,
+        JUDGE_MAX_UNRESOLVED_ADDED,
+        _apply_supersedes_bundle,
         _current_requirements_payload,
+        _filter_judge_new_requirements,
+        _new_task,
+        _normalize_title,
         append_frontier_task,
     )
 
@@ -83,17 +93,6 @@ _JUDGE_SCHEMA = {
         # The judge may ADJUST requirements it itself added (retract or revise),
         # listed under existing_judge_requirements in the prompt.
         "adjust_requirements": _ADJUST_REQ_SCHEMA,
-    },
-    "required": ["verdict", "reason"],
-    "additionalProperties": False,
-}
-
-
-_DISPUTE_SCHEMA = {
-    "type": "object",
-    "properties": {
-        "verdict": {"type": "integer", "enum": [0, 1]},
-        "reason": {"type": "string"},
     },
     "required": ["verdict", "reason"],
     "additionalProperties": False,
@@ -158,6 +157,36 @@ _JUDGE_HEAL_SCHEMA = {
 }
 
 
+_RECONCILE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "actions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "enum": ["retract", "revise", "supersede", "add_requirement"],
+                    },
+                    "id": {"type": "string"},
+                    "reason": {"type": "string"},
+                    "evidence_refs": {"type": "array", "items": {"type": "string"}},
+                    "title": {"type": "string"},
+                    "check": {"type": "string"},
+                    "supersedes": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["action", "reason", "evidence_refs"],
+                "additionalProperties": False,
+            },
+        },
+        "reason": {"type": "string"},
+    },
+    "required": ["actions"],
+    "additionalProperties": False,
+}
+
+
 _HINT_PLACEHOLDERS = ("tbd", "n/a", "none", "no hint", "nothing", "unsure", "unclear")
 
 
@@ -198,6 +227,183 @@ def _normalize_new_requirements(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
+def _normalize_reconcile_actions(raw: Any) -> list[dict[str, Any]]:
+    """Coerce reconcile actions into valid board mutations."""
+    out: list[dict[str, Any]] = []
+    if not isinstance(raw, list):
+        return out
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        action = str(item.get("action") or "").strip()
+        reason = str(item.get("reason") or "").strip()
+        if action not in ("retract", "revise", "supersede", "add_requirement") or not reason:
+            continue
+        evidence_refs = [str(x).strip() for x in (item.get("evidence_refs") or []) if str(x).strip()]
+        if not evidence_refs:
+            continue
+        entry: dict[str, Any] = {"action": action, "reason": reason, "evidence_refs": evidence_refs}
+        tid = str(item.get("id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        check = str(item.get("check") or "").strip()
+        supersedes = [str(x).strip() for x in (item.get("supersedes") or []) if str(x).strip()]
+        if action == "retract":
+            if not tid:
+                continue
+            entry["id"] = tid
+        elif action == "revise":
+            if not tid or (not title and not check):
+                continue
+            entry["id"] = tid
+            if title:
+                entry["title"] = title
+            if check:
+                entry["check"] = check
+        elif action in ("supersede", "add_requirement"):
+            if not title or not check:
+                continue
+            entry["title"] = title
+            entry["check"] = check
+            if tid:
+                supersedes.append(tid)
+            if supersedes:
+                entry["supersedes"] = sorted(set(supersedes))
+            elif action == "supersede":
+                continue
+        out.append(entry)
+    return out
+
+
+def _evidence_ref_supported(refs: list[str], evidence: dict[str, Any] | None) -> bool:
+    payload = _evidence_payload(evidence)
+    if not payload:
+        return False
+    corpus: list[str] = []
+    for values in payload.values():
+        corpus.extend(str(v) for v in values if str(v).strip())
+    if not corpus:
+        return False
+    corpus_l = [c.lower() for c in corpus]
+    for ref in refs:
+        r = str(ref or "").strip().lower()
+        if not r:
+            continue
+        if any(r in c or c in r for c in corpus_l):
+            return True
+    return False
+
+
+def _add_judge_requirement(
+    spec: dict[str, Any],
+    *,
+    title: str,
+    check: str,
+    reason: str,
+    evidence_refs: list[str],
+    supersedes: list[str] | None = None,
+) -> list[str]:
+    existing_pairs = {
+        (str(t.get("title") or "").strip(), str(t.get("check") or "").strip())
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict)
+    }
+    existing_norm_titles = {
+        _normalize_title(t.get("title"))
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict)
+    }
+    judge_unresolved = sum(
+        1
+        for t in (spec.get("tasks") or [])
+        if isinstance(t, dict) and t.get("added_by") == "judge" and t.get("status") not in RESOLVED_STATUSES
+    )
+    if judge_unresolved >= JUDGE_MAX_UNRESOLVED_ADDED:
+        return []
+    req = {"title": title, "check": check}
+    if supersedes:
+        req["supersedes"] = supersedes
+    filtered = _filter_judge_new_requirements([req], existing_pairs, existing_norm_titles)
+    if not filtered:
+        return []
+    spec.setdefault("tasks", [])
+    nt = _new_task(spec, title, check)
+    nt["added_by"] = "judge"
+    nt["reconcile_evidence_refs"] = evidence_refs
+    spec["tasks"].append(nt)
+    tid = str(nt.get("id") or "")
+    headlines = [f"Judge added {tid}: {title[:80]}"]
+    notify_spec_update(spec, headlines[0], highlight_task=tid)
+    if supersedes:
+        headlines.extend(_apply_supersedes_bundle(spec, tid, supersedes, reason=reason))
+    return headlines
+
+
+def _apply_reconcile_actions(
+    spec: dict[str, Any],
+    actions: list[dict[str, Any]],
+    *,
+    evidence: dict[str, Any] | None = None,
+) -> list[str]:
+    """Apply judge-owned task-board reconciliation actions."""
+    if not actions:
+        return []
+    by_id = {str(t.get("id")): t for t in (spec.get("tasks") or []) if isinstance(t, dict)}
+    headlines: list[str] = []
+    for action in actions:
+        refs = [str(x) for x in (action.get("evidence_refs") or []) if str(x).strip()]
+        if not _evidence_ref_supported(refs, evidence):
+            continue
+        kind = str(action.get("action") or "")
+        tid = str(action.get("id") or "")
+        reason = str(action.get("reason") or "")
+        if kind == "retract":
+            task = by_id.get(tid)
+            if task is None or str(task.get("status") or "") in RESOLVED_STATUSES:
+                continue
+            task["status"] = "retracted"
+            task["judge_reason"] = reason
+            task["reconcile_evidence_refs"] = refs
+            headline = f"Judge retracted {tid}: {reason[:80]}"
+            notify_spec_update(spec, headline, highlight_task=tid)
+            headlines.append(headline)
+        elif kind == "revise":
+            task = by_id.get(tid)
+            if task is None or str(task.get("status") or "") in ("retracted", "superseded"):
+                continue
+            if action.get("title"):
+                task["title"] = str(action["title"])
+            if action.get("check"):
+                task["check"] = str(action["check"])
+            task["status"] = "pending"
+            task["exit"] = None
+            task["output"] = ""
+            task["judge_verdict"] = None
+            task["judge_reason"] = reason
+            task["reconcile_evidence_refs"] = refs
+            task["_check_stale"] = True
+            task["_revise_this_stop"] = True
+            who = "Judge" if task.get("added_by") == "judge" else "Agent req"
+            headline = f"{who} requirement {tid} revised: {reason[:80]}"
+            notify_spec_update(spec, headline, highlight_task=tid)
+            headlines.append(headline)
+        elif kind in ("supersede", "add_requirement"):
+            supersedes = [str(x) for x in (action.get("supersedes") or []) if str(x).strip()]
+            headlines.extend(
+                _add_judge_requirement(
+                    spec,
+                    title=str(action.get("title") or ""),
+                    check=str(action.get("check") or ""),
+                    reason=reason,
+                    evidence_refs=refs,
+                    supersedes=supersedes,
+                )
+            )
+    if headlines:
+        sync_heavy_phase(spec)
+        advance_primary_if_ready(spec)
+    return headlines
+
+
 _JUDGE_SYSTEM = (
     "You are a strict, adversarial validator for a software task. "
     "Given the goal, one task with its check, exit code, and output: "
@@ -206,6 +412,24 @@ _JUDGE_SYSTEM = (
     "You may ADJUST requirements: 'retract' only for judge-added tasks; "
     "'revise' to fix any broken check; 'supersedes' on new_requirements to replace "
     "agent tasks. Every adjustment is reported to the agent. " + _JUDGE_CORE_GUIDANCE + " " + _JUDGE_FEEDBACK_GUIDANCE
+)
+
+
+_RECONCILE_SYSTEM = (
+    "You reconcile an autonomous coding task board from newly captured evidence. "
+    "The worker can add requirements and evidence but cannot remove or "
+    "close tasks by command; lifecycle changes are judge-owned. Return actions only "
+    "when evidence_refs cite captured evidence from the payload. Actions:\n"
+    "- retract: mark an open task resolved only when evidence proves true "
+    "impossibility, obsolescence because the constrained file/route/behavior was "
+    "removed or absent, or duplicate/subsumed scope. Never retract for mere "
+    "difficulty or preference.\n"
+    "- revise: fix a broken or stale requirement title/check.\n"
+    "- supersede: create one concrete replacement requirement with title+check and "
+    "supersedes ids for old tasks.\n"
+    "- add_requirement: add a missing requirement that is not already covered.\n"
+    "Prefer revise or supersede over parallel duplicates. Return no action when "
+    "uncertain. " + _JUDGE_CORE_GUIDANCE
 )
 
 
@@ -327,9 +551,6 @@ _VALIDATE_ALL_SYSTEM = (
     "when the evidence is absent or contradicts it. Do NOT tell the agent to convert "
     "the check into a shell command or to write a repo file -- a research "
     "requirement is proven by its retrievals, not by a grep.\n"
-    "- kind=dispute: accept (verdict 1) only on the dispute-adjudication grounds "
-    "below -- proven impossibility OR proven obsolescence (the constrained subject "
-    "was removed by a pivot); reject mere difficulty.\n"
     "- approach_kind=frontier: return outcome rejected_approach, still_viable, or "
     "accepted_approach. Verdict 1 when check passed.\n"
     "- approach_kind=primary: validate primary delivery after frontiers ruled out.\n"
@@ -338,37 +559,13 @@ _VALIDATE_ALL_SYSTEM = (
 )
 
 
-_DISPUTE_ADJUDICATION = (
-    "For kind=dispute: accept (verdict 1) if impossibility_evidence genuinely proves "
-    "impossibility OR proven obsolescence (see OBSOLESCENCE below); reject "
-    "(verdict 0) if merely hard or inconvenient. "
-    "When session_context.plan_mode_enabled is true, accept disputes where "
-    "evidence shows the check requires repo-tracked mutation that host Plan Mode "
-    "forbade for this turn."
-)
-
-
-_DISPUTE_OBSOLETE_RULE = (
-    "OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a "
-    "specific behavior, route, file, or code path that was REMOVED because the "
-    "implementation pivoted, AND the impossibility_evidence contains a failable check "
-    "(e.g. a repo grep) whose captured output proves that subject is now ABSENT "
-    "(zero matches, or the file is gone). A requirement whose subject no longer "
-    "exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. "
-    "Still reject (verdict 0) when the subject still exists in the repo, when the "
-    "agent merely preferred a different approach without removing the old one, or "
-    "when no captured absence proof is provided."
-)
-
-
 _PLAN_MODE_JUDGE_RULES = (
     "When plan_mode_enabled is true: mutating repo-tracked files is forbidden. "
     "Expected deliverables: Codex <proposed_plan>; Claude ~/.claude/plans via "
     "ExitPlanMode; Cursor ~/.cursor/plans or CreatePlan output. "
-    "For kind=dispute accept when evidence shows repo-file checks are impossible "
-    "this turn. For kind=validate do not fail solely on missing repo files when "
+    "For kind=validate do not fail solely on missing repo files when "
     "the check targets repo output Plan Mode prevented; prefer adjust_requirements "
-    "revise to a plan-based check or accept a valid dispute. "
+    "revise to a plan-based check. "
     "Do not add new_requirements requiring repo edits while plan mode is active."
 )
 
@@ -612,6 +809,43 @@ def judge_heal_own_requirements(
     return _apply_adjustments(spec, res)
 
 
+def judge_reconcile_spec(
+    spec: dict[str, Any],
+    evidence: dict[str, Any] | None,
+    *,
+    transcript_path: str | None = None,
+) -> list[str]:
+    """Judge-owned task-board reconciliation from captured evidence. Fail-open."""
+    if not isinstance(spec, dict) or not spec.get("tasks") or not _evidence_payload(evidence):
+        return []
+    try:
+        from codex_judge import JudgeError
+        from judge_transport import ask_structured
+    except ImportError:
+        return []
+    transcript, plan_mode = _judge_context(transcript_path)
+    payload = {
+        "goal": spec.get("restated_goal", ""),
+        "current_requirements": _current_requirements_payload(spec),
+        "session_context": _session_context_payload(plan_mode),
+        "evidence": _evidence_payload(evidence),
+    }
+    try:
+        res = ask_structured(
+            _judge_system_with_transcript(_RECONCILE_SYSTEM, transcript, plan_mode),
+            json.dumps(payload, ensure_ascii=False),
+            _RECONCILE_SCHEMA,
+            schema_name="reconcile_spec",
+        )
+    except JudgeError:
+        return []
+    return _apply_reconcile_actions(
+        spec,
+        _normalize_reconcile_actions(res.get("actions") if isinstance(res, dict) else None),
+        evidence=evidence,
+    )
+
+
 def _judge_system_for_task(
     task: dict[str, Any],
     *,
@@ -689,18 +923,15 @@ def _build_validate_all_user(
         kind = str(task.get("approach_kind") or "")
         if kind:
             entry["approach_kind"] = kind
-        if it.get("kind") == "dispute":
-            entry["dispute_evidence"] = str(task.get("dispute_evidence") or "")
+        # evidence_only: the check is prose / not a runnable command, so there
+        # is no exit code to weigh. Adjudicate from the evidence corpus below.
+        if it.get("evidence_only"):
+            entry["evidence_only"] = True
+            entry["exit_code"] = None
+            entry["output"] = ""
         else:
-            # evidence_only: the check is prose / not a runnable command, so there
-            # is no exit code to weigh. Adjudicate from the evidence corpus below.
-            if it.get("evidence_only"):
-                entry["evidence_only"] = True
-                entry["exit_code"] = None
-                entry["output"] = ""
-            else:
-                entry["exit_code"] = it.get("exit_code")
-                entry["output"] = str(it.get("output") or "")
+            entry["exit_code"] = it.get("exit_code")
+            entry["output"] = str(it.get("output") or "")
         tasks_payload.append(entry)
     payload: dict[str, Any] = {
         "goal": spec.get("restated_goal", ""),
@@ -730,8 +961,7 @@ def _build_validate_all_user(
 
 
 def _validate_all_system(transcript: str, plan_mode: dict[str, Any] | None = None) -> str:
-    base = _VALIDATE_ALL_SYSTEM + " " + _DISPUTE_ADJUDICATION + " " + _DISPUTE_OBSOLETE_RULE
-    return _judge_system_with_transcript(base, transcript, plan_mode=plan_mode)
+    return _judge_system_with_transcript(_VALIDATE_ALL_SYSTEM, transcript, plan_mode=plan_mode)
 
 
 _COMPARISON_SYSTEM = (
@@ -922,7 +1152,7 @@ def judge_tasks(
     plan_mode: dict[str, Any] | None = None,
     evidence: dict[str, Any] | None = None,
 ) -> list[tuple[int, str, list[dict[str, str]], str]]:
-    """Judge all items in one unified structured call (validate + dispute)."""
+    """Judge all validation items in one unified structured call."""
     return judge_all_tasks(spec, items, transcript=transcript, plan_mode=plan_mode, evidence=evidence)
 
 
@@ -993,62 +1223,10 @@ def judge_discover_frontiers(
     return added
 
 
-def judge_dispute(
-    spec: dict[str, Any],
-    task: dict[str, Any],
-    evidence: str,
-    *,
-    plan_mode: dict[str, Any] | None = None,
-) -> tuple[int, str]:
-    """Adjudicate an agent's claim that a requirement is IMPOSSIBLE.
-
-    The agent has submitted `evidence` that the task cannot be satisfied. Return
-    (verdict, reason): verdict 1 accepts the impossibility (the caller retracts the
-    requirement), 0 rejects it (the requirement stays open with feedback). A judge
-    failure returns (0, reason) so an unreachable judge never auto-retracts a
-    requirement -- impossibility must be earned, not granted by default."""
-    try:
-        from codex_judge import JudgeError
-        from judge_transport import ask_structured
-    except ImportError as exc:  # pragma: no cover
-        return 0, f"judge unavailable: {exc}"
-    system = (
-        "You are a strict adjudicator. An agent claims a REQUIRED task is impossible "
-        "or obsolete and submits evidence. Accept (verdict 1) ONLY if the evidence genuinely "
-        "proves the task cannot be done -- a real, demonstrated blocker, not a "
-        "preference, a difficulty, or an excuse. Reject (verdict 0) if the evidence "
-        "is weak, the task is merely hard or inconvenient, or the agent is dodging "
-        "work; in reason, tell the agent bluntly what real proof would be required. "
-        "Do not accept a claim that work is 'complete' here -- this is only about "
-        "whether the requirement is genuinely impossible or obsolete. "
-        + _JUDGE_FEEDBACK_GUIDANCE + " " + _DISPUTE_OBSOLETE_RULE
-    )
-    system += _plan_mode_judge_section(plan_mode)
-    user = json.dumps(
-        {
-            "goal": spec.get("restated_goal", ""),
-            "task_title": task.get("title", ""),
-            "check": task.get("check", ""),
-            "impossibility_evidence": evidence,
-            "current_requirements": _current_requirements_payload(spec),
-            "session_context": _session_context_payload(plan_mode),
-        },
-        ensure_ascii=False,
-    )
-    try:
-        res = ask_structured(system, user, _DISPUTE_SCHEMA, schema_name="dispute_verdict")
-    except JudgeError as exc:
-        return 0, f"judge error: {exc}"
-    return (
-        1 if res.get("verdict") == 1 else 0,
-        str(res.get("reason") or ""),
-    )
-
-
 def judge_hint(spec: dict[str, Any], *, signal: str, recent: str = "") -> str:
     """Proactive, verdict-free nudge for an agent that looks stuck or is wandering.
 
-    Unlike judge_task/judge_dispute, this renders NO verdict and resolves NO task
+    Unlike judge_task/judge_reconcile_spec, this renders NO verdict and resolves NO task
     -- it returns advisory guidance only. Callers (the Stop completion-breaker loop
     and the PostToolUse repeated-failure loop) surface the returned string on a
     clearly-advisory channel; it can never lift a gate. Any judge failure returns

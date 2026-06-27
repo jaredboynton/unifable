@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.10.0 - 2026-06-27
+
+- Centralized the explore skill into the stable runtime: added `skills` to
+  `runtime_sync._RUNTIME_TREE`, so `~/.unifable/current/skills/{explore,
+  explore-websearch}` is seeded from the newest plugin version on every
+  SessionStart and resolves the same way regardless of which CLI or plugin
+  cache invoked the plugin.
+- Split external web research into its own discoverable `explore-websearch`
+  skill. Its `websearch.sh` is a thin delegate to the shared `explore`
+  implementation (one engine, no duplicated lib): it resolves the explore copy
+  from `~/.unifable/current/skills/explore`, then a sibling fallback.
+- Pointed the research-Bash gate resolver at the central runtime first
+  (`research_bash_guidance._DEFAULT_EXPLORE_ROOTS`), so `trace.sh` / `search.sh`
+  / `websearch.sh` resolve from `~/.unifable/current` and survive removal of the
+  legacy hand-maintained `~/.agents/skills/explore` copy.
+- Rewrote `skills/explore/SKILL.md` to document the central path and the
+  trace+search scope; external research now points at `explore-websearch`.
+
+Verification:
+
+- `python3 -m pytest tests/test_research_bash_guidance.py tests/test_bash_classify.py tests/test_runtime_sync.py -q` (157 passed)
+- Force-seeded a throwaway runtime and confirmed `~/.unifable/current/skills/explore/scripts/trace.sh` and `explore-websearch/scripts/websearch.sh` resolve with `~/.agents` absent.
+- Live e2e from the central path: `trace.sh`, `search.sh`, and the `explore-websearch` `websearch.sh` shim all returned grounded output (exit 0).
+
 ## 1.9.123 - 2026-06-27
 
 - Synced judge transcript rendering with patchpress tool-use formatting: compact
