@@ -3,15 +3,36 @@
 Transcript tails are budgeted against gpt-realtime-2's 256k-char per-message
 limit (see JUDGE_* constants); codex_judge.ask_structured enforces the same cap
 at the transport layer.
+
+Tool rendering and age-based compression mirror patchpress (tool-use-format +
+sentinel-style old-record compression), configurable via UNIFABLE_JUDGE_* env.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
 from pathlib import Path
 from typing import Any
+
+try:
+    from tool_output_compress import compact_tool_output_body, judge_compression_config
+    from tool_use_format import (
+        compact_formatted_edit,
+        format_tool_result,
+        format_tool_use,
+        is_formatted_edit_text,
+    )
+except ImportError:  # pragma: no cover
+    from scripts.gate.tool_output_compress import compact_tool_output_body, judge_compression_config
+    from scripts.gate.tool_use_format import (
+        compact_formatted_edit,
+        format_tool_result,
+        format_tool_use,
+        is_formatted_edit_text,
+    )
 
 TRANSCRIPT_TOKEN_BUDGET = 50_000
 # Conservative chars-per-token bound. Real model tokens average ~4 chars, but a
@@ -153,37 +174,23 @@ def _attr(value: Any) -> str:
     return str(value).replace('"', "'").replace("\n", " ")
 
 
-def _part_text(part: Any) -> str:
+def _tool_format_meta(entry: dict[str, Any] | None) -> dict[str, Any]:
+    return {
+        "lineNumber": entry.get("lineNumber") if entry else None,
+        "recordHash": entry.get("hash") if entry else None,
+        "cwdPrefix": os.environ.get("UNIFABLE_JUDGE_TRANSCRIPT_CWD_PREFIX") or None,
+    }
+
+
+def _render_part_for_prompt(part: Any, meta: dict[str, Any]) -> str:
     if isinstance(part, str):
         return part
     if not isinstance(part, dict):
         return ""
     if part.get("type") == "tool_use":
-        name = part.get("name") or "unknown"
-        raw_input = part.get("input")
-        if isinstance(raw_input, (dict, list)):
-            rendered_input = json.dumps(raw_input, ensure_ascii=False, sort_keys=True)
-        else:
-            rendered_input = str(raw_input or "")
-        return f"[tool_use name={name}]\n{rendered_input}"
+        return format_tool_use(part, meta)
     if part.get("type") == "tool_result" or part.get("tool_use_id"):
-        content = part.get("content")
-        if isinstance(content, list):
-            pieces = []
-            for item in content:
-                if isinstance(item, str):
-                    pieces.append(item)
-                elif isinstance(item, dict):
-                    for key in ("text", "content"):
-                        if isinstance(item.get(key), str):
-                            pieces.append(item[key])
-                            break
-            rendered = "\n".join(p for p in pieces if p)
-        elif isinstance(content, str):
-            rendered = content
-        else:
-            rendered = ""
-        return f"[tool_result]\n{rendered}"
+        return format_tool_result(part, meta)
     if isinstance(part.get("text"), str):
         return part["text"]
     if isinstance(part.get("content"), str):
@@ -191,14 +198,15 @@ def _part_text(part: Any) -> str:
     return ""
 
 
-def _record_text(record: dict[str, Any]) -> str:
+def _record_text(record: dict[str, Any], entry: dict[str, Any] | None = None) -> str:
+    meta = _tool_format_meta(entry)
     content = record.get("message", {}).get("content") if isinstance(record.get("message"), dict) else None
     if content is None:
         content = record.get("content")
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        rendered = "\n\n".join(part for part in (_part_text(item) for item in content) if part)
+        rendered = "\n\n".join(part for part in (_render_part_for_prompt(item, meta) for item in content) if part)
         if rendered:
             return rendered
     for key in ("toolUseResult", "lastPrompt", "aiTitle", "summary"):
@@ -208,6 +216,48 @@ def _record_text(record: dict[str, Any]) -> str:
         if isinstance(value, (dict, list)):
             return json.dumps(value, ensure_ascii=False, sort_keys=True)
     return ""
+
+
+def _is_tool_output_record(record: dict[str, Any]) -> bool:
+    if record.get("toolUseResult") or record.get("sourceToolAssistantUUID"):
+        return True
+    content = record.get("message", {}).get("content") if isinstance(record.get("message"), dict) else None
+    if content is None:
+        content = record.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(isinstance(part, dict) and (part.get("type") == "tool_result" or part.get("tool_use_id")) for part in content)
+
+
+def _is_tool_use_record(record: dict[str, Any]) -> bool:
+    msg = record.get("message")
+    content = msg.get("content") if isinstance(msg, dict) else None
+    return isinstance(content, list) and any(
+        isinstance(part, dict) and part.get("type") == "tool_use" for part in content
+    )
+
+
+def _apply_record_compression(body: str, record: dict[str, Any], entry: dict[str, Any], record_count: int) -> str:
+    cfg = judge_compression_config()
+    keep_recent = int(cfg["keep_recent"])
+    if keep_recent <= 0:
+        return body
+    line_number = int(entry.get("lineNumber") or 0)
+    if line_number > record_count - keep_recent:
+        return body
+    if _is_tool_output_record(record):
+        compacted = compact_tool_output_body(body, entry, cfg)
+        return compacted["body"]
+    if _is_tool_use_record(record) and is_formatted_edit_text(body):
+        compacted = compact_formatted_edit(
+            body,
+            entry,
+            min_chars=int(cfg["tool_use_min_chars"]),
+            head_chars=int(cfg["tool_use_head_chars"]),
+            tail_chars=int(cfg["tool_use_tail_chars"]),
+        )
+        return compacted["body"]
+    return body
 
 
 def _preview_record(line: str) -> str:
@@ -231,8 +281,23 @@ def _preview_record(line: str) -> str:
     return " | ".join(pieces)
 
 
-def _render_stripped_record(line: str, line_number: int) -> str:
-    padded = str(line_number).zfill(6)
+def _build_entries(raw_lines: list[str]) -> list[dict[str, Any]]:
+    entries: list[dict[str, Any]] = []
+    for idx, line in enumerate(raw_lines):
+        entries.append(
+            {
+                "lineNumber": idx + 1,
+                "raw": line,
+                "hash": hashlib.sha256(line.encode("utf-8", "replace")).hexdigest(),
+                "preview": _preview_record(line),
+            }
+        )
+    return entries
+
+
+def _render_stripped_record(entry: dict[str, Any], record_count: int) -> str:
+    line = entry["raw"]
+    padded = str(entry["lineNumber"]).zfill(6)
     try:
         record = json.loads(line)
     except json.JSONDecodeError:
@@ -248,19 +313,25 @@ def _render_stripped_record(line: str, line_number: int) -> str:
         attrs.append(f'role="{_attr(msg["role"])}"')
     if record.get("timestamp"):
         attrs.append(f'timestamp="{_attr(record["timestamp"])}"')
-    body = _record_text(record).strip() or _preview_record(line) or "[no textual content extracted]"
+    body = _record_text(record, entry).strip() or entry.get("preview") or "[no textual content extracted]"
+    body = _apply_record_compression(body, record, entry, record_count)
     return "<record " + " ".join(attrs) + ">\n" + body + "\n</record>"
 
 
 def stripped_transcript(text: str) -> str:
     """Render JSONL transcript records in the stripped line-addressed format.
 
-    This mirrors claudecompact-patcher's default `stripped` renderer: JSONL
-    records become XML-like records with line/type/role/timestamp metadata, and
-    the body contains extracted message/tool text instead of raw JSON.
+    Mirrors patchpress stripped renderer with patchpress tool-use formatting and
+    age-based compression on old tool outputs / formatted edits.
     """
     lines = [line for line in re.split(r"\r?\n", text) if line.strip()]
-    return "\n".join(_render_stripped_record(line, i + 1) for i, line in enumerate(lines)) + ("\n" if lines else "")
+    if not lines:
+        return ""
+    entries = _build_entries(lines)
+    record_count = len(entries)
+    return (
+        "\n".join(_render_stripped_record(entry, record_count) for entry in entries) + "\n"
+    )
 
 
 def stripped_transcript_tail(path: str | os.PathLike[str] | None, max_tokens: int = TRANSCRIPT_TOKEN_BUDGET) -> str:
@@ -342,8 +413,6 @@ def latest_user_prompt_fingerprint(path: str | os.PathLike[str] | None) -> str:
             continue
         text = _is_human_user_turn(record)
         if text:
-            import hashlib
-
             return hashlib.sha256(text.encode("utf-8", "replace")).hexdigest()[:16]
     return ""
 

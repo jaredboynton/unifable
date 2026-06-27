@@ -176,32 +176,45 @@ def should_suppress_path_hypothesis_arm(
     return any(_segment_plans_read(tail, p) for p in paths)
 
 
-_SKILL_TOOL_USE_RE = re.compile(r"\[tool_use name=Skill\][^\n]*\n([^\n]+)")
+_SKILL_TOOL_USE_LEGACY_RE = re.compile(r"\[tool_use name=Skill\][^\n]*\n([^\n]+)")
+_SKILL_TOOL_USE_RE = _SKILL_TOOL_USE_LEGACY_RE
+_SKILL_TOOL_USE_PATCHPRESS_RE = re.compile(
+    r"@@tool Skill[^\n]*\n(\{[\s\S]*?\})\n(?:stats:|\[tool_result\]|</record>|@@tool |\Z)"
+)
 
 
 _QUOTED_VALUE_RE = re.compile(r'"([^"\\]+)"')
 
 
+def _skill_names_from_tool_block(block: str) -> set[str]:
+    names: set[str] = set()
+    line = block.strip()
+    parsed: Any = None
+    try:
+        parsed = json.loads(line)
+    except Exception:
+        parsed = None
+    if isinstance(parsed, dict):
+        for value in parsed.values():
+            if isinstance(value, str) and value.strip():
+                names.add(value.strip().lower())
+    elif isinstance(parsed, str) and parsed.strip():
+        names.add(parsed.strip().lower())
+    else:
+        for value in _QUOTED_VALUE_RE.findall(line):
+            if value.strip():
+                names.add(value.strip().lower())
+    return names
+
+
 def loaded_skill_names(segment: str) -> set[str]:
     """Skill names loaded via the Skill tool in the transcript segment."""
     names: set[str] = set()
-    for m in _SKILL_TOOL_USE_RE.finditer(str(segment or "")):
-        line = m.group(1).strip()
-        parsed: Any = None
-        try:
-            parsed = json.loads(line)
-        except Exception:
-            parsed = None
-        if isinstance(parsed, dict):
-            for value in parsed.values():
-                if isinstance(value, str) and value.strip():
-                    names.add(value.strip().lower())
-        elif isinstance(parsed, str) and parsed.strip():
-            names.add(parsed.strip().lower())
-        else:
-            for value in _QUOTED_VALUE_RE.findall(line):
-                if value.strip():
-                    names.add(value.strip().lower())
+    text = str(segment or "")
+    for m in _SKILL_TOOL_USE_LEGACY_RE.finditer(text):
+        names.update(_skill_names_from_tool_block(m.group(1)))
+    for m in _SKILL_TOOL_USE_PATCHPRESS_RE.finditer(text):
+        names.update(_skill_names_from_tool_block(m.group(1)))
     return names
 
 

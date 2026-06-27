@@ -763,7 +763,7 @@ def test_transcript_segment_preserves_full_tool_call_and_result(tmp_path):
         encoding="utf-8",
     )
     seg = gb.transcript_segment({"transcript_path": str(f)})
-    assert "[tool_use name=Bash]" in seg
+    assert "@@tool Bash" in seg
     assert "[tool_result]" in seg
     assert tool_input_tail in seg
     assert tool_result_tail in seg
@@ -1004,7 +1004,8 @@ def test_full_disarm_clears_provisional(monkeypatch):
 def test_loaded_skill_names_parses_skill_tool_use():
     seg = (
         '<record line="000001" type="assistant" role="assistant">\n'
-        '[tool_use name=Skill]\n{"command": "release"}\n</record>\n'
+        '@@tool Skill line=000001\n{\n  "command": "release"\n}\n'
+        'stats: input_sha256=abc\n</record>\n'
         '<record line="000002" type="user" role="user">\n'
         "[tool_result]\nSuccessfully loaded skill\n</record>"
     )
@@ -1012,8 +1013,16 @@ def test_loaded_skill_names_parses_skill_tool_use():
     assert gb.loaded_skill_names("no skill loaded here") == set()
 
 
+def test_loaded_skill_names_parses_legacy_skill_tool_use():
+    seg = (
+        '<record line="000001" type="assistant" role="assistant">\n'
+        '[tool_use name=Skill]\n{"command": "release"}\n</record>\n'
+    )
+    assert "release" in gb.loaded_skill_names(seg)
+
+
 def test_claim_describes_loaded_skill_requires_skill_context():
-    seg = '[tool_use name=Skill]\n{"command": "release"}'
+    seg = '@@tool Skill\n{\n  "command": "release"\n}\nstats: input_sha256=abc'
     assert gb.claim_describes_loaded_skill("the release skill handles X", seg) is True
     assert gb.claim_describes_loaded_skill("use skill: release to ship", seg) is True
     # bare skill-name word with no skill context is NOT suppressed (repo claim)
@@ -1025,7 +1034,7 @@ def test_claim_describes_loaded_skill_requires_skill_context():
 def test_arm_judge_does_not_arm_on_just_loaded_skill_behavior():
     segment = (
         '<record line="000001" type="assistant" role="assistant">\n'
-        '[tool_use name=Skill]\n{"command": "release"}\n</record>\n'
+        '@@tool Skill\n{\n  "command": "release"\n}\nstats: input_sha256=abc\n</record>\n'
         '<record line="000002" type="user" role="user">\n'
         "[tool_result]\nSuccessfully loaded skill\n</record>"
     )
@@ -1045,7 +1054,7 @@ def test_arm_judge_does_not_arm_on_just_loaded_skill_behavior():
 
 
 def test_arm_judge_still_arms_on_repo_claim_despite_loaded_skill():
-    segment = '[tool_use name=Skill]\n{"command": "release"}\n[tool_result]\nok'
+    segment = '@@tool Skill\n{"command": "release"}\nstats: x\n[tool_result]\nok'
 
     def judge(system, user, schema):
         return {
@@ -1060,7 +1069,7 @@ def test_arm_judge_still_arms_on_repo_claim_despite_loaded_skill():
 
 
 def test_disarm_judge_releases_claim_about_loaded_skill():
-    segment = '[tool_use name=Skill]\n{"command": "release"}\n[tool_result]\nSuccessfully loaded skill'
+    segment = '@@tool Skill\n{"command": "release"}\nstats: x\n[tool_result]\nSuccessfully loaded skill'
 
     def judge(system, user, schema):
         return {

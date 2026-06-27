@@ -62,10 +62,11 @@ evidence state updated in the background, then renders verdicts at the gates:
   [How the judge flows through a session](#how-the-judge-flows-through-a-session) for the full lifecycle.
 
 Because the judge runs over transcript material on a 256,000-char per-message budget, that material
-is **pre-trimmed** before each call (`scripts/gate/transcript_tail.py` — tail-preserving truncation,
-a token budget, and a hard char ceiling). A far more advanced evolution of this judge-context
-pruning — keeping only the relevant slice of context — lives in
-[**patchpress**](https://github.com/jaredboynton/patchpress).
+is **pre-trimmed** before each call (`scripts/gate/transcript_tail.py` — patchpress-compatible
+compact Edit/Write diffs, age-based tool-output compression defaulting to observation masking,
+sticky retention-window tailing, a token budget, and a hard char ceiling). The full compaction
+harness that `/compact` uses lives in [**patchpress**](https://github.com/jaredboynton/patchpress);
+Unifusion vendors the same renderer for session briefs.
 
 ## How the judge flows through a session
 

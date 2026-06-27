@@ -21,3 +21,19 @@ runtime helpers.
 - Run focused tests for touched modules and `python3 -m py_compile` on edited
   Python files.
 - Run `just test-all` before release.
+
+## Judge transcript compression
+
+`transcript_tail.py` renders session JSONL for gpt-realtime-2 judges using the patchpress
+`tool-use-format` semantics (compact Edit/Write diffs) plus age-based compression on old tool
+outputs and formatted edits. Knobs (all optional):
+
+| Env | Default | Meaning |
+|---|---|---|
+| `UNIFABLE_JUDGE_TOOL_OUTPUT_STRATEGY` | `mask` | `headtail`, `dspc`, or `mask` for old tool outputs |
+| `UNIFABLE_JUDGE_TOOL_OUTPUT_KEEP_RECENT` | `64` | Recent records left uncompressed |
+| `UNIFABLE_JUDGE_TOOL_OUTPUT_MIN_CHARS` | `2400` | Minimum body size before compression |
+| `UNIFABLE_JUDGE_TOOL_USE_COMPRESS_MIN_CHARS` | `800` | Minimum formatted edit size before re-compress |
+| `UNIFABLE_JUDGE_TRANSCRIPT_CWD_PREFIX` | (unset) | Strip absolute paths in edit headers |
+
+Implementation: `tool_use_format.py`, `tool_output_compress.py`.

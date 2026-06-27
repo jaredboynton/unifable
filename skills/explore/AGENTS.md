@@ -1,5 +1,11 @@
 # Explore skill — agent notes
 
+## Transcript compaction (out of scope here)
+
+This skill does not vendor patchpress. Session transcript compaction for `/compact` lives in
+[patchpress](https://github.com/jaredboynton/patchpress); the unifable judge's pre-trimmed transcript
+view is `scripts/gate/transcript_tail.py` (Python port of patchpress tool formatting + compression).
+
 ## Websearch transports
 
 | Script | Model / API | Auth |

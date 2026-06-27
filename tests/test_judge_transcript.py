@@ -195,3 +195,70 @@ def test_judge_context_transcript_prefix_is_sticky(tmp_path, monkeypatch):
     monkeypatch.setattr(transcript_tail, "TRANSCRIPT_TOKEN_BUDGET", 1000)
     changes = _prefix_changes(lambda p: _judge_context(p)[0], tmp_path)
     assert changes <= 15
+
+
+def test_stripped_transcript_formats_edit_as_diff(tmp_path):
+    tx = tmp_path / "edit.jsonl"
+    tx.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "Edit",
+                            "input": {
+                                "file_path": "src/foo.py",
+                                "old_str": "before\n",
+                                "new_str": "after\n",
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    out = transcript_tail.stripped_transcript(tx.read_text(encoding="utf-8"))
+    assert "@@tool Edit" in out
+    assert "-before" in out
+    assert "+after" in out
+
+
+def test_old_tool_output_is_masked_when_beyond_keep_recent(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_JUDGE_TOOL_OUTPUT_KEEP_RECENT", "1")
+    monkeypatch.setenv("UNIFABLE_JUDGE_TOOL_OUTPUT_MIN_CHARS", "10")
+    monkeypatch.setenv("UNIFABLE_JUDGE_TOOL_OUTPUT_STRATEGY", "mask")
+    lines = []
+    filler = "OLD_TOOL_OUTPUT_MARKER_" + ("x" * 500)
+    lines.append(
+        json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "content": filler}],
+                },
+            }
+        )
+    )
+    lines.append(
+        json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "content": "RECENT_OUTPUT_OK"}],
+                },
+            }
+        )
+    )
+    tx = tmp_path / "mask.jsonl"
+    tx.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    out = transcript_tail.stripped_transcript(tx.read_text(encoding="utf-8"))
+    assert "[tool output masked: strategy=mask" in out
+    assert "OLD_TOOL_OUTPUT_MARKER_" not in out
+    assert "RECENT_OUTPUT_OK" in out

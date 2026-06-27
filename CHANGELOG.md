@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.9.123 - 2026-06-27
+
+- Synced judge transcript rendering with patchpress tool-use formatting: compact
+  Edit/Write diffs, EditResult diffLines parsing, and age-based tool-output
+  compression (default observation masking) via `transcript_tail.py`,
+  `tool_use_format.py`, and `tool_output_compress.py`.
+- Vendored patchpress 0.6.x compaction into the Unifusion skill
+  (`tool-use-format.mjs`, supporting modules, updated `compact-full-transcript.mjs`)
+  while preserving ATIF/Codex adapters and `UNIFUSION_TRANSCRIPT` resolution.
+- Extended Skill-tool parsing in `breaker_filters.py` for `@@tool Skill` blocks;
+  added optional Unifusion summarizer compression env knobs.
+
+Verification:
+
+- `python3 -m pytest tests/test_tool_use_format.py tests/test_judge_transcript.py tests/test_groundedness_breaker.py tests/test_transcript_retention.py -q`
+- `bash skills/unifusion/scripts/selfcheck.sh`
+- `python3 -m py_compile scripts/gate/tool_use_format.py scripts/gate/tool_output_compress.py scripts/gate/transcript_tail.py`
+
 ## 1.9.122 - 2026-06-27
 
 - Moved groundedness breaker restriction copy out of judge-authored steering and

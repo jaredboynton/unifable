@@ -49,8 +49,9 @@ Plain bash + two interpreter helpers; no build step.
   records citable/renderable, and `atifToClaudeJsonl` converts a Devin ATIF-v1.4 JSON document (`steps[]`)
   into Claude-shaped JSONL records (`sha256`/`bytes` still hash the original file). So Claude, Codex, Droid,
   Devin, and GLM transcripts all summarize end-to-end. Writes a bundle to `--out-dir`; the brief is
-  `<out-dir>/summary.md`. Vendored from claudecompact-patcher; keep the four provider dispatch paths in sync
-  if edited.
+  `<out-dir>/summary.md`. Vendored from **patchpress**; keep the four provider dispatch paths in sync
+  when edited. Dependency modules in the same directory: `tool-use-format.mjs`, `handoff-density.mjs`,
+  `prompt-adaptation.mjs`, `renderer-prompt-guides.mjs`.
 - `scripts/run_codex.sh` (GPT-5.5), `run_gemini.sh` (Gemini 3.5 Flash via the standalone `gemini` CLI),
   `run_kimi.sh` (Kimi K2.7), `run_glm.sh` (GLM-5.2 via `glm-acp-agent` ACP) — one external panelist each.
   `run_agy.sh` is the preserved Antigravity (`agy`) baseline of the Gemini panelist (the pty bug-#76 path
@@ -186,7 +187,12 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
 - Keep the factual-only post-filter in `summarize_session.sh` (strips Plans / Promises / Next-Step). The
   session brief is the panel's one shared prior; leaking proposed next steps would correlate the panel.
 - Keep `compact-full-transcript.mjs` on schema-constrained structured output (never function calling);
-  preserve all four provider dispatch paths when editing it.
+  preserve all four provider dispatch paths when editing it. When syncing from patchpress, copy
+  `tool-use-format.mjs` and sibling modules together; re-apply Unifusion-only adapters
+  (`codexPayloadText`, `atifToClaudeJsonl`, `UNIFUSION_TRANSCRIPT`, session discovery).
+- Optional long-session compression via `UNIFUSION_COMPACT_TRANSCRIPT_RENDERER=sentinel`,
+  `UNIFUSION_COMPACT_TOOL_OUTPUT_STRATEGY=mask`, and `UNIFUSION_COMPACT_TOOL_OUTPUT_KEEP_RECENT=64`
+  (wired in `summarize_session.sh`).
 - Transcript resolution must be a deterministic id or a unique fingerprint match, else exit non-zero;
   never select a transcript by mtime/birth-time/cwd — a wrong transcript would corrupt every panelist.
 - Keep the `_run_with_timeout` / pty helpers; they work around real macOS / headless limitations.
