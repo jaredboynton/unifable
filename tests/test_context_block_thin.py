@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Tests for the THIN SessionStart frame (stepwise judge-driven harness).
+"""Tests for the actionable SessionStart frame.
 
-The standing block no longer front-loads the model with the full operating-mode
-posture. It only frames the judge relationship and tells the agent to restate the
-goal; the per-tool director judge supplies step-by-step guidance at runtime.
+The standing block no longer front-loads the model with operating-mode posture.
+It tells the agent exactly which CLI command to run first, then gives only the
+initial research-mode restrictions.
 """
 
 from __future__ import annotations
@@ -17,6 +17,7 @@ if str(GATE_DIR) not in sys.path:
     sys.path.insert(0, str(GATE_DIR))
 
 import context_block  # noqa: E402
+from research_bash_guidance import bash_allowed_summary  # noqa: E402
 
 
 def test_frame_nonempty_and_deterministic() -> None:
@@ -27,35 +28,31 @@ def test_frame_nonempty_and_deterministic() -> None:
     assert ctx1 == ctx2
 
 
-def test_frame_states_judge_relationship() -> None:
-    ctx = context_block.build_session_context().lower()
-    # Names the judge and its step-by-step, tool-gating role.
-    assert "judge" in ctx
-    assert "step" in ctx
-    # The judge tends the spec on the agent's behalf.
-    assert "task" in ctx
-
-
-def test_frame_instructs_restate_first() -> None:
+def test_frame_instructs_exact_restate_first() -> None:
     ctx = context_block.build_session_context()
-    # The frame tells the agent to restate first ...
+    assert ctx.startswith("FIRST ACTION REQUIRED")
+    assert "first tool call MUST run this CLI command" in ctx
+    assert "unifable restate '<goal in your own words>'" in ctx
+    assert "Do it RIGHT NOW" in ctx
     assert "restat" in ctx.lower()
 
 
-def test_frame_does_not_duplicate_spec_cli_tutorial() -> None:
-    """The literal restate/add-task command syntax lives in the first-prompt
-    scaffold onboarding (gate_prompt._format_scaffold_onboarding), not here. The
-    frame must not repeat it, or the agent sees the same tutorial twice on prompt 1."""
+def test_frame_does_not_duplicate_full_spec_cli_tutorial() -> None:
+    """SessionStart names only the mandatory first command, not the full CLI."""
     ctx = context_block.build_session_context()
-    assert "unifable restate" not in ctx
     assert "unifable add-task" not in ctx
+    assert "unifable set-primary" not in ctx
+    assert "unifable add-frontier" not in ctx
 
 
 def test_frame_drops_the_old_standing_posture() -> None:
-    """The fat operating-mode fragments must be gone -- the director carries them
-    per step now, so they must not be front-loaded here."""
+    """The frame must stay imperative and avoid relationship/posture prose."""
     ctx = context_block.build_session_context()
     for gone in (
+        "Stepwise, judge-driven operating mode",
+        "judge agent",
+        "tends a goal spec",
+        "groundedness arm",
         "malformed compounds",
         "rg/grep/ast-grep",
         "Lead with the outcome",
@@ -63,23 +60,21 @@ def test_frame_drops_the_old_standing_posture() -> None:
         "head/wc/tail not cat",
         "Read before naming",
     ):
-        assert gone not in ctx, f"thin frame still carries removed fragment: {gone!r}"
+        assert gone not in ctx, f"startup frame still carries removed fragment: {gone!r}"
 
 
 def test_frame_carries_preflight_guidance() -> None:
-    """The frame warns ahead of two known avoidable blockers: a read-only python3
-    -c is allowed (writing one is not), and a stale arm clears on the next action
-    in a new task. This is guidance only -- the enforcement lives in the hooks."""
-    ctx = context_block.build_session_context().lower()
-    assert "python3 -c" in ctx
-    assert "read" in ctx and ("network" in ctx or "process" in ctx)
-    assert "stale" in ctx or "previous task" in ctx
+    """The frame names the exact tools allowed during initial research mode."""
+    ctx = context_block.build_session_context()
+    assert "Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead." in ctx
+    assert f"Bash/REPL/exec_command are limited to: {bash_allowed_summary()}." in ctx
+    assert "Write/Edit/apply_patch and delegation stay blocked" in ctx
+    assert "Research mode allows only Read, Grep, Glob, and python3 -c" not in ctx
 
 
 def test_frame_is_thin() -> None:
     ctx = context_block.build_session_context()
-    # Far below the old ~3KB block. The thin frame is a short paragraph.
-    assert len(ctx) < 1200, f"frame is not thin: {len(ctx)} chars"
+    assert len(ctx) < 900, f"frame is not thin: {len(ctx)} chars"
 
 
 def test_payload_shape() -> None:

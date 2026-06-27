@@ -2,8 +2,8 @@
 """T8: live hook smoke test for the stepwise harness.
 
 Exercises the REAL hook subprocesses end-to-end (not in-process helpers):
-  1. SessionStart emits the THIN judge-relationship frame (restate + judge), not
-     the old fat operating-mode block.
+  1. SessionStart emits the actionable restate-first frame, not the old fat
+     operating-mode block.
   2. PreToolUse enforces the director's persisted tool scope: an out-of-scope Edit
      on an unvalidated spec is blocked with the director's directive as the reason.
 
@@ -51,15 +51,16 @@ def test_sessionstart_emits_thin_frame(tmp_path) -> None:
     assert rc == 0
     payload = json.loads(out or "{}")
     ctx = payload.get("hookSpecificOutput", {}).get("additionalContext", "")
-    # Thin frame: judge relationship + restate-first. The literal spec commands
-    # live in the first-prompt scaffold onboarding, not the standing frame.
-    assert "judge" in ctx.lower()
+    # Thin frame: mandatory restate-first command + research-mode restrictions.
+    assert ctx.startswith("FIRST ACTION REQUIRED")
     assert "restat" in ctx.lower()
-    assert "unifable restate" not in ctx
+    assert "unifable restate '<goal in your own words>'" in ctx
+    assert "Read" in ctx and "Grep" in ctx and "Glob" in ctx
+    assert "Bash/REPL/exec_command are limited to:" in ctx
     # The old fat operating-mode block must be gone.
     assert "malformed compounds" not in ctx
     assert "rg/grep/ast-grep" not in ctx
-    assert len(ctx) < 1200
+    assert len(ctx) < 900
 
 
 def test_pretool_enforces_director_scope_live(tmp_path) -> None:

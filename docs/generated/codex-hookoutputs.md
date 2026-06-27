@@ -8,7 +8,7 @@ Source hook config: `.codex-plugin/hooks.json`.
 
 | Event | Matcher | Command | Timeout | Status Message |
 |---|---|---|---:|---|
-| SessionStart | (empty) | `"${HOME}/.local/bin/unifable-hook" session_start.py` | 30 | syncing stable runtime |
+| SessionStart | (empty) | `"${HOME}/.local/bin/unifable-hook" session_start.py` | 30 |  |
 | UserPromptSubmit | (empty) | `router.sh` | 10 | routing task signal to pack |
 | UserPromptSubmit | (empty) | `gate_prompt.py` | 95 | classifying task mode |
 | UserPromptSubmit | (empty) | `gate_prompt_effort.py` | 10 | effort-gated playbook injection |
@@ -19,7 +19,7 @@ Source hook config: `.codex-plugin/hooks.json`.
 
 ## Rendered Model-Visible Outputs
 
-### SessionStart thin judge-relationship frame
+### SessionStart actionable restate-first frame
 
 Event: `SessionStart`
 
@@ -27,7 +27,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "Stepwise, judge-driven operating mode.\n\n- You are working with a judge agent that guides you step by step. On each action it opens or restricts your tools to keep you on evidence-backed, thoroughly-researched approaches, and it tends a goal spec on your behalf -- marking tasks complete and adding new ones as the work clarifies.\n- The judge tells you exactly what you may and may not do next. When a hook message appears, treat it as your current instruction: follow it instead of retrying the blocked action or working around it.\n- Restate the user goal in your own words first. The gate then hands you the exact spec commands; drive the spec through the append-only CLI.",
+    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nDo it RIGHT NOW. Until this succeeds, normal tools are blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.\n- Write/Edit/apply_patch and delegation stay blocked unless a hook explicitly lifts them.\n\nIf a hook blocks you, follow its exact instruction next.",
     "hookEventName": "SessionStart"
   }
 }
@@ -156,7 +156,7 @@ stderr:
 ```text
 npm is not in the Bash research whitelist.
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
-Allowed now: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
+Allowed now: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:
@@ -171,7 +171,7 @@ Event: `PreToolUse`
 stderr:
 ```text
 Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier).
-Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
+Allowed now: Read/Grep/Glob/web and Bash limited to cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:

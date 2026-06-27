@@ -1,12 +1,9 @@
 #!/usr/bin/env python3
-"""Build the SessionStart context block — the THIN judge-relationship frame.
+"""Build the SessionStart context block.
 
-Stepwise harness: the model is no longer front-loaded with the full operating-mode
-posture. This frame only (1) tells the model it is working under a per-tool director
-judge that opens/restricts its tools and tends the goal spec, and (2) instructs it
-to restate the goal first. All step-by-step guidance (what to do next, which tools
-are open, citation/edit discipline) is delivered at runtime by the director judge
-on each tool call, not front-loaded here.
+Keep this startup frame short and imperative. It exists to prevent the first
+avoidable block: the agent must restate the user goal through the append-only CLI
+before trying normal work. Detailed workflow guidance belongs in later hook output.
 
 Host-agnostic: no imports from hooks/ or install/. Fail-open by design.
 """
@@ -15,33 +12,48 @@ from __future__ import annotations
 
 from pathlib import Path
 
-_FRAME = (
-    "Stepwise, judge-driven operating mode.\n"
+_FALLBACK_RESEARCH_BASH = "cd, ls, glob, rg, grep, read-only python/python3 -c, unifable spec CLI"
+
+
+def _research_bash_summary() -> str:
+    try:
+        from research_bash_guidance import bash_allowed_summary
+    except ImportError:  # pragma: no cover
+        try:
+            from scripts.gate.research_bash_guidance import bash_allowed_summary
+        except Exception:
+            return _FALLBACK_RESEARCH_BASH
+    try:
+        return bash_allowed_summary()
+    except Exception:
+        return _FALLBACK_RESEARCH_BASH
+
+
+_FRAME_TEMPLATE = (
+    "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n"
     "\n"
-    "- You are working with a judge agent that guides you step by step. On each "
-    "action it opens or restricts your tools to keep you on evidence-backed, "
-    "thoroughly-researched approaches, and it tends a goal spec on your behalf -- "
-    "marking tasks complete and adding new ones as the work clarifies.\n"
-    "- The judge tells you exactly what you may and may not do next. When a hook "
-    "message appears, treat it as your current instruction: follow it instead of "
-    "retrying the blocked action or working around it.\n"
-    "- Restate the user goal in your own words first. The gate then hands you the "
-    "exact spec commands; drive the spec through the append-only CLI.\n"
-    "- In the research phase, inspect with Read/Grep/Glob. A python3 -c that only "
-    "reads and prints is allowed; one that writes a file, spawns a process, or "
-    "reaches the network is blocked until the spec validates -- don't retry it.\n"
-    "- A groundedness arm from a previous task clears automatically on your next "
-    "action in a new task. Don't work around a stale block; just proceed."
+    "unifable restate '<goal in your own words>'\n"
+    "\n"
+    "Do it RIGHT NOW. Until this succeeds, normal tools are blocked.\n"
+    "\n"
+    "Before the spec validates:\n"
+    "- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, "
+    "NotebookRead.\n"
+    "- Bash/REPL/exec_command are limited to: {research_bash}.\n"
+    "- Write/Edit/apply_patch and delegation stay blocked unless a hook "
+    "explicitly lifts them.\n"
+    "\n"
+    "If a hook blocks you, follow its exact instruction next."
 )
 
 
 def build_session_context(plugin_root: str | Path | None = None) -> str:
-    """Return the standing SessionStart context string (the thin frame).
+    """Return the standing SessionStart context string.
 
     plugin_root is accepted but unused so the signature can grow without changing
     call sites.
     """
-    return _FRAME
+    return _FRAME_TEMPLATE.format(research_bash=_research_bash_summary())
 
 
 def build_session_payload(plugin_root: str | Path | None = None) -> dict:

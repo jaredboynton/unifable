@@ -40,6 +40,7 @@ def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.M
     assert "trace.sh" not in summary
     assert "websearch.sh" not in summary
     assert "explore" not in summary.lower()
+    assert "read-only python/python3 -c" in summary
     assert "unifusion scripts" in summary
 
 
@@ -98,6 +99,8 @@ def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
     assert rbg.explore_trace_list_item() == ""
     detail = rbg.allowed_research_bash_detail()
+    assert "read-only python/python3 -c inspection" in detail
+    assert "no writes, process spawn, or network" in detail
     assert ", ," not in detail
     assert ", the unifusion skill scripts" in detail
 

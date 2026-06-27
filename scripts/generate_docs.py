@@ -195,7 +195,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
 
     return [
         HookScenario(
-            name="SessionStart thin judge-relationship frame",
+            name="SessionStart actionable restate-first frame",
             event="SessionStart",
             stdout={
                 "hookSpecificOutput": {
