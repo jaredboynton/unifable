@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Preflight/doctor for the explore skill.
+# Preflight checks for the explore skill.
 #
 # Unlike a vendored single-binary skill, explore depends on the Cursor Agent
 # CLI (a system tool that requires an authenticated session) plus Node.js for
@@ -115,6 +115,16 @@ else
   warn "install: brew install ripgrep  (macOS)"
   warn "         apt install ripgrep   (Debian/Ubuntu)"
   warn "         https://github.com/BurntSushi/ripgrep#installation"
+  problems=$((problems + 1))
+fi
+
+# search.sh runs search-rt.mjs on Bun when present, falling back to Node.
+if command -v bun >/dev/null 2>&1; then
+  ok "bun available for search-rt.mjs ($(bun --version))"
+elif command -v node >/dev/null 2>&1; then
+  ok "node available for search-rt.mjs ($(node --version))"
+else
+  fail "bun or node not found on PATH (required for search.sh)"
   problems=$((problems + 1))
 fi
 

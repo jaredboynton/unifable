@@ -102,7 +102,6 @@ FACADE_SYMBOLS = (
     "_cmd_add_frontier",
     "_cmd_set_primary",
     "_cmd_restate",
-    "_cmd_doctor_session_env",
 )
 
 

@@ -16,7 +16,6 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 from spec import canonical_project_root, dir_hash, load_spec, save_spec, spec_path, spec_template  # noqa: E402
 from spec_cli import (
     _apply_cli_context,  # noqa: E402
-    _cmd_doctor_session_env,
 )
 from spec_io import _safe_session
 
@@ -112,27 +111,3 @@ def test_apply_cli_context_resolves_env(tmp_path, monkeypatch):
     assert _apply_cli_context(args) is None
     assert args.task_id == "env-session-1"
     assert args.root == str(canonical_project_root(repo))
-
-
-def test_doctor_session_env_shows_location(tmp_path, capsys, monkeypatch):
-    data = tmp_path / "data"
-    data.mkdir()
-    with _with_data(str(data)):
-        repo = tmp_path / "repo"
-        repo.mkdir()
-        _git_init(repo)
-        monkeypatch.chdir(repo)
-        monkeypatch.setenv("CLAUDE_CODE_SESSION_ID", "sess-w")
-        save_spec(repo, "sess-w", _spec_with_task())
-        rc = _cmd_doctor_session_env(type("Args", (), {"root": str(repo), "task_id": "sess-w"})())
-        captured = capsys.readouterr()
-        out = captured.out
-        err = captured.err
-        assert rc == 0
-        assert "session-id: sess-w" in out
-        assert "dirhash:" in out
-        assert "not your session-id" in out
-        assert "[--] T1" in out
-        # diagnostic for empirical env validation is emitted on stderr
-        assert "UNIFABLE_SESSION_RESOLVED=" in err
-        assert "SOURCE=" in err

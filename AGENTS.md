@@ -78,7 +78,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.12.1          # or: just version patch|minor|major
+just version 1.12.2          # or: just version patch|minor|major
 
 ```
 
@@ -123,6 +123,5 @@ just version 1.12.1          # or: just version patch|minor|major
 | Evidence-gate design | [docs/evidence-gate-design.md](docs/evidence-gate-design.md) |
 | Pack routing (inline discipline) | [packs/router-manifest.json](packs/router-manifest.json), [scripts/gate/pack_router.py](scripts/gate/pack_router.py) |
 | Generated hook/judge reference | [docs/generated/](docs/generated/), [docs/generated-docs-plan.md](docs/generated-docs-plan.md) |
-| Operator session env validation | [docs/session-env-validation.md](docs/session-env-validation.md) |
 | Eval rubric + scenarios | [docs/evals/](docs/evals/), [tests/eval_rubric.md](tests/eval_rubric.md) |
 | Scoped agent notes | [hooks/AGENTS.md](hooks/AGENTS.md), [scripts/AGENTS.md](scripts/AGENTS.md), [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md), [tests/AGENTS.md](tests/AGENTS.md), [docs/AGENTS.md](docs/AGENTS.md) |

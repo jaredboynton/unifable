@@ -10,6 +10,7 @@ Phases:
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 APPROACH_KINDS = ("requirement", "frontier", "primary")
@@ -274,6 +275,66 @@ def advance_primary_if_ready(spec: dict[str, Any]) -> bool:
         primary["status"] = "pending"
         return True
     return changed
+
+
+def _frontier_stall_cap() -> int:
+    """Consecutive still_viable stops before the arbiter forces the primary fallback."""
+    try:
+        return max(1, int(os.environ.get("UNIFABLE_FRONTIER_STALL_CAP", "2") or "2"))
+    except (TypeError, ValueError):
+        return 2
+
+
+def resolve_frontier_stall(spec: dict[str, Any]) -> list[str]:
+    """Bounded arbiter for the still_viable frontier livelock.
+
+    A frontier judged still_viable is viable-but-unselected; only the judge can
+    change that outcome, so when every frontier parks at still_viable (none
+    accepted, none rejected) the primary stays blocked forever and no agent action
+    can escape. After UNIFABLE_FRONTIER_STALL_CAP consecutive stops in that exact
+    state, rule the lingering still_viable frontiers rejected_approach so the
+    declared primary fallback unlocks. Mirrors the MAX_STOP_BLOCKS loop-bounding
+    pattern; resets the counter on any real progress. Returns headlines.
+    """
+    frontiers = frontier_tasks(spec)
+    if len(frontiers) < 2 or primary_task(spec) is None:
+        spec["frontier_stall_blocks"] = 0
+        return []
+    if compute_heavy_phase(spec) != "frontier" or any_frontier_accepted(spec):
+        spec["frontier_stall_blocks"] = 0
+        return []
+    viable = [t for t in frontiers if str(t.get("status") or "") == "still_viable"]
+    # Only count a stall once exploration is settled: every frontier is terminal
+    # or still_viable, with at least one still_viable. A genuinely pending or
+    # `failed` frontier means there is real work left, so reset and wait.
+    stalled = bool(viable) and all(
+        frontier_is_resolved(t) or str(t.get("status") or "") == "still_viable" for t in frontiers
+    )
+    if not stalled:
+        spec["frontier_stall_blocks"] = 0
+        return []
+    count = int(spec.get("frontier_stall_blocks") or 0) + 1
+    spec["frontier_stall_blocks"] = count
+    if count < _frontier_stall_cap():
+        return []
+    headlines: list[str] = []
+    for t in viable:
+        tid = str(t.get("id") or "")
+        t["status"] = "rejected_approach"
+        t["judge_reason"] = (
+            "Explored and viable but unselected; ruled out by the frontier-stall "
+            f"arbiter after {count} stalled stops to unlock the primary fallback."
+        )
+        headlines.append(f"{tid} ruled out by frontier-stall arbiter (viable but unselected).")
+    spec["frontier_stall_blocks"] = 0
+    advance_primary_if_ready(spec)
+    primary = primary_task(spec)
+    if primary is not None and str(primary.get("status") or "") == "pending":
+        headlines.append(
+            "All frontiers resolved (stall arbiter) — primary phase unlocked; "
+            "implement and validate the primary fallback."
+        )
+    return headlines
 
 
 def task_is_resolved(task: dict[str, Any]) -> bool:

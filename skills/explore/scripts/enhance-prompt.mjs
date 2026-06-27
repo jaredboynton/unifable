@@ -34,6 +34,14 @@ const SYNTH_MODEL = (process.env.UNIFABLE_PROMPT_ENHANCE_MODEL || "gpt-realtime-
 const NAMESPACE = (process.env.UNIFABLE_PROMPT_ENHANCE_NAMESPACE || "prompt-enhance").trim();
 const MINI = "gpt-realtime-mini";
 
+// SYNTH_SYSTEM for the enhancer synthesis turn. Bench-validated 2026-06-27
+// (docs/evals/prompt-enhance.md): the SOLE quality driver is the worked few-shot
+// example -- it teaches the "Area N" decomposition + concrete path:line density,
+// lifting quality 3.50 -> 4.00 (max 4). The extra decomposition/anti-patterns/
+// output-format text in the fat variant earned nothing, so this stays LEAN.
+// Realtime caches the prefix at ANY size (no 1024-token floor for the WS API), so
+// padding to cross 1024 would only slow cold calls for zero gain. Every token here
+// earns its place: the rules + one worked example.
 const SYNTH_SYSTEM = [
   "You rewrite a vague coding prompt into a grounded, actionable enhanced prompt using ONLY the provided code windows.",
   "Rules:",
@@ -43,6 +51,12 @@ const SYNTH_SYSTEM = [
   "- Do NOT emit repo-specific commands (no `npm test`, `pytest`, `cargo build`, `just test`, `make test`, `go test`, `yarn test`, `pnpm test`). If you mention verification, name the CATEGORY only (a test / typecheck / lint / build that exercises the change).",
   "- Be concise: decompose into 2-4 named investigation areas. Cap ~1200 chars.",
   "- If the windows contain nothing relevant to the ask, return enhanced_prompt=\"\" and cited_ranges=[].",
+  "",
+  "WORKED EXAMPLE (for voice and density -- do not copy its content):",
+  'Vague ask: "our trace script keeps getting stuck and hanging, fix it"',
+  "Windows provided: trace.sh:1-40 (the loop + PID check), trace-delegate.mjs:8-30 (the subprocess spawn + wait), lock.ts:5-18 (the lock file write).",
+  'Ideal enhanced_prompt: "Investigate why the trace loop hangs and fails to release its lock. Area 1 (root-cause candidate): review trace.sh:18-32 -- the PID liveness check (`kill -0 $pid`) and the 600s age threshold; determine whether a stale PID or a sub-600s respawn leaves the lock held. Area 2: review trace-delegate.mjs:12-26 -- the `node $SCRIPT` spawn and its wait/timeout path; check for an unhandled rejection or missing timeout that lets the delegate hang without exiting. Area 3: review lock.ts:8-16 -- the lock acquisition and release; confirm release runs on every exit path (success, failure, signal). Propose a fix that guarantees lock release on every exit path and tightens stale-PID detection. Verify with a test that exercises the hung-subprocess exit path."',
+  'cited_ranges: ["trace.sh:18-32", "trace-delegate.mjs:12-26", "lock.ts:8-16"]',
 ].join("\n");
 
 const ENHANCE_SCHEMA = {

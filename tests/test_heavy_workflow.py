@@ -319,3 +319,69 @@ def test_heavy_workflow_brief_uses_glossary_and_declare_phase():
     assert "Declare phase:" in brief
     assert "Before edits:" not in brief
     assert "Stop runs frontier adjudication" in brief
+
+
+def test_still_viable_outcome_is_not_stored_as_failed(tmp_path):
+    """Regression: a still_viable frontier keeps its own status, not `failed`.
+
+    Storing still_viable as `failed` (not in FRONTIER_RESOLVED) was the root of the
+    livelock: the frontier never resolved and the primary stayed blocked forever.
+    """
+    spec = _heavy_spec(tmp_path)
+    f1 = hw.frontier_tasks(spec)[0]
+    ssv._apply_check_result(
+        spec, f1, exit_code=0, output="viable", verdict=0, reason="viable but unselected",
+        new_reqs=[], frontier_outcome="still_viable",
+    )
+    assert f1["status"] == "still_viable"
+    assert "failed" not in {f1["status"]}
+    assert hw.frontier_is_resolved(f1) is False  # still blocks until the arbiter fires
+
+
+def test_frontier_stall_arbiter_respects_cap_then_unlocks_primary(tmp_path, monkeypatch):
+    """The still_viable livelock gets a bounded escape: cap respected, then primary unlocks."""
+    monkeypatch.setenv("UNIFABLE_FRONTIER_STALL_CAP", "2")
+    spec = _heavy_spec(tmp_path)
+    for t in hw.frontier_tasks(spec):
+        t["status"] = "still_viable"
+
+    # Stop #1: under the cap -> no unlock yet (one extra exploration round preserved).
+    assert hw.resolve_frontier_stall(spec) == []
+    assert hw.primary_task(spec)["status"] == "blocked"
+    assert hw.compute_heavy_phase(spec) == "frontier"
+    assert hw.all_tasks_validated_heavy(spec)[0] is False
+
+    # Stop #2: hits the cap -> viable frontiers ruled out, primary fallback unlocks.
+    headlines = hw.resolve_frontier_stall(spec)
+    assert headlines  # emitted a transition message
+    assert all(t["status"] == "rejected_approach" for t in hw.frontier_tasks(spec))
+    assert hw.primary_task(spec)["status"] == "pending"
+    assert hw.compute_heavy_phase(spec) == "primary"
+
+    # Once the agent validates the now-unlocked primary, the spec completes.
+    hw.primary_task(spec)["status"] = "validated"
+    ok, incomplete = hw.all_tasks_validated_heavy(spec)
+    assert ok is True and incomplete == []
+
+
+def test_frontier_stall_arbiter_resets_on_progress(tmp_path, monkeypatch):
+    """A pending/unexplored frontier means real work remains -> counter must reset."""
+    monkeypatch.setenv("UNIFABLE_FRONTIER_STALL_CAP", "2")
+    spec = _heavy_spec(tmp_path)
+    frontiers = hw.frontier_tasks(spec)
+    frontiers[0]["status"] = "still_viable"
+    # frontiers[1] still pending -> not a settled stall.
+    assert hw.resolve_frontier_stall(spec) == []
+    assert spec.get("frontier_stall_blocks") == 0
+    assert hw.primary_task(spec)["status"] == "blocked"
+
+
+def test_frontier_stall_arbiter_ignores_accepted_frontier(tmp_path, monkeypatch):
+    """An accepted frontier routes through adoption, not the stall arbiter."""
+    monkeypatch.setenv("UNIFABLE_FRONTIER_STALL_CAP", "1")
+    spec = _heavy_spec(tmp_path)
+    frontiers = hw.frontier_tasks(spec)
+    frontiers[0]["status"] = "accepted_approach"
+    frontiers[1]["status"] = "still_viable"
+    assert hw.resolve_frontier_stall(spec) == []
+    assert frontiers[1]["status"] == "still_viable"  # not force-rejected

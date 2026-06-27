@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.12.2 - 2026-06-27
+
+- Removed `unifable doctor` CLI subcommand and the session-env validation
+  protocol (`docs/session-env-validation.md`, `scripts/measure_session_env.py`).
+
+Verification:
+
+- `python3 -m pytest tests/test_spec_canonical_root.py tests/test_spec_facade_api.py tests/test_session_resolve.py -q`
+- `just test-all`
+
 ## 1.12.1 - 2026-06-27
 
 - Made judge directive/steering file references lossless via pointer + host

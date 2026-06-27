@@ -61,6 +61,15 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_bool(name: str, default: bool) -> bool:
+    raw = (os.environ.get(name) or "").strip().lower()
+    if raw in ("1", "true", "yes", "on"):
+        return True
+    if raw in ("0", "false", "no", "off"):
+        return False
+    return default
+
+
 IDLE_TTL = _env_float("UNIFABLE_JUDGE_DAEMON_IDLE", 120.0)
 REQUEST_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_REQUEST", 90.0)
 FRAME_READ_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_FRAME_TIMEOUT", 30.0)
@@ -72,6 +81,21 @@ STOP_TICK = _env_float("UNIFABLE_DAEMON_STOP_TICK", 5.0)
 # startup so the first parallel batch never pays a handshake.
 WARM_WAIT = _env_float("UNIFABLE_DAEMON_WARM_WAIT", 8.0)
 MAX_INFLIGHT = cj.BATCH_MAX_INFLIGHT
+# Sticky-overflow threshold (distinct from the hard MAX_INFLIGHT overload cap).
+# A same-family call sticks to the worker that last served it (Realtime caches
+# the instructions+tools prefix on that socket's inference machine; no
+# prompt_cache_key in the WS API, verified 2026-06-27) ONLY while the sticky
+# worker has fewer than this many in-flight. At/above it, overflow to least-busy
+# so a same-family PARALLEL burst (e.g. the 4 mini-nav fanout) spreads across the
+# pool instead of serializing onto one socket. Default 1 = overflow on any
+# overlap, so serial same-family calls (which arrive at inflight 0) always stick
+# and hit the cache, while parallel same-family calls spread.
+STICKY_OVERFLOW_INFLIGHT = max(1, _env_int("UNIFABLE_STICKY_OVERFLOW_INFLIGHT", 1))
+# Kill-switch for family-sticky routing. Default on. When off, _pick_worker
+# ignores the family hash and falls back to ready-aware least-busy everywhere
+# (the pre-sticky behavior, minus the dead-ws guard). Keep sticky on for Realtime
+# prompt-cache locality; flip off only to A/B or roll back.
+STICKY_ROUTING = _env_bool("UNIFABLE_STICKY_ROUTING", True)
 # Pool size: number of independent warm sockets. The PostToolUse fan-out issues up
 # to four concurrent judge requests per tool result; a single Realtime session
 # serializes responses, so true parallelism comes from independent sessions. 4 is
@@ -137,6 +161,10 @@ class _Worker:
 
     def idle(self) -> bool:
         return self.inflight() == 0 and self._outbox.empty()
+
+    def ready(self) -> bool:
+        """WebSocket connected + prewarmed (usable as a sticky route target)."""
+        return self._ready.is_set()
 
     def enqueue(self, cid: int, req: dict[str, Any], holder: _Holder) -> None:
         self._outbox.put((cid, req, holder))
@@ -349,6 +377,18 @@ class JudgeDaemon:
         self._last_activity = time.monotonic()
         self._srv: socket.socket | None = None
         self._lock_fh: Any = None
+        # Sticky family->worker routing for Realtime prompt-cache locality.
+        # Realtime caches the instructions+tools prefix on the specific inference
+        # machine a socket is pinned to -- there is NO prompt_cache_key in the WS
+        # API (verified 2026-06-27: 'session.prompt_cache_key' and
+        # 'response.prompt_cache_key' both return unknown_parameter), so cross-call
+        # cache hits require same-family calls to reuse the same WORKER SOCKET.
+        # We stick a family (hash of its system prompt) to the worker that last
+        # served it; overflow to least-busy when that worker is busy so a
+        # same-family parallel burst still parallelizes (cache miss on the
+        # overflow is the right tradeoff vs serializing onto one socket).
+        self._family_to_worker: dict[int, _Worker] = {}
+        self._family_lock = threading.Lock()
 
     # --- single instance ----------------------------------------------------
     def _acquire_singleton(self) -> bool:
@@ -375,10 +415,35 @@ class JudgeDaemon:
         srv.settimeout(1.0)
         self._srv = srv
 
-    def _pick_worker(self) -> _Worker:
-        # Least-busy by pending work (in-flight + queued); ties break by lowest index
-        # so serial callers under light load still land on worker 0 (prompt-cache stickiness).
-        return min(self._workers, key=lambda w: (w.load(), w.idx))
+    def _least_busy(self) -> _Worker:
+        # Prefer workers with a live (ready) websocket, then least pending work,
+        # then lowest index. At cold start none are ready yet -> falls through to
+        # load/idx (the io-loop connects the chosen worker on demand).
+        return min(self._workers, key=lambda w: (not w.ready(), w.load(), w.idx))
+
+    def _pick_worker(self, family_hash: int) -> _Worker:
+        # Sticky-with-overflow for Realtime prompt-cache locality. Same family
+        # (hash of the system prompt) prefers the worker that last served it ->
+        # same socket -> cache hit on the instructions+tools prefix (the machine
+        # caches every prefix it has seen, so multiple families sharing a sticky
+        # worker all hit). When the sticky worker has >= STICKY_OVERFLOW_INFLIGHT
+        # in-flight, overflow to least-busy WITHOUT re-pinning, so a same-family
+        # parallel burst spreads across the pool instead of serializing, and the
+        # sticky worker stays the cache home for the next serial call. Cold start
+        # or dead sticky worker -> least-busy and pin it as the new home. When
+        # STICKY_ROUTING is off, ignore the family hash (pre-sticky behavior).
+        if STICKY_ROUTING:
+            with self._family_lock:
+                sticky = self._family_to_worker.get(family_hash)
+            if sticky is not None and sticky.ready():
+                if sticky.inflight() < STICKY_OVERFLOW_INFLIGHT:
+                    return sticky
+                return self._least_busy()
+        chosen = self._least_busy()
+        if STICKY_ROUTING:
+            with self._family_lock:
+                self._family_to_worker[family_hash] = chosen
+        return chosen
 
     def submit(self, req: dict[str, Any], timeout: float) -> tuple[dict[str, Any], dict[str, int] | None]:
         with self._dispatch_lock:
@@ -387,7 +452,8 @@ class JudgeDaemon:
                 raise RuntimeError("judge daemon overloaded")
             self._cid_counter += 1
             cid = self._cid_counter
-            worker = self._pick_worker()
+            family_hash = hash(req.get("system") or "")
+            worker = self._pick_worker(family_hash)
             self._cid_to_worker[cid] = worker
         holder = _Holder()
         self._last_activity = time.monotonic()

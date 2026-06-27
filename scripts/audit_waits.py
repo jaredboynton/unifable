@@ -28,6 +28,7 @@ COVERED = {
     "scripts/gate/cli_install.py",
     "scripts/gate/codex_judge.py",
     "scripts/gate/grade_override.py",
+    "scripts/gate/heavy_workflow.py",
     "scripts/gate/judge_client.py",
     "scripts/gate/posttool_judges.py",
     "scripts/gate/realtime_daemon.py",

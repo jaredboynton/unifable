@@ -163,7 +163,7 @@ function recvFramed(conn, timeoutMs) {
   });
 }
 
-async function askOnSlot(namespace, model, slot, { system, user, schema, schemaName = "result", reasoningEffort }) {
+async function askOnSlot(namespace, model, slot, { system, user, schema, schemaName = "result", reasoningEffort, withUsage }) {
   const sock = sockPathForSlot(namespace, model, slot);
   let conn;
   try {
@@ -178,7 +178,11 @@ async function askOnSlot(namespace, model, slot, { system, user, schema, schemaN
     sendFramed(conn, req);
     const resp = await recvFramed(conn, REQUEST_TIMEOUT_MS);
     if (!resp || !resp.ok || typeof resp.object !== "object" || resp.object == null) return null;
-    return resp.object;
+    // Opt-in: return {object, usage} so callers can read cached_tokens
+    // (response.done -> response.usage.input_token_details.cached_tokens) to
+    // measure Realtime prompt-cache hits. Default stays the bare object so
+    // existing call sites are unchanged. usage is {} when the daemon sent none.
+    return withUsage ? { object: resp.object, usage: resp.usage || {} } : resp.object;
   } catch {
     return null;
   } finally {

@@ -2,7 +2,7 @@
 """Command-line interface for the unifable spec artifact (unifable).
 
 The `unifable` subcommands the model drives the spec with -- restate / add-task /
-set-primary / add-frontier / contract / doctor -- plus argv dispatch.
+set-primary / add-frontier / contract -- plus argv dispatch.
 Specs are CLI-only (never model-writable via Edit/Write). Re-exported by the
 spec.py facade, which keeps the runnable __main__ entry point.
 """
@@ -15,16 +15,13 @@ import sys
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from heavy_workflow import frontier_tasks
-    from model_notify import format_spec_status, notify_spec_update
+    from model_notify import notify_spec_update
     from spec_contracts import contract_string
     from spec_io import (
-        _find_fragmented_specs,
         canonical_project_root,
         ensure_spec_scaffold,
-        format_spec_location,
         load_spec,
         resolve_session_id,
-        resolve_session_id_with_source,
         save_spec,
         spec_path,
     )
@@ -32,16 +29,13 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     from spec_tasks import _new_task, append_frontier_task, set_primary_task
 except ImportError:  # pragma: no cover
     from scripts.gate.heavy_workflow import frontier_tasks
-    from scripts.gate.model_notify import format_spec_status, notify_spec_update
+    from scripts.gate.model_notify import notify_spec_update
     from scripts.gate.spec_contracts import contract_string
     from scripts.gate.spec_io import (
-        _find_fragmented_specs,
         canonical_project_root,
         ensure_spec_scaffold,
-        format_spec_location,
         load_spec,
         resolve_session_id,
-        resolve_session_id_with_source,
         save_spec,
         spec_path,
     )
@@ -214,36 +208,6 @@ def _cmd_restate(args: argparse.Namespace) -> int:
     return 0
 
 
-def _cmd_doctor_session_env(args: argparse.Namespace) -> int:
-    # Always emit a machine-scannable diagnostic for the env-resolved session.
-    # This line appears in Bash tool results so probes can validate whether the
-    # shell subprocess receives the same session id/env as the hook/prompt scaffold.
-    resolved_sid, source = resolve_session_id_with_source(default=None)
-    print(f"UNIFABLE_SESSION_RESOLVED={resolved_sid or ''} SOURCE={source}", file=sys.stderr)
-
-    print(format_spec_location(args.root, args.task_id))
-    spec = load_spec(args.root, args.task_id)
-    if spec is not None:
-        print()
-        print(format_spec_status(spec))
-    else:
-        fragmented = _find_fragmented_specs(args.task_id, canonical_project_root(args.root))
-        if len(fragmented) > 1:
-            print("\nMultiple fragmented specs found for this session (run from project root):")
-            for path in fragmented:
-                print(f"  {path}")
-        else:
-            print("\n(no spec file yet)")
-    return 0
-
-
-def _cmd_doctor(args: argparse.Namespace) -> int:
-    if getattr(args, "doctor_cmd", "") == "session-env":
-        return _cmd_doctor_session_env(args)
-    print("usage: unifable doctor session-env", file=sys.stderr)
-    return 1
-
-
 def _apply_cli_context(args: argparse.Namespace) -> int | None:
     """Resolve canonical root + session from cwd/env. Return exit code on error, else None."""
     args.root = str(canonical_project_root(os.getcwd()))
@@ -310,10 +274,6 @@ def main(argv: list[str] | None = None) -> int:
     p_rejected.add_argument("--check", help="Runnable exploration check.")
     p_rejected.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
 
-    p_doctor = sub.add_parser("doctor", help="Operator diagnostics.")
-    doctor_sub = p_doctor.add_subparsers(dest="doctor_cmd")
-    doctor_sub.add_parser("session-env", help="Show canonical spec path and session env diagnostics.")
-
     args = parser.parse_args(argv)
     err = _apply_cli_context(args)
     if err is not None:
@@ -324,7 +284,6 @@ def main(argv: list[str] | None = None) -> int:
         "add-task": _cmd_add_task,
         "set-primary": _cmd_set_primary,
         "add-frontier": _cmd_add_frontier,
-        "doctor": _cmd_doctor,
     }
     handler = dispatch.get(args.cmd)
     if handler:

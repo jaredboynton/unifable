@@ -2,6 +2,7 @@
 // search-rt.mjs — gpt-realtime-2-driven agentic code search for the explore skill.
 //
 // Usage:
+//   bun search-rt.mjs [--root DIR] [--json] "<natural-language query>"
 //   node search-rt.mjs [--root DIR] [--json] "<natural-language query>"
 //   search.sh "<natural-language query>"   (preferred; handles preflight)
 //
@@ -10,7 +11,7 @@
 // the tool executor. On finish, reads authoritative bytes from disk and prints
 // verbatim code-reference blocks in startLine:endLine:path format.
 //
-// Zero npm dependencies. Requires Node 18+ and rg on PATH, plus Codex auth.
+// Zero npm dependencies. Requires Bun or Node 18+ and rg on PATH, plus Codex auth.
 //
 // Env:
 //   EXPLORE_RT_MODEL                  default: gpt-realtime-2

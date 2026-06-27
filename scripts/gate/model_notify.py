@@ -48,6 +48,7 @@ _STATUS_MARKS = {
     "blocked": "BL",
     "rejected_approach": "RJ",
     "accepted_approach": "AC",
+    "still_viable": "SV",
 }
 
 # Structural gaps from all_tasks_validated / all_tasks_validated_heavy (not task rows).

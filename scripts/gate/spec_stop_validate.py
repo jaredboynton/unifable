@@ -27,6 +27,7 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         all_frontiers_terminal,
         any_frontier_accepted,
         finalize_heavy_adoption,
+        resolve_frontier_stall,
         sync_heavy_phase,
     )
     from model_notify import notify_spec_update
@@ -60,6 +61,7 @@ except ImportError:  # pragma: no cover
         all_frontiers_terminal,
         any_frontier_accepted,
         finalize_heavy_adoption,
+        resolve_frontier_stall,
         sync_heavy_phase,
     )
     from scripts.gate.model_notify import notify_spec_update
@@ -289,6 +291,11 @@ def _apply_check_result(
             task["status"] = "rejected_approach"
         elif frontier_outcome == "accepted_approach":
             task["status"] = "accepted_approach"
+        elif frontier_outcome == "still_viable":
+            # Viable but not yet selected: distinct from `failed` so the
+            # frontier-stall arbiter can rule it out after a bounded number of
+            # stops instead of livelocking the primary forever.
+            task["status"] = "still_viable"
         else:
             task["status"] = "failed"
     elif kind == "primary" and adopted_frontier(spec) is not None:
@@ -312,6 +319,8 @@ def _apply_check_result(
         headline = f"{tid} frontier ruled out by judge: {reason}."
         if all_frontiers_rejected(spec):
             headline += " All frontiers rejected — primary phase unlocked."
+    elif kind == "frontier" and task["status"] == "still_viable":
+        headline = f"{tid} frontier still viable (more exploration warranted): {reason}."
     elif verdict == 1:
         if task.get("validated_by"):
             headline = f"{tid} validated by {task['validated_by']}; judge accepted the evidence."
@@ -461,6 +470,13 @@ def auto_validate_spec(
             if adopt_headlines:
                 messages.extend(adopt_headlines)
                 notify_spec_update(spec, adopt_headlines[0])
+        # Frontier-stall arbiter: break the still_viable livelock (no accepted
+        # frontier, primary blocked) after a bounded number of stops so completion
+        # stays reachable.
+        stall_headlines = resolve_frontier_stall(spec)
+        if stall_headlines:
+            messages.extend(stall_headlines)
+            notify_spec_update(spec, stall_headlines[0])
 
     return spec, messages
 

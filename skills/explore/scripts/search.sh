@@ -35,9 +35,14 @@ if ! command -v rg >/dev/null 2>&1; then
   exit 127
 fi
 
-# Preflight: node
-if ! command -v node >/dev/null 2>&1; then
-  printf 'error: node not found on PATH (required for search-rt.mjs)\n' >&2
+# Preflight: JavaScript runtime. Prefer Bun for startup, fall back to Node.
+JS_RUNTIME=""
+if command -v bun >/dev/null 2>&1; then
+  JS_RUNTIME="bun"
+elif command -v node >/dev/null 2>&1; then
+  JS_RUNTIME="node"
+else
+  printf 'error: bun or node not found on PATH (required for search-rt.mjs)\n' >&2
   exit 127
 fi
 
@@ -54,4 +59,4 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 
-exec node "$SCRIPT_DIR/search-rt.mjs" "$@"
+exec "$JS_RUNTIME" "$SCRIPT_DIR/search-rt.mjs" "$@"
