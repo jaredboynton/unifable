@@ -31,11 +31,17 @@ use these three for load-bearing behavior.
   `${CLAUDE_PLUGIN_ROOT}`. Adding a hook means adding it here, not just writing the
   script.
 - `session_start.py` — SessionStart: refreshes the stable `~/.unifable` runtime,
-  then injects the thin judge-relationship frame via `additionalContext`
+  writes this session's alive-marker (`~/.unifable/alive/<skey>.json` carrying the
+  host PID from `scripts/gate/process_host.py`), and -- throttled to once per
+  `UNIFABLE_JANITOR_INTERVAL_S` -- spawns `scripts/gate/janitor.py` detached
+  (`start_new_session`) to reap stale `~/.unifable/` state. The marker write is
+  synchronous and tiny; the sweep runs in a child past the host's 30s timeout.
+  Then injects the thin judge-relationship frame via `additionalContext`
   (`scripts/gate/context_block.py`): a director judge guides the model step by step
   and it restates the goal first; the per-tool director supplies step-by-step
   guidance at runtime. Ships only when the plugin is enabled; setup.sh / install
-  scripts strip stale blocks.
+  scripts strip stale blocks. Fail-open throughout: a janitor bug never blocks a
+  session or changes the `hookSpecificOutput` payload.
 - `pre_tool_use.py` — PreToolUse entrypoint: evidence gate + protected paths + the
   groundedness breaker, which doubles as the stepwise director (per-tool directive +
   tool scope, enforced via `scripts/gate/tool_scope.py`). Fail-open on malformed

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.15.0 - 2026-06-27
+
+- Removed the legacy `~/.claude/unifusion-runs/` directory (one real run record
+  migrated to `~/.unifable/unifusion-runs/`); no repo code read from the old path.
+- SessionStart janitor: fire-and-forget reaper (`scripts/gate/janitor.py`, spawned
+  detached and throttled) cleans stale `~/.unifable/` state -- legacy
+  ledger/breaker/spec JSON, 0-byte locks (race-free flock probe), dead daemon
+  sockets, and stale DB rows -- older than 24h, with unifusion provenance on a
+  separate 30-day retention. A session whose host process is still alive is NEVER
+  reaped: `session_start.py` writes an alive-marker with the host PID
+  (`scripts/gate/process_host.py` ancestry walk) and the reaper probes
+  `os.kill(pid, 0)` + comm match before any skey. Fail-open and bounded
+  (`UNIFABLE_JANITOR_MAX_REAP`); `UNIFABLE_JANITOR=0` disables.
+
+Verification:
+
+- `just test-all` (1293 passed + eval_gate_proof 40/40 + test_gate_robustness 14/14)
+- `python3 scripts/audit_waits.py` (52 matched / 52 documented / 0 test sleeps)
+- Manual: ran `janitor.py --run` against a copy of `~/.unifable`; legacy
+  `ledgers`/`breaker`/`specs` JSON dropped (28M/24M/33M -> 0B/0B/444K),
+  `bin`/`versions`/`current`/`progress.json` untouched, provenance kept (<30d).
+- `uv run --no-project --with-requirements requirements-dev.txt python3 scripts/generate_docs.py --check`
+
 ## 1.14.1 - 2026-06-27
 
 - Document `probes/` as the home for live bench/probe scripts; remove duplicate

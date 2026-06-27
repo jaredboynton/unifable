@@ -35,7 +35,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.14.1          # or: just version patch|minor|major
+just version 1.15.0          # or: just version patch|minor|major
 ```
 
 ## Release conventions (repo-wide)
@@ -78,6 +78,7 @@ rehydrate rule, the 256k judge cap) live in
 | Changelog / release notes | [CHANGELOG.md](CHANGELOG.md) |
 | Hook wiring + enforcement layer | [hooks/AGENTS.md](hooks/AGENTS.md) |
 | Gate core (policy, judge, ledger, conventions) | [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md) |
+| Janitor + alive-registry (`~/.unifable/alive/`) | [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md#janitor--alive-registry), [scripts/gate/janitor.py](scripts/gate/janitor.py), [scripts/gate/process_host.py](scripts/gate/process_host.py) |
 | Evidence-gate design | [docs/evidence-gate-design.md](docs/evidence-gate-design.md) |
 | Pack routing (inline discipline) | [packs/router-manifest.json](packs/router-manifest.json), [scripts/gate/pack_router.py](scripts/gate/pack_router.py) |
 | Generated hook/judge reference | [docs/generated/](docs/generated/), [docs/generated-docs-plan.md](docs/generated-docs-plan.md) |

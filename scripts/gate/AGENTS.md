@@ -16,6 +16,11 @@ runtime helpers.
 - `codex_judge.py` — gpt-realtime-2 client. `classify_task.py`, `bash_classify.py`,
   `parse_tool_result.py`, `verify_state.py`.
 - `file_refs.py` — FILE INDEX pointer + rehydrate for judge directive/steering.
+- `process_host.py` — walks process ancestry (`ps`) from the hook to the agent
+  host PID (claude/codex/glm/cursor); used by the SessionStart alive-marker so the
+  janitor can probe `os.kill(pid, 0)` + comm match and never reap a live session.
+- `janitor.py` — fire-and-forget reaper for stale `~/.unifable/` state, spawned
+  detached by `session_start.py`. See "Janitor + alive-registry" below.
 
 No Realtime fallback is wired today (maybe Bedrock `nvidia.nemotron-nano-3-30b`
 later — 256K context, cheap on-demand). The judge needs Codex OAuth + Realtime now.
@@ -67,3 +72,35 @@ outputs and formatted edits. Knobs (all optional):
 | `UNIFABLE_JUDGE_TRANSCRIPT_CWD_PREFIX` | (unset) | Strip absolute paths in edit headers |
 
 Implementation: `tool_use_format.py`, `tool_output_compress.py`.
+
+## Janitor + alive-registry
+
+`janitor.py` reaps stale `~/.unifable/` state on SessionStart (detached,
+throttled, fail-open, bounded by `UNIFABLE_JANITOR_MAX_REAP`). Safety property:
+**never reap a session whose host process is still alive.** `session_start.py`
+writes one alive-marker per session to `~/.unifable/alive/<skey>.json` carrying
+the host PID (`process_host.find_host_ancestor`). The reaper probes
+`os.kill(host_pid, 0)` + a comm match (PID-reuse defense) before touching any
+skey; a live host skips every entry for that skey, and -- for spec-keyed state
+-- every entry sharing its `dir_hash`.
+
+Reap rules (age = `UNIFABLE_JANITOR_AGE_S`, default 24h; provenance =
+`UNIFABLE_JANITOR_PROVENANCE_AGE_S`, default 30d):
+
+- DB rows (`sessions`/`activity`/`breaker`/`breaker_events`/`posttool_frontier_counters`
+  by skey; `specs`/`posttool_claims` by `substr(spec_key,1,16)`) where the time
+  column < cutoff AND not protected -- DELETEd via the `db.py` WAL helpers.
+- Legacy `ledgers/<skey>.json`, `breaker/<skey>.json`, `specs/<dirhash>/<sess>/spec.json`
+  (superseded by the DB) by mtime, not protected.
+- `*.lock` files (pretool/judge/spec/judged/searchd) by mtime AND a
+  `flock(LOCK_EX|LOCK_NB)` probe -- a held lock is NEVER unlinked (race-free).
+- `judged/*.sock`, `searchd/*.sock` by mtime AND not connectable (live daemon kept).
+- `unifusion-runs/*.md` by the 30d provenance window.
+- Dead alive-markers (host not live AND old) unlinked.
+
+**Never touched:** `bin/`, `versions/`, `current`, `progress.json`, the
+`unifable.db` schema (only row DELETEs), and any skey/dir_hash with a live
+marker. Env knobs: `UNIFABLE_JANITOR=0` disables; `UNIFABLE_JANITOR_INTERVAL_S`
+(default 3600) throttles sweeps; `UNIFABLE_JANITOR_AGE_S`,
+`UNIFABLE_JANITOR_PROVENANCE_AGE_S`, `UNIFABLE_JANITOR_MAX_REAP`. Tests:
+`tests/test_janitor.py`, `tests/test_session_start_janitor.py`.

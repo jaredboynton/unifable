@@ -1,6 +1,6 @@
 {
   "name": "unifable",
-  "version": "1.14.1",
+  "version": "1.15.0",
   "description": "A harness that makes Opus (or any Claude/Codex model) behave like Fable: completion, evidence, and verification enforced as procedure, auto-routed per task. Native plugin on Claude Code and Codex (hooks self-contained). Fork of fivetaku/fablize.",
   "author": { "name": "Jared Boynton", "email": "jared.boynton@gmail.com" },
   "homepage": "https://github.com/jaredboynton/unifable",
