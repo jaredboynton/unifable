@@ -111,6 +111,29 @@ def _attach_validate_context(payload: dict, ctx: str) -> None:
         hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
 
 
+def _advance_auto_verify(input_data: dict) -> str:
+    """Stop-parity for the breaker's async auto-grounding lane: poll any dispatched
+    background verification and persist the result so a model that dispatched then
+    went text-only still gets disarmed/confirmed at end of turn (Stop is the only
+    other hook event that reliably fires). Returns a terse note to surface, or ''.
+    Fully fail-open -- never blocks or raises into the Stop path."""
+    try:
+        import time as _time
+
+        from breaker_orchestration import _poll_auto_verify
+        from breaker_state import breaker_lock, load_breaker, save_breaker
+
+        with breaker_lock(input_data):
+            state = load_breaker(input_data)
+            if not state.get("breaker_verify_key"):
+                return ""
+            note = _poll_auto_verify(input_data, state, _time.time())
+            save_breaker(input_data, state)
+        return str(note or "").strip()
+    except Exception:
+        return ""
+
+
 def _director_continuation(input_data: dict) -> str:
     """The live director directive, for guided-iterative-continuation on a blocked
     Stop. A "turn" is one tool call; Stop is the rare moment the model thinks it is
@@ -690,8 +713,10 @@ def main() -> int:
             return 0
 
     warning = warning_after_max_blocks(ledger)
-    if warning:
-        emit_json({"systemMessage": warning})
+    verify_note = _advance_auto_verify(input_data)
+    parts = [p for p in (warning, verify_note) if p and str(p).strip()]
+    if parts:
+        emit_json({"systemMessage": "\n".join(parts)})
     else:
         emit_json({})
     return 0

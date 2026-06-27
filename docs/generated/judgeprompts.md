@@ -1881,7 +1881,7 @@ Schema name: `groundedness`
 ### System
 
 ```text
-You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, write compact imperative steering only: name the claim, then say exactly what to read, fetch, search, or run to ground it. Do NOT enumerate tool restrictions, allowed tools, blocked tools, or command allowlists; the hook appends the exact current restriction list. Otherwise verdict=0, steering and claim MUST be empty. SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a terse `directive` naming the single best next action toward the goal, and a `tool_scope` (allow/deny tool names) keeping the model in the right phase for that action. The directive and tool_scope are independent of the arm verdict. Call the function exactly once.
+You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, write compact imperative steering only: name the claim, then say exactly what to read, fetch, search, or run to ground it. Do NOT enumerate tool restrictions, allowed tools, blocked tools, or command allowlists; the hook appends the exact current restriction list. Otherwise verdict=0, steering and claim MUST be empty. When the claim grounds only by RUNNING repo-sanctioned verification the read-only lanes cannot cover (test suites, builds, release/publication checks), also populate verify_tasks: atomic {subclaim, command} checks whose commands the repo's OWN policy names (justfile targets, documented test invocation, AGENTS.md/CHANGELOG release rules already in the transcript). The breaker runs them in the background and auto-disarms as each grounds; never author a destructive or publishing command. SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a terse `directive` naming the single best next action toward the goal, and a `tool_scope` (allow/deny tool names) keeping the model in the right phase for that action. The directive and tool_scope are independent of the arm verdict. Call the function exactly once.
 ```
 
 ### User
@@ -2009,6 +2009,28 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
     "verify_cmd": {
       "description": "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only `git ...`, an `ast-grep` scan, an explore `trace.sh`/`search.sh` query). The breaker runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output grounds the claim -- so you need not arm and force the model to re-run what the breaker can run here. Command MUST be read-only; any mutating command is rejected (never runs) and the arm verdict stands. Empty when verdict=0, when `verify` or `resolve_query` already covers it, or when no single read-only command can settle it.",
       "type": "string"
+    },
+    "verify_tasks": {
+      "description": "When verdict=1 AND the load-bearing claim can only be grounded by RUNNING repo-sanctioned verification the read-only lanes cannot cover (test suites, builds, publication/release checks), the DECOMPOSED list of atomic checks that would settle it -- one {subclaim, command} per check. The breaker runs these on your behalf in the BACKGROUND (off the model's critical path) and auto-disarms as each grounds, reporting a terse 'Confirmed: <subclaim> via <command>' instead of forcing the model to re-read policy and re-run everything. Each command MUST be a verification command the repo's OWN policy names -- a justfile target (e.g. `just test-all`), the documented test/build invocation, or a check spelled out in AGENTS.md / CHANGELOG release rules that ALREADY appear in the transcript. NEVER invent a command, and NEVER author a destructive or publishing command (no rm, no git push/--force, no deploy): the host sanctions each command against repo policy and silently drops any it cannot sanction. Decompose a compound release claim into ATOMIC subclaims (tests pass; version consistent; changelog updated) so each grounds independently. Empty when verdict=0 or when `verify`/`resolve_query`/`verify_cmd` already cover the claim read-only.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "command": {
+            "description": "ONE repo-sanctioned verification command whose exit 0 grounds the subclaim.",
+            "type": "string"
+          },
+          "subclaim": {
+            "description": "The atomic part of the claim this single command grounds.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subclaim",
+          "command"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     }
   },
   "required": [
@@ -2019,6 +2041,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
     "verify",
     "resolve_query",
     "verify_cmd",
+    "verify_tasks",
     "directive",
     "tool_scope"
   ],
@@ -2053,7 +2076,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
   },
   "session.update": {
     "session": {
-      "instructions": "You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, write compact imperative steering only: name the claim, then say exactly what to read, fetch, search, or run to ground it. Do NOT enumerate tool restrictions, allowed tools, blocked tools, or command allowlists; the hook appends the exact current restriction list. Otherwise verdict=0, steering and claim MUST be empty. SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a terse `directive` naming the single best next action toward the goal, and a `tool_scope` (allow/deny tool names) keeping the model in the right phase for that action. The directive and tool_scope are independent of the arm verdict. Call the function exactly once.",
+      "instructions": "You are a strict groundedness monitor watching an autonomous coding agent's recent transcript (its own statements AND the tool output it has seen). Do NOT arm a claim that already has event=DISARM or event=FAIL_OPEN in prior breaker records. ARM ONLY when ALL hold: (1) load-bearing for the immediate next action, (2) asserted as settled without backing evidence, (3) no tool output in the transcript supports it. DO NOT arm: narration, background speculation, hypotheses being tested, claims about the harness itself (spec status, hook messages, breaker state, task board), claims paraphrasing a loaded Skill, or claims already backed by tool output in the transcript. EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or empirical probe output in the transcript. Do not require official docs when prior art or empirical proof exists. Do not demand repo files for external truth. When arming: verdict=1, write compact imperative steering only: name the claim, then say exactly what to read, fetch, search, or run to ground it. Do NOT enumerate tool restrictions, allowed tools, blocked tools, or command allowlists; the hook appends the exact current restriction list. Otherwise verdict=0, steering and claim MUST be empty. When the claim grounds only by RUNNING repo-sanctioned verification the read-only lanes cannot cover (test suites, builds, release/publication checks), also populate verify_tasks: atomic {subclaim, command} checks whose commands the repo's OWN policy names (justfile targets, documented test invocation, AGENTS.md/CHANGELOG release rules already in the transcript). The breaker runs them in the background and auto-disarms as each grounds; never author a destructive or publishing command. SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a terse `directive` naming the single best next action toward the goal, and a `tool_scope` (allow/deny tool names) keeping the model in the right phase for that action. The directive and tool_scope are independent of the arm verdict. Call the function exactly once.",
       "output_modalities": [
         "text"
       ],
@@ -2181,6 +2204,28 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
               "verify_cmd": {
                 "description": "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only `git ...`, an `ast-grep` scan, an explore `trace.sh`/`search.sh` query). The breaker runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output grounds the claim -- so you need not arm and force the model to re-run what the breaker can run here. Command MUST be read-only; any mutating command is rejected (never runs) and the arm verdict stands. Empty when verdict=0, when `verify` or `resolve_query` already covers it, or when no single read-only command can settle it.",
                 "type": "string"
+              },
+              "verify_tasks": {
+                "description": "When verdict=1 AND the load-bearing claim can only be grounded by RUNNING repo-sanctioned verification the read-only lanes cannot cover (test suites, builds, publication/release checks), the DECOMPOSED list of atomic checks that would settle it -- one {subclaim, command} per check. The breaker runs these on your behalf in the BACKGROUND (off the model's critical path) and auto-disarms as each grounds, reporting a terse 'Confirmed: <subclaim> via <command>' instead of forcing the model to re-read policy and re-run everything. Each command MUST be a verification command the repo's OWN policy names -- a justfile target (e.g. `just test-all`), the documented test/build invocation, or a check spelled out in AGENTS.md / CHANGELOG release rules that ALREADY appear in the transcript. NEVER invent a command, and NEVER author a destructive or publishing command (no rm, no git push/--force, no deploy): the host sanctions each command against repo policy and silently drops any it cannot sanction. Decompose a compound release claim into ATOMIC subclaims (tests pass; version consistent; changelog updated) so each grounds independently. Empty when verdict=0 or when `verify`/`resolve_query`/`verify_cmd` already cover the claim read-only.",
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "command": {
+                      "description": "ONE repo-sanctioned verification command whose exit 0 grounds the subclaim.",
+                      "type": "string"
+                    },
+                    "subclaim": {
+                      "description": "The atomic part of the claim this single command grounds.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "subclaim",
+                    "command"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
               }
             },
             "required": [
@@ -2191,6 +2236,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
               "verify",
               "resolve_query",
               "verify_cmd",
+              "verify_tasks",
               "directive",
               "tool_scope"
             ],

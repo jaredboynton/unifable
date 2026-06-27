@@ -3,6 +3,7 @@ __pycache__/
 .venv/
 .DS_Store
 .omc/
+.omx/
 .unifable/
 *.unifable-bak.*
 *.fablize-bak.*

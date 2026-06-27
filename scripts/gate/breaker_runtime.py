@@ -336,6 +336,75 @@ def _disarm_message() -> str:
     return "Claim grounded. Mutation tools and Bash are available again."
 
 
+# Auto-grounding (verify_lane) wall-clock window. While a dispatched background
+# verification is in progress and inside this window, the block-count cap is
+# exempt so a slow suite does not trip the fail-open BREAKER_MAX_BLOCKS. Bounded
+# by this timeout instead. Override: UNIFABLE_VERIFY_WINDOW.
+try:
+    AUTO_VERIFY_WINDOW_SECONDS = float(os.environ.get("UNIFABLE_VERIFY_WINDOW", "900") or "900")
+except (TypeError, ValueError):
+    AUTO_VERIFY_WINDOW_SECONDS = 900.0
+
+
+def _verify_dispatched_message(commands: list[str]) -> str:
+    shown = ", ".join(f"`{c}`" for c in (commands or [])[:4])
+    extra = "" if len(commands or []) <= 4 else f" (+{len(commands) - 4} more)"
+    return (
+        "Release verification dispatched to the background on your behalf: "
+        f"{shown}{extra}. Do NOT re-run these yourself; the breaker grounds the claim "
+        "and reports a terse confirmation as each check passes. Retry the blocked step shortly."
+    )
+
+
+def _verify_confirmed_message(subclaim: str, command: str, exit_code: Any) -> str:
+    return f"Confirmed: {str(subclaim or '').strip()} via `{str(command or '').strip()}` (exit {exit_code})."
+
+
+def _verify_failed_message(command: str, exit_code: Any, tail: str) -> str:
+    snippet = " ".join(str(tail or "").split())[-300:]
+    detail = f" Tail: {snippet}" if snippet else ""
+    return (
+        f"Verification FAILED: `{str(command or '').strip()}` exited {exit_code}. "
+        f"The claim stays ungrounded -- fix this before relying on it.{detail}"
+    )
+
+
+def _verify_disarm_digest(confirmations: list[tuple[str, str, Any]]) -> str:
+    parts = [f"{sub} via `{cmd}` (exit {ec})" for sub, cmd, ec in (confirmations or [])]
+    body = "; ".join(parts)
+    return (
+        "Release verification grounded automatically by the breaker: "
+        f"{body}. Claim grounded -- mutation tools and Bash are available again."
+    )
+
+
+def auto_verify_in_progress(state: dict[str, Any], now: float) -> bool:
+    """True while a dispatched background verification is still running and inside the
+    window: there is a verify key, at least one task is not yet terminal, and the
+    dispatch is within AUTO_VERIFY_WINDOW_SECONDS. Used to exempt the block-count cap
+    so a slow suite never trips fail-open before its result lands."""
+    if not state.get("breaker_verify_key"):
+        return False
+    tasks = state.get("breaker_verify_tasks")
+    if not isinstance(tasks, list) or not tasks:
+        return False
+    if all(str(t.get("status") or "") in ("passed", "failed") for t in tasks if isinstance(t, dict)):
+        return False
+    try:
+        dispatched = float(state.get("breaker_verify_dispatched_at") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if dispatched <= 0.0:
+        return False
+    return (now - dispatched) < AUTO_VERIFY_WINDOW_SECONDS
+
+
+def clear_auto_verify(state: dict[str, Any]) -> None:
+    state["breaker_verify_key"] = ""
+    state["breaker_verify_tasks"] = []
+    state["breaker_verify_dispatched_at"] = 0.0
+
+
 def _needed_message(needed: str) -> str:
     return f"Claim still ungrounded. Next: {needed}"
 
@@ -456,6 +525,7 @@ def disarm(state: dict) -> None:
     state["breaker_armed_at"] = 0.0
     state["breaker_block_count"] = 0
     clear_provisional_lift(state)
+    clear_auto_verify(state)
 
 
 def record_verdict(state: dict, key: str, now: float, verdict: int, steering: str, claim: str = "") -> None:

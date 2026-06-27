@@ -19,10 +19,10 @@ it measures the path the daemon actually uses. Writes raw.json + summary.md to a
 persisted results dir so the chosen caps cite evidence, not memory.
 
 Usage:
-  python3 bench_realtime_concurrency.py \
+  python3 probes/bench_realtime_concurrency.py \
     --models gpt-realtime-2,gpt-realtime-mini \
     --axes a,b,c \
-    --out scripts/gate/bench/results/<ts>
+    --out probes/bench/results/<ts>
 """
 from __future__ import annotations
 
@@ -38,7 +38,9 @@ from pathlib import Path
 from typing import Any
 
 HERE = Path(__file__).resolve().parent
-sys.path.insert(0, str(HERE))
+# This probe lives in probes/ (excluded from `just test-all`) but reuses the gate's
+# real transport, so put scripts/gate on the path rather than the probe's own dir.
+sys.path.insert(0, str(HERE.parent / "scripts" / "gate"))
 
 import codex_judge as cj  # noqa: E402
 

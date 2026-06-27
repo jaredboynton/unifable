@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.14.0 - 2026-06-27
+
+- Async auto-grounding lane for the groundedness breaker
+  (`scripts/gate/verify_lane.py`): when the arm judge decomposes a load-bearing
+  claim into repo-sanctioned verification commands (`verify_tasks` in
+  `breaker_prompts.py`), the host dispatches them in a detached background runner
+  (off the PreToolUse critical path), polls results on later tool calls, and
+  auto-disarms as each subclaim grounds. Commands are policy-sanctioned only
+  (justfile targets, documented test invocations, checks named in AGENTS.md /
+  CHANGELOG); destructive or publishing commands are silently dropped. Fail-open
+  throughout -- the lane can remove a false arm on a passing check, never add a
+  block. Stop hook parity: `gate_stop.py` polls pending verification on allow-stop
+  so text-only turns still get disarmed/confirmed.
+- Moved Realtime concurrency probe to `probes/bench_realtime_concurrency.py`
+  (excluded from the wait-audit scan; `probes/` holds ad-hoc benchmarks). Added
+  optional Bedrock TTFT probe (`probes/bench_bedrock_ttft.py`).
+- AGENTS.md: require pointer + host rehydrate for any lossless verbatim value
+  that must reach the model without truncation.
+
+Verification:
+
+- `python3 -m pytest tests/test_verify_lane.py tests/test_groundedness_breaker.py -q`
+- `just test-all` (1266 passed + eval_gate_proof 40/40 + test_gate_robustness 14/14)
+- `python3 scripts/generate_docs.py --check`
+
 ## 1.13.0 - 2026-06-27
 
 - LEAN `SYNTH_SYSTEM` for the prompt enhancer

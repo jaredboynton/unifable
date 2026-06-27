@@ -79,6 +79,8 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         verify_claim_predicate,
     )
     from breaker_orchestration import (  # noqa: F401
+        _dispatch_auto_verify,
+        _poll_auto_verify,
         evaluate,
         evaluate_post_tool_release,
         evaluate_pre_tool,
@@ -97,6 +99,7 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     )
     from breaker_runtime import (  # noqa: F401
         _TRANSCRIPT_TOKEN_BUDGET,
+        AUTO_VERIFY_WINDOW_SECONDS,
         BREAKER_MAX_BLOCKS_DEFAULT,
         DIRECTIVE_MAX_CHARS,
         JUDGE_COALESCE_WINDOW_SECONDS,
@@ -113,8 +116,14 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         _spec_board_block,
         _stale_arm_message,
         _user_goal_block,
+        _verify_confirmed_message,
+        _verify_disarm_digest,
+        _verify_dispatched_message,
+        _verify_failed_message,
         arm,
+        auto_verify_in_progress,
         breaker_key,
+        clear_auto_verify,
         disarm,
         is_mutation_tool,
         is_release_tool,
@@ -170,6 +179,8 @@ except ImportError:  # pragma: no cover  (package-relative import path)
         verify_claim_predicate,
     )
     from scripts.gate.breaker_orchestration import (  # noqa: F401
+        _dispatch_auto_verify,
+        _poll_auto_verify,
         evaluate,
         evaluate_post_tool_release,
         evaluate_pre_tool,
@@ -188,6 +199,7 @@ except ImportError:  # pragma: no cover  (package-relative import path)
     )
     from scripts.gate.breaker_runtime import (  # noqa: F401
         _TRANSCRIPT_TOKEN_BUDGET,
+        AUTO_VERIFY_WINDOW_SECONDS,
         BREAKER_MAX_BLOCKS_DEFAULT,
         DIRECTIVE_MAX_CHARS,
         JUDGE_COALESCE_WINDOW_SECONDS,
@@ -204,8 +216,14 @@ except ImportError:  # pragma: no cover  (package-relative import path)
         _spec_board_block,
         _stale_arm_message,
         _user_goal_block,
+        _verify_confirmed_message,
+        _verify_disarm_digest,
+        _verify_dispatched_message,
+        _verify_failed_message,
         arm,
+        auto_verify_in_progress,
         breaker_key,
+        clear_auto_verify,
         disarm,
         is_mutation_tool,
         is_release_tool,

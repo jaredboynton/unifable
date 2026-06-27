@@ -155,6 +155,42 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "`resolve_query` already covers it, or when no single read-only command can settle it."
             ),
         },
+        "verify_tasks": {
+            "type": "array",
+            "description": (
+                "When verdict=1 AND the load-bearing claim can only be grounded by RUNNING "
+                "repo-sanctioned verification the read-only lanes cannot cover (test suites, "
+                "builds, publication/release checks), the DECOMPOSED list of atomic checks that "
+                "would settle it -- one {subclaim, command} per check. The breaker runs these on "
+                "your behalf in the BACKGROUND (off the model's critical path) and auto-disarms as "
+                "each grounds, reporting a terse 'Confirmed: <subclaim> via <command>' instead of "
+                "forcing the model to re-read policy and re-run everything. Each command MUST be a "
+                "verification command the repo's OWN policy names -- a justfile target (e.g. "
+                "`just test-all`), the documented test/build invocation, or a check spelled out in "
+                "AGENTS.md / CHANGELOG release rules that ALREADY appear in the transcript. NEVER "
+                "invent a command, and NEVER author a destructive or publishing command (no rm, no "
+                "git push/--force, no deploy): the host sanctions each command against repo policy "
+                "and silently drops any it cannot sanction. Decompose a compound release claim into "
+                "ATOMIC subclaims (tests pass; version consistent; changelog updated) so each "
+                "grounds independently. Empty when verdict=0 or when `verify`/`resolve_query`/"
+                "`verify_cmd` already cover the claim read-only."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "subclaim": {
+                        "type": "string",
+                        "description": "The atomic part of the claim this single command grounds.",
+                    },
+                    "command": {
+                        "type": "string",
+                        "description": "ONE repo-sanctioned verification command whose exit 0 grounds the subclaim.",
+                    },
+                },
+                "required": ["subclaim", "command"],
+                "additionalProperties": False,
+            },
+        },
         "directive": {
             "type": "string",
             "description": (
@@ -196,7 +232,18 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
         },
     },
-    "required": ["verdict", "steering", "claim", "load_bearing", "verify", "resolve_query", "verify_cmd", "directive", "tool_scope"],
+    "required": [
+        "verdict",
+        "steering",
+        "claim",
+        "load_bearing",
+        "verify",
+        "resolve_query",
+        "verify_cmd",
+        "verify_tasks",
+        "directive",
+        "tool_scope",
+    ],
     "additionalProperties": False,
 }
 
@@ -338,6 +385,12 @@ _JUDGE_SYSTEM = (
     "tool restrictions, allowed tools, blocked tools, or command allowlists; the hook "
     "appends the exact current restriction list. "
     "Otherwise verdict=0, steering and claim MUST be empty. "
+    "When the claim grounds only by RUNNING repo-sanctioned verification the read-only lanes "
+    "cannot cover (test suites, builds, release/publication checks), also populate verify_tasks: "
+    "atomic {subclaim, command} checks whose commands the repo's OWN policy names (justfile "
+    "targets, documented test invocation, AGENTS.md/CHANGELOG release rules already in the "
+    "transcript). The breaker runs them in the background and auto-disarms as each grounds; never "
+    "author a destructive or publishing command. "
     "SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a "
     "terse `directive` naming the single best next action toward the goal, and a `tool_scope` "
     "(allow/deny tool names) keeping the model in the right phase for that action. The directive "

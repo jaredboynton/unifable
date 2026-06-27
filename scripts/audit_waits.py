@@ -7,6 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = Path("docs/testing-optimization.md")
+# Wall-clock audit scope. `probes/` is deliberately NOT scanned: it holds ad-hoc
+# benchmark/latency probe scripts (external-work bounds, not pytest pacing) and is
+# excluded from `just test-all`.
 SEARCH_DIRS = ("tests", "scripts", "hooks", "benchmark")
 SUFFIXES = {".py", ".md"}
 SCAN_RE = re.compile("|".join(("sleep\\(", "time\\.sleep", "wa" + "it", "time" + "out")))
@@ -20,9 +23,9 @@ COVERED = {
     "hooks/gate_stop.py",
     "hooks/test_after_edit.py",
     "scripts/audit_waits.py",
-    "scripts/gate/bench_realtime_concurrency.py",
     "scripts/gate/breaker_judges.py",
     "scripts/gate/breaker_orchestration.py",
+    "scripts/gate/breaker_runtime.py",
     "scripts/gate/breaker_state.py",
     "scripts/gate/db.py",
     "scripts/gate/cli_install.py",
@@ -39,6 +42,7 @@ COVERED = {
     "scripts/gate/spec_stop_validate.py",
     "scripts/gate/spec_validation.py",
     "scripts/gate/submit_enhance.py",
+    "scripts/gate/verify_lane.py",
     "scripts/generate_docs.py",
     "scripts/shadow/outcome_collect.py",
     "tests/test_auto_validate_stop.py",

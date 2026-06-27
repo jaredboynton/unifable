@@ -35,6 +35,8 @@ EVENT_KINDS = frozenset(
         "LIFT",
         "REINSTATE",
         "SCOPE_HINT",
+        "VERIFY_DISPATCH",
+        "VERIFY_RESULT",
     }
 )
 MAX_EVENTS = 50
@@ -71,6 +73,17 @@ DEFAULT_BREAKER: dict[str, Any] = {
     "breaker_adjudicated_claims": [],
     "breaker_armed_at": 0.0,
     "breaker_block_count": 0,
+    # Auto-grounding (async verification lane, scripts/gate/verify_lane.py): when the
+    # breaker arms on a claim that grounds only by RUNNING repo-sanctioned checks, it
+    # dispatches a detached background runner and tracks it here. breaker_verify_key
+    # is the sidecar cache key (claim + repo state); breaker_verify_tasks mirrors the
+    # atomic {subclaim, command, status, exit, tail} list the poll path advances;
+    # breaker_verify_dispatched_at bounds the block-count-cap exemption while the
+    # suite runs. Cleared on disarm. Distinct from provisional (the MODEL pursues
+    # verification) -- here the BREAKER pursues it.
+    "breaker_verify_key": "",
+    "breaker_verify_tasks": [],
+    "breaker_verify_dispatched_at": 0.0,
     "breaker_provisional": False,
     "breaker_lift_reason": "",
     "breaker_lift_scope": "",
@@ -171,6 +184,9 @@ def render_events(events: list[dict[str, Any]]) -> str:
             "scope",
             "corrective",
             "hint",
+            "subclaim",
+            "command",
+            "exit",
         ):
             value = event.get(key)
             if value not in (None, "", False):

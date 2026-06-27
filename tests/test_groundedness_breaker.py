@@ -1089,5 +1089,181 @@ def test_disarm_judge_releases_claim_about_loaded_skill():
     assert verdict.grounded is True and verdict.needed == ""
 
 
+# ---------------------------------------------------------------------------
+# Auto-grounding lane (async background verification): dispatch + poll + disarm
+# ---------------------------------------------------------------------------
+
+
+class VerifyArmJudge:
+    """Arm judge that decomposes the claim into background verify_tasks."""
+
+    def __init__(self, tasks):
+        self.tasks = tasks
+        self.calls = 0
+
+    def __call__(self, system, user, schema):
+        self.calls += 1
+        return {
+            "verdict": 1,
+            "steering": "blocked: prove the release before pushing",
+            "claim": "release can proceed without verification",
+            "load_bearing": 1,
+            "verify_tasks": self.tasks,
+        }
+
+
+_VTASKS = [
+    {"subclaim": "tests pass", "command": "just test-all"},
+    {"subclaim": "version consistent", "command": "just version-check"},
+]
+
+
+def _arm_with_verify(monkeypatch, dispatched):
+    """Arm the breaker on a claim with sanctioned verify_tasks; record dispatch."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: release is ready, pushing now")
+    monkeypatch.setattr("verify_lane.sanction_tasks", lambda raw, cwd: list(raw))
+
+    def _fake_dispatch(input_data, claim, tasks, cwd):
+        dispatched["claim"] = claim
+        dispatched["tasks"] = list(tasks)
+        return "verifykey1"
+
+    monkeypatch.setattr("verify_lane.dispatch_verification", _fake_dispatch)
+    state = _state()
+    judge = VerifyArmJudge(_VTASKS)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=100.0, active_task="P", judge=judge)
+    return state, blocked, steering
+
+
+def test_arm_dispatches_background_verification(monkeypatch):
+    dispatched = {}
+    state, blocked, steering = _arm_with_verify(monkeypatch, dispatched)
+    assert blocked is True
+    assert state["breaker_armed"] is True
+    assert state["breaker_verify_key"] == "verifykey1"
+    assert [t["command"] for t in state["breaker_verify_tasks"]] == [
+        "just test-all",
+        "just version-check",
+    ]
+    assert all(t["status"] == "pending" for t in state["breaker_verify_tasks"])
+    assert dispatched["tasks"] == _VTASKS
+    assert "dispatched to the background" in steering.lower()
+
+
+def test_does_not_dispatch_when_no_verify_tasks(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: the cause is obviously Y")
+    judge = FakeJudge([(1, "you claimed Y without proof; blocked")])
+    state = _state()
+    blocked, _, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=100.0, active_task="P", judge=judge)
+    assert blocked is True
+    assert state["breaker_verify_key"] == ""
+    assert state["breaker_verify_tasks"] == []
+
+
+def test_poll_confirms_all_and_disarms_with_digest(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    state, _, _ = _arm_with_verify(monkeypatch, {})
+    results = {
+        "just test-all": {"exit": 0, "tail": "passed"},
+        "just version-check": {"exit": 0, "tail": "ok"},
+    }
+    monkeypatch.setattr("verify_lane.read_verification_results", lambda d, k: results)
+    # A read tool while armed: armed branch polls, all pass -> disarm with digest.
+    blocked, steering, notify = gb.evaluate_pre_tool(_pre("Read"), state, now=120.0, active_task="P", judge=None)
+    assert blocked is False
+    assert state["breaker_armed"] is False
+    assert state["breaker_verify_key"] == ""
+    assert "grounded automatically" in notify.lower()
+    assert "tests pass" in notify and "version consistent" in notify
+
+
+def test_poll_partial_then_full_confirm(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    state, _, _ = _arm_with_verify(monkeypatch, {})
+    # First poll: only one result back -> stays armed, one confirmation surfaced.
+    monkeypatch.setattr(
+        "verify_lane.read_verification_results",
+        lambda d, k: {"just test-all": {"exit": 0, "tail": "passed"}},
+    )
+    blocked, _, notify = gb.evaluate_pre_tool(_pre("Read"), state, now=120.0, active_task="P", judge=None)
+    assert blocked is False and state["breaker_armed"] is True
+    assert "confirmed: tests pass" in notify.lower()
+    assert state["breaker_verify_tasks"][0]["status"] == "passed"
+    assert state["breaker_verify_tasks"][1]["status"] == "pending"
+    # Second poll: the rest pass -> disarm.
+    monkeypatch.setattr(
+        "verify_lane.read_verification_results",
+        lambda d, k: {
+            "just test-all": {"exit": 0, "tail": "passed"},
+            "just version-check": {"exit": 0, "tail": "ok"},
+        },
+    )
+    blocked, _, notify = gb.evaluate_pre_tool(_pre("Read"), state, now=125.0, active_task="P", judge=None)
+    assert state["breaker_armed"] is False
+    assert "grounded automatically" in notify.lower()
+
+
+def test_poll_failure_keeps_armed_and_reverts_to_normal(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    state, _, _ = _arm_with_verify(monkeypatch, {})
+    monkeypatch.setattr(
+        "verify_lane.read_verification_results",
+        lambda d, k: {
+            "just test-all": {"exit": 1, "tail": "1 failed"},
+            "just version-check": {"exit": 0, "tail": "ok"},
+        },
+    )
+    blocked, _, notify = gb.evaluate_pre_tool(_pre("Read"), state, now=120.0, active_task="P", judge=None)
+    assert state["breaker_armed"] is True  # not all passed -> stays armed
+    assert state["breaker_verify_key"] == ""  # auto-verify handed back to model
+    assert "verification failed" in notify.lower()
+
+
+def test_block_cap_exempt_while_verifying(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    state, _, _ = _arm_with_verify(monkeypatch, {})
+    monkeypatch.setattr("verify_lane.read_verification_results", lambda d, k: {})  # nothing back yet
+    # Far more mutation attempts than BREAKER_MAX_BLOCKS: must never fail open while
+    # the background verification is still in flight (within its window).
+    for i in range(gb.max_blocks() + 4):
+        blocked, _, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=120.0 + i, active_task="P", judge=None)
+        assert blocked is True
+        assert state["breaker_armed"] is True
+    assert int(state["breaker_block_count"]) == 0
+
+
+def test_post_tool_release_polls_and_disarms(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    state, _, _ = _arm_with_verify(monkeypatch, {})
+    monkeypatch.setattr(
+        "verify_lane.read_verification_results",
+        lambda d, k: {
+            "just test-all": {"exit": 0, "tail": "passed"},
+            "just version-check": {"exit": 0, "tail": "ok"},
+        },
+    )
+    grounded, needed, message = gb.evaluate_post_tool_release(
+        _pre("Read"), state, fresh_tool="[tool_result name=Read]\nok", judge=None
+    )
+    assert grounded is True and needed == ""
+    assert state["breaker_armed"] is False
+    assert "grounded automatically" in message.lower()
+
+
+def test_dispatch_failure_falls_back_to_normal_arm(monkeypatch):
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "model: release is ready")
+    monkeypatch.setattr("verify_lane.sanction_tasks", lambda raw, cwd: list(raw))
+
+    def _boom(*a, **k):
+        raise RuntimeError("spawn failed")
+
+    monkeypatch.setattr("verify_lane.dispatch_verification", _boom)
+    state = _state()
+    judge = VerifyArmJudge(_VTASKS)
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Bash"), state, now=100.0, active_task="P", judge=judge)
+    assert blocked is True and state["breaker_armed"] is True
+    assert state["breaker_verify_key"] == ""  # no auto-verify; ordinary block
+
+
 if __name__ == "__main__":
     raise SystemExit(__import__("pytest").main([__file__, "-q"]))

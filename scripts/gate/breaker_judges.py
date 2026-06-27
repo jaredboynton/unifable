@@ -275,6 +275,18 @@ def _self_resolve_via_command(
         return False
 
 
+def _sanction_verify_tasks(raw: Any, cwd: str) -> list[dict[str, str]]:
+    """Sanction judge-supplied verify_tasks via the verify lane. Fail-open to []."""
+    try:
+        try:
+            from verify_lane import sanction_tasks
+        except ImportError:  # pragma: no cover
+            from scripts.gate.verify_lane import sanction_tasks
+        return sanction_tasks(raw, cwd)
+    except Exception:
+        return []
+
+
 def _parse_director_fields(obj: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     """Extract the stepwise director's (directive, tool_scope) from a judge object.
 
@@ -388,6 +400,14 @@ def arm_judge(
         # any error leaves the arm verdict intact, so it can never add a block.
         if _self_resolve_via_command(claim, obj.get("verify_cmd"), segment, cwd):
             return 0, "", ""
+        # Auto-grounding (async): the read-only lanes could not settle this claim, but
+        # the judge may have decomposed it into atomic verification tasks whose
+        # repo-sanctioned commands the breaker can RUN in the background. Sanction them
+        # here and hand them to the orchestrator (via `out`) to dispatch -- arm_judge
+        # stays decision-only; the subprocess side effect lives in orchestration. The
+        # arm verdict STANDS (the first mutation still blocks until results land).
+        if out is not None:
+            out["verify_tasks"] = _sanction_verify_tasks(obj.get("verify_tasks"), cwd)
     return verdict, steering, claim
 
 

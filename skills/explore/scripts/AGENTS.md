@@ -51,7 +51,7 @@ files.
 - Pool size 4 and per-socket in-flight 128 are MEASURED, not folklore
   (`docs/benchmarks/realtime-concurrency.md`): a 4-socket pool beat 8 and 16 on a
   16-wide fan-out (both models), and there is no account concurrent-session cap
-  (32/32 sockets connected). Re-run `scripts/gate/bench_realtime_concurrency.py`
+  (32/32 sockets connected). Re-run `probes/bench_realtime_concurrency.py`
   before changing either cap; do not re-confirm what that doc already records.
 - Warm the pool concurrently with other startup work (`warmDaemonPool`); the
   first cold call pays a one-time daemon spawn (~7-8s) that is not

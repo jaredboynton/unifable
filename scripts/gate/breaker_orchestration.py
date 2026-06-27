@@ -25,7 +25,13 @@ try:
         _release_log,
         _stale_arm_message,
         _user_goal_block,
+        _verify_confirmed_message,
+        _verify_disarm_digest,
+        _verify_dispatched_message,
+        _verify_failed_message,
+        auto_verify_in_progress,
         breaker_key,
+        clear_auto_verify,
         directives_near_duplicate,
         disarm,
         is_mutation_tool,
@@ -62,7 +68,13 @@ except ImportError:  # pragma: no cover
         _release_log,
         _stale_arm_message,
         _user_goal_block,
+        _verify_confirmed_message,
+        _verify_disarm_digest,
+        _verify_dispatched_message,
+        _verify_failed_message,
+        auto_verify_in_progress,
         breaker_key,
+        clear_auto_verify,
         directives_near_duplicate,
         disarm,
         is_mutation_tool,
@@ -83,6 +95,105 @@ except ImportError:  # pragma: no cover
         reinstate,
         save_breaker,
     )
+
+
+def _dispatch_auto_verify(
+    input_data: dict,
+    state: dict,
+    claim: str,
+    tasks: list[dict[str, Any]],
+    now: float,
+) -> None:
+    """Spawn the background verification runner for sanctioned tasks and record the
+    auto-verify state. Fail-open: any error leaves the arm as a normal block."""
+    try:
+        try:
+            from verify_lane import dispatch_verification
+        except ImportError:  # pragma: no cover
+            from scripts.gate.verify_lane import dispatch_verification
+
+        cwd = str((input_data or {}).get("cwd") or "")
+        key = dispatch_verification(input_data, claim, tasks, cwd)
+        if not key:
+            return
+        state["breaker_verify_key"] = key
+        state["breaker_verify_tasks"] = [
+            {
+                "subclaim": str(t.get("subclaim") or ""),
+                "command": str(t.get("command") or ""),
+                "status": "pending",
+                "exit": None,
+                "tail": "",
+            }
+            for t in tasks
+            if isinstance(t, dict) and str(t.get("command") or "").strip()
+        ]
+        state["breaker_verify_dispatched_at"] = now
+        commands = [str(t.get("command") or "") for t in tasks if isinstance(t, dict)]
+        append_event(state, "VERIFY_DISPATCH", claim=claim, command="; ".join(commands))
+        state["breaker_steering"] = _verify_dispatched_message(commands)
+    except Exception:
+        return
+
+
+def _poll_auto_verify(input_data: dict, state: dict, now: float) -> str:
+    """Advance a dispatched background verification from its sidecar.
+
+    Reads per-command results; for each newly-finished task feeds the deterministic
+    exit code (the policy-sanctioned command IS the falsifiable check) into the
+    auto-verify decision: exit 0 confirms the subclaim, non-zero fails it. When ALL
+    subclaims confirm, the breaker disarms with an aggregate digest. When every task
+    is terminal but not all passed, auto-verify state is cleared so grounding reverts
+    to the normal transcript path (the model fixes + proves it). Fail-open to ''."""
+    try:
+        try:
+            from verify_lane import read_verification_results
+        except ImportError:  # pragma: no cover
+            from scripts.gate.verify_lane import read_verification_results
+
+        key = str(state.get("breaker_verify_key") or "")
+        tasks = state.get("breaker_verify_tasks")
+        if not key or not isinstance(tasks, list) or not tasks:
+            return ""
+        results = read_verification_results(input_data, key)
+        msgs: list[str] = []
+        for t in tasks:
+            if not isinstance(t, dict) or str(t.get("status") or "") in ("passed", "failed"):
+                continue
+            r = results.get(str(t.get("command") or ""))
+            if not isinstance(r, dict):
+                continue
+            try:
+                ec = int(r.get("exit"))
+            except (TypeError, ValueError):
+                continue
+            t["exit"] = ec
+            t["tail"] = str(r.get("tail") or "")
+            sub = str(t.get("subclaim") or "")
+            cmd = str(t.get("command") or "")
+            if ec == 0:
+                t["status"] = "passed"
+                append_event(state, "VERIFY_RESULT", subclaim=sub, command=cmd, exit=ec)
+                msgs.append(_verify_confirmed_message(sub, cmd, ec))
+            else:
+                t["status"] = "failed"
+                append_event(state, "VERIFY_RESULT", subclaim=sub, command=cmd, exit=ec)
+                msgs.append(_verify_failed_message(cmd, ec, t.get("tail") or ""))
+        live = [t for t in tasks if isinstance(t, dict)]
+        if live and all(str(t.get("status") or "") == "passed" for t in live):
+            claim = str(state.get("breaker_claim") or "")
+            confirmations = [(str(t.get("subclaim") or ""), str(t.get("command") or ""), t.get("exit")) for t in live]
+            append_event(state, "DISARM", claim=claim, grounded=True)
+            record_adjudicated_claim(state, claim)
+            disarm(state)  # also clears auto-verify state
+            return _verify_disarm_digest(confirmations)
+        if live and all(str(t.get("status") or "") in ("passed", "failed") for t in live):
+            # Finished with at least one failure: hand grounding back to the model
+            # via the normal transcript disarm path.
+            clear_auto_verify(state)
+        return "\n".join(msgs) if msgs else ""
+    except Exception:
+        return ""
 
 
 def evaluate_pre_tool(
@@ -174,6 +285,12 @@ def evaluate_pre_tool(
                 state["breaker_directive"] = ""
                 state["breaker_tool_scope"] = {}
                 state["breaker_last_directive_surfaced"] = ""
+                # Auto-grounding: if the judge decomposed the claim into sanctioned
+                # verification tasks, dispatch them to the background runner now. The
+                # arm still blocks the first mutation; later calls poll for results.
+                vtasks = director_out.get("verify_tasks")
+                if isinstance(vtasks, list) and vtasks and claim and not coalesce:
+                    _dispatch_auto_verify(input_data, state, claim, vtasks, now)
             else:
                 directive = str(director_out.get("directive") or "")
                 scope = director_out.get("tool_scope")
@@ -191,23 +308,38 @@ def evaluate_pre_tool(
                     state["breaker_pending_notify"] = f"{existing}\n{msg}".strip() if existing else msg
                     state["breaker_last_directive_surfaced"] = directive
         elif armed:
-            claim = str(state.get("breaker_claim") or "")
-            if claim and not coalesce:
-                state["breaker_judge_call_at"] = now
-                segment = judge_transcript(input_data, events)
-                user_goal = _user_goal_block(input_data, active_task)
-                release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
-                disarmed, lift_msg = _apply_release(state, claim, release_verdict)
-                if disarmed:
-                    state["breaker_pending_notify"] = _disarm_message()
-                elif lift_msg:
-                    state["breaker_pending_notify"] = lift_msg
-                elif release_verdict.needed:
-                    state["breaker_pending_notify"] = _needed_message(release_verdict.needed)
+            # Auto-grounding owns the disarm decision while a background verification
+            # is dispatched: poll the sidecar instead of judging the transcript. Once
+            # it finishes (all passed -> disarm; any failure -> cleared, falls back
+            # below on the next call), normal transcript grounding resumes.
+            if state.get("breaker_verify_key"):
+                notify = _poll_auto_verify(input_data, state, now)
+                if notify:
+                    state["breaker_pending_notify"] = notify
+            else:
+                claim = str(state.get("breaker_claim") or "")
+                if claim and not coalesce:
+                    state["breaker_judge_call_at"] = now
+                    segment = judge_transcript(input_data, events)
+                    user_goal = _user_goal_block(input_data, active_task)
+                    release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
+                    disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+                    if disarmed:
+                        state["breaker_pending_notify"] = _disarm_message()
+                    elif lift_msg:
+                        state["breaker_pending_notify"] = lift_msg
+                    elif release_verdict.needed:
+                        state["breaker_pending_notify"] = _needed_message(release_verdict.needed)
     except Exception:
         return False, "", ""
     if is_mutation_tool(tool) and state.get("breaker_armed"):
-        if not coalesce:
+        # While a dispatched background verification is still running (inside its
+        # window), exempt the block from the fail-open cap -- the breaker is grounding
+        # the claim itself; a slow suite must not trip BREAKER_MAX_BLOCKS. The verify
+        # timeout bounds this instead. Surface the latest dispatch/confirmation notice
+        # as the block message so progress is visible while still blocked.
+        verifying = auto_verify_in_progress(state, now)
+        if not coalesce and not verifying:
             count = int(state.get("breaker_block_count") or 0) + 1
             state["breaker_block_count"] = count
             if count >= max_blocks():
@@ -217,6 +349,10 @@ def evaluate_pre_tool(
                 record_adjudicated_claim(state, claim)
                 disarm(state)
                 return False, "", _fail_open_message(count, claim)
+        if verifying:
+            pending = str(state.get("breaker_pending_notify") or "")
+            state["breaker_pending_notify"] = ""
+            return True, (pending or str(state.get("breaker_steering") or "")), ""
         state["breaker_pending_notify"] = ""
         return True, str(state.get("breaker_steering") or ""), ""
     pending = str(state.get("breaker_pending_notify") or "")
@@ -266,6 +402,17 @@ def evaluate_post_tool_release(
     provisional = bool(state.get("breaker_provisional"))
     if not armed and not provisional:
         return False, "", ""
+    # Auto-grounding poll runs first and on ANY PostToolUse (it reads the sidecar, not
+    # the tool): a background verification can disarm at end of a read step even when
+    # the model never re-ran anything. While it owns grounding, skip transcript disarm.
+    if state.get("breaker_verify_key"):
+        import time as _time
+
+        notify = _poll_auto_verify(input_data, state, _time.time())
+        if not state.get("breaker_armed"):
+            return True, "", notify or _disarm_message()
+        if state.get("breaker_verify_key"):
+            return False, "", notify
     tool = str(input_data.get("tool_name") or "")
     if not is_release_tool(tool, input_data):
         return False, "", ""
