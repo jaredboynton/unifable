@@ -30,6 +30,7 @@ try:
     )
     from breaker_runtime import DIRECTIVE_MAX_CHARS
     from breaker_state import adjudicated_claims
+    from file_refs import build_file_index, rehydrate_file_refs
     from transcript_tail import (
         JUDGE_EFFECTIVE_MAX_CHARS,
         cap_judge_message,
@@ -53,6 +54,7 @@ except ImportError:  # pragma: no cover
     )
     from scripts.gate.breaker_runtime import DIRECTIVE_MAX_CHARS
     from scripts.gate.breaker_state import adjudicated_claims
+    from scripts.gate.file_refs import build_file_index, rehydrate_file_refs
     from scripts.gate.transcript_tail import (
         JUDGE_EFFECTIVE_MAX_CHARS,
         cap_judge_message,
@@ -316,17 +318,31 @@ def arm_judge(
     # rides the END of the user message -- after the append-only transcript -- where
     # it cannot shift the cached prefix. See docs/evidence-gate-design.md.
     user = segment
+    # FILE INDEX (pointer + rehydrate): hand the judge a numbered list of the paths
+    # it already saw and have it reference files by [[n]] instead of retyping long
+    # names (which it truncates). The host rehydrates the pointers below, so a file
+    # reference is lossless by construction. Mirrors the explore READ INDEX pattern.
+    index_text, ordered_paths = build_file_index(segment)
+    appended = f"\n\n{index_text}" if index_text else ""
     done = adjudicated_claims(events or [])
     if done:
         claims_str = "\n".join(f"- {c}" for c in done)
-        append = (
+        appended += (
             f"\n\nALREADY ADJUDICATED -- do NOT flag any of the following claims; they "
             f"have already been grounded or released:\n{claims_str}"
         )
+    if appended:
         room = JUDGE_EFFECTIVE_MAX_CHARS - len(_JUDGE_SYSTEM) - len(segment)
         if room > 0:
-            user = segment + cap_judge_message(append, room)
+            user = segment + cap_judge_message(appended, room)
     obj = fn(_JUDGE_SYSTEM, user, _JUDGE_SCHEMA)
+    # Rehydrate [[n]] file-pointers the judge emitted back to exact paths, before any
+    # field is read by the director parse or the steering/claim extraction below.
+    if ordered_paths and isinstance(obj, dict):
+        for _field in ("directive", "steering"):
+            _val = obj.get(_field)
+            if isinstance(_val, str) and _val:
+                obj[_field] = rehydrate_file_refs(_val, ordered_paths)
     # Stepwise director: capture the directive + tool_scope from the SAME judge
     # object, independent of the arm verdict and its suppressions below.
     if out is not None:

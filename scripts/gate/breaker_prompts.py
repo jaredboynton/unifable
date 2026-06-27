@@ -26,6 +26,9 @@ def _steering_description() -> str:
         "State the next action in full so the model can act on the steering text ALONE -- the path "
         "to read, the command or search to run, the doc to fetch -- NEVER a bare reference to a spec "
         "task ID (e.g. 'T1', 'the spec board's listed checks') the model would have to look up. "
+        "When naming a file, reference it by its FILE INDEX number in double brackets (e.g. [[2]]) "
+        "instead of typing the path; the host rehydrates the exact path so long names are never "
+        "truncated. Type a path literally only for a file not in the FILE INDEX. "
         "Never enumerate tool restrictions, allowed tools, blocked tools, or command "
         "allowlists; the hook appends the exact current restriction list. Do not steer "
         "toward mutating commands, builds, or tests while the claim is ungrounded. For "
@@ -167,6 +170,10 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "'the spec board's listed checks') or otherwise point at the board as a place to go "
                 "read the step; if a board task drives the next action, restate that task's concrete "
                 "check verbatim as the imperative. "
+                "When you name a file, a FILE INDEX at the END of the input lists the available paths "
+                "by number; reference a listed file by its index in double brackets (e.g. [[2]]) "
+                "INSTEAD of typing the path -- the host rehydrates the exact path, so you never "
+                "truncate a long name. Type a path literally only for a file not in the FILE INDEX. "
                 "Be terse and concrete; empty only when there is genuinely nothing useful left to add."
             ),
         },

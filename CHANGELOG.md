@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.12.1 - 2026-06-27
+
+- Made judge directive/steering file references lossless via pointer + host
+  rehydration, fixing head-truncated filenames in hook feedback (e.g.
+  `research_bash_guidance.py` surfaced as `ash_guidance.py`,
+  `groundedness_facade_api.py` as `ness_facade_api.py`). The judge now receives a
+  numbered FILE INDEX of the paths it already saw and references a file by its
+  index in double brackets (`[[n]]`); `scripts/gate/file_refs.py` rehydrates the
+  pointer to the exact path in `breaker_judges.arm_judge` before directive and
+  steering are parsed. The model emits an integer, never a path string, so
+  truncation is impossible by construction. Mirrors the explore skill's READ
+  INDEX / `excerpt_index` pointer-submit pattern
+  (`skills/explore/scripts/lib/rt-rehydrate-submit.mjs`).
+
+Verification:
+
+- `python3 -m pytest tests/test_file_refs.py tests/test_director.py -q` (26 passed)
+- Live gpt-realtime-2 validation under recall pressure: pointer adoption 16/16,
+  every directive rehydrated to full untruncated paths, 0 truncations.
+
 ## 1.12.0 - 2026-06-27
 
 - Tightened the stepwise director's `directive` and arm-path `steering` schema
