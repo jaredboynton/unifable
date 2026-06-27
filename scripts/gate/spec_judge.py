@@ -21,12 +21,13 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     )
     from model_notify import notify_spec_update
     from spec_tasks import (
-        RESOLVED_STATUSES,
         JUDGE_MAX_UNRESOLVED_ADDED,
+        RESOLVED_STATUSES,
         _apply_supersedes_bundle,
         _current_requirements_payload,
         _filter_judge_new_requirements,
         _new_task,
+        _norm_title_conflicts,
         _normalize_title,
         append_frontier_task,
     )
@@ -39,12 +40,13 @@ except ImportError:  # pragma: no cover
     )
     from scripts.gate.model_notify import notify_spec_update
     from scripts.gate.spec_tasks import (
-        RESOLVED_STATUSES,
         JUDGE_MAX_UNRESOLVED_ADDED,
+        RESOLVED_STATUSES,
         _apply_supersedes_bundle,
         _current_requirements_payload,
         _filter_judge_new_requirements,
         _new_task,
+        _norm_title_conflicts,
         _normalize_title,
         append_frontier_task,
     )
@@ -307,11 +309,7 @@ def _add_judge_requirement(
         for t in (spec.get("tasks") or [])
         if isinstance(t, dict)
     }
-    existing_norm_titles = {
-        _normalize_title(t.get("title"))
-        for t in (spec.get("tasks") or [])
-        if isinstance(t, dict)
-    }
+    existing_norm_titles = {_normalize_title(t.get("title")) for t in (spec.get("tasks") or []) if isinstance(t, dict)}
     judge_unresolved = sum(
         1
         for t in (spec.get("tasks") or [])
@@ -825,13 +823,17 @@ def judge_heal_own_requirements(
     return _apply_adjustments(spec, res)
 
 
-def judge_reconcile_spec(
+def compute_reconcile_actions(
     spec: dict[str, Any],
     evidence: dict[str, Any] | None,
     *,
     transcript_path: str | None = None,
-) -> list[str]:
-    """Judge-owned task-board reconciliation from captured evidence. Fail-open."""
+) -> list[dict[str, Any]]:
+    """Network-only half of reconcile: ask the judge and return normalized actions.
+
+    No mutation, no save -- so it can run concurrently with other judges on a spec
+    snapshot; the caller applies the returned actions to one base spec under lock
+    (see ``apply_reconcile_actions``). Fail-open: any miss returns []."""
     if not isinstance(spec, dict) or not spec.get("tasks") or not _evidence_payload(evidence):
         return []
     try:
@@ -855,11 +857,33 @@ def judge_reconcile_spec(
         )
     except JudgeError:
         return []
-    return _apply_reconcile_actions(
-        spec,
-        _normalize_reconcile_actions(res.get("actions") if isinstance(res, dict) else None),
-        evidence=evidence,
-    )
+    return _normalize_reconcile_actions(res.get("actions") if isinstance(res, dict) else None)
+
+
+def apply_reconcile_actions(
+    spec: dict[str, Any],
+    actions: list[dict[str, Any]],
+    *,
+    evidence: dict[str, Any] | None = None,
+) -> list[str]:
+    """Mutation-only half of reconcile: apply normalized actions to *spec* in place.
+
+    Public wrapper over ``_apply_reconcile_actions`` so the PostToolUse fan-out can
+    apply a reconcile delta to one base spec after the concurrent judge calls."""
+    return _apply_reconcile_actions(spec, actions, evidence=evidence)
+
+
+def judge_reconcile_spec(
+    spec: dict[str, Any],
+    evidence: dict[str, Any] | None,
+    *,
+    transcript_path: str | None = None,
+) -> list[str]:
+    """Judge-owned task-board reconciliation from captured evidence. Fail-open."""
+    actions = compute_reconcile_actions(spec, evidence, transcript_path=transcript_path)
+    if not actions:
+        return []
+    return apply_reconcile_actions(spec, actions, evidence=evidence)
 
 
 def _judge_system_for_task(
@@ -1178,11 +1202,16 @@ def _normalize_scope_paths(raw: Any) -> list[str]:
     return [str(p).strip() for p in raw if str(p).strip()]
 
 
-def judge_discover_frontiers(
+def compute_frontier_additions(
     spec: dict[str, Any],
     recent_activity: dict[str, list[str]],
 ) -> list[dict[str, Any]]:
-    """Ask judge to propose frontier tasks from research activity. Returns added tasks."""
+    """Network-only half of discover: ask the judge and return validated frontier
+    candidate dicts ({title, check, scope_paths, reason}).
+
+    No mutation, no save -- so it can run concurrently with reconcile on a spec
+    snapshot; the caller appends the candidates to one base spec under lock (see
+    ``apply_frontier_additions``). Fail-open: any miss returns []."""
     if len(frontier_tasks(spec)) >= 2:
         return []
     try:
@@ -1206,16 +1235,53 @@ def judge_discover_frontiers(
         res = ask_structured(_DISCOVER_SYSTEM, user, _DISCOVER_SCHEMA, schema_name="frontier_discover")
     except JudgeError:
         return []
-    added: list[dict[str, Any]] = []
     frontiers = res.get("frontiers") if isinstance(res, dict) else []
     if not isinstance(frontiers, list):
         return []
+    default_reason = str(res.get("reason") or "").strip() if isinstance(res, dict) else ""
+    candidates: list[dict[str, Any]] = []
     for item in frontiers:
         if not isinstance(item, dict):
             continue
         title = str(item.get("title") or "").strip()
         check = str(item.get("check") or "").strip()
         if not title or not check:
+            continue
+        candidates.append(
+            {
+                "title": title,
+                "check": check,
+                "scope_paths": _normalize_scope_paths(item.get("scope_paths")),
+                "reason": str(item.get("reason") or default_reason or "").strip(),
+            }
+        )
+    return candidates
+
+
+def apply_frontier_additions(
+    spec: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Mutation-only half of discover: append validated frontier candidates to
+    *spec* in place (cap of 2 frontiers). Returns the tasks actually added.
+
+    Frontier ids are minted here (via ``append_frontier_task``) so this runs AFTER
+    any reconcile appends in the merged write, keeping task ids collision-free.
+    Candidates whose normalized title duplicates an existing frontier (or an earlier
+    candidate in this batch) are skipped so overlapping discovers (or a stale snapshot)
+    cannot append the same approach twice."""
+    added: list[dict[str, Any]] = []
+    seen_norms = {_normalize_title(t.get("title")) for t in frontier_tasks(spec)}
+    seen_norms.discard("")
+    for item in candidates or []:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title") or "").strip()
+        check = str(item.get("check") or "").strip()
+        if not title or not check:
+            continue
+        norm = _normalize_title(title)
+        if not norm or norm in seen_norms or _norm_title_conflicts(norm, seen_norms):
             continue
         if len(frontier_tasks(spec)) >= 2:
             break
@@ -1226,9 +1292,10 @@ def judge_discover_frontiers(
             added_by="judge",
             scope_paths=_normalize_scope_paths(item.get("scope_paths")),
         )
-        reason = str(item.get("reason") or res.get("reason") or "").strip()
+        reason = str(item.get("reason") or "").strip()
         if reason:
             task["discovery_reason"] = reason
+        seen_norms.add(norm)
         added.append(task)
     if added:
         ids = ", ".join(t["id"] for t in added)
@@ -1237,6 +1304,17 @@ def judge_discover_frontiers(
             f"Judge added frontier approach(s): {ids}. Explore these before primary.",
         )
     return added
+
+
+def judge_discover_frontiers(
+    spec: dict[str, Any],
+    recent_activity: dict[str, list[str]],
+) -> list[dict[str, Any]]:
+    """Ask judge to propose frontier tasks from research activity. Returns added tasks."""
+    candidates = compute_frontier_additions(spec, recent_activity)
+    if not candidates:
+        return []
+    return apply_frontier_additions(spec, candidates)
 
 
 def judge_hint(spec: dict[str, Any], *, signal: str, recent: str = "") -> str:

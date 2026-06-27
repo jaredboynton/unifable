@@ -35,6 +35,7 @@ def test_schema_bootstrap_sets_user_version(tmp_path):
         assert str(mode).lower() == "wal"
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert {"sessions", "activity", "breaker", "breaker_events", "specs", "projects", "findings"} <= tables
+    assert {"posttool_claims", "posttool_frontier_counters"} <= tables
     assert (tmp_path / "unifable.db").exists()
 
 
@@ -187,6 +188,94 @@ def test_immediate_write_rolls_back_on_error():
     with db.connect() as conn:
         row = conn.execute("SELECT 1 FROM sessions WHERE skey='T'").fetchone()
     assert row is None
+
+
+def _bootstrap_v1_database(path: Path) -> None:
+    """Create a v1-shaped DB (no posttool_* tables) with sample session + spec rows."""
+    conn = sqlite3.connect(str(path))
+    conn.executescript(
+        """
+        CREATE TABLE sessions (
+            skey TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL DEFAULT '',
+            project_root TEXT NOT NULL DEFAULT '',
+            data TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT '',
+            expires_at TEXT
+        );
+        CREATE TABLE activity (
+            skey TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            value TEXT NOT NULL,
+            ts TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (skey, kind, value)
+        );
+        CREATE TABLE specs (
+            spec_key TEXT PRIMARY KEY,
+            doc TEXT NOT NULL DEFAULT '{}',
+            updated_at TEXT NOT NULL DEFAULT ''
+        );
+        INSERT INTO sessions(skey, session_id, project_root, data, updated_at)
+        VALUES('legacy', 'sid-1', '/repo', '{"grade":"LEGACY","pretool_block_counts":{}}', 't0');
+        INSERT INTO activity(skey, kind, value, ts) VALUES('legacy', 'read_path', '/repo/a.py', 't0');
+        INSERT INTO specs(spec_key, doc, updated_at)
+        VALUES('h/sess', '{"restated_goal":"keep me","tasks":[]}', 't0');
+        PRAGMA user_version=1;
+        """
+    )
+    conn.close()
+
+
+def test_v1_database_upgrades_to_v3_preserves_data(tmp_path, monkeypatch):
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    _bootstrap_v1_database(tmp_path / "unifable.db")
+
+    with db.connect() as conn:
+        assert conn is not None
+        version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert version == db.SCHEMA_VERSION
+    assert {"posttool_claims", "posttool_frontier_counters"} <= tables
+
+    loaded = db.session_load("legacy")
+    assert loaded is not None
+    assert loaded["grade"] == "LEGACY"
+    assert loaded["read_paths"] == ["/repo/a.py"]
+    assert db.spec_load("h/sess") == {"restated_goal": "keep me", "tasks": []}
+
+
+def test_posttool_spec_claim_fails_open_on_db_error(monkeypatch):
+    monkeypatch.setattr(db, "db_path", lambda: Path("/proc/nonexistent/unifable.db"))
+    assert db.posttool_spec_claim("spec-key", 1000.0, "epoch", 2.0) is True
+
+
+def test_posttool_spec_claim_empty_epoch_always_runs():
+    assert db.posttool_spec_claim("spec-key", 1000.0, "", 2.0) is True
+    assert db.posttool_spec_claim("spec-key", 1000.5, "", 2.0) is True
+
+
+def test_posttool_spec_claim_transaction_is_db_only(monkeypatch):
+    network = {"called": False}
+
+    def _network(*_a, **_k):
+        network["called"] = True
+        return {}
+
+    monkeypatch.setitem(sys.modules, "codex_judge", type(sys)("codex_judge"))
+    sys.modules["codex_judge"].ask_structured = _network  # type: ignore[attr-defined]
+
+    assert db.posttool_spec_claim("k", 1.0, "abc123:4", 2.0) is True
+    assert db.posttool_spec_claim("k", 1.1, "abc123:4", 2.0) is False
+    assert network["called"] is False
+
+
+def test_frontier_counters_atomic_roundtrip():
+    skey = "fc1"
+    assert db.frontier_get_counts(skey) == (0, 0)
+    assert db.frontier_bump_research(skey) == (1, 0)
+    assert db.frontier_bump_research(skey) == (2, 0)
+    assert db.frontier_bump_discovery(skey) == 1
+    assert db.frontier_get_counts(skey) == (2, 1)
 
 
 if __name__ == "__main__":

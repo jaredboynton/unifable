@@ -13,7 +13,7 @@ Source hook config: `.codex-plugin/hooks.json`.
 | UserPromptSubmit | (empty) | `gate_prompt.py` | 95 | classifying task mode |
 | UserPromptSubmit | (empty) | `gate_prompt_effort.py` | 10 | effort-gated playbook injection |
 | PreToolUse | ^(Bash|REPL|exec_command|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `pre_tool_use.py` | 10 | pre-edit/bash/delegation spec gate |
-| PostToolUse | .* | `gate_post_tool.py` | 10 | observing tool evidence |
+| PostToolUse | .* | `gate_post_tool.py` | 120 | observing tool evidence |
 | PostToolUse | ^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `test_after_edit.py` | 75 | test-after-edit |
 | Stop | (empty) | `gate_stop.py` | 120 | completion verification gate |
 

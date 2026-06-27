@@ -7,14 +7,21 @@ single spec.json atomically. Host-agnostic; re-exported by the spec.py facade.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import os
 import re
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover
+    fcntl = None  # type: ignore[assignment]
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from heavy_workflow import clear_stale_heavy_workflow
@@ -345,6 +352,84 @@ def save_spec(cwd: str | Path, session_id: str | None, spec: dict[str, Any]) -> 
     except Exception:
         pass
     return spec_path(root, session_id)
+
+
+def _spec_lock_timeout() -> float:
+    """Bounded wait for the spec write lock.
+
+    The lock is held only across the cheap reload->apply->save of ``update_spec``
+    (never a judge/network call), so contention is microseconds; the cap exists
+    purely so a crashed-but-not-yet-released holder can never wedge a parallel
+    PostToolUse batch -- on expiry the body runs unlocked (fail-open)."""
+    try:
+        return max(0.0, float(os.environ.get("UNIFABLE_SPEC_LOCK_TIMEOUT", "12.0") or "12.0"))
+    except (TypeError, ValueError):
+        return 12.0
+
+
+_SPEC_LOCK_POLL_SECONDS = 0.02
+
+
+@contextlib.contextmanager
+def spec_lock(cwd: str | Path, session_id: str | None, timeout: float | None = None):
+    """Cross-process exclusive lock for a session's spec read-modify-write.
+
+    Fail-open by construction: if fcntl is unavailable or the lock cannot be
+    acquired within *timeout*, the body still runs (unlocked). A crashed holder
+    releases the flock automatically, so a dead process can never wedge the merge."""
+    if fcntl is None:  # pragma: no cover
+        yield
+        return
+    root = canonical_project_root(cwd)
+    key = _spec_key(root, session_id)
+    name = hashlib.sha256(key.encode("utf-8", "replace")).hexdigest()[:24]
+    lock_path = data_root() / "specs" / "locks" / f"{name}.lock"
+    wait = _spec_lock_timeout() if timeout is None else max(0.0, float(timeout))
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    except OSError:  # pragma: no cover - filesystem failure: do not block the hook
+        yield
+        return
+    acquired = False
+    try:
+        deadline = time.monotonic() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquired = True
+                break
+            except OSError:
+                if time.monotonic() >= deadline:
+                    break  # fail-open: proceed unlocked rather than stall
+                time.sleep(_SPEC_LOCK_POLL_SECONDS)
+        yield
+    finally:
+        if acquired:
+            with contextlib.suppress(OSError):
+                fcntl.flock(fd, fcntl.LOCK_UN)
+        with contextlib.suppress(OSError):
+            os.close(fd)
+
+
+def update_spec(cwd: str | Path, session_id: str | None, updater) -> dict[str, Any] | None:
+    """Read-modify-write a session's spec under ``spec_lock``: reload the base doc,
+    run ``updater(base)`` in place, save once. Returns the saved spec, or None when
+    no spec exists to update.
+
+    The lock spans only the cheap reload->apply->save -- NEVER a judge/network call
+    (db ``_immediate`` rule: no slow work under the writer slot). Callers run the
+    slow concurrent judge work first, then pass an *updater* that applies the
+    resulting deltas to the freshly-reloaded base so a parallel batch merges instead
+    of clobbering (the whole-doc lost-update WAL alone cannot prevent). Fail-open:
+    a reload miss returns None and the caller skips the write."""
+    with spec_lock(cwd, session_id):
+        base = load_spec(cwd, session_id)
+        if base is None:
+            return None
+        updater(base)
+        save_spec(cwd, session_id, base)
+        return base
 
 
 def _seed_goal(prompt: str, limit: int = 280) -> str:

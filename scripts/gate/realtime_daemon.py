@@ -72,11 +72,15 @@ STOP_TICK = _env_float("UNIFABLE_DAEMON_STOP_TICK", 5.0)
 # startup so the first parallel batch never pays a handshake.
 WARM_WAIT = _env_float("UNIFABLE_DAEMON_WARM_WAIT", 8.0)
 MAX_INFLIGHT = cj.BATCH_MAX_INFLIGHT
-# Pool size: number of independent warm sockets. Default 1 keeps the judge path
-# byte-identical (one io-thread, one ws); the search profile spawns with a larger
-# pool so callers can fan out concurrent requests that actually run in parallel
-# (one Realtime session serializes responses; independent sessions do not).
-POOL_SIZE = max(1, _env_int("UNIFABLE_DAEMON_POOL", 1))
+# Pool size: number of independent warm sockets. The PostToolUse fan-out issues up
+# to four concurrent judge requests per tool result; a single Realtime session
+# serializes responses, so true parallelism comes from independent sessions. 4 is
+# the measured ceiling of useful parallelism (docs/benchmarks/realtime-concurrency.md,
+# 2026-06-25): a 4-socket pool beat 8 and 16 on both models, and more sockets only
+# add connect contention. Serial callers (PreToolUse breaker, Stop) still land on
+# worker 0 (least-busy, lowest-index tie-break), so gpt-realtime-2 prompt-cache
+# stickiness is preserved. Override with UNIFABLE_DAEMON_POOL.
+POOL_SIZE = max(1, _env_int("UNIFABLE_DAEMON_POOL", 4))
 
 
 class _Holder:
@@ -124,6 +128,12 @@ class _Worker:
     def inflight(self) -> int:
         with self._state_lock:
             return len(self._holders)
+
+    def load(self) -> int:
+        """Pending work on this worker: in-flight holders plus queued outbox items."""
+        with self._state_lock:
+            holders = len(self._holders)
+        return holders + self._outbox.qsize()
 
     def idle(self) -> bool:
         return self.inflight() == 0 and self._outbox.empty()
@@ -366,14 +376,14 @@ class JudgeDaemon:
         self._srv = srv
 
     def _pick_worker(self) -> _Worker:
-        # Least-busy by in-flight count; ties break by lowest index for stable
-        # round-robin under light load.
-        return min(self._workers, key=lambda w: (w.inflight(), w.idx))
+        # Least-busy by pending work (in-flight + queued); ties break by lowest index
+        # so serial callers under light load still land on worker 0 (prompt-cache stickiness).
+        return min(self._workers, key=lambda w: (w.load(), w.idx))
 
     def submit(self, req: dict[str, Any], timeout: float) -> tuple[dict[str, Any], dict[str, int] | None]:
         with self._dispatch_lock:
-            total_inflight = sum(w.inflight() for w in self._workers)
-            if total_inflight >= MAX_INFLIGHT * self._pool_size:
+            total_load = sum(w.load() for w in self._workers)
+            if total_load >= MAX_INFLIGHT * self._pool_size:
                 raise RuntimeError("judge daemon overloaded")
             self._cid_counter += 1
             cid = self._cid_counter

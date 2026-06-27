@@ -16,7 +16,7 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
 
 from ledger import save_ledger  # noqa: E402
-from spec import append_frontier_task, load_spec, save_spec  # noqa: E402
+from spec import load_spec, save_spec  # noqa: E402
 
 CLAUDE_MANIFEST = REPO / "hooks" / "hooks.json"
 CODEX_MANIFEST = REPO / ".codex-plugin" / "hooks.json"
@@ -62,7 +62,9 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
     def test_downgrade_skips_frontier_discovery(self) -> None:
         """When the grade is STANDARD (not HEAVY), frontier discovery must not
         fire regardless of research tool count."""
+        import db
         import gate_post_tool
+        from ledger import ledger_key
 
         with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
             os.environ["UNIFABLE_DATA"] = data_dir
@@ -76,27 +78,30 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
                 "session_id": "sess",
                 "cwd": cwd,
             }
+            for _ in range(5):
+                db.frontier_bump_research(ledger_key(payload))
             save_ledger(
                 payload,
                 {
                     "active_task": "k",
                     "task_mode": "normal",
-                    "frontier_research_tools": 5,
-                    "frontier_discovery_count": 0,
                     "read_paths": ["hooks/gate_post_tool.py"],
                 },
             )
 
             with patch("gate_post_tool.read_stdin_json", return_value=payload):
                 with patch("evidence_policy.resolve_grade", return_value="STANDARD"):
-                    with patch("spec_judge.judge_discover_frontiers") as discover:
-                        rc = gate_post_tool.main()
+                    with patch("spec_judge.compute_reconcile_actions", return_value=[]):
+                        with patch("spec_judge.compute_frontier_additions") as discover:
+                            rc = gate_post_tool.main()
             self.assertEqual(rc, 0)
             discover.assert_not_called()
 
     def test_heavy_grade_discovers_frontier_and_emits_spec_update(self) -> None:
         """At the HEAVY threshold, PostToolUse adds frontier work and emits it."""
+        import db
         import gate_post_tool
+        from ledger import ledger_key
 
         with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
             os.environ["UNIFABLE_DATA"] = data_dir
@@ -110,32 +115,34 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
                 "session_id": "sess",
                 "cwd": cwd,
             }
+            skey = ledger_key(payload)
+            db.frontier_bump_research(skey)
+            db.frontier_bump_research(skey)
             save_ledger(
                 payload,
                 {
                     "active_task": "k",
                     "task_mode": "normal",
-                    "frontier_research_tools": 2,
-                    "frontier_discovery_count": 0,
                     "read_paths": ["hooks/gate_post_tool.py"],
                 },
             )
 
-            def fake_discover(spec_obj, _activity):
+            def fake_compute_frontiers(spec_obj, _activity):
+                # The compute half returns validated candidate dicts; the hook's
+                # merge step appends them to the base spec under the spec lock.
                 return [
-                    append_frontier_task(
-                        spec_obj,
-                        "Zero-copy mmap",
-                        "pytest tests/test_mmap.py -q",
-                        added_by="judge",
-                        scope_paths=["src/parser.py"],
-                    )
+                    {
+                        "title": "Zero-copy mmap",
+                        "check": "pytest tests/test_mmap.py -q",
+                        "scope_paths": ["src/parser.py"],
+                        "reason": "mmap avoids copies",
+                    }
                 ]
 
             with patch("gate_post_tool.read_stdin_json", return_value=payload):
                 with patch("evidence_policy.resolve_grade", return_value="HEAVY"):
-                    with patch("spec_judge.judge_reconcile_spec", return_value=[]):
-                        with patch("spec_judge.judge_discover_frontiers", side_effect=fake_discover):
+                    with patch("spec_judge.compute_reconcile_actions", return_value=[]):
+                        with patch("spec_judge.compute_frontier_additions", side_effect=fake_compute_frontiers):
                             with patch("posttool_notify.emit_json") as emit:
                                 rc = gate_post_tool.main()
 

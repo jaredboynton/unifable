@@ -63,7 +63,7 @@
           {
             "type": "command",
             "command": "\"${HOME}/.local/bin/unifable-hook\" gate_post_tool.py",
-            "timeout": 10
+            "timeout": 120
           }
         ]
       },

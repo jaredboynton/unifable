@@ -40,8 +40,8 @@ Audit verification is now executable:
 ```text
 command: python3 scripts/audit_waits.py
 result:
-latency audit covered 35 grep-matched file(s)
-documented decisions: 35 file(s)
+latency audit covered 44 grep-matched file(s)
+documented decisions: 44 file(s)
 test sleep calls: 0
 ```
 
@@ -50,6 +50,9 @@ test sleep calls: 0
 | Matched files from the broad grep rerun | Decision | Review result |
 |---|---|---|
 | `tests/test_judge_coalesce.py` | Changed, then kept | The previous `time.sleep(0.05)` was removed. Remaining matches are bounded `threading.Event.wait(timeout=2.0)` and `threading.Barrier.wait(timeout=2.0)` used to make the lock-contention regression deterministic. |
+| `tests/test_judge_daemon_routing.py` | Kept | Realtime daemon pool routing tests. Matches via bounded `submit(..., timeout=0.01)` overload assertions and idle-shutdown timing fixtures; uses `threading.Barrier` for burst-spread tests, not wall-clock sleeps. |
+| `tests/test_posttool_parallel.py` | Kept | PostToolUse fan-out regression. Uses `threading.Barrier`/`threading.Event.wait(timeout=...)` to make the concurrency, budget-abandon, and coalesce assertions deterministic; contains no `time.sleep`. |
+| `hooks/gate_post_tool.py`, `scripts/gate/posttool_judges.py`, `tests/test_posttool_timeout_budget.py` | Kept | PostToolUse concurrent judge fan-out: `posttool_judges.py` bounds the fan-out with `POSTTOOL_JUDGE_BUDGET` and daemon-thread `join(timeout)`, `gate_post_tool.py` wires it under the host PostToolUse timeout, and the budget test asserts the manifest/judge deadline relationships. Fail-open external-work bounds and timeout assertions, not pytest pacing. |
 | `scripts/gate/breaker_state.py`, `scripts/gate/judge_client.py` | Kept | These are the only non-doc files still matched by the narrower sleep-only check. Both are bounded gate/judge polling loops, not pytest pacing. |
 | `benchmark/bench.py` | Kept | Benchmark harness deadlines bound external CLI/terminal sessions and classify benchmark timeout outcomes. Removing them would make benchmark jobs hang-prone. |
 | `hooks/test_after_edit.py` | Kept | Hook subprocess budget for automatic post-edit verification. Safety bound, not test pacing. |

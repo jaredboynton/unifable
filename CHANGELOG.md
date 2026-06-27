@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.11.0 - 2026-06-27
+
+- Parallelized PostToolUse judge calls (reconcile, discover, disarm, hint) under a
+  single wall-clock budget via `posttool_judges.py` daemon-thread fan-out, with
+  the host PostToolUse hook timeout raised to 120s.
+- Delta-merge spec updates: reconcile and discover return pure deltas applied under
+  `update_spec()`'s lock (hygiene first, then reconcile, then frontier) so parallel
+  siblings cannot lose citation or task-board mutations.
+- Atomic session-level coalesce for reconcile+discover on a dedicated
+  `posttool_claims` table (SQLite schema v3), keyed by the same spec key as the
+  evidence board; unreliable turn epochs fail open to running judges rather than
+  suppressing work.
+- Atomic HEAVY frontier counters (`posttool_frontier_counters`) replace
+  last-writer-wins ledger bumps for `frontier_research_tools` /
+  `frontier_discovery_count`.
+- Bounded fail-open when the judge orchestrator fails: no sequential four-judge
+  fallback that could exceed the host timeout.
+- Frontier dedup in `apply_frontier_additions()` uses repo `_normalize_title()` /
+  `_norm_title_conflicts()` instead of raw casefold.
+- Realtime daemon pool dispatch counts queued outbox work plus in-flight holders
+  when picking workers and checking overload, so a first-burst of concurrent judge
+  requests spreads across the warm socket pool instead of piling onto worker 0.
+
+Verification:
+
+- `python3 -m pytest tests/test_posttool_parallel.py tests/test_posttool_timeout_budget.py tests/test_judge_daemon_routing.py tests/test_db.py -q`
+- `just test-all` (1186+ passed, 9 subtests passed; 40/40 gate scenarios; 14/14 robustness checks)
+
 ## 1.10.2 - 2026-06-27
 
 - Fixed the judge transcript renderer dropping Codex record bodies: `_record_text`

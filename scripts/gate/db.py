@@ -39,7 +39,7 @@ try:  # bare import on hooks/tests sys.path; package import otherwise
 except ImportError:  # pragma: no cover
     from scripts.gate.ledger import data_root
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 3
 APPLICATION_ID = 0x554E4642  # "UNFB"
 DEFAULT_BUSY_MS = 5000
 
@@ -93,6 +93,20 @@ CREATE TABLE IF NOT EXISTS specs (
     spec_key   TEXT PRIMARY KEY,
     doc        TEXT NOT NULL DEFAULT '{}',
     updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS posttool_claims (
+    spec_key   TEXT PRIMARY KEY,
+    call_at    REAL NOT NULL DEFAULT 0,
+    epoch      TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
+CREATE TABLE IF NOT EXISTS posttool_frontier_counters (
+    skey             TEXT PRIMARY KEY,
+    research_tools   INTEGER NOT NULL DEFAULT 0,
+    discovery_count  INTEGER NOT NULL DEFAULT 0,
+    updated_at       TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -308,8 +322,7 @@ def session_save(skey: str, ledger: dict[str, Any], *, session_id: str = "", pro
                 if not value:
                     continue
                 conn.execute(
-                    "INSERT INTO activity(skey, kind, value, ts) VALUES(?,?,?,?) "
-                    "ON CONFLICT(skey, kind, value) DO NOTHING",
+                    "INSERT INTO activity(skey, kind, value, ts) VALUES(?,?,?,?) ON CONFLICT(skey, kind, value) DO NOTHING",
                     (skey, kind, str(value), now),
                 )
 
@@ -339,8 +352,7 @@ def activity_add(skey: str, kind: str, values: list[str]) -> None:
             if not value:
                 continue
             conn.execute(
-                "INSERT INTO activity(skey, kind, value, ts) VALUES(?,?,?,?) "
-                "ON CONFLICT(skey, kind, value) DO NOTHING",
+                "INSERT INTO activity(skey, kind, value, ts) VALUES(?,?,?,?) ON CONFLICT(skey, kind, value) DO NOTHING",
                 (skey, db_kind, str(value), now),
             )
 
@@ -438,6 +450,111 @@ def spec_keys() -> list[str]:
 
 def spec_delete(spec_key: str) -> None:
     _write(lambda c: c.execute("DELETE FROM specs WHERE spec_key=?", (spec_key,)), None)
+
+
+# ---------------------------------------------------------------------------
+# PostToolUse session-level judging coalesce (atomic compare-and-set)
+# ---------------------------------------------------------------------------
+
+
+def posttool_spec_claim(spec_key: str, ts: float, epoch: str, window: float) -> bool:
+    """Atomic coalesce claim for session-level PostToolUse spec judging.
+
+    Returns True if this caller should run reconcile+discover for *spec_key*, False
+    if a sibling already claimed within *window* seconds of the same *epoch* (turn).
+    The read-decide-write runs in ONE BEGIN IMMEDIATE transaction against a DEDICATED
+    table, so -- unlike a ledger-blob field that a concurrent whole-row writer can
+    clobber -- "exactly one claimant per window" holds across a parallel tool batch.
+
+    When *epoch* is empty the turn fingerprint is unreliable; coalescing MUST NOT
+    suppress work, so this returns True immediately (fail-open to run). Fail-open on
+    any other DB error also returns True."""
+    if not epoch:
+        return True
+
+    def op(conn: sqlite3.Connection) -> bool:
+        row = conn.execute("SELECT call_at, epoch FROM posttool_claims WHERE spec_key=?", (spec_key,)).fetchone()
+        if row is not None:
+            last_epoch = row["epoch"] or ""
+            try:
+                recent = epoch == last_epoch and abs(float(ts) - float(row["call_at"])) < float(window)
+            except (TypeError, ValueError):
+                recent = False
+            if recent:
+                return False
+        conn.execute(
+            "INSERT INTO posttool_claims(spec_key, call_at, epoch, updated_at) VALUES(?,?,?,?) "
+            "ON CONFLICT(spec_key) DO UPDATE SET call_at=excluded.call_at, epoch=excluded.epoch, "
+            "updated_at=excluded.updated_at",
+            (spec_key, float(ts), epoch, utc_now()),
+        )
+        return True
+
+    return _write(op, True)
+
+
+# ---------------------------------------------------------------------------
+# PostToolUse HEAVY frontier counters (atomic increments)
+# ---------------------------------------------------------------------------
+
+
+def frontier_bump_research(skey: str) -> tuple[int, int]:
+    """Atomically increment the HEAVY research-tool counter for *skey*.
+
+    Returns ``(research_tools, discovery_count)`` after the bump. Fail-open: ``(0, 0)``."""
+
+    def op(conn: sqlite3.Connection) -> tuple[int, int]:
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO posttool_frontier_counters(skey, research_tools, discovery_count, updated_at) "
+            "VALUES(?, 1, 0, ?) "
+            "ON CONFLICT(skey) DO UPDATE SET research_tools=research_tools+1, updated_at=excluded.updated_at",
+            (skey, now),
+        )
+        row = conn.execute(
+            "SELECT research_tools, discovery_count FROM posttool_frontier_counters WHERE skey=?",
+            (skey,),
+        ).fetchone()
+        return int(row["research_tools"]), int(row["discovery_count"])
+
+    return _write(op, (0, 0))
+
+
+def frontier_bump_discovery(skey: str) -> int:
+    """Atomically increment the frontier-discovery counter for *skey*.
+
+    Returns the new discovery count. Fail-open: ``0``."""
+
+    def op(conn: sqlite3.Connection) -> int:
+        now = utc_now()
+        conn.execute(
+            "INSERT INTO posttool_frontier_counters(skey, research_tools, discovery_count, updated_at) "
+            "VALUES(?, 0, 1, ?) "
+            "ON CONFLICT(skey) DO UPDATE SET discovery_count=discovery_count+1, updated_at=excluded.updated_at",
+            (skey, now),
+        )
+        row = conn.execute(
+            "SELECT discovery_count FROM posttool_frontier_counters WHERE skey=?",
+            (skey,),
+        ).fetchone()
+        return int(row["discovery_count"])
+
+    return _write(op, 0)
+
+
+def frontier_get_counts(skey: str) -> tuple[int, int]:
+    """Read HEAVY frontier counters without mutating. Fail-open: ``(0, 0)``."""
+
+    def op(conn: sqlite3.Connection) -> tuple[int, int]:
+        row = conn.execute(
+            "SELECT research_tools, discovery_count FROM posttool_frontier_counters WHERE skey=?",
+            (skey,),
+        ).fetchone()
+        if row is None:
+            return 0, 0
+        return int(row["research_tools"]), int(row["discovery_count"])
+
+    return _read(op, (0, 0))
 
 
 # ---------------------------------------------------------------------------

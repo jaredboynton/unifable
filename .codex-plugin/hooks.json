@@ -36,7 +36,7 @@
       {
         "matcher": ".*",
         "hooks": [
-          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" gate_post_tool.py", "statusMessage": "observing tool evidence", "timeout": 10 }
+          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" gate_post_tool.py", "statusMessage": "observing tool evidence", "timeout": 120 }
         ]
       },
       {

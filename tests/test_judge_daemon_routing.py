@@ -14,6 +14,8 @@ import threading
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
 import realtime_daemon as jd  # noqa: E402
@@ -130,6 +132,49 @@ def test_pick_worker_ties_break_low_index():
         w.idx = i
     # All idle -> lowest index wins.
     assert d._pick_worker().idx == 0
+
+
+def test_worker_load_counts_inflight_plus_queued():
+    w = _worker()
+    _register(w, 1, jd._Holder())
+    _register(w, 2, jd._Holder())
+    for cid in (10, 11, 12):
+        w.enqueue(cid, {}, jd._Holder())
+    assert w.inflight() == 2
+    assert w.load() == 5
+
+
+def test_pick_worker_spreads_first_burst_across_pool():
+    d = _daemon(pool_size=4)
+    d._workers = [_worker() for _ in range(4)]
+    for i, w in enumerate(d._workers):
+        w.idx = i
+    chosen: list[int] = []
+    for cid in range(4):
+        worker = d._pick_worker()
+        chosen.append(worker.idx)
+        worker.enqueue(cid, {}, jd._Holder())
+    assert chosen == [0, 1, 2, 3]
+
+
+def test_serial_single_pick_still_worker_zero():
+    d = _daemon(pool_size=4)
+    d._workers = [_worker() for _ in range(4)]
+    for i, w in enumerate(d._workers):
+        w.idx = i
+    assert d._pick_worker().idx == 0
+
+
+def test_submit_overload_counts_queued_load(monkeypatch):
+    monkeypatch.setattr(jd, "MAX_INFLIGHT", 1)
+    d = _daemon(pool_size=1)
+    w = _worker()
+    w.idx = 0
+    d._workers = [w]
+    w.enqueue(1, {}, jd._Holder())
+    assert w.load() == 1
+    with pytest.raises(RuntimeError, match="overloaded"):
+        d.submit({"system": "", "user": "", "schema": {}}, timeout=0.01)
 
 
 def test_sock_path_default_model_is_legacy_unsuffixed():
