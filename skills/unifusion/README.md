@@ -21,7 +21,7 @@ model executes.
 | Brief *(auto)* | `resolve_session.sh` → `summarize_session.sh` → `compact-full-transcript.mjs` | resolve **this** session's transcript host-agnostically, summarize it to a **factual-only** brief shared identically by every panelist |
 | Fan out | `run_cb.sh`, `run_codex.sh`, `run_gemini.sh`, `run_kimi.sh`, `run_glm.sh` | every model answers the **same** prompt in parallel, blind, with web + bash, citing real evidence |
 | Judge | `references/judge_rubric.md` | Opus 4.8 **merges** (Track A, code) or **synthesizes** (Track B, five sections) |
-| Save | `save_run.sh` | timestamped provenance under `~/.claude/unifusion-runs/` (auto-discovers the run dir) |
+| Save | `save_run.sh` | timestamped provenance under `~/.unifable/unifusion-runs/` (override root with `UNIFABLE_DATA`; auto-discovers the run dir) |
 
 Panel composition scales to whatever is installed, one panelist per CLI:
 

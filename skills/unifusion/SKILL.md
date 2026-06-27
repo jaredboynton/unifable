@@ -122,7 +122,7 @@ Then write the final deliverable:
 
 ## Step 4 — Save provenance, then present
 
-Save the run to an internal provenance file under `~/.claude/unifusion-runs/` (raw panelist answers + the
+Save the run to an internal provenance file under `~/.unifable/unifusion-runs/` (raw panelist answers + the
 analysis + the final answer, timestamped, for auditing). Pass the `SLUG` from the manifest and the
 `RUN_DIR` — the script auto-discovers every panelist's answer file from it:
 

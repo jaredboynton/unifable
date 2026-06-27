@@ -1,5 +1,5 @@
 ---
-description: Set up unifable always-on (install the spec CLI + record state; context ships via the SessionStart hook).
+description: Set up unifable always-on (install the CLI + record state; all context ships via hooks, no CLAUDE.md/AGENTS.md blocks).
 ---
 
 Run the unifable setup. Ask only once, up front.
@@ -23,4 +23,4 @@ The user already consented in Step 1. For "Local" or "Global", run setup:
 bash ${CLAUDE_PLUGIN_ROOT}/setup/setup.sh <local|global>
 ```
 
-`setup.sh` is host-aware: it installs the `unifable-spec` CLI into `~/.local/bin`, strips any prior `<!-- UNIFABLE -->` / `<!-- FABLIZE -->` static block from the host memory file (migration cleanup — the operating-mode context is now delivered by the SessionStart hook, not injected into CLAUDE.md/AGENTS.md), and writes `~/.unifable/progress.json`. Report the result briefly.
+`setup.sh` is host-aware: it installs the unifable CLI entrypoints (`unifable`, `unifable-hook`, and the legacy `unifable-spec` alias) into `~/.local/bin`, strips any prior `<!-- UNIFABLE -->` / `<!-- UNIFABLE-ORCH -->` / `<!-- FABLIZE -->` static block from the host memory file (legacy migration cleanup — all context is now delivered by hooks, nothing is injected into CLAUDE.md/AGENTS.md), and writes `~/.unifable/progress.json`. Report the result briefly.

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.14.1 - 2026-06-27
+
+- Document `probes/` as the home for live bench/probe scripts; remove duplicate
+  `scripts/bench_bedrock_ttft.py` (canonical: `probes/bench_bedrock_ttft.py`).
+- README + gate AGENTS notes: Bedrock `nvidia.nemotron-nano-3-30b` as a possible
+  non-Realtime judge path (not wired in).
+- Slim root `AGENTS.md` into an index; hook wiring and gate conventions moved to
+  `hooks/AGENTS.md` and `scripts/gate/AGENTS.md`.
+- Unifusion provenance writes under `${UNIFABLE_DATA:-~/.unifable}/unifusion-runs/`
+  instead of `~/.claude/unifusion-runs/`.
+- `commands/setup.md`: clarify hook-only context delivery and current CLI entrypoints.
+
+Verification:
+
+- `just test-all` (1266 passed + eval_gate_proof 40/40 + test_gate_robustness 14/14)
+- `uv run --no-project --with-requirements requirements-dev.txt python3 scripts/generate_docs.py --check`
+
 ## 1.14.0 - 2026-06-27
 
 - Async auto-grounding lane for the groundedness breaker

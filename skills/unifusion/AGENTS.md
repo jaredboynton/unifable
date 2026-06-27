@@ -69,7 +69,8 @@ Plain bash + two interpreter helpers; no build step.
   600s.
 - `scripts/_pty_run.py` — runs `agy` under a fresh pty (`pty.fork`) to dodge agy bug #76 (empty stdout
   with no TTY) while surviving a socket stdin (headless/cmux).
-- `scripts/save_run.sh` — writes the provenance `.md` under `~/.claude/unifusion-runs/` only. Accepts a
+- `scripts/save_run.sh` — writes the provenance `.md` under `${UNIFABLE_DATA:-~/.unifable}/unifusion-runs/`
+  only. Accepts a
   single `<run_dir>` 5th arg and auto-discovers `*_out.md` (mapping cb_out→opus-A, cb_out_b→opus-B,
   codex_out→gpt5.5, gemini_out→gemini3.5flash, kimi_out→kimi2.7, glm_out→glm5.1), or an explicit
   `LABEL=path` list as fallback.
@@ -172,7 +173,7 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
   session file, and `grep -E '^## (Plans And Task State|Promises Made)'` on the brief returns nothing
   (the factual-only filter held).
 - `bash scripts/save_run.sh <slug> /tmp/q.md /tmp/an.md /tmp/fn.md /tmp/ufrun` → a record under
-  `~/.claude/unifusion-runs/` with a `### <label>` section per panelist.
+  `${UNIFABLE_DATA:-~/.unifable}/unifusion-runs/` with a `### <label>` section per panelist.
 - `bash scripts/selfcheck.sh` → PASS.
 
 ## Safe-change rules
@@ -197,5 +198,6 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
   never select a transcript by mtime/birth-time/cwd — a wrong transcript would corrupt every panelist.
 - Keep the `_run_with_timeout` / pty helpers; they work around real macOS / headless limitations.
 - A failing CLI drops only its own token; never abort the whole run.
-- Provenance writes stay under `~/.claude/unifusion-runs/` (internal disk); never widen that path.
+- Provenance writes stay under `${UNIFABLE_DATA:-~/.unifable}/unifusion-runs/` (internal disk); never
+  widen that path.
 - This is a skill dir — keep runtime guidance in `SKILL.md`/`references/`, maintainer notes here only.
