@@ -6,6 +6,7 @@ import { generateSigmapMap } from "./map-sigmap.mjs";
 import {
   MAP_MODES,
   charBudgetFromTokens,
+  listRepoFilesMeta,
   readMapCache,
   resolveRepoRoot,
   wrapRepoMapBlock,
@@ -85,14 +86,25 @@ export async function generateMapText(repoRoot, query, options = {}) {
   }
 
   const started = Date.now();
+
+  // Enumerate once; bail before the multi-second tag-extraction pass on a huge
+  // non-git tree (a home dir or cache that hit the file cap), which is never a
+  // useful prefetch target. Fail open to no map so the trace is never blocked.
+  const maxFilesEnv = Number(process.env.EXPLORE_MAP_MAX_FILES);
+  const fileOpts = Number.isFinite(maxFilesEnv) && maxFilesEnv > 0 ? { maxFiles: maxFilesEnv } : {};
+  const { files, viaGit, truncated } = listRepoFilesMeta(repoRoot, fileOpts);
+  if (process.env.EXPLORE_MAP_ALLOW_HUGE !== "1" && !viaGit && truncated) {
+    return { mode, text: "", mapMs: Date.now() - started, fromCache: false, skipped: "huge-non-git" };
+  }
+
   let body = "";
   if (mode === "pagerank") {
-    body = generatePagerankMap(repoRoot, query, { budgetChars });
+    body = generatePagerankMap(repoRoot, query, { budgetChars, files });
   } else if (mode === "sigmap") {
-    body = generateSigmapMap(repoRoot, query, { budgetChars });
+    body = generateSigmapMap(repoRoot, query, { budgetChars, files });
   } else if (mode === "tandem") {
-    const pr = generatePagerankMap(repoRoot, query, { budgetChars: Math.floor(budgetChars / 2) });
-    const sm = generateSigmapMap(repoRoot, query, { budgetChars: Math.floor(budgetChars / 2) });
+    const pr = generatePagerankMap(repoRoot, query, { budgetChars: Math.floor(budgetChars / 2), files });
+    const sm = generateSigmapMap(repoRoot, query, { budgetChars: Math.floor(budgetChars / 2), files });
     body = `${wrapRepoMapBlock("pagerank", pr)}\n${wrapRepoMapBlock("sigmap", sm)}`;
   }
   const mapMs = Date.now() - started;

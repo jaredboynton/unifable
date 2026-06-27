@@ -49,20 +49,26 @@ export function resolveRepoRoot(root) {
   return path.resolve(root || process.cwd());
 }
 
-export function listRepoFiles(repoRoot, { maxFiles = MAX_FILES } = {}) {
+// Enumerate source files plus provenance the prefetch needs to bail on
+// pathological trees: viaGit (git ls-files succeeded) and truncated (hit the
+// maxFiles cap). A non-git tree that hits the cap is a home dir or cache, not a
+// project worth mapping.
+export function listRepoFilesMeta(repoRoot, { maxFiles = MAX_FILES } = {}) {
   const root = resolveRepoRoot(repoRoot);
   const git = spawnSync("git", ["-C", root, "ls-files", "-z"], { encoding: "buffer", maxBuffer: 64 * 1024 * 1024 });
   if (git.status === 0 && git.stdout?.length) {
-    const files = git.stdout
+    const all = git.stdout
       .toString("utf8")
       .split("\0")
       .filter(Boolean)
-      .filter((rel) => !shouldSkipName(path.basename(rel)) && isSourceFile(rel))
-      .slice(0, maxFiles);
-    if (files.length) return files;
+      .filter((rel) => !shouldSkipName(path.basename(rel)) && isSourceFile(rel));
+    if (all.length) {
+      return { files: all.slice(0, maxFiles), viaGit: true, truncated: all.length > maxFiles };
+    }
   }
 
   const results = [];
+  let hitCap = false;
   function walk(dir, depth) {
     if (results.length >= maxFiles || depth > 8) return;
     let entries;
@@ -72,7 +78,10 @@ export function listRepoFiles(repoRoot, { maxFiles = MAX_FILES } = {}) {
       return;
     }
     for (const ent of entries) {
-      if (results.length >= maxFiles) break;
+      if (results.length >= maxFiles) {
+        hitCap = true;
+        break;
+      }
       if (shouldSkipName(ent.name)) continue;
       const full = path.join(dir, ent.name);
       const rel = path.relative(root, full);
@@ -82,7 +91,11 @@ export function listRepoFiles(repoRoot, { maxFiles = MAX_FILES } = {}) {
     }
   }
   walk(root, 0);
-  return results.sort();
+  return { files: results.sort(), viaGit: false, truncated: hitCap || results.length >= maxFiles };
+}
+
+export function listRepoFiles(repoRoot, opts = {}) {
+  return listRepoFilesMeta(repoRoot, opts).files;
 }
 
 export function readRepoFile(repoRoot, relPath) {

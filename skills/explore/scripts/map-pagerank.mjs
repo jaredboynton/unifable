@@ -13,6 +13,12 @@ import { extractSignatures } from "./map-sigmap.mjs";
 
 /** @typedef {{ rel: string, line: number, name: string, kind: "def"|"ref" }} Tag */
 
+// Graph-size guards: a tree under the file cap can still produce a pathologically
+// dense symbol graph. Past these bounds, skip ranking and degrade to no slice
+// rather than spend seconds in power iteration. Env-tunable for tests/operators.
+const PAGERANK_MAX_NODES = Number(process.env.EXPLORE_PAGERANK_MAX_NODES || 6000);
+const PAGERANK_MAX_EDGES = Number(process.env.EXPLORE_PAGERANK_MAX_EDGES || 2000000);
+
 function extractRefs(content, defs) {
   const defNames = new Set(defs.map((d) => d.name));
   const refs = [];
@@ -66,7 +72,7 @@ function identStyleWeight(name) {
   return mul;
 }
 
-export function buildPagerankGraph(tags, query) {
+export function buildPagerankGraph(tags, query, options = {}) {
   const defines = new Map();
   const references = new Map();
   const definitions = new Map();
@@ -133,12 +139,17 @@ export function buildPagerankGraph(tags, query) {
   }
 
   const nodes = [...relFiles];
-  return { outEdges, nodes, personalize, definitions };
+  const maxNodes = options.maxNodes ?? PAGERANK_MAX_NODES;
+  const maxEdges = options.maxEdges ?? PAGERANK_MAX_EDGES;
+  let edgeCount = 0;
+  for (const m of outEdges.values()) edgeCount += m.size;
+  const overCap = nodes.length > maxNodes || edgeCount > maxEdges;
+  return { outEdges, nodes, personalize, definitions, edgeCount, overCap };
 }
 
 export function runPagerank(graph, { iterations = 20, damping = 0.85 } = {}) {
   const { outEdges, nodes, personalize, definitions } = graph;
-  if (!nodes.length) return [];
+  if (!nodes.length || graph.overCap) return [];
 
   const rank = new Map(nodes.map((n) => [n, 1 / nodes.length]));
   const persSum = [...personalize.values()].reduce((a, b) => a + b, 0) || 0;
@@ -168,8 +179,13 @@ export function runPagerank(graph, { iterations = 20, damping = 0.85 } = {}) {
     for (const n of nodes) rank.set(n, next.get(n) || 0);
   }
 
-  /** @type {{ rel: string, name: string, line: number, kind: string, score: number }[]} */
-  const rankedDefs = [];
+  // Collapse each file's incoming edge ranks to one score (the max), then attach
+  // its definitions in a single pass over the definition index. This is O(E + D)
+  // and produces output identical to the prior per-edge scan over all definitions
+  // (which was O(E x D) and hung on large trees): a definition's deduped score is
+  // the max edge rank into its file under both formulations.
+  /** @type {Map<string, number>} */
+  const fileRank = new Map();
   for (const src of nodes) {
     const srcRank = rank.get(src) || 0;
     const outs = outEdges.get(src);
@@ -178,13 +194,21 @@ export function runPagerank(graph, { iterations = 20, damping = 0.85 } = {}) {
     for (const w of outs.values()) total += w;
     for (const [dst, w] of outs) {
       const edgeRank = total ? (srcRank * w) / total : 0;
-      for (const [key, tags] of definitions) {
-        const [rel, name] = key.split("\0");
-        if (rel !== dst) continue;
-        for (const tag of tags) {
-          rankedDefs.push({ rel, name, line: tag.line, kind: tag.kind, score: edgeRank });
-        }
-      }
+      const prev = fileRank.get(dst);
+      if (prev === undefined || edgeRank > prev) fileRank.set(dst, edgeRank);
+    }
+  }
+
+  /** @type {{ rel: string, name: string, line: number, kind: string, score: number }[]} */
+  const rankedDefs = [];
+  for (const [key, tags] of definitions) {
+    const sep = key.indexOf("\0");
+    const rel = key.slice(0, sep);
+    const name = key.slice(sep + 1);
+    const score = fileRank.get(rel);
+    if (score === undefined) continue;
+    for (const tag of tags) {
+      rankedDefs.push({ rel, name, line: tag.line, kind: tag.kind, score });
     }
   }
 
