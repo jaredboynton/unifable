@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.11.1 - 2026-06-27
+
+- Fixed explore repo-map prefetch hangs on large trees by replacing the final
+  PageRank definition ranking pass with an O(E + D) file-rank accumulation path
+  and adding over-cap graph guards.
+- Added a non-git huge-tree bail-out for `generateMapText` so home/cache-like
+  directories return an empty prefetch map quickly unless explicitly overridden.
+- Added PageRank equivalence, over-cap skip, dense-graph linearity, and
+  huge-tree bail tests plus benchmark notes for the selected ranking approach.
+
+Verification:
+
+- `node --test skills/explore/scripts/test/*.test.mjs` (128 passed)
+- `just test-all`
+
 ## 1.11.0 - 2026-06-27
 
 - Parallelized PostToolUse judge calls (reconcile, discover, disarm, hint) under a
