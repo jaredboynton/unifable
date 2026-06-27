@@ -3,8 +3,7 @@
 
 Covers the two properties the HEAVY frontier checks select on:
 - ledger_hook: reads/fetches recorded in ledger activity sync into the spec's
-  repo_context / prior_art, and added_sink names exactly what was appended (this
-  is what drives the PostToolUse "synced N cite(s)" headline).
+  repo_context / prior_art, and added_sink names exactly what was appended.
 - idempotent: replaying the same activity appends nothing and reports no change,
   so a wide read does not re-announce or duplicate cites.
 """

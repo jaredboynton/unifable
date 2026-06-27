@@ -63,9 +63,7 @@ def context_for_mode(
         shown = [f for f in risk_flags if f != "uncertainty"]
         if shown:
             lines.append("Risk flags: " + ", ".join(shown) + ".")
-    if mode == "quick":
-        lines.append("Keep it concise; no forced verification.")
-    elif mode == "normal":
+    if mode == "normal":
         lines.append("If files change, run one relevant verification command or state why none applies.")
     elif mode == "deep":
         lines.append(

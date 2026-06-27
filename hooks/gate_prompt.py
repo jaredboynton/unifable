@@ -299,14 +299,17 @@ def main() -> int:
         if heavy_scaffold:
             context += "\n\n" + heavy_workflow_brief()
 
-    emit_json(
-        {
-            "hookSpecificOutput": {
-                "hookEventName": "UserPromptSubmit",
-                "additionalContext": context,
+    if context.strip():
+        emit_json(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "UserPromptSubmit",
+                    "additionalContext": context,
+                }
             }
-        }
-    )
+        )
+    else:
+        emit_json({})
     return 0
 
 

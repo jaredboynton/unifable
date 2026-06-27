@@ -41,7 +41,7 @@ test_spec_state_notifications.py (10).
 
 - Enum / state checks: `status == "validated"`, `decision == "block"`, `grade == "HEAVY"`, `compute_heavy_phase(spec) == "frontier"` (tests/test_evidence_policy.py:45-47, tests/test_heavy_workflow.py:50-247).
 - Byte-identity / cache-stability: `called_system_prompt[0] == gb._JUDGE_SYSTEM` (tests/test_groundedness_breaker.py:706).
-- Format-prefix: `msg.startswith("Gate cleared.")`, `ctx.startswith("synced 3 cite(s):")`, `ctx.startswith("[unifable:investigation]")` (tests/test_gate_cleared_notify.py:36, tests/test_spec_state_notifications.py:55, tests/test_pack_router.py:63).
+- Format-prefix: `msg.startswith("Gate cleared.")`, `ctx.startswith("[unifable:investigation]")` (tests/test_gate_cleared_notify.py:36, tests/test_pack_router.py:63).
 
 ## Recommendation
 

@@ -124,7 +124,6 @@ DEFAULT_LEDGER: dict[str, Any] = {
     "posttool_context_epoch": "",
     "posttool_last_body_hash": "",
     "posttool_task_guidance": {},
-    "posttool_last_cite_headline": "",
     "posttool_last_breaker_status": "",
     "posttool_last_failure_hint_hash": "",
     "posttool_last_discovery_headline": "",

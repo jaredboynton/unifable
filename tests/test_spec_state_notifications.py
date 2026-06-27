@@ -28,7 +28,7 @@ from heavy_workflow import heavy_snapshot, heavy_transition_headline  # noqa: E4
 from spec import auto_validate_spec, judge_all_tasks, load_spec, save_spec, spec_template  # noqa: E402
 
 # --------------------------------------------------------------------------- #
-# Gap 1 — citation auto-sync (added_sink + batched headline)
+# Gap 1 — citation auto-sync (added_sink tracks deterministic evidence mutations)
 # --------------------------------------------------------------------------- #
 
 
@@ -47,15 +47,6 @@ def test_sync_added_sink_reports_appended_cites(tmp_path):
     sink2: dict[str, list[str]] = {}
     assert sync_citations_from_activity(spec, activity, str(tmp_path), added_sink=sink2) is False
     assert sink2 == {}
-
-
-def test_citation_sync_headline_batches_one_line():
-    headline = gate_post_tool._citation_sync_headline({"prior_art": ["https://x.com/a"], "repo_context": ["a.py:1", "b.py:2"]})
-    assert headline.startswith("synced 3 cite(s):")
-    assert "prior_art<-fetch [https://x.com/a]" in headline
-    assert "repo_context<-read [a.py:1, b.py:2]" in headline
-    assert "\n" not in headline  # one batched line per turn
-    assert gate_post_tool._citation_sync_headline({}) == ""
 
 
 # --------------------------------------------------------------------------- #

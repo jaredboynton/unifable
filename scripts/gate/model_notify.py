@@ -487,11 +487,6 @@ def guidance_covers_incomplete(spec: dict[str, Any], ledger: dict[str, Any]) -> 
     return True
 
 
-def build_citation_sync_context(headline: str) -> str:
-    """Cite-sync only — never bundle task action digest."""
-    return " ".join(str(headline or "").split())
-
-
 def build_spec_action_context(
     spec: dict[str, Any],
     *,

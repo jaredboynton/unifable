@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.10.1 - 2026-06-27
+
+- Stopped emitting cite-only PostToolUse `additionalContext` after deterministic
+  citation sync. Reads and fetches still update `repo_context` / `prior_art`, but
+  the model no longer spends context on "synced N cite(s)" bookkeeping.
+- Suppressed empty quick-task prompt context, so a waived task that needs no
+  guidance emits `{}` instead of a generic "keep it concise" reminder.
+- Kept PostToolUse state updates for real action signals: failures, breaker
+  status, spec CLI feedback, and judge frontier/reconcile updates still surface
+  when they require model action.
+- Simplified reconcile revision headlines to `Tn revised: ...` and preserved the
+  full judge reason instead of truncating it.
+
+Verification:
+
+- `python3 -m pytest tests/test_posttool_context_dedup.py tests/test_spec_state_notifications.py tests/test_citation_sync.py tests/test_hook_token_dedup.py tests/test_spec_reconcile.py -q` (36 passed)
+- `just test-all` (1130 passed, 9 subtests passed)
+
 ## 1.10.0 - 2026-06-27
 
 - Centralized the explore skill into the stable runtime: added `skills` to

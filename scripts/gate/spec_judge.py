@@ -338,6 +338,10 @@ def _add_judge_requirement(
     return headlines
 
 
+def _revise_headline(tid: str, reason: str) -> str:
+    return f"{tid} revised: {reason}"
+
+
 def _apply_reconcile_actions(
     spec: dict[str, Any],
     actions: list[dict[str, Any]],
@@ -382,8 +386,7 @@ def _apply_reconcile_actions(
             task["reconcile_evidence_refs"] = refs
             task["_check_stale"] = True
             task["_revise_this_stop"] = True
-            who = "Judge" if task.get("added_by") == "judge" else "Agent req"
-            headline = f"{who} requirement {tid} revised: {reason[:80]}"
+            headline = _revise_headline(tid, reason)
             notify_spec_update(spec, headline, highlight_task=tid)
             headlines.append(headline)
         elif kind in ("supersede", "add_requirement"):
@@ -742,8 +745,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["judge_reason"] = reason
             t["_check_stale"] = True
             t["_revise_this_stop"] = True
-            who = "Judge" if t.get("added_by") == "judge" else "Agent req"
-            headline = f"{who} requirement {tid} revised: {reason[:80]}"
+            headline = _revise_headline(tid, reason)
         notify_spec_update(spec, headline, highlight_task=tid)
         headlines.append(headline)
     return headlines

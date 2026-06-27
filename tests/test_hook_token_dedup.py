@@ -132,7 +132,7 @@ def test_posttool_breaker_status_deduped():
 
 def test_posttool_prepare_strips_repeat_breaker_line():
     payload = {"session_id": "pt", "cwd": "/tmp", "turn_id": "t1"}
-    parts = ["breaker: ARMED on 'x'", "synced 1 cite(s): repo_context<-read [a.py:1]"]
+    parts = ["breaker: ARMED on 'x'", "Spec update:\nT1 revised: read the new route file."]
     out1, _ = prepare_posttool_parts(payload, parts)
     assert any(p.startswith("breaker:") for p in out1)
     update_ledger(payload, lambda ld: ld.update({"posttool_last_breaker_status": "breaker: ARMED on 'x'"}))

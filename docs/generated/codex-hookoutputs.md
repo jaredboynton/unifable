@@ -65,7 +65,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "Keep it concise; no forced verification.\nCite evidence for load-bearing claims: path:line for code, cmd -> output for tool results, a URL for research/prior art. Never claim verification not observed in a tool result.",
+    "additionalContext": "Cite evidence for load-bearing claims: path:line for code, cmd -> output for tool results, a URL for research/prior art. Never claim verification not observed in a tool result.",
     "hookEventName": "UserPromptSubmit"
   }
 }

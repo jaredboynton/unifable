@@ -152,9 +152,6 @@ def emit_posttool_context(
             for key, value in (cache_updates or {}).items():
                 if value:
                     ledger[key] = value
-            first_line = text.split("\n", 1)[0]
-            if first_line.startswith("synced ") and " cite(s):" in first_line:
-                ledger["posttool_last_cite_headline"] = first_line
             save_ledger(input_data, ledger)
     except Exception:
         pass
@@ -166,22 +163,3 @@ def emit_posttool_context(
             }
         }
     )
-
-
-def should_suppress_cite_only(
-    spec: dict[str, Any],
-    ledger: dict[str, Any],
-    cite_headline: str,
-) -> bool:
-    """Skip cite-only noise when the model already has guidance for open tasks."""
-    headline = str(cite_headline or "").strip()
-    if not headline.startswith("synced ") or " cite(s):" not in headline:
-        return False
-    try:
-        from model_notify import guidance_covers_incomplete
-    except ImportError:
-        from scripts.gate.model_notify import guidance_covers_incomplete  # pragma: no cover
-    if not guidance_covers_incomplete(spec, ledger):
-        return False
-    last = str(ledger.get("posttool_last_cite_headline") or "").strip()
-    return last == headline

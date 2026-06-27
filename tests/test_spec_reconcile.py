@@ -108,7 +108,27 @@ def test_reconcile_revises_open_task_and_carries_evidence():
     assert task["reconcile_evidence_refs"] == ["route now lives under /new-route"]
     assert task["_check_stale"] is True
     assert task["_revise_this_stop"] is True
-    assert headlines == ["Agent req requirement T1 revised: captured test output shows the route moved"]
+    assert headlines == ["T1 revised: captured test output shows the route moved"]
+
+
+def test_reconcile_revise_headline_includes_full_long_reason():
+    long_reason = (
+        "The requirement is valid but its wording can be tightened to reflect "
+        "the mechanism used in the reconciled implementation path."
+    )
+    assert len(long_reason) > 80
+    spec = {"requires_tasks": True, "tasks": [_task("T1", "Old route still exists", "failed")]}
+    evidence = {"command_outputs": ["pytest tests/test_route.py -q -> route now lives under /new-route"]}
+    actions = [
+        {
+            "action": "revise",
+            "id": "T1",
+            "reason": long_reason,
+            "evidence_refs": ["route now lives under /new-route"],
+        }
+    ]
+    headlines = _apply_reconcile_actions(spec, actions, evidence=evidence)
+    assert headlines == [f"T1 revised: {long_reason}"]
 
 
 def test_post_tool_reconciliation_updates_persisted_spec(monkeypatch, tmp_path):

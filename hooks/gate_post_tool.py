@@ -19,7 +19,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gat
 
 from ledger import add_unique, emit_json, load_ledger, read_stdin_json, update_ledger
 from model_notify import (
-    build_citation_sync_context,
     build_posttool_spec_context,
     is_spec_cli_command,
 )
@@ -37,7 +36,7 @@ from parse_tool_result import (
     response_text,
     verification_record,
 )
-from posttool_notify import emit_posttool_context, prepare_posttool_parts, should_suppress_cite_only
+from posttool_notify import emit_posttool_context, prepare_posttool_parts
 from spec_io import canonical_project_root
 
 
@@ -127,24 +126,6 @@ def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int)
         return judge_hint(spec, signal=signal, recent=recent)
     except Exception:
         return ""
-
-
-def _citation_sync_headline(added: dict[str, list[str]]) -> str:
-    """One batched headline naming the cites auto-synced this PostToolUse call (gap 1).
-
-    Per-turn batch: a single line covering everything sync_citations_from_activity
-    appended for this tool, capped so a wide read does not flood the channel."""
-    prior = [str(u) for u in (added.get("prior_art") or []) if str(u).strip()]
-    repo = [str(p) for p in (added.get("repo_context") or []) if str(p).strip()]
-    total = len(prior) + len(repo)
-    if not total:
-        return ""
-    segs: list[str] = []
-    if prior:
-        segs.append("prior_art<-fetch [" + ", ".join(prior[:3]) + ("..." if len(prior) > 3 else "") + "]")
-    if repo:
-        segs.append("repo_context<-read [" + ", ".join(repo[:3]) + ("..." if len(repo) > 3 else "") + "]")
-    return f"synced {total} cite(s): " + "; ".join(segs)
 
 
 def _breaker_status_context(input_data: dict) -> str:
@@ -246,7 +227,6 @@ def main() -> int:
     ledger = update_ledger(input_data, apply)
 
     discovery_context = ""
-    citation_context = ""
     try:
         from citations import activity_from_ledger
         from evidence_policy import resolve_grade
@@ -266,16 +246,6 @@ def main() -> int:
             if spec and apply_spec_hygiene(spec, activity, cwd, added_sink=citation_added)[0]:
                 save_spec(cwd, task_id, spec)
                 evidence_changed = True
-                _cite_headline = _citation_sync_headline(citation_added)
-                if _cite_headline:
-                    try:
-                        _led = load_ledger(input_data)
-                        if should_suppress_cite_only(spec, _led, _cite_headline):
-                            _cite_headline = ""
-                    except Exception:
-                        pass
-                    if _cite_headline:
-                        citation_context = build_citation_sync_context(_cite_headline)
             if spec and evidence_changed and not (tool_name == "Bash" and is_spec_cli_command(command)):
                 headlines = judge_reconcile_spec(
                     spec,
@@ -331,8 +301,6 @@ def main() -> int:
         ]
         if hint:
             parts.append("Hint: " + hint)
-        if citation_context:
-            parts.append(citation_context)
         if spec_context:
             parts.append(spec_context)
         if breaker_status_context:
@@ -345,8 +313,6 @@ def main() -> int:
                 "Tool failure observed. Do not report completion until "
                 "it is fixed, isolated as a known baseline, or explicitly documented."
             )
-        if citation_context:
-            parts.append(citation_context)
         if spec_context:
             parts.append(spec_context)
         if discovery_context:

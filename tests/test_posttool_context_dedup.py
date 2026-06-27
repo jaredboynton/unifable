@@ -20,7 +20,7 @@ sys.path.insert(0, str(REPO / "scripts" / "gate"))
 import model_notify as mn  # noqa: E402
 from ledger import load_ledger, save_ledger  # noqa: E402
 from posttool_notify import emit_posttool_context  # noqa: E402
-from spec import save_spec, spec_template  # noqa: E402
+from spec import load_spec, save_spec, spec_template  # noqa: E402
 
 JUDGE_REASON = "The current check is uncheckable without a repo-backed plan artifact."
 
@@ -69,7 +69,7 @@ def _read_payload(
     }
 
 
-def test_citation_sync_emits_headline_only():
+def test_citation_sync_is_silent_but_updates_spec():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["UNIFABLE_DATA"] = tmp
         f = Path(tmp) / "hooks.json"
@@ -78,13 +78,12 @@ def test_citation_sync_emits_headline_only():
         save_spec(tmp, "cite-only-test", spec)
         out = _run_post_tool(_read_payload(tmp, "cite-only-test", f))
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert ctx.startswith("synced 1 cite(s):")
-        assert "repo_context<-read" in ctx
-        assert "T1:" not in ctx
-        assert JUDGE_REASON not in ctx
+        updated = load_spec(tmp, "cite-only-test")
+        assert ctx == ""
+        assert any("hooks.json" in item.get("cite", "") for item in updated.get("repo_context", []))
 
 
-def test_citation_sync_no_repeat_same_guidance():
+def test_citation_sync_stays_silent_with_existing_guidance():
     with tempfile.TemporaryDirectory() as tmp:
         os.environ["UNIFABLE_DATA"] = tmp
         f1 = Path(tmp) / "a.py"
@@ -107,13 +106,15 @@ def test_citation_sync_no_repeat_same_guidance():
 
         out1 = _run_post_tool(_read_payload(tmp, "cite-repeat-test", f1))
         ctx1 = (out1.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "synced 1 cite(s):" in ctx1
-        assert "T1:" not in ctx1
+        assert ctx1 == ""
 
         out2 = _run_post_tool(_read_payload(tmp, "cite-repeat-test", f2))
         ctx2 = (out2.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "T1:" not in ctx2
-        assert JUDGE_REASON not in ctx2
+        updated = load_spec(tmp, "cite-repeat-test")
+        cites = [item.get("cite", "") for item in updated.get("repo_context", [])]
+        assert ctx2 == ""
+        assert any("a.py" in cite for cite in cites)
+        assert any("b.py" in cite for cite in cites)
 
 
 def test_spec_cli_success_add_task_is_silent():
@@ -145,7 +146,7 @@ def test_parallel_identical_body_deduped(capsys):
         "turn_id": "turn-par",
         "cwd": os.getcwd(),
     }
-    body = "synced 1 cite(s): repo_context<-read [a.py:1]"
+    body = "breaker: ARMED on 'claim'"
 
     def one_emit() -> str:
         with patch("posttool_notify.emit_json") as emit:
@@ -183,17 +184,6 @@ def test_action_digest_emits_on_judge_reason_change():
     third, updated = mn.format_spec_action_digest_delta(spec, ledger)
     assert "Revise the check" in third
     assert updated["T1"]["reason"] != cache["T1"]["reason"]
-
-
-def test_build_spec_context_from_spec_can_omit_action():
-    spec = _sample_spec()
-    ctx = mn.build_spec_context_from_spec(
-        spec,
-        headlines=["synced 2 cite(s): repo_context<-read [x.py:1]"],
-        include_action=False,
-    )
-    assert ctx.startswith("synced 2 cite(s):")
-    assert "T1:" not in ctx
 
 
 def test_judge_heal_includes_plan_mode_context(monkeypatch, tmp_path):
