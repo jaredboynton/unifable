@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.16.0 - 2026-06-27
+
+- Default output style switched from Fable to **mute** on Claude. `install/claude.sh`
+  now sets `outputStyle = "mute"`, ships `output-styles/mute.md` (silent between tool
+  calls, caveman-terse when speaking), and still ships `output-styles/fable.md` so the
+  Fable orchestrator persona remains selectable. The Fable persona text is no longer
+  loaded by default; unifable's grounded/verified/delegate procedure still ships via the
+  SessionStart + UserPromptSubmit + Stop hooks, so orchestrator behavior is unchanged --
+  only the default output verbosity changes.
+- `install/claude.sh` now respects `CLAUDE_CONFIG_DIR` (default `$HOME/.claude`) so the
+  installer targets the active Claude config dir instead of always `$HOME/.claude`.
+- README updated to document mute-as-default with Fable available.
+
+Verification:
+
+- `just version 1.16.0`; `just generated-docs` + `python3 scripts/generate_docs.py --check`
+- `just test-all`
+- Manual: ran the patched installer with `CLAUDE_CONFIG_DIR` set; `settings.json`
+  `outputStyle=mute`, both `mute.md` and `fable.md` copied to `output-styles/`.
+- `~/.claude-/scripts/eval-mute-discipline.sh 3` → 3/3 PASS (Haiku, unifable enabled).
+
 ## 1.15.0 - 2026-06-27
 
 - Removed the legacy `~/.claude/unifusion-runs/` directory (one real run record

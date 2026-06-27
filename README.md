@@ -182,7 +182,9 @@ The model is **not** front-loaded with a large standing posture. The **SessionSt
 judge-relationship frame: it tells the model a director judge guides it step by step (opening and
 restricting tools, tending the spec) and to restate the goal first. All step-by-step guidance is
 delivered at runtime by the per-tool director, not front-loaded here. On Claude the posture is
-reinforced by the **Fable output style** (`output-styles/fable.md`, set by `install/claude.sh`). The
+reinforced by an output style shipped by `install/claude.sh`: **mute is the default**
+(`output-styles/mute.md` — silent between tool calls, caveman-terse when speaking), with the
+**Fable orchestrator persona** (`output-styles/fable.md`) remaining selectable. The
 frame ships only when the plugin is enabled -- it is not injected into host memory files, so it does
 not pollute context for other CLI tools.
 
