@@ -63,6 +63,7 @@ def _format_scaffold_onboarding(
         f"  - FIRST: unifable restate '<the intended outcome, in your own words>' (the gate stays blocked until you restate)\n"
         f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
         f"{task_guidance}\n"
+        f"    (--title and --check are both required, or pass them as two positional args)\n"
     )
     if heavy_scaffold:
         block += (
@@ -73,6 +74,115 @@ def _format_scaffold_onboarding(
         "(only the judge can retract). Citations sync from your reads automatically."
     )
     return block
+
+
+def _classify_prompt_grade(operative: str, prior_spec: object) -> tuple[str, list, str, str]:
+    """Judge-backed grade classification (single call per prompt). Fails open to
+    normal/code on any judge/transport error."""
+    restated = str(prior_spec.get("restated_goal") or "") if isinstance(prior_spec, dict) else ""
+    # Only feed the task board to the judge for substantive prompts. Short
+    # continuations ("proceed", "continue") have almost no operative signal, so
+    # board noise (stale/speculative task titles) can pollute the classification.
+    task_summary = None
+    if len(operative.split()) >= 20:
+        task_summary = _task_summary(prior_spec) if isinstance(prior_spec, dict) else None
+    verdict = judge_grade_classify(operative, restated_goal=restated, task_summary=task_summary)
+    if verdict is None:
+        return "normal", [], "judge unavailable: classified as normal (fail-open)", "code"
+    return parse_grade_verdict(verdict)
+
+
+def _reclassified_line(
+    *,
+    effective_grade: str,
+    prior_grade: str,
+    evidence_profile: str,
+    prior_profile: str,
+    reason: str,
+) -> str:
+    """Gap 3: surface the judge's reason and the grade/profile move when the
+    per-prompt classification shifts enforcement -- the generic mode line does
+    not tell the model the gate's requirements just changed."""
+    detail = (reason or "").strip() or "requirements changed"
+    line = f"\n\nReclassified: {detail}"
+    if effective_grade != prior_grade:
+        line += f" Enforcement is now {effective_grade} (was {prior_grade})."
+    if evidence_profile != prior_profile:
+        if evidence_profile == "operational":
+            line += " Repo citations not required before edits."
+        else:
+            line += " Repo and prior-art citations required before edits."
+    return line
+
+
+def _append_scaffold_context(
+    input_data: dict,
+    ledger: dict,
+    *,
+    cwd: str,
+    session_key: str,
+    prompt: str,
+    heavy_scaffold: bool,
+    evidence_profile: str,
+    plan_mode: object,
+) -> str:
+    """Ensure the evidence-spec scaffold exists and return any onboarding/update
+    context to append (empty at LIGHT)."""
+    path, scaffold_changes, scaffold_created = ensure_spec_scaffold(
+        cwd, session_key, prompt, heavy=heavy_scaffold, evidence_profile=evidence_profile
+    )
+    if path and scaffold_created and not ledger.get("prompt_scaffold_notified"):
+        block = _format_scaffold_onboarding(
+            path,
+            evidence_profile=evidence_profile,
+            heavy_scaffold=heavy_scaffold,
+            plan_mode=plan_mode if isinstance(plan_mode, dict) else {},
+            skip_cli_tutorial=bool(ledger.get("inject_heavy_brief")),
+        )
+
+        def _mark_scaffold(_led):
+            _led["prompt_scaffold_notified"] = True
+
+        update_ledger(input_data, _mark_scaffold)
+        return block
+    if path and scaffold_changes:
+        return "\n\nSpec scaffold updated: " + "; ".join(scaffold_changes) + "."
+    return ""
+
+
+def _mark_cite_footer_if_shown(input_data: dict, prior_ledger: dict, context: str) -> None:
+    """Record that the citation footer was surfaced so it is not repeated."""
+    if prior_ledger.get("citation_footer_notified") or "Cite evidence" not in context:
+        return
+    try:
+
+        def _mark(_led):
+            _led["citation_footer_notified"] = True
+
+        update_ledger(input_data, _mark)
+    except Exception:
+        pass
+
+
+def _self_referential_suffix(operative: str) -> str:
+    try:
+        return self_referential_harness_context_line(operative) or ""
+    except Exception:
+        return ""
+
+
+def _plan_mode_suffix(input_data: dict) -> tuple[str, object]:
+    """Return (context_suffix, plan_mode). plan_mode defaults to disabled on error."""
+    try:
+        plan_mode = resolve_plan_mode(input_data, transcript_path=input_data.get("transcript_path"))
+        if plan_mode_prompt_line_needed(input_data, plan_mode):
+            plan_line = plan_mode_context_line(plan_mode)
+            if plan_line:
+                mark_plan_mode_prompt_notified(input_data)
+                return plan_line, plan_mode
+        return "", plan_mode
+    except Exception:
+        return "", {"enabled": False}
 
 
 def main() -> int:
@@ -89,31 +199,13 @@ def main() -> int:
     new_key = _prompt_key(prompt)
     session_key = resolve_session_id(input_data, default="default") or "default"
 
-    # Judge-backed grade classification (single call per prompt). Fails open to
-    # normal/STANDARD on any judge/transport error.
     operative = operative_prompt(prompt)
     prior_spec = None
     try:
         prior_spec = load_spec(cwd, session_key)
     except Exception:
         pass
-    restated = str(prior_spec.get("restated_goal") or "") if isinstance(prior_spec, dict) else ""
-    # Only feed the task board to the judge for substantive prompts. Short
-    # continuations ("proceed", "continue") have almost no operative signal, so
-    # board noise (stale/speculative task titles) can pollute the classification.
-    task_summary = None
-    if len(operative.split()) >= 20:
-        task_summary = _task_summary(prior_spec) if isinstance(prior_spec, dict) else None
-    verdict = judge_grade_classify(operative, restated_goal=restated, task_summary=task_summary)
-    mode, risks, reason, evidence_profile = parse_grade_verdict(verdict)
-    if verdict is None:
-        mode, risks, reason, evidence_profile = (
-            "normal",
-            [],
-            "judge unavailable: classified as normal (fail-open)",
-            "code",
-        )
-    grade = grade_of(mode)
+    mode, risks, reason, evidence_profile = _classify_prompt_grade(operative, prior_spec)
 
     def apply(ledger):
         ledger["active_task"] = new_key
@@ -166,68 +258,35 @@ def main() -> int:
         first_prompt=not prior_ledger.get("citation_footer_notified"),
     )
 
-    if not prior_ledger.get("citation_footer_notified") and "Cite evidence" in context:
-        try:
+    _mark_cite_footer_if_shown(input_data, prior_ledger, context)
+    context += _self_referential_suffix(operative)
 
-            def _mark_cite_footer(_led):
-                _led["citation_footer_notified"] = True
-
-            update_ledger(input_data, _mark_cite_footer)
-        except Exception:
-            pass
-
-    try:
-        sr_line = self_referential_harness_context_line(operative)
-        if sr_line:
-            context += sr_line
-    except Exception:
-        pass
-
-    try:
-        plan_mode = resolve_plan_mode(input_data, transcript_path=input_data.get("transcript_path"))
-        if plan_mode_prompt_line_needed(input_data, plan_mode):
-            plan_line = plan_mode_context_line(plan_mode)
-            if plan_line:
-                context += plan_line
-                mark_plan_mode_prompt_notified(input_data)
-    except Exception:
-        plan_mode = {"enabled": False}
+    plan_suffix, plan_mode = _plan_mode_suffix(input_data)
+    context += plan_suffix
 
     # Gap 3: when the per-prompt classification shifts the enforcement grade or the
     # evidence profile, surface the judge's reason and the move -- the generic mode
     # line above does not tell the model the gate's requirements just changed.
     if prior_active and (effective_grade != prior_grade or evidence_profile != prior_profile):
-        detail = (reason or "").strip() or "requirements changed"
-        line = f"\n\nReclassified: {detail}"
-        if effective_grade != prior_grade:
-            line += f" Enforcement is now {effective_grade} (was {prior_grade})."
-        if evidence_profile != prior_profile:
-            if evidence_profile == "operational":
-                line += " Repo citations not required before edits."
-            else:
-                line += " Repo and prior-art citations required before edits."
-        context += line
+        context += _reclassified_line(
+            effective_grade=effective_grade,
+            prior_grade=prior_grade,
+            evidence_profile=evidence_profile,
+            prior_profile=prior_profile,
+            reason=reason,
+        )
 
     if effective_grade != "LIGHT":
-        key = session_key
-        path, scaffold_changes, scaffold_created = ensure_spec_scaffold(
-            cwd, key, prompt, heavy=heavy_scaffold, evidence_profile=evidence_profile
+        context += _append_scaffold_context(
+            input_data,
+            ledger,
+            cwd=cwd,
+            session_key=session_key,
+            prompt=prompt,
+            heavy_scaffold=heavy_scaffold,
+            evidence_profile=evidence_profile,
+            plan_mode=plan_mode,
         )
-        if path and scaffold_created and not ledger.get("prompt_scaffold_notified"):
-            context += _format_scaffold_onboarding(
-                path,
-                evidence_profile=evidence_profile,
-                heavy_scaffold=heavy_scaffold,
-                plan_mode=plan_mode if isinstance(plan_mode, dict) else {},
-                skip_cli_tutorial=bool(ledger.get("inject_heavy_brief")),
-            )
-
-            def _mark_scaffold(_led):
-                _led["prompt_scaffold_notified"] = True
-
-            update_ledger(input_data, _mark_scaffold)
-        elif path and scaffold_changes:
-            context += "\n\nSpec scaffold updated: " + "; ".join(scaffold_changes) + "."
 
     try:
         if ledger.get("inject_heavy_brief"):

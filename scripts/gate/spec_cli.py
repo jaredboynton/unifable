@@ -49,6 +49,79 @@ except ImportError:  # pragma: no cover
     from scripts.gate.spec_tasks import _new_task, append_frontier_task, find_task, set_primary_task
 
 
+# Copy-pasteable correct invocations, surfaced both in argparse errors (via
+# _HintingParser) and when the positional/flag resolver finds a missing arg.
+# The natural failure the model hits is `add-task '<title>'` with no --check;
+# these turn the bare argparse dump into one-shot remediation.
+_USAGE_HINTS = {
+    "add-task": (
+        "Try: unifable add-task --title '<requirement>' --check '<runnable check>' "
+        "(title+check may also be passed as two positional args)."
+    ),
+    "set-primary": "Try: unifable set-primary --title '<approach>' --check '<runnable proof>'.",
+    "add-frontier": "Try: unifable add-frontier --title '<approach>' --check '<exploration check>'.",
+    "dispute": "Try: unifable dispute --task <id> --evidence '<proof>'.",
+    "restate": "Try: unifable restate '<goal in your own words>' (positional goal, not --goal).",
+}
+
+
+class _HintingParser(argparse.ArgumentParser):
+    """ArgumentParser that appends a copy-pasteable correct command to errors."""
+
+    def error(self, message: str):  # noqa: D401 — argparse override
+        self.print_usage(sys.stderr)
+        sub = (self.prog or "").split()[-1]
+        hint = _USAGE_HINTS.get(sub)
+        out = f"{self.prog}: error: {message}"
+        if hint:
+            out += f"\n{hint}"
+        self.exit(2, out + "\n")
+
+
+def _resolve_title_check(args: argparse.Namespace, label: str) -> tuple[str | None, str | None]:
+    """Resolve title/check from flags, falling back to positional args.
+
+    Returns (None, None) and prints actionable guidance when either is missing,
+    so the natural `add-task '<title>'` (no check) attempt gets a crisp fix
+    instead of a generic argparse dump."""
+    title = args.title
+    check = args.check
+    rest = list(getattr(args, "rest", []) or [])
+    if title is None and rest:
+        title = rest.pop(0)
+    if check is None and rest:
+        check = rest.pop(0)
+    missing: list[str] = []
+    if not title:
+        missing.append("--title '<...>'")
+    if not check:
+        missing.append("--check '<runnable check>'")
+    if missing:
+        print(f"{label} needs {', '.join(missing)}. {_USAGE_HINTS[label]}", file=sys.stderr)
+        return None, None
+    return title, check
+
+
+def _resolve_task_evidence(args: argparse.Namespace) -> tuple[str | None, str | None]:
+    """Resolve dispute's task/evidence from flags, falling back to positional args."""
+    task = args.task
+    evidence = args.evidence
+    rest = list(getattr(args, "rest", []) or [])
+    if task is None and rest:
+        task = rest.pop(0)
+    if evidence is None and rest:
+        evidence = rest.pop(0)
+    missing: list[str] = []
+    if not task:
+        missing.append("--task <id>")
+    if not evidence:
+        missing.append("--evidence '<proof>'")
+    if missing:
+        print(f"dispute needs {', '.join(missing)}. {_USAGE_HINTS['dispute']}", file=sys.stderr)
+        return None, None
+    return task, evidence
+
+
 def _cmd_contract(args: argparse.Namespace) -> int:
     grade = (args.grade or "STANDARD").upper()
     if grade not in GRADES:
@@ -59,6 +132,9 @@ def _cmd_contract(args: argparse.Namespace) -> int:
 
 
 def _cmd_add_task(args: argparse.Namespace) -> int:
+    title, check = _resolve_title_check(args, "add-task")
+    if title is None:
+        return 2
     spec = load_spec(args.root, args.task_id)
     if spec is None:
         # Self-heal: creation is normally the hook's job, but if the spec is
@@ -66,14 +142,14 @@ def _cmd_add_task(args: argparse.Namespace) -> int:
         # (goal taken from the requirement) rather than dead-ending on `create`,
         # which the agent is not allowed to run.
         spec = spec_template()
-        spec["restated_goal"] = args.title.strip()
+        spec["restated_goal"] = title.strip()
         spec["acceptance_criteria"] = []
         spec["repo_context"] = []
         spec["prior_art"] = []
         spec["tasks"] = []
         spec["requires_tasks"] = True
     spec.setdefault("tasks", [])
-    task = _new_task(spec, args.title, args.check)
+    task = _new_task(spec, title, check)
     spec["tasks"].append(task)
     save_spec(args.root, args.task_id, spec)
     print(f"Added {task['id']}: {task['title']}")
@@ -87,12 +163,15 @@ def _cmd_add_task(args: argparse.Namespace) -> int:
 
 
 def _cmd_set_primary(args: argparse.Namespace) -> int:
+    title, check = _resolve_title_check(args, "set-primary")
+    if title is None:
+        return 2
     spec = load_spec(args.root, args.task_id)
     if spec is None:
         print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
         return 1
     try:
-        task = set_primary_task(spec, args.title, args.check)
+        task = set_primary_task(spec, title, check)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -107,11 +186,14 @@ def _cmd_set_primary(args: argparse.Namespace) -> int:
 
 
 def _cmd_add_frontier(args: argparse.Namespace) -> int:
+    title, check = _resolve_title_check(args, "add-frontier")
+    if title is None:
+        return 2
     spec = load_spec(args.root, args.task_id)
     if spec is None:
         print(f"No spec at {spec_path(args.root, args.task_id)}.", file=sys.stderr)
         return 1
-    task = append_frontier_task(spec, args.title, args.check, added_by="agent")
+    task = append_frontier_task(spec, title, check, added_by="agent")
     save_spec(args.root, args.task_id, spec)
     n = len(frontier_tasks(spec))
     print(f"Frontier approach added: {task['id']} ({n} total).")
@@ -125,9 +207,9 @@ def _cmd_add_frontier(args: argparse.Namespace) -> int:
 
 def _cmd_restate(args: argparse.Namespace) -> int:
     """Set restated_goal in the agent's own words and clear the goal_seeded marker."""
-    goal = (args.goal or "").strip()
+    goal = (args.goal or getattr(args, "goal_flag", None) or "").strip()
     if not goal:
-        print("restate requires a non-empty goal string.", file=sys.stderr)
+        print(f"restate requires a non-empty goal string. {_USAGE_HINTS['restate']}", file=sys.stderr)
         return 1
     spec = load_spec(args.root, args.task_id)
     created = False
@@ -157,25 +239,28 @@ def _cmd_dispute(args: argparse.Namespace) -> int:
     """Agent submits evidence that a requirement is impossible or obsolete (its
     constrained subject was removed by a pivot). This only records the claim
     (status -> disputed); the harness adjudicates on stop."""
+    task_id, evidence = _resolve_task_evidence(args)
+    if task_id is None:
+        return 2
     spec = load_spec(args.root, args.task_id)
-    task = find_task(spec, args.task) if spec else None
+    task = find_task(spec, task_id) if spec else None
     if task is None:
-        print(f"Task {args.task} not found.", file=sys.stderr)
+        print(f"Task {task_id} not found.", file=sys.stderr)
         return 1
     if task.get("status") == "validated":
-        print(f"{args.task} is already validated; nothing to dispute.", file=sys.stderr)
+        print(f"{task_id} is already validated; nothing to dispute.", file=sys.stderr)
         return 1
     if task.get("status") == "retracted":
-        print(f"{args.task} is already retracted.", file=sys.stderr)
+        print(f"{task_id} is already retracted.", file=sys.stderr)
         return 1
     task["status"] = "disputed"
-    task["dispute_evidence"] = args.evidence
+    task["dispute_evidence"] = evidence
     save_spec(args.root, args.task_id, spec)
-    print(f"{args.task} -> disputed. The harness adjudicates impossibility/obsolescence claims on stop.")
+    print(f"{task_id} -> disputed. The harness adjudicates impossibility/obsolescence claims on stop.")
     notify_spec_update(
         spec,
-        f"{args.task} disputed as impossible/obsolete.",
-        highlight_task=args.task,
+        f"{task_id} disputed as impossible/obsolete.",
+        highlight_task=task_id,
         surface="stdout_only",
     )
     return 0
@@ -227,11 +312,11 @@ def _apply_cli_context(args: argparse.Namespace) -> int | None:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(
-        prog="spec.py",
+    parser = _HintingParser(
+        prog="unifable",
         description="unifable spec artifact validator and contract helper.",
     )
-    sub = parser.add_subparsers(dest="cmd")
+    sub = parser.add_subparsers(dest="cmd", parser_class=_HintingParser)
 
     p_contract = sub.add_parser("contract", help="Print pass-conditions for a grade tier (harness/dev).")
     p_contract.add_argument("--grade", default="STANDARD", help="Grade tier: LIGHT, STANDARD, HEAVY.")
@@ -242,38 +327,50 @@ def main(argv: list[str] | None = None) -> int:
         help="Include the evidence-gate citation requirements.",
     )
 
+    # title/check are optional flags with a hidden positional fallback so the
+    # natural `add-task '<title>' '<check>'` form works and the single-arg
+    # attempt yields actionable guidance (see _resolve_title_check) instead of
+    # a bare argparse error.
     p_add = sub.add_parser("add-task", help="Append a task to an existing spec.")
-    p_add.add_argument("--title", required=True)
-    p_add.add_argument("--check", required=True, help="Runnable command that proves the task.")
+    p_add.add_argument("--title")
+    p_add.add_argument("--check", help="Runnable command that proves the task.")
+    p_add.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
 
     p_restate = sub.add_parser("restate", help="Restate the goal in your own words (clears goal_seeded).")
     p_restate.add_argument(
         "goal",
+        nargs="?",
         help="The intended outcome, restated in your own words (quote if it contains spaces).",
     )
+    # Accept the common `--goal` mistake as an alias so it succeeds instead of
+    # dead-ending on a top-level unrecognized-argument error.
+    p_restate.add_argument("--goal", dest="goal_flag", help=argparse.SUPPRESS)
 
     p_constraint = sub.add_parser(
         "set-primary",
         help="Set the evidence-backed primary approach task (HEAVY; blocked until frontiers ruled out).",
     )
-    p_constraint.add_argument("--title", required=True)
-    p_constraint.add_argument("--check", required=True, help="Runnable command proving primary delivery.")
+    p_constraint.add_argument("--title")
+    p_constraint.add_argument("--check", help="Runnable command proving primary delivery.")
+    p_constraint.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
 
     p_rejected = sub.add_parser(
         "add-frontier",
         help="Append a frontier approach task to explore (HEAVY needs >=2).",
     )
-    p_rejected.add_argument("--title", required=True)
-    p_rejected.add_argument("--check", required=True, help="Runnable exploration check.")
+    p_rejected.add_argument("--title")
+    p_rejected.add_argument("--check", help="Runnable exploration check.")
+    p_rejected.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
 
     p_dispute = sub.add_parser(
         "dispute",
         help="Submit evidence a requirement is impossible or obsolete (its subject was removed); harness adjudicates on stop.",
     )
-    p_dispute.add_argument("--task", required=True, help="Task id, e.g. T1.")
+    p_dispute.add_argument("--task", help="Task id, e.g. T1.")
     p_dispute.add_argument(
-        "--evidence", required=True, help="Proof the requirement cannot be satisfied: impossibility, or for obsolescence a failable check whose captured output shows the removed subject is absent (the judge adjudicates it)."
+        "--evidence", help="Proof the requirement cannot be satisfied: impossibility, or for obsolescence a failable check whose captured output shows the removed subject is absent (the judge adjudicates it)."
     )
+    p_dispute.add_argument("rest", nargs="*", help=argparse.SUPPRESS)
 
     p_doctor = sub.add_parser("doctor", help="Operator diagnostics.")
     doctor_sub = p_doctor.add_subparsers(dest="doctor_cmd")
