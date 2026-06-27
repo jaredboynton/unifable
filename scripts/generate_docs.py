@@ -190,7 +190,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
     test_context = (
         "PASS (pytest -q): tests passed\ncommand: python3 -m pytest tests/test_generate_docs.py -q"
     )
-    breaker_context = "Breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
+    breaker_context = "Claim grounded. Mutation tools and Bash are available again."
     session_start_context = context_block.build_session_context()
 
     return [

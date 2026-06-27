@@ -25,7 +25,7 @@ def test_bash_research_includes_unlock_without_scaffold():
     ctx = pb.BlockContext()
     msg = pb.format_bash_research_block("npm is not in the Bash research whitelist", ctx=ctx)
     assert "npm is not in the Bash research whitelist." in msg
-    assert "Unlock:" in msg
+    assert "Next: run unifable restate" in msg
     assert "Allowed now:" in msg
 
 
@@ -50,7 +50,7 @@ def test_spec_missing_unlock_when_no_scaffold():
     ctx = pb.BlockContext()
     msg = pb.format_spec_missing_block("STANDARD", "s1", "contract text", ctx=ctx)
     assert "Evidence spec required" in msg
-    assert "Unlock:" in msg
+    assert "Next: run unifable restate" in msg
 
 
 def test_is_redundant_with_notify():

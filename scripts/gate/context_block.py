@@ -40,8 +40,8 @@ _FRAME_TEMPLATE = (
     "- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, "
     "NotebookRead.\n"
     "- Bash/REPL/exec_command are limited to: {research_bash}.\n"
-    "- Write/Edit/apply_patch and delegation stay blocked unless a hook "
-    "explicitly lifts them.\n"
+    "- Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and "
+    "delegation stay blocked unless a hook explicitly lifts them.\n"
     "\n"
     "If a hook blocks you, follow its exact instruction next."
 )

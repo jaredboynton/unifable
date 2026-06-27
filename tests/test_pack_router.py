@@ -63,7 +63,7 @@ def test_format_context_inline_single(routes: list[pack_router.PackRoute]) -> No
     matched = pack_router.match_routes("debug the bug", routes)
     ctx = pack_router.format_context(matched, packs_root="/plugin/root")
     assert ctx.startswith("[investigation]")
-    assert "Reproduce first" in ctx
+    assert "Reproduce or read the actual failure output" in ctx
     assert "investigation-protocol.txt" not in ctx
     assert "/plugin/root/packs/" not in ctx
 
@@ -84,7 +84,7 @@ def test_route_prompt_returns_envelope(routes: list[pack_router.PackRoute]) -> N
     hso = out["hookSpecificOutput"]
     assert hso["hookEventName"] == "UserPromptSubmit"
     assert "[investigation]" in hso["additionalContext"]
-    assert "Reproduce first" in hso["additionalContext"]
+    assert "Reproduce or read the actual failure output" in hso["additionalContext"]
 
 
 def test_route_prompt_empty_when_no_match() -> None:
@@ -184,9 +184,9 @@ def test_router_sh_integration(tmp_path: Path) -> None:
     assert "[investigation]" in ctx
     assert "[domain-verify]" in ctx
     assert "[subagent-brief]" in ctx
-    assert "Reproduce first" in ctx
+    assert "Reproduce or read the actual failure output" in ctx
     assert "SOFTWARE:" in ctx
-    assert "Objective:" in ctx
+    assert "Objective" in ctx
 
     repeated = subprocess.run(
         ["bash", str(router)],

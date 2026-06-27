@@ -19,9 +19,11 @@ from pathlib import Path
 HEAVY_EFFORT = {"xhigh", "max", "ultracode"}
 
 _PLAYBOOK_CORE = """\
-Working style: Lead with the outcome. Stay within the requested scope (no \
-incidental refactors or abstractions). Ground every completion claim in a tool \
-result from this session. Confirm before destructive or hard-to-reverse actions."""
+High-effort checklist:
+- Cite current tool evidence for completion claims.
+- For multi-part work, create one spec task per deliverable and validate each.
+- If stuck twice, preserve evidence and narrow the failing slice before escalating or delegating.
+- For rendered artifacts, run the real renderer and inspect actual output."""
 
 _PLAYBOOK_INVESTIGATION = """\
 Investigation: reproduce first. Form 3+ competing hypotheses before \
@@ -89,7 +91,7 @@ def _marker_path(session_id: str) -> str:
 
 def _playbook_context(matched_tags: set[str] | None = None) -> str:
     tags = matched_tags or set()
-    parts = [_PLAYBOOK_CORE, _PLAYBOOK_MULTI_STORY, _PLAYBOOK_ESCALATION]
+    parts = [_PLAYBOOK_CORE]
     for tag, paragraph in _TAG_SUPERSEDES.items():
         if tag not in tags:
             parts.append(paragraph)

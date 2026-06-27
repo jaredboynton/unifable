@@ -13,8 +13,8 @@
         "failing",
         "not working"
       ],
-      "summary": "reproduce first, form 3+ competing hypotheses, gather evidence per hypothesis, trace the full causal chain, verify before/after, and report the hypotheses you rejected.",
-      "body": "- Reproduce first; read actual output before hypothesizing.\n- Form 3+ competing hypotheses before chasing one.\n- Gather confirm/refute evidence by reading code paths end to end.\n- Trace the full causal chain; do not stop at the first plausible cause.\n- Verify before and after the fix.\n- Report rejected hypotheses and the evidence that rejected them."
+      "summary": "reproduce, compare causes, confirm one, then fix and verify.",
+      "body": "1. Reproduce or read the actual failure output.\n2. List 3 plausible causes before choosing one.\n3. For each cause, gather confirm/refute evidence from the relevant code path.\n4. Fix only after one cause is confirmed.\n5. Verify before/after and report rejected causes."
     },
     {
       "tag": "grounding",
@@ -29,8 +29,8 @@
         "website",
         "webpage"
       ],
-      "summary": "grounding loop: run it in the real renderer, observe the actual output, fix what the observation reveals, then re-run. A static check is not observation.",
-      "body": "- Run in the real renderer (browser, PNG export, execute script).\n- Observe output (screenshot, console, rendered result) — unobserved output is not observation.\n- Fix what observation reveals, then re-run.\n- Static parse confirms well-formed, not correct."
+      "summary": "run the real renderer/executable, inspect output, fix, then rerun.",
+      "body": "1. Run the real renderer/executable.\n2. Capture the actual output: screenshot, console, file, or rendered result.\n3. Fix only what the observation shows.\n4. Re-run the same check.\n5. Static parse alone is not verification."
     },
     {
       "tag": "decision-trace",
@@ -46,8 +46,8 @@
         "choose",
         "options"
       ],
-      "summary": "Orient, Inspect, Decide, Act, Verify, Report; record what you checked and why at each step.",
-      "body": "- ORIENT: question and constraints.\n- INSPECT: >=2 alternatives with pass/fail criteria each.\n- DECIDE: selected path, tipping criterion, one rejected alternative with reason.\n- ACT: files changed, commands run.\n- VERIFY: failable check per criterion with command + output.\n- REPORT: pass/fail with evidence, assumptions, next step."
+      "summary": "compare options against criteria, choose, reject one alternative, verify.",
+      "body": "1. State the decision criteria.\n2. Compare at least 2 options against those criteria.\n3. Choose one and name the deciding reason.\n4. Name one rejected option and why.\n5. Verify the chosen path."
     },
     {
       "tag": "domain-verify",
@@ -67,8 +67,8 @@
         "analysis",
         "pipeline"
       ],
-      "summary": "Failable-check recipes per domain: every acceptance criterion needs a check that can fail.",
-      "body": "- SOFTWARE: test each criterion; trigger error paths; run affected suite; exercise in real environment.\n- RESEARCH: every claim traces to a source opened this session; cross-check numbers; state conflicts.\n- DATA: nulls, dupes, bounds, row counts per step, join cardinality; spot-check records."
+      "summary": "every acceptance criterion needs a check that can fail.",
+      "body": "For each acceptance criterion, name a check that can fail.\n\nSOFTWARE: run affected tests and at least one relevant error path when applicable.\nRESEARCH: cite every load-bearing claim to an opened source.\nDATA: check row counts, nulls, duplicates, bounds, and join cardinality."
     },
     {
       "tag": "subagent-brief",
@@ -82,8 +82,8 @@
         "in parallel",
         "orchestrate"
       ],
-      "summary": "Brief template: objective, context, constraints, strict output contract, and verification.",
-      "body": "- Objective: one-sentence deliverable.\n- Context: relevant files, prior decisions, dependency state.\n- Constraints: scope + do-not-touch list.\n- Output: pass/fail, files changed, verification command + output, risks, back-link.\n- Worker must run the check before reporting complete."
+      "summary": "include objective, scope, constraints, output contract, and verification.",
+      "body": "Delegate only with:\n- Objective\n- Files/scope\n- Constraints\n- Exact output contract\n- Required verification command\n\nWorker must report command/output, files changed, risks."
     }
   ]
 }

@@ -53,10 +53,10 @@ def test_scaffold_tutorial_once_per_session(tmp_path, monkeypatch):
     monkeypatch.delenv("UNIFABLE_GRADE", raising=False)
     base = {"session_id": "scaffold-once", "cwd": str(tmp_path)}
     ctx1 = _run_prompt({**base, "prompt": "first task in session"}, monkeypatch)
-    assert "Evidence spec auto-created" in ctx1
+    assert "Evidence spec created" in ctx1
     assert "unifable restate" in ctx1
     ctx2 = _run_prompt({**base, "prompt": "second message same session"}, monkeypatch)
-    assert "Evidence spec auto-created" not in ctx2
+    assert "Evidence spec created" not in ctx2
     assert "unifable restate" not in ctx2 or "scaffold updated" in ctx2
 
 
@@ -101,8 +101,8 @@ def test_stop_reason_omits_hints_when_validate_ctx_present():
 def test_pretool_blocks_share_unlock_footer_wording():
     bash = format_bash_research_block("nl blocked", "s1")
     delegate = format_delegation_block("Task", "s1")
-    assert "Unlock: unifable restate" in bash
-    assert "Unlock: unifable restate" in delegate
+    assert "Next: run unifable restate" in bash
+    assert "Next: run unifable restate" in delegate
 
 
 def test_pretool_bash_after_scaffold_omits_unlock():

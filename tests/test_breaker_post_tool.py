@@ -120,7 +120,7 @@ def test_post_tool_disarms_and_emits_breaker_open():
         rc, out = _run_post_tool(payload, judge)
         assert rc == 0
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "breaker open" in ctx.lower()
+        assert "claim grounded" in ctx.lower()
         state = load_breaker({"session_id": sess, "cwd": cwd})
         assert state["breaker_armed"] is False
         assert any(e.get("kind") == "DISARM" for e in state["events"])
@@ -142,7 +142,7 @@ def test_post_tool_stays_armed_when_release_judge_says_no():
         rc, out = _run_post_tool(payload, judge)
         assert rc == 0
         ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert "still armed" in ctx.lower()
+        assert "claim still ungrounded" in ctx.lower()
         state = load_breaker({"session_id": sess, "cwd": cwd})
         assert state["breaker_armed"] is True
         assert state["breaker_steering"] == "read groundedness.py:1 and cite the release path"

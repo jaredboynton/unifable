@@ -631,8 +631,8 @@ def main() -> int:
         handoff_payload = completion_handoff_decision(input_data, cwd)
         if handoff_payload:
             steering = str(handoff_payload.pop("_handoff_steering", "") or "").strip()
-            # The evidence-spec board (validate_ctx, e.g. "breaker: OPEN (all tasks
-            # validated)") is a statement ABOUT the evidence gate; stapling it onto a
+            # The evidence-spec board (validate_ctx, e.g. "Spec complete: all tasks
+            # validated.") is a statement ABOUT the evidence gate; stapling it onto a
             # handoff block produces a self-contradictory "blocked + all validated"
             # message. The board rides ONLY the step-1 evidence-gate block; the digest
             # file pointer is fine to keep.

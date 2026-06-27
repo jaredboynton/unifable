@@ -219,7 +219,7 @@ class TestEffortInject(unittest.TestCase):
             marker_dir=self._marker_dir,
         )
         context = result.get("hookSpecificOutput", {}).get("additionalContext", "")
-        self.assertIn("working style", context.lower(), "injected context should carry the playbook core")
+        self.assertIn("high-effort checklist", context.lower(), "injected context should carry the playbook core")
 
 
 class TestPlaybookDedup(unittest.TestCase):
@@ -272,8 +272,8 @@ class TestPlaybookDedup(unittest.TestCase):
         ctx = gate_prompt_effort._playbook_context({"investigation", "grounding"})
         self.assertNotIn("Investigation: reproduce first", ctx)
         self.assertNotIn("Verification grounding:", ctx)
-        self.assertIn("Working style:", ctx)
-        self.assertIn("Escalation:", ctx)
+        self.assertIn("High-effort checklist:", ctx)
+        self.assertIn("narrow the failing slice", ctx)
 
 
 if __name__ == "__main__":

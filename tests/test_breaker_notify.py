@@ -76,7 +76,8 @@ def test_pre_tool_disarm_emits_breaker_open_notify(monkeypatch):
     blocked, steering, notify = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False
     assert state["breaker_armed"] is False
-    assert "breaker open" in notify.lower()
+    assert "claim grounded" in notify.lower()
+    assert "mutation tools and bash" in notify.lower()
 
 
 # N2 -------------------------------------------------------------------------
@@ -88,7 +89,7 @@ def test_pre_tool_needed_emits_still_armed_notify_on_read(monkeypatch):
     blocked, steering, notify = gb.evaluate_pre_tool(_pre("Read"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is False  # Read is never blocked
     assert state["breaker_armed"] is True
-    assert "still armed" in notify.lower()
+    assert "claim still ungrounded" in notify.lower()
     assert "read foo.py:10" in notify
 
 
@@ -127,7 +128,7 @@ def test_evidence_gate_block_still_surfaces_breaker_notify(monkeypatch, capsys, 
     monkeypatch.setattr(
         ptu,
         "_enforce_breaker",
-        lambda d: (None, "Breaker open: the flagged claim is grounded."),
+        lambda d: (None, "Claim grounded. Mutation tools and Bash are available again."),
     )
     payload = {
         "tool_name": "Write",
@@ -139,7 +140,7 @@ def test_evidence_gate_block_still_surfaces_breaker_notify(monkeypatch, capsys, 
     rc = ptu.main()
     assert rc == 2  # evidence gate blocks: no spec exists
     err = capsys.readouterr().err
-    assert "breaker open" in err.lower()
+    assert "claim grounded" in err.lower()
 
 
 if __name__ == "__main__":

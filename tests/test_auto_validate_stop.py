@@ -324,7 +324,7 @@ def test_stop_runs_auto_validate_before_breaker_check(tmp_path, monkeypatch):
     digest = tmp_path / "specs"
     matches = list(digest.rglob("last_stop_validation.txt")) if digest.is_dir() else []
     assert matches, "expected persisted stop digest on passthrough"
-    assert "breaker: OPEN" in matches[0].read_text(encoding="utf-8")
+    assert "Spec complete: all tasks validated." in matches[0].read_text(encoding="utf-8")
 
 
 def test_stop_passthrough_empty_when_breaker_open(tmp_path, monkeypatch):

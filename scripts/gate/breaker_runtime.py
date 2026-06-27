@@ -325,25 +325,24 @@ def _user_goal_block(input_data: dict, active_task: str) -> str:
 
 def _provisional_lift_message(reason: str, scope: str) -> str:
     return (
-        f"Breaker: provisional lift — {reason} "
-        f"Stay within scope: {scope}. Mutations allowed until grounded; minor drift yields "
-        "advisory hints only."
+        f"Temporary lift: {reason} "
+        f"Allowed scope: {scope}. Mutation tools stay available inside that scope."
     )
 
 
 def _disarm_message() -> str:
-    return "Breaker open: the flagged claim is grounded. Write/Edit/Bash are unrestricted again."
+    return "Claim grounded. Mutation tools and Bash are available again."
 
 
 def _needed_message(needed: str) -> str:
-    return f"Breaker: still armed. {needed}"
+    return f"Claim still ungrounded. Next: {needed}"
 
 
 def _fail_open_message(count: int, claim: str) -> str:
     detail = f" Claim: {claim}" if claim else ""
     return (
-        f"Breaker auto-released after {count} consecutive blocks (fail-open). "
-        "The flagged claim was never grounded; Write/Edit/Bash are unrestricted again -- "
+        f"Claim gate auto-released after {count} consecutive blocks (fail-open). "
+        "The claim was never grounded; mutation tools and Bash are available again -- "
         f"verify it yourself before relying on it.{detail}"
     )
 
@@ -351,8 +350,8 @@ def _fail_open_message(count: int, claim: str) -> str:
 def _stale_arm_message(claim: str) -> str:
     detail = f" (claim: {claim})" if claim else ""
     return (
-        "Breaker: cleared a stale groundedness arm from a previous "
-        f"prompt/session{detail}; Write/Edit/Bash are unrestricted."
+        "Cleared stale ungrounded-claim state from a previous "
+        f"prompt/session{detail}; mutation tools and Bash are available."
     )
 
 

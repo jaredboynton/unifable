@@ -60,7 +60,7 @@ _SYNTHETIC_INCOMPLETE: dict[str, tuple[str, str]] = {
     ),
     "<need >=2 frontier approach tasks>": (
         "frontier approaches (need >=2)",
-        "HEAVY declare: add >=2 with `unifable add-frontier --title '...' --check '...'` (judge may auto-add during research).",
+        "HEAVY declare: add >=2 with `unifable add-frontier --title '...' --check '...'`.",
     ),
     "<need primary approach task>": (
         "primary approach (missing)",
@@ -154,9 +154,9 @@ def format_spec_status(
     if collapsed:
         lines.append(f"  done ({len(collapsed)}): {', '.join(collapsed)}")
     if ok:
-        lines.append("breaker: OPEN (all tasks validated)")
+        lines.append("Spec complete: all tasks validated.")
     else:
-        lines.append(f"breaker: CLOSED ({len(incomplete)} left: {', '.join(incomplete)})")
+        lines.append(f"Spec incomplete: {len(incomplete)} unresolved task(s): {', '.join(incomplete)}")
     return "\n".join(lines)
 
 
@@ -343,7 +343,7 @@ def format_stop_unresolved_actions(
     """Stop-facing action list: unresolved tasks only, with fresh guidance inline."""
     ok, incomplete = _all_tasks_validated(spec)
     if ok:
-        return "breaker: OPEN (all tasks validated)"
+        return "Spec complete: all tasks validated."
     by_id = _tasks_by_id(spec)
     try:
         from heavy_workflow import task_is_resolved
@@ -362,7 +362,7 @@ def format_stop_unresolved_actions(
         seen.add(stid)
         ordered.append(stid)
     if not ordered:
-        return "breaker: OPEN (all tasks validated)"
+        return "Spec complete: all tasks validated."
 
     lines = ["Action required:"]
     for tid in ordered:
@@ -386,7 +386,7 @@ def format_stop_unresolved_actions(
             lines.append(f"    hint: {hint}")
     display = [_synthetic_incomplete_label(tid) or tid for tid in ordered]
     if include_breaker_line:
-        lines.append(f"breaker: CLOSED ({len(ordered)} left: {', '.join(display)})")
+        lines.append(f"Spec incomplete: {len(ordered)} unresolved task(s): {', '.join(display)}")
     return "\n".join(lines)
 
 
@@ -444,7 +444,7 @@ def format_spec_action_digest_delta(
     cached_raw = ledger.get("posttool_task_guidance")
     cached: dict[str, dict[str, str]] = cached_raw if isinstance(cached_raw, dict) else {}
     if ok:
-        line = "breaker: OPEN (all tasks validated)"
+        line = "Spec complete: all tasks validated."
         return line, dict(cached)
 
     highlight = str(highlight_task or "").strip()
@@ -516,12 +516,12 @@ def format_spec_action_digest(
     """Compact model-facing next action for PostToolUse spec CLI updates.
 
     PostToolUse fires immediately after commands the model just ran, so repeating
-    the whole task board adds noise. Keep only a breaker-open signal, or the
-    next unresolved action the model needs in order to move the breaker.
+    the whole task board adds noise. Keep only a completion signal, or the next
+    unresolved action the model needs.
     """
     ok, incomplete = _all_tasks_validated(spec)
     if ok:
-        return "breaker: OPEN (all tasks validated)"
+        return "Spec complete: all tasks validated."
 
     by_id = _tasks_by_id(spec)
     ordered: list[str] = []
@@ -692,12 +692,12 @@ def _fallback_action_from_status(status: str) -> str:
         return ""
     breaker_line = ""
     for line in text.splitlines():
-        if line.startswith("breaker:"):
+        if line.startswith("breaker:") or line.startswith("Spec complete:") or line.startswith("Spec incomplete:"):
             breaker_line = line.strip()
             break
-    if "breaker: OPEN" in breaker_line:
+    if "breaker: OPEN" in breaker_line or breaker_line.startswith("Spec complete:"):
         return breaker_line
-    if "breaker: CLOSED" in breaker_line:
+    if "breaker: CLOSED" in breaker_line or breaker_line.startswith("Spec incomplete:"):
         actions: list[str] = []
         for key in _SYNTHETIC_INCOMPLETE:
             if key in breaker_line:

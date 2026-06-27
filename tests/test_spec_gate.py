@@ -616,8 +616,9 @@ def test_task_agent_block_without_spec():
             )
             assert rc == 2
             assert (
-                "Unlock:" in stderr
+                "Next: run unifable restate" in stderr
                 or "Allowed now:" in stderr
+                or "Available now:" in stderr
                 or "Evidence spec required" in stderr
                 or stderr.strip() == ""
             )

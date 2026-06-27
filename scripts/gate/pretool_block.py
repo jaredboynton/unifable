@@ -42,7 +42,11 @@ GATE_PREFIX = ""
 _WHITELIST_DETAIL_RE = re.compile(r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE)
 _PIPELINE_DETAIL_RE = re.compile(r"^(\S+) is not an allowed read-only pipeline sink$", re.IGNORECASE)
 
-_UNLOCK_LINE = "Unlock: unifable restate '<goal>' ; unifable add-task --title ... --check ... (HEAVY: set-primary, add-frontier)."
+_UNLOCK_LINE = (
+    "Next: run unifable restate '<goal>'; then add one requirement with "
+    "unifable add-task --title '<requirement>' --check '<runnable check>'. "
+    "HEAVY also needs set-primary and add-frontier."
+)
 _ALLOWED_NOW_PREFIX = "Allowed now:"
 
 
@@ -237,7 +241,10 @@ def format_delegation_block(
     lines: list[str] = []
     _append_unlock(lines, ctx)
     if not ctx.allowlist_sent:
-        lines.append(f"Allowed now: Read/Grep/Glob/web and Bash limited to {bash_allowed_summary()}.")
+        lines.append(
+            "Available now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, "
+            f"NotebookRead); Bash/REPL/exec_command limited to {bash_allowed_summary()}."
+        )
     return _join_lines(lines)
 
 

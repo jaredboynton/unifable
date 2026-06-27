@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Fix B: the evidence-spec board (validate_ctx, e.g. "breaker: OPEN (all tasks
-validated)") must ride ONLY the step-1 evidence-gate block, never a
+"""Fix B: the evidence-spec board (validate_ctx, e.g. "Spec complete: all tasks
+validated.") must ride ONLY the step-1 evidence-gate block, never a
 completion-handoff block. Otherwise a single Stop emits a self-contradictory
 "blocked + all tasks validated" message (the reported contention)."""
 
@@ -20,7 +20,7 @@ import spec_stop_validate  # noqa: E402
 
 _BOARD = (
     "=== EVIDENCE SPEC BOARD (authoritative task status) ===\n"
-    "breaker: OPEN (all tasks validated)\n"
+    "Spec complete: all tasks validated.\n"
     "=== END EVIDENCE SPEC BOARD ==="
 )
 
@@ -72,7 +72,7 @@ def test_handoff_block_does_not_carry_evidence_board(tmp_path, monkeypatch):
     monkeypatch.setattr(
         spec_stop_validate,
         "auto_validate_spec",
-        lambda spec, _cwd, **_k: (spec, ["breaker: OPEN (all tasks validated)"]),
+        lambda spec, _cwd, **_k: (spec, ["Spec complete: all tasks validated."]),
     )
     monkeypatch.setattr(
         gate_stop,

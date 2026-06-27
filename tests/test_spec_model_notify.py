@@ -50,7 +50,7 @@ def test_format_spec_status_shows_board_and_highlight_judge():
     assert "[XX] T1 (req) Density reinforcement" in text
     assert "[--] T4 (req) Verify capsule floor" in text
     assert f"judge: {LONG_JUDGE}" in text
-    assert "breaker: CLOSED" in text
+    assert "Spec incomplete:" in text
 
 
 def test_notify_spec_update_emits_headline_status_and_action():
@@ -89,7 +89,7 @@ def test_build_spec_context_from_output_roundtrip():
     assert "Hint:" not in ctx
     assert LONG_JUDGE in ctx
     assert "[--] T4" not in ctx
-    assert "breaker: CLOSED" not in ctx
+    assert "Spec incomplete:" not in ctx
 
 
 def test_post_tool_restate_compacts_to_headline_and_next_action():
@@ -120,7 +120,7 @@ def test_post_tool_restate_compacts_to_headline_and_next_action():
     assert "Goal restated" not in ctx
     assert "Spec update:" not in ctx
     assert "goal:" not in ctx
-    assert "breaker: CLOSED" not in ctx
+    assert "Spec incomplete:" not in ctx
 
 
 def test_format_spec_status_ignores_legacy_judge_hint_field():
@@ -194,7 +194,7 @@ def test_build_stop_validate_context_dispute_accepted():
     assert "Action required:" not in ctx
     assert "T6" not in ctx
     assert DISPUTE_ACCEPT_REASON not in ctx
-    assert "breaker: OPEN" in ctx
+    assert "Spec complete: all tasks validated." in ctx
 
 
 def test_build_stop_validate_context_check_rejected():
@@ -257,7 +257,7 @@ def test_stop_context_omits_resolved_tasks():
     assert "old done" not in ctx
     assert "freshly retracted" not in ctx
     assert DISPUTE_ACCEPT_REASON not in ctx
-    assert "breaker: OPEN" in ctx
+    assert "Spec complete: all tasks validated." in ctx
 
 
 def test_spec_board_not_duplicated_across_channels():
@@ -310,7 +310,7 @@ def test_build_spec_context_from_output_ignores_legacy_judge_prefix_lines():
         [
             f"{mn.NOTIFY_PREFIX}headline one",
             f"{mn.JUDGE_PREFIX}legacy duplicate judge line",
-            f"{mn.STATUS_PREFIX}goal: g\\n  [--] T1 (req) x\\nbreaker: CLOSED (1 left: T1)",
+            f"{mn.STATUS_PREFIX}goal: g\\n  [--] T1 (req) x\\nSpec incomplete: 1 unresolved task(s): T1",
         ]
     )
     ctx = mn.build_spec_context_from_output(combined)
@@ -318,7 +318,7 @@ def test_build_spec_context_from_output_ignores_legacy_judge_prefix_lines():
     assert "legacy duplicate judge line" not in ctx
     assert "Judge:" not in ctx
     assert "T1: x" in ctx
-    assert "breaker: CLOSED" not in ctx
+    assert "Spec incomplete:" not in ctx
 
 
 def _run_post_tool(payload: dict) -> dict:
@@ -363,7 +363,7 @@ def test_post_tool_forwards_failed_validate_task_stderr():
     assert "judge rejected the evidence" in ctx
     assert LONG_JUDGE in ctx
     assert "[--] T4" not in ctx
-    assert "breaker: CLOSED" not in ctx
+    assert "Spec incomplete:" not in ctx
     assert "observed a tool failure" not in ctx
 
 

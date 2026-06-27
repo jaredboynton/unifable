@@ -68,7 +68,7 @@ def test_frame_carries_preflight_guidance() -> None:
     ctx = context_block.build_session_context()
     assert "Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead." in ctx
     assert f"Bash/REPL/exec_command are limited to: {bash_allowed_summary()}." in ctx
-    assert "Write/Edit/apply_patch and delegation stay blocked" in ctx
+    assert "Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and delegation stay blocked" in ctx
     assert "Research mode allows only Read, Grep, Glob, and python3 -c" not in ctx
 
 

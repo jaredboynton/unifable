@@ -164,7 +164,7 @@ def test_mixed_block_kinds_second_is_compact_not_full_footer(tmp_path, capsys):
     )
     assert rc1 == 2
     err1 = capsys.readouterr().err
-    assert "Unlock:" in err1
+    assert "Next: run unifable restate" in err1
     rc2 = pb.emit_pretool_block(
         payload,
         kind="delegate",

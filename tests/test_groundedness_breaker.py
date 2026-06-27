@@ -248,7 +248,7 @@ def test_arms_then_disarms_via_whitelisted_bash_post_tool_release(monkeypatch):
         fresh_tool="[tool_result name=Bash]\n.claude-plugin/plugin.json:3:  \"version\": \"1.9.90\"",
         judge=judge,
     )
-    assert grounded is True and needed == "" and "breaker open" in message.lower()
+    assert grounded is True and needed == "" and "claim grounded" in message.lower()
     assert state["breaker_armed"] is False
     assert judge.disarm_calls == 1
 
@@ -293,7 +293,7 @@ def test_arms_then_disarms_via_post_tool_release(monkeypatch):
     grounded, needed, message = gb.evaluate_post_tool_release(
         _pre("Read"), state, fresh_tool="[tool_result name=Read]\nevidence", judge=judge
     )
-    assert grounded is True and needed == "" and "breaker open" in message.lower()
+    assert grounded is True and needed == "" and "claim grounded" in message.lower()
     assert state["breaker_armed"] is False
     assert judge.disarm_calls == 1
 
@@ -320,7 +320,7 @@ def test_post_tool_release_not_grounded_stays_armed(monkeypatch):
     assert grounded is False and state["breaker_armed"] is True
     assert judge.disarm_calls == 1
     assert needed == "still missing: read codex_judge.py:54 and cite MODEL"
-    assert "still armed" in message.lower()
+    assert "claim still ungrounded" in message.lower()
     blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
     assert blocked is True
     assert steering == needed
@@ -905,7 +905,7 @@ def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
     assert state["breaker_provisional"] is True
     assert state["breaker_armed"] is False
     assert state["breaker_block_count"] == 0
-    assert "provisional lift" in notify.lower()
+    assert "temporary lift" in notify.lower()
     assert any(e.get("kind") == "LIFT" for e in state["events"])
 
 
@@ -998,7 +998,7 @@ def test_full_disarm_clears_provisional(monkeypatch):
     assert disarmed is True
     assert state["breaker_provisional"] is False
     assert state["breaker_armed"] is False
-    assert "breaker open" in msg.lower()
+    assert "claim grounded" in msg.lower()
 
 
 def test_loaded_skill_names_parses_skill_tool_use():

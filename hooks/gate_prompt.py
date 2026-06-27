@@ -51,27 +51,32 @@ def _format_scaffold_onboarding(
         else ""
     )
     if skip_cli_tutorial:
-        return f"\n\nEvidence spec auto-created at {path}.{profile_note}"
+        return f"\n\nEvidence spec created at {path}.{profile_note}"
     task_guidance = ""
     try:
         task_guidance = plan_mode_spec_task_guidance(plan_mode)
     except Exception:
         pass
     block = (
-        f"\n\nEvidence spec auto-created at {path}.{profile_note} "
-        f"Drive it via the append-only CLI (never edit the JSON); the director judge guides each step from there:\n"
-        f"  - FIRST: unifable restate '<the intended outcome, in your own words>' (the gate stays blocked until you restate)\n"
-        f"  - unifable add-task --title '<requirement>' --check '<runnable check>'"
-        f"{task_guidance}\n"
-        f"    (--title and --check are both required, or pass them as two positional args)\n"
+        f"\n\nEvidence spec created at {path}.{profile_note}\n"
+        "Do not edit spec JSON.\n\n"
+        "Next:\n"
+        "1. unifable restate '<goal in your own words>'\n"
+        "2. unifable add-task --title '<requirement>' --check '<runnable check>'"
+        f"{task_guidance}\n\n"
+        "Alternative add-task form:\n"
+        "unifable add-task '<requirement>' '<runnable check>'\n"
     )
     if heavy_scaffold:
         block += (
-            "  - HEAVY: unifable set-primary / add-frontier (>=2 frontiers; judge may auto-add and picks the best on stop)\n"
+            "\nHEAVY also requires:\n"
+            "- unifable set-primary --title '<fallback approach>' --check '<runnable proof>'\n"
+            "- unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches\n"
         )
     block += (
-        "  - if a requirement is genuinely impossible: unifable dispute --task <id> --evidence '<proof>' "
-        "(only the judge can retract). Citations sync from your reads automatically."
+        "\nIf impossible:\n"
+        "unifable dispute --task <id> --evidence '<proof>'\n\n"
+        "Citations sync from reads/fetches."
     )
     return block
 
