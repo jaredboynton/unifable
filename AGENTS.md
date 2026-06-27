@@ -91,6 +91,14 @@ just version 1.13.0          # or: just version patch|minor|major
   safety cap (`BREAKER_MAX_BLOCKS`) is the pattern — bound every enforcement loop.
 - `scripts/gate/` MUST stay host-agnostic (no Claude-only or Codex-only imports);
   host wiring lives in `hooks/` and `install/`.
+- Whenever a verbatim value (file path, command, symbol, identifier) must reach
+  the model losslessly, use the pointer + rehydrate pattern, never a model-typed
+  string: hand the model a numbered index of the real values and have it reference
+  one by integer pointer in its structured output, then rehydrate the exact value
+  host-side. Models truncate and paraphrase long identifiers; an integer pointer
+  cannot. Reference impls: `scripts/gate/file_refs.py` (judge directive/steering
+  FILE INDEX `[[n]]`) and the explore READ INDEX / `excerpt_index`
+  (`skills/explore/scripts/lib/rt-rehydrate-submit.mjs`).
 - Version bumps touch ALL manifests together:
   `.claude-plugin/`, `.codex-plugin/`, `.devin-plugin/`, `.factory-plugin/`
   (`plugin.json` + `marketplace.json`) and `setup/setup.sh`. Do not hand-edit
