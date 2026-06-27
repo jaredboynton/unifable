@@ -533,7 +533,10 @@ def main() -> int:
                             save_ledger(input_data, _led)
                         except Exception:
                             pass  # fail open -- the safety cap never hard-blocks on its own bug
-                        ev_reason = f"breaker CLOSED: {len(incomplete)} task(s) not validated ({', '.join(incomplete)})."
+                        ev_reason = (
+                            f"Completion gate blocked: {len(incomplete)} unresolved task(s) "
+                            f"({', '.join(incomplete)})."
+                        )
                         if not str(validate_ctx or "").strip():
                             try:
                                 from model_notify import format_blocking_task_hints, task_ids_from_headlines

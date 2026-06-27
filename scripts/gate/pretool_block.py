@@ -42,11 +42,10 @@ GATE_PREFIX = ""
 _WHITELIST_DETAIL_RE = re.compile(r"^(\S+) is not in the Bash research whitelist$", re.IGNORECASE)
 _PIPELINE_DETAIL_RE = re.compile(r"^(\S+) is not an allowed read-only pipeline sink$", re.IGNORECASE)
 
-_UNLOCK_LINE = (
-    "Next: run unifable restate '<goal>'; then add one requirement with "
-    "unifable add-task --title '<requirement>' --check '<runnable check>'. "
-    "HEAVY also needs set-primary and add-frontier."
-)
+_RESTATE_LINE = "1. unifable restate '<goal in your own words>'"
+_ADD_TASK_LINE = "2. unifable add-task --title '<requirement>' --check '<runnable check>'"
+_HEAVY_SET_PRIMARY_LINE = "3. unifable set-primary --title '<fallback approach>' --check '<runnable proof>'"
+_HEAVY_ADD_FRONTIER_LINE = "4. unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches"
 _ALLOWED_NOW_PREFIX = "Allowed now:"
 
 
@@ -122,7 +121,12 @@ def _join_lines(lines: list[str]) -> str:
 
 def _append_unlock(lines: list[str], ctx: BlockContext) -> None:
     if not ctx.scaffold_notified and not ctx.unlock_footer_sent:
-        lines.append(_UNLOCK_LINE)
+        lines.extend(("Next:", _RESTATE_LINE, _ADD_TASK_LINE))
+
+
+def _append_heavy_unlock(lines: list[str], ctx: BlockContext) -> None:
+    if not ctx.scaffold_notified and not ctx.unlock_footer_sent:
+        lines.extend((_HEAVY_SET_PRIMARY_LINE, _HEAVY_ADD_FRONTIER_LINE))
 
 
 def _append_bash_allowlist(lines: list[str], ctx: BlockContext) -> None:
@@ -132,7 +136,13 @@ def _append_bash_allowlist(lines: list[str], ctx: BlockContext) -> None:
 
 def message_includes_unlock(message: str) -> bool:
     text = str(message or "")
-    return _UNLOCK_LINE in text or text.strip().startswith("Unlock:")
+    return (
+        _RESTATE_LINE in text
+        or _ADD_TASK_LINE in text
+        or _HEAVY_SET_PRIMARY_LINE in text
+        or _HEAVY_ADD_FRONTIER_LINE in text
+        or text.strip().startswith("Unlock:")
+    )
 
 
 def message_includes_allowlist(message: str) -> bool:
@@ -146,7 +156,9 @@ def is_boilerplate_only(message: str) -> bool:
         return True
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     for line in lines:
-        if line == _UNLOCK_LINE or line.startswith("Unlock:"):
+        if line == "Next:":
+            continue
+        if line in {_RESTATE_LINE, _ADD_TASK_LINE, _HEAVY_SET_PRIMARY_LINE, _HEAVY_ADD_FRONTIER_LINE}:
             continue
         if line.startswith(_ALLOWED_NOW_PREFIX):
             continue
@@ -183,7 +195,9 @@ def compact_pretool_output(message: str, *, footer_sent: bool) -> str:
         stripped = line.strip()
         if not stripped:
             continue
-        if stripped == _UNLOCK_LINE or stripped.startswith("Unlock:"):
+        if stripped == "Next:":
+            continue
+        if stripped in {_RESTATE_LINE, _ADD_TASK_LINE, _HEAVY_SET_PRIMARY_LINE, _HEAVY_ADD_FRONTIER_LINE}:
             continue
         if stripped.startswith(_ALLOWED_NOW_PREFIX) or stripped.startswith("Allowed now: Read/Grep"):
             continue
@@ -211,7 +225,9 @@ def format_bash_research_block(
     if why:
         lines.append(f"{why}.")
     _append_unlock(lines, ctx)
-    _append_bash_allowlist(lines, ctx)
+    if not ctx.allowlist_sent:
+        lines.append(f"{_ALLOWED_NOW_PREFIX} inspection tools: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.")
+        lines.append(f"Bash allowlist: {bash_allowed_summary()}.")
     return _join_lines(lines)
 
 
@@ -240,11 +256,12 @@ def format_delegation_block(
     ctx = ctx or BlockContext()
     lines: list[str] = []
     _append_unlock(lines, ctx)
+    _append_heavy_unlock(lines, ctx)
     if not ctx.allowlist_sent:
         lines.append(
-            "Available now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, "
-            f"NotebookRead); Bash/REPL/exec_command limited to {bash_allowed_summary()}."
+            "Allowed now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, NotebookRead)."
         )
+        lines.append(f"Bash allowlist: {bash_allowed_summary()}.")
     return _join_lines(lines)
 
 
@@ -263,7 +280,11 @@ def format_spec_missing_block(
         return ""
     grade = (grade or "STANDARD").upper()
     if not ctx.unlock_footer_sent:
-        return f"Evidence spec required (grade={grade}).\n{_UNLOCK_LINE}"
+        lines = [f"Evidence spec required (grade={grade})."]
+        _append_unlock(lines, ctx)
+        if grade == "HEAVY":
+            _append_heavy_unlock(lines, ctx)
+        return _join_lines(lines)
     return f"Evidence spec required (grade={grade})."
 
 

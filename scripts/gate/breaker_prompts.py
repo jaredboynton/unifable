@@ -166,13 +166,12 @@ _JUDGE_SCHEMA: dict[str, Any] = {
         "directive": {
             "type": "string",
             "description": (
-                "STEPWISE DIRECTOR (independent of verdict): ONE short imperative sentence telling "
-                "the model exactly what to do NEXT toward the goal -- the single most useful next "
-                "action given the transcript and the spec board (e.g. 'Read scripts/gate/spec.py to "
+                "STEPWISE DIRECTOR (independent of verdict): ONE short imperative sentence naming "
+                "the best immediate next action toward the goal (e.g. 'Read scripts/gate/spec.py to "
                 "confirm the task schema before editing.', 'Run the failing check and paste its "
-                "output.', 'Restate the goal, then add the first requirement.'). Be terse and "
-                "concrete; name a file/command only if it already appears in the transcript or board. "
-                "Empty only when there is genuinely nothing to add."
+                "output.', 'Restate the goal, then add the first requirement.'). When possible, name "
+                "one concrete read/check/edit target that already appears in the transcript or board. "
+                "Be terse and concrete; empty only when there is genuinely nothing useful left to add."
             ),
         },
         "tool_scope": {
@@ -181,9 +180,10 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "STEPWISE DIRECTOR tool gate for the NEXT step. allow: if non-empty, ONLY these tool "
                 "names may run; deny: these tool names are blocked. Use to keep the model in the right "
                 "phase -- e.g. research (allow reads/Grep/Glob, deny Edit/Write), implement (allow "
-                "Edit/Write/Bash), verify (allow Bash). Read/Grep/Glob/WebSearch/WebFetch are always "
-                "reachable regardless, so never rely on denying them. Leave both arrays empty to "
-                "impose no restriction this step."
+                "Edit/Write/Bash), verify (allow Bash). This shapes the mutation/delegation phase only; "
+                "it does NOT control Read/Grep/Glob/WebSearch/WebFetch or hook-allowed research Bash. "
+                "Those remain reachable regardless, so never rely on denying them. Leave both arrays "
+                "empty to impose no restriction this step."
             ),
             "properties": {
                 "allow": {"type": "array", "items": {"type": "string"}},

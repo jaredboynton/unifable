@@ -41,11 +41,13 @@ def test_routes_have_body(routes: list[pack_router.PackRoute]) -> None:
         ("implement the judge feature and build the pipeline", ["domain-verify"]),
         ("design the architecture and choose an approach", ["decision-trace"]),
         ("render an svg chart on the canvas for the website", ["grounding"]),
-        ("delegate this to a subagent and orchestrate in parallel", ["subagent-brief"]),
+        ("delegate this to a subagent worker", ["subagent-brief"]),
+        ("orchestrate this in parallel", []),
         (
             "debug and implement and design and render and delegate all at once",
             ["investigation", "grounding", "decision-trace", "domain-verify", "subagent-brief"],
         ),
+        ("analyze the sources and claims in this summary", []),
         ("plain greeting with no routing signal", []),
         ("", []),
     ],
@@ -76,6 +78,8 @@ def test_format_context_inline_multi(routes: list[pack_router.PackRoute]) -> Non
     assert "[domain-verify]" in ctx
     assert "[subagent-brief]" in ctx
     assert all(f"[{r.tag}]" in ctx for r in matched)
+    assert "explicit delegation/spawn requests" in ctx
+    assert "failing/error-path check" in ctx
 
 
 def test_route_prompt_returns_envelope(routes: list[pack_router.PackRoute]) -> None:
@@ -119,6 +123,13 @@ def test_route_prompt_caps_packs_with_suppression_marker() -> None:
     matched = pack_router.match_routes(prompt, pack_router.load_manifest(REPO))[: pack_router._MAX_PACKS]
     assert all(f"[{r.tag}]" in ctx for r in matched)
     assert "suppress" in ctx.lower()
+
+
+def test_route_prompt_subagent_brief_requires_explicit_delegation_wording() -> None:
+    assert pack_router.route_prompt("parallelize this investigation", root=REPO) is None
+    out = pack_router.route_prompt("spawn a worker for this investigation", root=REPO)
+    assert out is not None
+    assert "[subagent-brief]" in out["hookSpecificOutput"]["additionalContext"]
 
 
 def test_route_prompt_suppresses_previously_fired_tags_for_session(tmp_path: Path, monkeypatch) -> None:

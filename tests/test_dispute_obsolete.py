@@ -50,7 +50,9 @@ def _assert_obsolescence(text):
 def test_batch_validate_system_instructs_obsolescence_acceptance():
     # The batch validate-all path (the multi-task Stop that judged T1/T2/T3
     # together) must carry the obsolescence rule, or a pivoted dispute deadlocks.
-    _assert_obsolescence(_validate_all_system(""))
+    system = _validate_all_system("")
+    _assert_obsolescence(system)
+    assert "impossibility_evidence" in system
 
 
 def test_single_dispute_prompt_carries_obsolescence_rule(monkeypatch):
@@ -66,6 +68,7 @@ def test_single_dispute_prompt_carries_obsolescence_rule(monkeypatch):
     verdict, _ = judge_dispute(s, s["tasks"][0], s["tasks"][0]["dispute_evidence"])
     assert verdict == 1
     _assert_obsolescence(captured["system"])
+    assert "impossibility_evidence" in captured["system"]
 
 
 def test_accepted_obsolescence_dispute_retracts_task(monkeypatch):

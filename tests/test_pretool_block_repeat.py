@@ -46,7 +46,8 @@ def test_turnless_repeat_emits_compact_pointer_not_empty(tmp_path, capsys):
 
     rc1, err1 = _emit(payload, capsys)
     assert rc1 == 2
-    assert "Next: run unifable restate" in err1  # first sighting carries the full message
+    assert "Next:" in err1  # first sighting carries the full message
+    assert "unifable restate" in err1
 
     rc2, err2 = _emit(payload, capsys)
     assert rc2 == 2
@@ -68,7 +69,8 @@ def test_turn_scoped_repeat_stays_silent(tmp_path, capsys):
 
     rc1, err1 = _emit(payload, capsys)
     assert rc1 == 2
-    assert "Next: run unifable restate" in err1
+    assert "Next:" in err1
+    assert "unifable restate" in err1
 
     rc2, err2 = _emit(payload, capsys)
     assert rc2 == 2

@@ -33,7 +33,7 @@ def test_frame_instructs_exact_restate_first() -> None:
     assert ctx.startswith("FIRST ACTION REQUIRED")
     assert "first tool call MUST run this CLI command" in ctx
     assert "unifable restate '<goal in your own words>'" in ctx
-    assert "Do it RIGHT NOW" in ctx
+    assert "Do this before any other tool call." in ctx
     assert "restat" in ctx.lower()
 
 
@@ -69,6 +69,7 @@ def test_frame_carries_preflight_guidance() -> None:
     assert "Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead." in ctx
     assert f"Bash/REPL/exec_command are limited to: {bash_allowed_summary()}." in ctx
     assert "Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and delegation stay blocked" in ctx
+    assert "read-only inspection stays available" in ctx
     assert "Research mode allows only Read, Grep, Glob, and python3 -c" not in ctx
 
 

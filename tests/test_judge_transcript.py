@@ -52,7 +52,7 @@ def test_render_judge_transcript_empty_when_missing():
 
 def test_judge_system_includes_transcript_not_user_payload():
     """Transcript rides the system prompt; user JSON stays task-focused."""
-    transcript = "tool_result: pytest passed\nStop hook feedback: breaker CLOSED"
+    transcript = "tool_result: pytest passed\nStop hook feedback: Completion gate blocked"
     system = _judge_system_with_transcript(_judge_system_for_task(_task("T1", "pending")), transcript)
     assert "SESSION TRANSCRIPT" in system
     assert "pytest passed" in system

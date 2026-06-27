@@ -616,9 +616,8 @@ def test_task_agent_block_without_spec():
             )
             assert rc == 2
             assert (
-                "Next: run unifable restate" in stderr
+                "unifable restate" in stderr
                 or "Allowed now:" in stderr
-                or "Available now:" in stderr
                 or "Evidence spec required" in stderr
                 or stderr.strip() == ""
             )
@@ -1283,7 +1282,7 @@ def test_stop_handoff_blocks_deferred_work(monkeypatch, tmp_path):
         tmp_path,
     )
     assert out and out.get("decision") == "block"
-    assert "unresolved handoff" in out.get("reason", "")
+    assert "Stop blocked: finish the pending work now." in out.get("reason", "")
 
 
 def test_stop_handoff_allows_genuine_user_choice(monkeypatch, tmp_path):
@@ -1296,7 +1295,7 @@ def test_stop_handoff_allows_genuine_user_choice(monkeypatch, tmp_path):
     )
 
     def fake_judge(*_a, **_k):
-        return {"ok_to_stop": True, "reason": "User-owned choice.", "blocked_on_user_only": True}
+        return {"ok_to_stop": True, "reason": "User-owned choice.", "steering": "", "blocked_on_user_only": True}
 
     data_dir = tmp_path / "data"
     data_dir.mkdir()

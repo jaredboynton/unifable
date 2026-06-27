@@ -86,7 +86,7 @@ def test_handoff_block_does_not_carry_evidence_board(tmp_path, monkeypatch):
         "completion_handoff_decision",
         lambda input_data, cwd: {
             "decision": "block",
-            "reason": "Stop blocked: unresolved handoff — do the offered work now.",
+            "reason": "Stop blocked: finish the pending work now.",
             "_handoff_steering": "do it",
         },
     )
@@ -112,7 +112,7 @@ def test_handoff_block_does_not_carry_evidence_board(tmp_path, monkeypatch):
     gate_stop.main()
 
     assert captured.get("payload", {}).get("decision") == "block"
-    assert "unresolved handoff" in captured["payload"].get("reason", "")
+    assert "Stop blocked: finish the pending work now." in captured["payload"].get("reason", "")
     # Fix B: the contradictory board must NOT be attached to the handoff block.
     assert captured["validate_ctx"] == ""
     assert "all tasks validated" not in (captured["validate_ctx"] or "")

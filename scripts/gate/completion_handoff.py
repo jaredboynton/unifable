@@ -46,7 +46,10 @@ COMPLETION_HANDOFF_SCHEMA: dict[str, Any] = {
         },
         "steering": {
             "type": "string",
-            "description": ("When ok_to_stop is false: one concrete next action with tool calls. Empty when ok_to_stop is true."),
+            "description": (
+                "Required. When ok_to_stop is false: one concrete next action with tool calls. "
+                "Only empty when ok_to_stop is true."
+            ),
         },
         "blocked_on_user_only": {
             "type": "boolean",
@@ -56,7 +59,7 @@ COMPLETION_HANDOFF_SCHEMA: dict[str, Any] = {
             ),
         },
     },
-    "required": ["ok_to_stop", "reason"],
+    "required": ["ok_to_stop", "reason", "steering"],
     "additionalProperties": False,
 }
 
@@ -204,7 +207,7 @@ def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> 
     ledger = load_ledger(input_data)
     if COMPLETION_HANDOFF_BLOCK_CAP > 0 and int(ledger.get("completion_handoff_blocks") or 0) >= COMPLETION_HANDOFF_BLOCK_CAP:
         return {
-            "systemMessage": ("Completion handoff block cap reached; allowing stop with a possibly unresolved handoff.")
+            "systemMessage": ("Completion handoff block cap reached; allowing stop with possibly pending work.")
         }
 
     user_goal = ""
@@ -266,12 +269,10 @@ def completion_handoff_decision(input_data: dict[str, Any], cwd: str | Path) -> 
     ledger["completion_handoff_blocks"] = int(ledger.get("completion_handoff_blocks") or 0) + 1
     save_ledger(input_data, ledger)
 
-    alarm = "Stop blocked: unresolved handoff — do the offered work now."
+    alarm = "Stop blocked: finish the pending work now."
     detail_parts = [alarm]
     if reason:
         detail_parts.append(reason)
-    if steering:
-        detail_parts.append(f"Next: {steering}")
 
     return {
         "decision": "block",

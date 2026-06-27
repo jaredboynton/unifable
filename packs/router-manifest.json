@@ -59,16 +59,13 @@
         "refactor",
         "research",
         "summarize",
-        "claims",
-        "sources",
         "data",
         "sql",
         "dataset",
-        "analysis",
         "pipeline"
       ],
       "summary": "every acceptance criterion needs a check that can fail.",
-      "body": "For each acceptance criterion, name a check that can fail.\n\nSOFTWARE: run affected tests and at least one relevant error path when applicable.\nRESEARCH: cite every load-bearing claim to an opened source.\nDATA: check row counts, nulls, duplicates, bounds, and join cardinality."
+      "body": "For each acceptance criterion, name a failing check.\n\nSOFTWARE: run affected tests and one relevant failing/error-path check when applicable.\nRESEARCH: cite each load-bearing claim to an opened source.\nDATA: check row counts, nulls, duplicates, bounds, and join cardinality."
     },
     {
       "tag": "subagent-brief",
@@ -77,13 +74,10 @@
         "subagent",
         "delegate",
         "spawn",
-        "dispatch",
-        "parallelize",
-        "in parallel",
-        "orchestrate"
+        "dispatch"
       ],
-      "summary": "include objective, scope, constraints, output contract, and verification.",
-      "body": "Delegate only with:\n- Objective\n- Files/scope\n- Constraints\n- Exact output contract\n- Required verification command\n\nWorker must report command/output, files changed, risks."
+      "summary": "when explicitly spawning a worker, include objective, scope, constraints, output contract, and verification.",
+      "body": "Use only for explicit delegation/spawn requests.\n\nInclude:\n- Objective\n- Files/scope\n- Constraints\n- Exact output contract\n- Required verification command"
     }
   ]
 }

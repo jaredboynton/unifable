@@ -78,6 +78,18 @@ def test_arm_judge_captures_director_fields_via_out() -> None:
     assert out["tool_scope"]["directive"] == "Read foo.py, then edit."
 
 
+def test_director_schema_requires_concrete_target_when_possible() -> None:
+    desc = gb._JUDGE_SCHEMA["properties"]["directive"]["description"]
+    assert "When possible, name one concrete read/check/edit target" in desc
+    assert "transcript or board" in desc
+
+
+def test_tool_scope_schema_mentions_mutation_phase_only() -> None:
+    desc = gb._JUDGE_SCHEMA["properties"]["tool_scope"]["description"]
+    assert "mutation/delegation phase only" in desc
+    assert "does NOT control Read/Grep/Glob/WebSearch/WebFetch or hook-allowed research Bash" in desc
+
+
 def test_arm_judge_without_out_is_backward_compatible() -> None:
     dj = DirectorJudge(verdict=0)
     result = gb.arm_judge("a non-empty segment", judge=dj)

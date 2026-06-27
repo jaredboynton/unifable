@@ -145,11 +145,11 @@ def test_breaker_blocks_until_validated():
         sess, prompt = "S2", "implement the breaker task"
         _run("gate_prompt.py", {"prompt": prompt, "session_id": sess, "cwd": cwd}, dd)
         key = sess  # spec is keyed by session now
-        # Pending task -> breaker CLOSED -> Stop blocked.
+        # Pending task -> completion gate block.
         _write_spec(cwd, key, "pending", dd)
         rc, out, _ = _run("gate_stop.py", {"session_id": sess, "cwd": cwd, "stop_hook_active": False}, dd, grade="STANDARD")
         assert out.get("decision") == "block"
-        assert "breaker" in (out.get("reason") or "").lower()
+        assert "completion gate blocked" in (out.get("reason") or "").lower()
         # Validated task -> breaker not the blocker anymore.
         _write_spec(cwd, key, "validated", dd)
         rc2, out2, _ = _run("gate_stop.py", {"session_id": sess, "cwd": cwd, "stop_hook_active": False}, dd, grade="STANDARD")

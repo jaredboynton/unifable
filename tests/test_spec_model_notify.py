@@ -266,12 +266,12 @@ def test_spec_board_not_duplicated_across_channels():
     import gate_stop
 
     board = "Action required:\n  [XX] T1 (req) something"
-    payload = {"decision": "block", "reason": "breaker CLOSED: 1 task(s) not validated (T1)."}
+    payload = {"decision": "block", "reason": "Completion gate blocked: 1 unresolved task(s) (T1)."}
     gate_stop._attach_validate_context(payload, board)
     ctx = (payload.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     assert board in ctx  # board rides additionalContext
     assert board not in payload["reason"]  # not duplicated into reason
-    assert "breaker CLOSED" in payload["reason"]  # alarm stays in reason
+    assert "Completion gate blocked" in payload["reason"]  # alarm stays in reason
 
 
 def test_collapse_already_done_tasks_to_count():

@@ -357,6 +357,7 @@ def test_judge_system_requires_purpose_reasoning():
     assert "current_requirements" in guidance
     assert "supersedes" in guidance
     assert "version-pinning" in guidance.lower()
+    assert "Allow an exact literal or version-pinned check only when the user task explicitly requires that exact literal." in guidance
     assert "why_distinct" not in guidance
 
 

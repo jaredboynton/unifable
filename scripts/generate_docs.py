@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 import copy
 import json
+import os
 import sys
+import tempfile
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -140,30 +142,28 @@ def collect_hook_specs(host: str) -> list[HookSpec]:
 def _run_router_fixture() -> dict[str, Any]:
     """Render a sample UserPromptSubmit router (pack signal) context.
 
-    The prompt is chosen to hit every route keyword so the reference doc catalogs
-    every pack. The live router caps how many packs fire per prompt
-    (pack_router._MAX_PACKS); for documentation completeness this fixture renders
-    all matched packs via format_context rather than the capped route_prompt path.
+    The prompt is chosen to hit more than the route cap so the rendered fixture
+    mirrors the live `route_prompt()` output, including suppression wording.
     """
     prompt = "debug html architecture implement subagent"
     import pack_router
 
-    routes = pack_router.load_manifest(ROOT)
-    matched = pack_router.match_routes(prompt, routes)
-    if not matched:
-        return {}
-    return {
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": pack_router.format_context(matched, packs_root=str(ROOT)),
-        }
-    }
+    old_data = os.environ.get("UNIFABLE_DATA")
+    with tempfile.TemporaryDirectory(prefix="unifable-docs-router-") as tmpdir:
+        os.environ["UNIFABLE_DATA"] = tmpdir
+        try:
+            return pack_router.route_prompt(prompt, root=ROOT, input_data={"session_id": "docs"}) or {}
+        finally:
+            if old_data is None:
+                os.environ.pop("UNIFABLE_DATA", None)
+            else:
+                os.environ["UNIFABLE_DATA"] = old_data
 
 
 def _sample_stop_payload(host: str) -> dict[str, Any]:
     payload = {
         "decision": "block",
-        "reason": "breaker CLOSED: 1 task(s) not validated (T1).",
+        "reason": "Completion gate blocked: 1 unresolved task(s) (T1).",
     }
     validate_ctx = (
         "Action required:\n"
@@ -297,7 +297,7 @@ def _hook_scenarios(host: str) -> list[HookScenario]:
             },
         ),
         HookScenario(
-            name="PostToolUse test-after-edit context",
+            name="PostToolUse synthetic test-after-edit context",
             event="PostToolUse",
             stdout={
                 "hookSpecificOutput": {

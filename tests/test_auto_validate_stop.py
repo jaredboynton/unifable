@@ -380,7 +380,7 @@ def test_stop_forwards_dispute_rejection(tmp_path, monkeypatch):
     block_reason = out.get("reason") or ""
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
     # reason carries the alarm plus Action lines; full digest rides additionalContext.
-    assert "breaker CLOSED" in block_reason
+    assert "Completion gate blocked" in block_reason
     assert reason in ctx
     assert "Action required:" in ctx
     assert "T1 [XX]" in ctx or "T1:" in ctx
@@ -410,7 +410,7 @@ def test_stop_board_not_duplicated_into_reason(tmp_path, monkeypatch):
     assert out.get("decision") == "block"
     block_reason = out.get("reason") or ""
     ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "breaker CLOSED" in block_reason
+    assert "Completion gate blocked" in block_reason
     assert "T1 needs more proof" in ctx
 
 
@@ -517,7 +517,7 @@ def test_stop_validate_context_builder_failopen_does_not_block(tmp_path, monkeyp
 
     out = _run_stop(gate_stop, {"session_id": "sess", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
-    assert "breaker CLOSED" in (out.get("reason") or "")
+    assert "Completion gate blocked" in (out.get("reason") or "")
 
 
 def test_stop_resolves_transcript_without_payload_path(tmp_path, monkeypatch):

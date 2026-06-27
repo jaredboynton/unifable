@@ -136,6 +136,13 @@ def test_apply_declined_verdict_no_state_change():
     assert led.get("loop_lift_kind", "") == ""
 
 
+def test_loop_judge_prompt_spells_out_field_requirements():
+    prompt = lr._LOOP_JUDGE_SYSTEM
+    assert "lift_scope MUST be non-empty" in prompt
+    assert "retract_task_ids MUST be non-empty" in prompt
+    assert "leave lift_scope empty and retract_task_ids empty" in prompt
+
+
 def test_judge_error_fail_open():
     spec = spec_template()
     led = {}
@@ -248,7 +255,7 @@ def test_gate_stop_loop_judge_provisional_then_allow(tmp_path, monkeypatch):
     with patch.object(lr, "judge_completion_loop_release", return_value=verdict):
         out = _run_stop(gate_stop, {"session_id": "loopsess2", "cwd": str(tmp_path)})
     assert out.get("decision") == "block"
-    assert "breaker CLOSED" in (out.get("reason") or "")
+    assert "Completion gate blocked" in (out.get("reason") or "")
 
     reloaded = load_ledger({"session_id": "loopsess2", "cwd": str(tmp_path)})
     assert reloaded["loop_lift_stops_remaining"] == 1
@@ -293,7 +300,7 @@ def test_gate_stop_provisional_lift_shown_exactly_once(tmp_path, monkeypatch):
     assert out.get("decision") == "block"
     reason = out.get("reason") or ""
     ac = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-    assert "breaker CLOSED" in reason
+    assert "Completion gate blocked" in reason
     # Fix A: the lift block is not echoed onto the reason channel (short alarm only).
     assert reason.lower().count("loop lift (provisional)") == 0
     # Fix A + B: the lift appears exactly once across both channels -- no truncated

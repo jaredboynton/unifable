@@ -311,3 +311,11 @@ def test_primary_stays_blocked_with_accepted_frontier(tmp_path):
     # Not all terminal yet (f2 still pending), no comparison_winner
     assert hw.compute_heavy_phase(spec) == "frontier"
     assert hw.primary_task(spec)["status"] == "blocked"
+
+
+def test_heavy_workflow_brief_uses_glossary_and_declare_phase():
+    brief = hw.heavy_workflow_brief(phase="declare")
+    assert "Glossary: frontier = competing exploratory approach; primary = evidence-backed fallback." in brief
+    assert "Declare phase:" in brief
+    assert "Before edits:" not in brief
+    assert "Stop runs frontier adjudication" in brief

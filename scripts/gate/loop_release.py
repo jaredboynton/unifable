@@ -83,11 +83,12 @@ _LOOP_JUDGE_SYSTEM = (
     "and completion_stall_blocks can reset on fluctuation (task rotation), so a "
     "low value there does NOT contradict a high completion_stop_blocks. "
     "lift=provisional: allow Stop through temporarily (1-3 times) so the agent can "
-    "change approach; lift_scope MUST state allowed next actions. "
+    "change approach; lift_scope MUST be non-empty and state allowed next actions. "
     "lift=permanent: list judge-added spurious requirement ids in retract_task_ids "
-    "(never agent-authored tasks). The harness RETRACTS those tasks automatically "
-    "— do NOT write imperative instructions to the agent (no 'retract T16', "
-    "'leave other items', etc.). The reason field is an internal audit note only "
+    "(never agent-authored tasks), and retract_task_ids MUST be non-empty. The "
+    "harness RETRACTS those tasks automatically — do NOT write imperative instructions "
+    "to the agent (no 'retract T16', 'leave other items', etc.). The reason field is "
+    "an internal audit note only "
     "(past tense, one sentence); it is NOT shown to the agent. When fragmentation "
     "is present (many failed tasks plus pending judge-added replacements with "
     "overlapping purpose), put failed judge-added duplicate ids in retract_task_ids. "
@@ -95,7 +96,8 @@ _LOOP_JUDGE_SYSTEM = (
     "requirement, treat it as a redundancy loop: set suicide_loop=true, "
     "lift=permanent, and list those judge-added ids in retract_task_ids. "
     "lift=none: when work is legitimately remaining, the incomplete set is shrinking, "
-    "or evidence is insufficient. On uncertainty, lift=none."
+    "or evidence is insufficient; leave lift_scope empty and retract_task_ids empty. "
+    "On uncertainty, lift=none."
 )
 
 

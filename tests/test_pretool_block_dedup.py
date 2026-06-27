@@ -61,8 +61,10 @@ def _run_pre_tool(payload: dict, *, data_root: str) -> tuple[int, str]:
 
 def test_bash_block_message_size_under_budget():
     msg = format_bash_research_block("nl is not in the Bash research whitelist", "sess-1")
-    assert len(msg) < 500
+    assert len(msg) < 650
     assert "Bash blocked" not in msg
+    assert "unifable restate" in msg
+    assert "Allowed now:" in msg
 
 
 def test_sequential_same_signature_second_and_third_are_silent():
@@ -164,7 +166,8 @@ def test_mixed_block_kinds_second_is_compact_not_full_footer(tmp_path, capsys):
     )
     assert rc1 == 2
     err1 = capsys.readouterr().err
-    assert "Next: run unifable restate" in err1
+    assert pb._RESTATE_LINE in err1
+    assert pb._ADD_TASK_LINE in err1
     rc2 = pb.emit_pretool_block(
         payload,
         kind="delegate",

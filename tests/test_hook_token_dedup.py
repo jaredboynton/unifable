@@ -93,7 +93,7 @@ def test_stop_reason_omits_hints_when_validate_ctx_present():
     headlines = ["T1 check ran (exit 1); judge rejected the evidence."]
     ctx, _ = build_stop_validate_context(spec, headlines)
     assert "needs proof" in ctx
-    reason = "breaker CLOSED: 1 task(s) not validated (T1)."
+    reason = "Completion gate blocked: 1 unresolved task(s) (T1)."
     assert "Action:" not in reason
     assert "needs proof" not in reason
 
@@ -101,8 +101,10 @@ def test_stop_reason_omits_hints_when_validate_ctx_present():
 def test_pretool_blocks_share_unlock_footer_wording():
     bash = format_bash_research_block("nl blocked", "s1")
     delegate = format_delegation_block("Task", "s1")
-    assert "Next: run unifable restate" in bash
-    assert "Next: run unifable restate" in delegate
+    assert "Next:" in bash
+    assert "1. unifable restate" in bash
+    assert "Next:" in delegate
+    assert "1. unifable restate" in delegate
 
 
 def test_pretool_bash_after_scaffold_omits_unlock():

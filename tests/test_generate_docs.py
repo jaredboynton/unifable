@@ -72,8 +72,7 @@ def test_all_docs_render_deterministically():
 
 
 def test_router_fixture_renders_matched_pack_context():
-    """The UserPromptSubmit router fixture must not be empty -- the prompt is
-    chosen to match every route in packs/router-manifest.json."""
+    """The router fixture should mirror live route_prompt() output, including cap behavior."""
     out = generate_docs._run_router_fixture()
 
     assert "hookSpecificOutput" in out
@@ -84,16 +83,18 @@ def test_router_fixture_renders_matched_pack_context():
         "[investigation]",
         "[grounding]",
         "[decision-trace]",
-        "[domain-verify]",
-        "[subagent-brief]",
     ):
         assert tag in ctx, f"router fixture missing pack tag {tag}"
+    assert "[domain-verify]" not in ctx
+    assert "[subagent-brief]" not in ctx
+    assert "suppressed (cap" in ctx
 
 
 def test_generated_hook_docs_contain_router_pack_context():
     for host in ("claude", "codex"):
         doc = generate_docs.render_hook_doc(host)
         assert "[investigation]" in doc, f"{host} hook doc missing router pack context (fixture returned empty)"
+        assert "synthetic test-after-edit context" in doc
 
 
 def test_generated_docs_write_and_check_round_trip(tmp_path):

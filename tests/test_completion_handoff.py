@@ -64,8 +64,9 @@ def test_blocks_want_me_to_investigate():
                 os.environ["UNIFABLE_DATA"] = old_env
 
         assert out and out.get("decision") == "block"
-        assert "unresolved handoff" in out.get("reason", "")
-        assert "Read the codex-unifable transcript" in out.get("reason", "")
+        assert "Stop blocked: finish the pending work now." in out.get("reason", "")
+        assert "Read the codex-unifable transcript" not in out.get("reason", "")
+        assert out.get("_handoff_steering") == "Read the codex-unifable transcript and report findings."
 
 
 def test_blocks_say_the_word_deferral():
@@ -94,7 +95,8 @@ def test_blocks_say_the_word_deferral():
                 os.environ["UNIFABLE_DATA"] = old_env
 
         assert out and out.get("decision") == "block"
-        assert "report medians" in out.get("reason", "")
+        assert "report medians" not in out.get("reason", "")
+        assert out.get("_handoff_steering") == "Run 5x each configuration and report medians."
 
 
 def test_blocks_promise_without_tool():
@@ -140,6 +142,7 @@ def test_allows_genuine_user_choice():
             return {
                 "ok_to_stop": True,
                 "reason": "Genuine user-owned architecture choice.",
+                "steering": "",
                 "blocked_on_user_only": True,
             }
 
@@ -170,6 +173,7 @@ def test_allows_commit_permission():
             return {
                 "ok_to_stop": True,
                 "reason": "Commit requires explicit user approval per policy.",
+                "steering": "",
                 "blocked_on_user_only": True,
             }
 
@@ -391,7 +395,7 @@ def test_gate_stop_wires_handoff_before_loop_guard(tmp_path, monkeypatch):
     def fake_decision(input_data, cwd):
         return {
             "decision": "block",
-            "reason": "Stop blocked: unresolved handoff — do the offered work now.",
+            "reason": "Stop blocked: finish the pending work now.",
             "_handoff_steering": "Read the transcript.",
         }
 
@@ -409,4 +413,4 @@ def test_gate_stop_wires_handoff_before_loop_guard(tmp_path, monkeypatch):
 
     out = captured.get("out") or {}
     assert out.get("decision") == "block"
-    assert "unresolved handoff" in out.get("reason", "")
+    assert "Stop blocked: finish the pending work now." in out.get("reason", "")

@@ -78,7 +78,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.9.120          # or: just version patch|minor|major
+just version 1.9.121          # or: just version patch|minor|major
 
 ```
 
@@ -97,6 +97,14 @@ just version 1.9.120          # or: just version patch|minor|major
   them: run `just version <X.Y.Z>` (or `just version patch|minor|major`), which
   sets every version field in one pass via `scripts/bump_version.py` and exits
   nonzero if any straggler of the old version remains in the managed set.
+- Releases MUST follow the `$release` flow end to end: update `CHANGELOG.md`,
+  run the version bump, regenerate generated docs, run `just test-all`, commit,
+  push `main`, create/push the `vX.Y.Z` tag, create the GitHub Release, and verify
+  the remote branch, tag, and release.
+- Every release MUST have changelog notes before the commit. Use
+  `CHANGELOG.md` as the durable source: each entry needs version/date, concise
+  user-visible changes, and verification. The GitHub Release body mirrors those
+  notes.
 - No emojis anywhere (output, commits, code, comments, docs).
 
 ## Where to look
@@ -104,8 +112,10 @@ just version 1.9.120          # or: just version patch|minor|major
 | Topic | Path |
 |---|---|
 | Product overview, hook table | [README.md](README.md) |
+| Changelog / release notes | [CHANGELOG.md](CHANGELOG.md) |
 | Evidence-gate design | [docs/evidence-gate-design.md](docs/evidence-gate-design.md) |
 | Pack routing (inline discipline) | [packs/router-manifest.json](packs/router-manifest.json), [scripts/gate/pack_router.py](scripts/gate/pack_router.py) |
 | Generated hook/judge reference | [docs/generated/](docs/generated/), [docs/generated-docs-plan.md](docs/generated-docs-plan.md) |
 | Operator session env validation | [docs/session-env-validation.md](docs/session-env-validation.md) |
 | Eval rubric + scenarios | [docs/evals/](docs/evals/), [tests/eval_rubric.md](tests/eval_rubric.md) |
+| Scoped agent notes | [hooks/AGENTS.md](hooks/AGENTS.md), [scripts/AGENTS.md](scripts/AGENTS.md), [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md), [tests/AGENTS.md](tests/AGENTS.md), [docs/AGENTS.md](docs/AGENTS.md) |

@@ -115,9 +115,11 @@ _JUDGE_CORE_GUIDANCE = (
     "outcome; duplicates trap completion. Include supersedes: [ids] when replacing "
     "broken checks (superseded agent tasks become non-blocking; judge tasks retract). "
     "Prefer adjust_requirements revise over adding a parallel "
-    "requirement. Never add brittle literal-string or version-pinning requirements; "
-    "write checks that read version fields from repo manifests and compare -- a check "
-    "that fails on every version bump traps completion. Reject evidence that only "
+    "requirement. Prefer structural manifest/version-field checks over brittle "
+    "literal-string or version-pinning requirements; write checks that read version "
+    "fields from repo manifests and compare -- a check that fails on every version "
+    "bump traps completion. Allow an exact literal or version-pinned check only when "
+    "the user task explicitly requires that exact literal. Reject evidence that only "
     "grep-matches a frozen version string when the goal needs a structural manifest "
     "comparison. Judge-added tasks with broken checks must be fixed via adjust_requirements "
     "in THIS response, never by instructing the agent."
@@ -337,7 +339,7 @@ _VALIDATE_ALL_SYSTEM = (
 
 
 _DISPUTE_ADJUDICATION = (
-    "For kind=dispute: accept (verdict 1) if dispute_evidence genuinely proves "
+    "For kind=dispute: accept (verdict 1) if impossibility_evidence genuinely proves "
     "impossibility OR proven obsolescence (see OBSOLESCENCE below); reject "
     "(verdict 0) if merely hard or inconvenient. "
     "When session_context.plan_mode_enabled is true, accept disputes where "
@@ -349,7 +351,7 @@ _DISPUTE_ADJUDICATION = (
 _DISPUTE_OBSOLETE_RULE = (
     "OBSOLESCENCE: also accept (verdict 1) when the requirement constrains a "
     "specific behavior, route, file, or code path that was REMOVED because the "
-    "implementation pivoted, AND the dispute_evidence contains a failable check "
+    "implementation pivoted, AND the impossibility_evidence contains a failable check "
     "(e.g. a repo grep) whose captured output proves that subject is now ABSENT "
     "(zero matches, or the file is gone). A requirement whose subject no longer "
     "exists is obsolete and cannot be satisfied -- a real blocker, not an excuse. "

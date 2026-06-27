@@ -37,17 +37,6 @@ Verification grounding: for artifacts whose correctness only shows when run \
 output, fix what the observation reveals, then re-run. A static parse confirms \
 well-formed, not correct."""
 
-_PLAYBOOK_MULTI_STORY = """\
-Multi-story loop: for 2+ sequential stories, decompose them into spec tasks (one \
-requirement per story), validate one at a time, and produce evidence at each step. \
-The final task must carry a runnable check and its observed output."""
-
-_PLAYBOOK_ESCALATION = """\
-Escalation: when stuck on the same problem 2+ times, or when the task requires \
-out-of-spec discovery, escalate: recommend /effort xhigh, delegate the stuck \
-slice via Agent/Workflow with the full evidence package, or hand off with the \
-evidence package. Report the limit honestly."""
-
 # Router pack tags that supersede a playbook paragraph.
 _TAG_SUPERSEDES = {
     "investigation": _PLAYBOOK_INVESTIGATION,

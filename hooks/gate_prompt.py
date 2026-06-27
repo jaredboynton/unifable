@@ -64,19 +64,19 @@ def _format_scaffold_onboarding(
         "1. unifable restate '<goal in your own words>'\n"
         "2. unifable add-task --title '<requirement>' --check '<runnable check>'"
         f"{task_guidance}\n\n"
-        "Alternative add-task form:\n"
-        "unifable add-task '<requirement>' '<runnable check>'\n"
     )
     if heavy_scaffold:
         block += (
             "\nHEAVY also requires:\n"
             "- unifable set-primary --title '<fallback approach>' --check '<runnable proof>'\n"
-            "- unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches\n"
+            "- unifable add-frontier --title '<approach>' --check '<exploration check>'\n"
+            "- unifable add-frontier --title '<second distinct approach>' --check '<exploration check>'\n"
         )
     block += (
         "\nIf impossible:\n"
         "unifable dispute --task <id> --evidence '<proof>'\n\n"
-        "Citations sync from reads/fetches."
+        "Cite only files you read and URLs you fetched this session.\n"
+        "See the HEAVY brief before frontier or primary edits."
     )
     return block
 

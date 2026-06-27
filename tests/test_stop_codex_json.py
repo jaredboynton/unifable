@@ -120,7 +120,7 @@ def test_claude_stop_block_keeps_hook_specific_output(stop_env, tmp_path, monkey
 def test_hook_output_finalize_codex_unit():
     from hook_output import finalize_stop_payload
 
-    payload = {"decision": "block", "reason": "breaker CLOSED"}
+    payload = {"decision": "block", "reason": "Completion gate blocked"}
     out = finalize_stop_payload(
         payload,
         validate_ctx="Action required:\nT1: do work",
@@ -128,4 +128,4 @@ def test_hook_output_finalize_codex_unit():
     )
     assert "hookSpecificOutput" not in out
     assert "T1: do work" in out["reason"]
-    assert "breaker CLOSED" in out["reason"]
+    assert "Completion gate blocked" in out["reason"]

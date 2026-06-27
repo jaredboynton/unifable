@@ -27,7 +27,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nDo it RIGHT NOW. Until this succeeds, normal tools are blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.\n- Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and delegation stay blocked unless a hook explicitly lifts them.\n\nIf a hook blocks you, follow its exact instruction next.",
+    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nDo this before any other tool call. Until it succeeds, read-only inspection stays available, but write tools, delegation, and mutating Bash/REPL work stay blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.\n- Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and delegation stay blocked unless a hook explicitly lifts them.\n\nIf a hook blocks you, follow its exact instruction next.",
     "hookEventName": "SessionStart"
   }
 }
@@ -46,7 +46,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "[investigation] Debugging/root-cause — reproduce, compare causes, confirm one, then fix and verify.\n1. Reproduce or read the actual failure output.\n2. List 3 plausible causes before choosing one.\n3. For each cause, gather confirm/refute evidence from the relevant code path.\n4. Fix only after one cause is confirmed.\n5. Verify before/after and report rejected causes.\n\n[grounding] Render/executable artifact — run the real renderer/executable, inspect output, fix, then rerun.\n1. Run the real renderer/executable.\n2. Capture the actual output: screenshot, console, file, or rendered result.\n3. Fix only what the observation shows.\n4. Re-run the same check.\n5. Static parse alone is not verification.\n\n[decision-trace] Decision/design — compare options against criteria, choose, reject one alternative, verify.\n1. State the decision criteria.\n2. Compare at least 2 options against those criteria.\n3. Choose one and name the deciding reason.\n4. Name one rejected option and why.\n5. Verify the chosen path.\n\n[domain-verify] Domain verification — every acceptance criterion needs a check that can fail.\nFor each acceptance criterion, name a check that can fail.\n\nSOFTWARE: run affected tests and at least one relevant error path when applicable.\nRESEARCH: cite every load-bearing claim to an opened source.\nDATA: check row counts, nulls, duplicates, bounds, and join cardinality.\n\n[subagent-brief] Delegating — include objective, scope, constraints, output contract, and verification.\nDelegate only with:\n- Objective\n- Files/scope\n- Constraints\n- Exact output contract\n- Required verification command\n\nWorker must report command/output, files changed, risks.",
+    "additionalContext": "[investigation] Debugging/root-cause — reproduce, compare causes, confirm one, then fix and verify.\n1. Reproduce or read the actual failure output.\n2. List 3 plausible causes before choosing one.\n3. For each cause, gather confirm/refute evidence from the relevant code path.\n4. Fix only after one cause is confirmed.\n5. Verify before/after and report rejected causes.\n\n[grounding] Render/executable artifact — run the real renderer/executable, inspect output, fix, then rerun.\n1. Run the real renderer/executable.\n2. Capture the actual output: screenshot, console, file, or rendered result.\n3. Fix only what the observation shows.\n4. Re-run the same check.\n5. Static parse alone is not verification.\n\n[decision-trace] Decision/design — compare options against criteria, choose, reject one alternative, verify.\n1. State the decision criteria.\n2. Compare at least 2 options against those criteria.\n3. Choose one and name the deciding reason.\n4. Name one rejected option and why.\n5. Verify the chosen path.\n\n2 more discipline pack(s) matched but were suppressed (cap 3); narrow the prompt to surface a specific one.",
     "hookEventName": "UserPromptSubmit"
   }
 }
@@ -103,7 +103,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "Define the exit proof before completion and verify changed behavior before final. If you verified a change or your claims rest on tool results, state the evidence (and any gaps) in one line; if nothing changed and there is nothing to verify, skip the verification note.\nThe prompt hedges (uncertain). Treat it as a research task: gather evidence and confirm with tool calls before answering; do not guess. State what you verified and what is still unknown.\nCite evidence for load-bearing claims: path:line for code, cmd -> output for tool results, a URL for research/prior art. Never claim verification not observed in a tool result.\n\nHEAVY MODE\nPhase: declare\n\nBefore edits:\n1. unifable restate '<goal in your own words>'\n2. Read/fetch evidence so repo_context and prior_art sync.\n3. unifable set-primary --title '<fallback approach>' --check '<runnable proof>'\n4. unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches\n\nFrontier phase:\n- Explore every frontier.\n- Run each frontier check.\n- Stop adjudicates each frontier as rejected_approach, still_viable, or accepted_approach.\n- Do not edit primary-path scope until all frontiers are terminal.\n\nAfter frontier phase:\n- If a frontier is adopted, implement that frontier.\n- If all frontiers are rejected, implement the primary fallback.",
+    "additionalContext": "Define the exit proof before completion and verify changed behavior before final. If you verified a change or your claims rest on tool results, state the evidence (and any gaps) in one line; if nothing changed and there is nothing to verify, skip the verification note.\nThe prompt hedges (uncertain). Treat it as a research task: gather evidence and confirm with tool calls before answering; do not guess. State what you verified and what is still unknown.\nCite evidence for load-bearing claims: path:line for code, cmd -> output for tool results, a URL for research/prior art. Never claim verification not observed in a tool result.\n\nHEAVY MODE\nPhase: declare\n\nGlossary: frontier = competing exploratory approach; primary = evidence-backed fallback.\n\nDeclare phase:\n1. unifable restate '<goal in your own words>'\n2. Read/fetch evidence so repo_context and prior_art sync.\n3. unifable set-primary --title '<fallback approach>' --check '<runnable proof>'\n4. unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches\n\nFrontier phase:\n- Explore every frontier.\n- Run each frontier check.\n- Stop runs frontier adjudication and marks each frontier rejected_approach, still_viable, or accepted_approach.\n- Do not edit primary-path scope until all frontiers are terminal.\n\nAfter frontier phase:\n- If a frontier is adopted, implement that frontier.\n- If all frontiers are rejected, implement the primary fallback.",
     "hookEventName": "UserPromptSubmit"
   }
 }
@@ -140,7 +140,9 @@ Event: `PreToolUse`
 stderr:
 ```text
 Evidence spec required (grade=STANDARD).
-Next: run unifable restate '<goal>'; then add one requirement with unifable add-task --title '<requirement>' --check '<runnable check>'. HEAVY also needs set-primary and add-frontier.
+Next:
+1. unifable restate '<goal in your own words>'
+2. unifable add-task --title '<requirement>' --check '<runnable check>'
 ```
 
 exit code:
@@ -155,8 +157,11 @@ Event: `PreToolUse`
 stderr:
 ```text
 npm is not in the Bash research whitelist.
-Next: run unifable restate '<goal>'; then add one requirement with unifable add-task --title '<requirement>' --check '<runnable check>'. HEAVY also needs set-primary and add-frontier.
-Allowed now: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
+Next:
+1. unifable restate '<goal in your own words>'
+2. unifable add-task --title '<requirement>' --check '<runnable check>'
+Allowed now: inspection tools: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.
+Bash allowlist: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:
@@ -170,8 +175,13 @@ Event: `PreToolUse`
 
 stderr:
 ```text
-Next: run unifable restate '<goal>'; then add one requirement with unifable add-task --title '<requirement>' --check '<runnable check>'. HEAVY also needs set-primary and add-frontier.
-Available now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, NotebookRead); Bash/REPL/exec_command limited to cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
+Next:
+1. unifable restate '<goal in your own words>'
+2. unifable add-task --title '<requirement>' --check '<runnable check>'
+3. unifable set-primary --title '<fallback approach>' --check '<runnable proof>'
+4. unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches
+Allowed now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, NotebookRead).
+Bash allowlist: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:
@@ -217,7 +227,7 @@ exit code:
 0
 ```
 
-### PostToolUse test-after-edit context
+### PostToolUse synthetic test-after-edit context
 
 Event: `PostToolUse`
 
@@ -248,7 +258,7 @@ stdout:
     "additionalContext": "Action required:\n  T1 [--] Generated docs are reproducible and current\n    judge: Run python3 scripts/generate_docs.py --check.",
     "hookEventName": "Stop"
   },
-  "reason": "breaker CLOSED: 1 task(s) not validated (T1)."
+  "reason": "Completion gate blocked: 1 unresolved task(s) (T1)."
 }
 ```
 
