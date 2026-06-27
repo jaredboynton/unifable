@@ -64,6 +64,48 @@ wall-clock is max(grade, enhance), not their sum.
 
 ---
 
+## Prompt caching + prefix-size bench (2026-06-27)
+
+A follow-on bench (/tmp/enhance-bench) tested whether fattening the synth
+`SYNTH_SYSTEM` prefix to cross OpenAI's 1024-token prompt-cache threshold would
+buy faster warm calls, and how to maximize cross-call cache reuse. Findings:
+
+- **Realtime prompt-cache is machine/socket-local, and there is NO 1024 floor
+  for the Realtime WS API.** A short ~744-token prefix cached 640 tokens on the
+  immediate-repeat warm call; a 1294-token prefix cached 1280 (99%). The cache
+  is keyed on the exact prefix hash routed to a specific socket/machine.
+  Cross-socket (same bearer, same prefix) cached 0 tokens. So fattening a prefix
+  is never justified by caching alone -- a short prefix already caches.
+- **`prompt_cache_key` is rejected by the Realtime API.** Sent in both
+  `session.update` and `response.create`, the server returns
+  `unknown_parameter: 'session.prompt_cache_key'` /
+  `'response.prompt_cache_key'`. There is no developer-settable cross-socket
+  cache key for Realtime. The only cross-call cache lever is routing the same
+  prefix back to the same socket -- implemented as family-sticky worker routing
+  in `scripts/gate/realtime_daemon.py` (`UNIFABLE_STICKY_ROUTING`, default on).
+- **The worked few-shot example is the SOLE quality driver for `SYNTH_SYSTEM`.**
+  A 4-tier A/B (`bench-synth.mjs`): SHORT (~150 tok) q=3.50, MEDIUM (SHORT +
+  decomposition + anti-patterns text, no few-shot) q=3.00, LEAN (SHORT + one
+  worked few-shot, ~550 tok) q=4.00, FAT (~1200 tok) q=4.00. The extra
+  decomposition/anti-patterns/output-format text earned nothing; the few-shot is
+  what lifts quality (it teaches the "Area N" decomposition + concrete
+  path:line density). LEAN reaches the FAT quality plateau at half the tokens
+  and the fastest cold time, so LEAN ships. Because caching has no 1024 floor,
+  there is no reason to pad past LEAN.
+- **The grade judge (`_GRADE_SYSTEM`) was deliberately NOT fattened.** A/B
+  (`bench-grade.py`, 12 edge-case prompts): current prompt 83% both-verdict
+  accuracy, 100% mode accuracy. A few-shot-fattened variant REGRESSED to 75% --
+  the extra examples biased a genuine deep/architectural task to
+  normal/operational. Few-shot can bias a classifier in unintended ways (unlike
+  the synth task, where it teaches a format). Current prompt kept; sticky routing
+  already caches its ~680-token prefix.
+
+Shipped: family-sticky routing + ready-aware least-busy + `withUsage`
+telemetry on the daemon client (opt-in; default return shape unchanged) + LEAN
+`SYNTH_SYSTEM` (one worked few-shot). Grade judge unchanged.
+
+---
+
 ## Sub-scenario A: Vague code ask (enhanced lead expected)
 
 ### Test prompt

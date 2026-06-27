@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.13.0 - 2026-06-27
+
+- LEAN `SYNTH_SYSTEM` for the prompt enhancer
+  (`skills/explore/scripts/enhance-prompt.mjs`): added one worked few-shot
+  example, bench-isolated as the SOLE quality driver (3.50 -> 4.00 / 4). Kept the
+  prefix lean (~2500 chars) -- the extra decomposition/anti-patterns/output-
+  format text in the fat variant earned no quality, and a live gpt-realtime-2
+  probe found Realtime caches the prefix at ANY size (no 1024-token floor for the
+  WS API), so padding to cross 1024 would only slow cold calls. Exported
+  `SYNTH_SYSTEM` and guarded the CLI `run()` under an `isMain` check so the
+  prompt is importable; added a few-shot-presence + anti-bloat guard test.
+- Documented the Realtime prompt-cache mechanics behind the prefix-size decision
+  (`docs/evals/prompt-enhance.md`): the cache is machine/socket-local (live
+  gpt-realtime-2: same-socket 99% cached_tokens hit, cross-socket 0%),
+  `prompt_cache_key` is REJECTED by the Realtime WS API (`unknown_parameter` in
+  both `session.update` and `response.create`), and the cross-call cache lever is
+  the family-sticky worker routing shipped in 1.12.2
+  (`UNIFABLE_STICKY_ROUTING`, `UNIFABLE_STICKY_OVERFLOW_INFLIGHT`). The grade
+  judge (`_GRADE_SYSTEM` in `scripts/gate/grade_override.py`) is deliberately
+  UNCHANGED: a few-shot-fattened variant REGRESSED classification (83% -> 75%;
+  the extra examples biased a genuine deep/architectural task to
+  normal/operational), and sticky routing already caches its ~680-token prefix.
+  Opt-in `usage`/`cached_tokens` telemetry on the daemon client
+  (`skills/explore/scripts/lib/daemon-client.mjs`, `withUsage: true`) shipped in
+  1.12.2 and backed these measurements.
+
+Verification:
+
+- `node --test skills/explore/scripts/test/*.test.mjs` (132 passed) -- new
+  `SYNTH_SYSTEM` few-shot-presence + anti-bloat guard + the explore suite.
+- `python3 -m pytest tests/test_judge_daemon_routing.py tests/test_grade_override.py tests/test_submit_enhance.py tests/test_grade_and_enhance.py -q` (66 passed).
+- `python3 -m py_compile scripts/gate/realtime_daemon.py scripts/gate/grade_override.py`.
+- `just generated-docs` (no diff -- hook output + judge prompts unchanged).
+- Live gpt-realtime-2: `/tmp/enhance-bench/bench-synth.mjs` (LEAN = FAT quality
+  at half the tokens; few-shot is the sole driver), `bench-grade.py` (fattening
+  regressed -> kept current), `cache-probe.mjs` + `diag-session-key.py`
+  (same-socket 99% cache hit, cross-socket 0%, `prompt_cache_key` rejected).
+
 ## 1.12.2 - 2026-06-27
 
 - Removed `unifable doctor` CLI subcommand and the session-env validation

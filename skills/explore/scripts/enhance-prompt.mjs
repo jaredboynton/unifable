@@ -28,6 +28,7 @@
 import { retrieveCandidates } from "./search-fast.mjs";
 import { daemonAsk, daemonAskBatch, warmDaemonPool } from "./lib/daemon-client.mjs";
 import { NAV_SCHEMA, dedupNavProposals } from "./lib/rt-explore-nav.mjs";
+import { fileURLToPath } from "node:url";
 
 const NAV_COUNT = Math.max(0, parseInt(process.env.UNIFABLE_PROMPT_ENHANCE_NAV || "4", 10) || 4);
 const SYNTH_MODEL = (process.env.UNIFABLE_PROMPT_ENHANCE_MODEL || "gpt-realtime-2").trim();
@@ -42,7 +43,7 @@ const MINI = "gpt-realtime-mini";
 // Realtime caches the prefix at ANY size (no 1024-token floor for the WS API), so
 // padding to cross 1024 would only slow cold calls for zero gain. Every token here
 // earns its place: the rules + one worked example.
-const SYNTH_SYSTEM = [
+export const SYNTH_SYSTEM = [
   "You rewrite a vague coding prompt into a grounded, actionable enhanced prompt using ONLY the provided code windows.",
   "Rules:",
   "- Map the user's vague ask onto the SPECIFIC files, symbols, and line areas to investigate. Name them concretely as path:line.",
@@ -231,10 +232,13 @@ function readStdin() {
   });
 }
 
-run().then((out) => {
-  try { process.stdout.write(JSON.stringify(out)); } catch {}
-  process.exit(0);
-}).catch(() => {
-  try { process.stdout.write(JSON.stringify({ ok: false })); } catch {}
-  process.exit(0);
-});
+const _isMain = process.argv[1] === fileURLToPath(import.meta.url);
+if (_isMain) {
+  run().then((out) => {
+    try { process.stdout.write(JSON.stringify(out)); } catch {}
+    process.exit(0);
+  }).catch(() => {
+    try { process.stdout.write(JSON.stringify({ ok: false })); } catch {}
+    process.exit(0);
+  });
+}
