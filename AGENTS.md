@@ -11,67 +11,21 @@ The orchestrator is an LLM. Anything left to its discretion can be skipped, and
 under load it will be. Therefore:
 
 - Every behavior that MUST happen ships as a deterministic hook wired in
-  `hooks/hooks.json` (UserPromptSubmit / PreToolUse / PostToolUse / Stop). A hook
-  runs on the host's critical path and returns a blocking exit code; the model
-  cannot route around it.
-- Skills and subagents are ADVISORY only. The orchestrator MAY invoke them and
-  MAY skip them. They MUST NOT be the sole mechanism enforcing anything
-  load-bearing.
-- If a behavior matters, it MUST be forced — not optional, not circumventable,
-  not "the model should run `/x` first." Build it as a hook or accept that it
-  will not happen.
+  `hooks/hooks.json`. A hook runs on the host's critical path and returns a
+  blocking exit code; the model cannot route around it.
+- Skills and subagents are ADVISORY only — they MUST NOT be the sole mechanism
+  enforcing anything load-bearing.
+- If a behavior matters, force it (hook) or accept that it will not happen.
 
-Worked contrast:
-
-| Mechanism | Type | Skippable? |
-|---|---|---|
-| Evidence gate (`hooks/pre_tool_use.py` + `scripts/gate/spec.py`) | PreToolUse hook | No — blocks edits/delegation/non-whitelisted research Bash until the spec validates |
-| Groundedness breaker (`scripts/gate/groundedness.py`, wired in `pre_tool_use.py`) | PreToolUse hook | No — blocks mutation tools on an unproven confident claim |
-| Completion gate (`hooks/gate_stop.py`) | Stop hook | No — blocks finishing without the evidence spec |
-
-Optional grounding commands and verifier subagents are intentionally not part of
-the shipped harness. Use the enforced evidence gate, groundedness breaker, and
-completion gate for load-bearing behavior.
-
-## How enforcement is wired
-
-- `hooks/hooks.json` — the binding. Maps host events to gate scripts via
-  `${CLAUDE_PLUGIN_ROOT}`. Adding a hook means adding it here, not just writing
-  the script.
-- `hooks/session_start.py` — SessionStart: refreshes the stable `~/.unifable`
-  runtime, then injects the thin judge-relationship frame via `additionalContext`
-  (`scripts/gate/context_block.py`). The model is no longer front-loaded with the
-  full operating-mode posture — the frame only says a director judge guides it step
-  by step and to restate the goal first; the per-tool director supplies step-by-step
-  guidance at runtime. Ships only when the plugin is enabled; setup.sh / install
-  scripts strip stale blocks.
-- `hooks/pre_tool_use.py` — the PreToolUse entrypoint: evidence gate + protected
-  paths + the groundedness breaker, which doubles as the stepwise director (per-tool
-  directive + tool scope, enforced via `scripts/gate/tool_scope.py`). Fail-open on
-  malformed input by design.
-- `hooks/gate_post_tool.py` — PostToolUse: logs real activity (read_paths,
-  fetched_urls, ran_commands) and verification results into the ledger. The
-  breaker's release gate and citation checks read this log.
-- `hooks/gate_stop.py` — Stop: completion gate (spec present, verification ran,
-  promise-no-act guard). On allow-stop, emit `{}` (or `systemMessage` only for user
-  escalations); inject the spec digest via `additionalContext` only when `decision: block`
-  — Stop `additionalContext` re-engages the session on Claude Code.
-- `scripts/gate/` — host-agnostic core, no host imports:
-  `db.py` (the single WAL SQLite store backing ledger/breaker/spec/findings;
-  fail-open, BEGIN IMMEDIATE writes, lazy one-time JSON import), `spec.py`
-  (evidence spec validate), `ledger.py` (per-session state, shimmed over `db.py`),
-  `citations.py` (cite-vs-activity check), `groundedness.py` (arm/disarm judge),
-  `codex_judge.py` (gpt-realtime-2 client), `classify_task.py`,
-  `bash_classify.py`, `parse_tool_result.py`, `verify_state.py`.
-
-**No Realtime?** Maybe Bedrock `nvidia.nemotron-nano-3-30b` later. 256K context. Cheap on-demand.
-Not wired in. Judge still wants Codex OAuth + Realtime today.
+The enforced load-bearing gates are the evidence gate, the groundedness breaker,
+and the completion gate. Per-hook wiring and the skippable-vs-enforced contrast
+table live in [hooks/AGENTS.md](hooks/AGENTS.md).
 
 ## Commands
 
 ```bash
 # full gate suite (pytest + eval_gate_proof + test_gate_robustness): just test-all
-# dev deps: uv run --with-requirements requirements-dev.txt  (see requirements-dev.txt)
+# dev deps: uv run --with-requirements requirements-dev.txt
 # parallel pytest only: just test-parallel   serial profile: just test-profile
 
 # a single gate's tests
@@ -82,48 +36,28 @@ python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
 just version 1.14.0          # or: just version patch|minor|major
-
 ```
 
-## Conventions
+## Release conventions (repo-wide)
 
-- New gate logic MUST land with failing-first tests under `tests/` and MUST NOT
-  weaken or delete an existing protected test to make a suite pass.
-- Gate scripts MUST fail open: any internal error leaves tools unblocked. A gate
-  that hard-locks a session on its own bug is worse than no gate. The breaker's
-  safety cap (`BREAKER_MAX_BLOCKS`) is the pattern — bound every enforcement loop.
-- `scripts/gate/` MUST stay host-agnostic (no Claude-only or Codex-only imports);
-  host wiring lives in `hooks/` and `install/`.
-- Whenever a verbatim value (file path, command, symbol, identifier) must reach
-  the model losslessly, use the pointer + rehydrate pattern, never a model-typed
-  string: hand the model a numbered index of the real values and have it reference
-  one by integer pointer in its structured output, then rehydrate the exact value
-  host-side. Models truncate and paraphrase long identifiers; an integer pointer
-  cannot. Reference impls: `scripts/gate/file_refs.py` (judge directive/steering
-  FILE INDEX `[[n]]`) and the explore READ INDEX / `excerpt_index`
-  (`skills/explore/scripts/lib/rt-rehydrate-submit.mjs`).
-- Version bumps touch ALL manifests together:
-  `.claude-plugin/`, `.codex-plugin/`, `.devin-plugin/`, `.factory-plugin/`
-  (`plugin.json` + `marketplace.json`) and `setup/setup.sh`. Do not hand-edit
-  them: run `just version <X.Y.Z>` (or `just version patch|minor|major`), which
-  sets every version field in one pass via `scripts/bump_version.py` and exits
-  nonzero if any straggler of the old version remains in the managed set.
-- Releases MUST follow the `$release` flow end to end: update `CHANGELOG.md`,
-  run the version bump, regenerate generated docs, run `just test-all`, commit,
-  push `main`, create/push the `vX.Y.Z` tag, create the GitHub Release, and verify
-  the remote branch, tag, and release.
-- Every release MUST have changelog notes before the commit. Use
-  `CHANGELOG.md` as the durable source: each entry needs version/date, concise
-  user-visible changes, and verification. The GitHub Release body mirrors those
-  notes.
+- Version bumps touch ALL manifests together: `.claude-plugin/`, `.codex-plugin/`,
+  `.devin-plugin/`, `.factory-plugin/` (`plugin.json` + `marketplace.json`) and
+  `setup/setup.sh`. Do not hand-edit them: run `just version <X.Y.Z>` (or
+  `just version patch|minor|major`), which sets every version field in one pass via
+  `scripts/bump_version.py` and exits nonzero if any straggler of the old version
+  remains in the managed set.
+- Releases MUST follow the `$release` flow end to end: update `CHANGELOG.md`, run
+  the version bump, regenerate generated docs, run `just test-all`, commit, push
+  `main`, create/push the `vX.Y.Z` tag, create the GitHub Release, and verify the
+  remote branch, tag, and release.
+- Every release MUST have changelog notes before the commit; `CHANGELOG.md` is the
+  durable source (version/date, concise user-visible changes, verification). The
+  GitHub Release body mirrors those notes.
 - No emojis anywhere (output, commits, code, comments, docs).
-- gpt-realtime-2 hard-caps each Realtime `input_text` field at **256,000 chars**
- (char-driven, not token-driven; validated live 2026-06-27: 255,900 chars / 32k
- tokens OK, 256,100 chars rejected with `string_above_max_length`). Enforced
- client-side by `JUDGE_MAX_MESSAGE_CHARS` + `cap_judge_message` in
- `scripts/gate/transcript_tail.py`; oversized payloads surface as a structured
- `error`/`response.failed` frame (handled in `codex_judge._ask_once`), not a
- socket drop. Do not raise this cap.
+
+Gate-core conventions (fail-open, host-agnostic, failing-first tests, the pointer +
+rehydrate rule, the 256k judge cap) live in
+[scripts/gate/AGENTS.md](scripts/gate/AGENTS.md).
 
 ## Where to look
 
@@ -131,8 +65,10 @@ just version 1.14.0          # or: just version patch|minor|major
 |---|---|
 | Product overview, hook table | [README.md](README.md) |
 | Changelog / release notes | [CHANGELOG.md](CHANGELOG.md) |
+| Hook wiring + enforcement layer | [hooks/AGENTS.md](hooks/AGENTS.md) |
+| Gate core (policy, judge, ledger, conventions) | [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md) |
 | Evidence-gate design | [docs/evidence-gate-design.md](docs/evidence-gate-design.md) |
 | Pack routing (inline discipline) | [packs/router-manifest.json](packs/router-manifest.json), [scripts/gate/pack_router.py](scripts/gate/pack_router.py) |
 | Generated hook/judge reference | [docs/generated/](docs/generated/), [docs/generated-docs-plan.md](docs/generated-docs-plan.md) |
 | Eval rubric + scenarios | [docs/evals/](docs/evals/), [tests/eval_rubric.md](tests/eval_rubric.md) |
-| Scoped agent notes | [hooks/AGENTS.md](hooks/AGENTS.md), [scripts/AGENTS.md](scripts/AGENTS.md), [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md), [tests/AGENTS.md](tests/AGENTS.md), [docs/AGENTS.md](docs/AGENTS.md) |
+| Other scoped notes | [scripts/AGENTS.md](scripts/AGENTS.md), [tests/AGENTS.md](tests/AGENTS.md), [docs/AGENTS.md](docs/AGENTS.md) |
