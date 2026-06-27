@@ -64,13 +64,18 @@ def context_for_mode(
         if shown:
             lines.append("Risk flags: " + ", ".join(shown) + ".")
     if mode == "normal":
-        lines.append("If files change, run one relevant verification command or state why none applies.")
+        lines.append(
+            "After any edit, run one verification command that exercises the change "
+            "(a test, typecheck, lint, or build); if none applies, name the reason. "
+            "The Stop gate blocks completion until a verification has run for changed files."
+        )
     elif mode == "deep":
         lines.append(
             "Define the exit proof before completion and verify changed behavior before final. "
-            "If you verified a change or your claims rest on tool results, state the evidence "
-            "(and any gaps) in one line; if nothing changed and there is nothing to verify, "
-            "skip the verification note."
+            "After any edit, run one verification command that exercises the change "
+            "(a test, typecheck, lint, or build); if none applies, name the reason. "
+            "State the evidence (and any gaps) in one line; the Stop gate blocks completion "
+            "until a verification has run for changed files."
         )
     if "uncertainty" in risk_flags:
         lines.append(

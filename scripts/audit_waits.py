@@ -37,6 +37,7 @@ COVERED = {
     "scripts/gate/spec_io.py",
     "scripts/gate/spec_stop_validate.py",
     "scripts/gate/spec_validation.py",
+    "scripts/gate/submit_enhance.py",
     "scripts/generate_docs.py",
     "scripts/shadow/outcome_collect.py",
     "tests/test_auto_validate_stop.py",
@@ -56,6 +57,7 @@ COVERED = {
     "tests/test_spec_state_notifications.py",
     "tests/test_stop_codex_json.py",
     "tests/test_stop_timeout_budget.py",
+    "tests/test_submit_enhance.py",
     "tests/test_supersession.py",
     "tests/test_test_after_edit.py",
 }

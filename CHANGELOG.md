@@ -1,5 +1,54 @@
 # Changelog
 
+## 1.12.0 - 2026-06-27
+
+- Tightened the stepwise director's `directive` and arm-path `steering` schema
+  descriptions (`scripts/gate/breaker_prompts.py`) so hook feedback is
+  self-contained and immediately executable: name the actual path, read-only
+  command, or check inline, and NEVER reference a spec task by ID (`T1`, "the
+  spec board's listed checks") that the model would have to look up. Fixes
+  pointer-style directives like "use the spec board's T1 check" that gave the
+  model a label instead of a runnable next action.
+- Added repo-grounded prompt enhancement at UserPromptSubmit. For
+  under-specified code asks (no path/file token, >= 20 words, not obviously
+  operational), a Standard-tier enhancer — `retrieveCandidates` seed + 4
+  parallel `gpt-realtime-mini` navigators + one full `gpt-realtime-2` synth
+  (reasoning omitted, the proven trace-submit config) — runs concurrently with
+  the grade judge and its output is prepended as the first `additionalContext`
+  line, ahead of the static mode block. Hook wall-clock is max(grade, enhance),
+  not their sum.
+- Rewrote the normal/deep mode lines in `classify_task.context_for_mode` to
+  trigger-anchored directives that name the verification category and the
+  Stop-gate consequence (was a leading "If files change" conditional). This
+  block is the fallback used whenever the enhancer does not fire or fails open.
+- Hard gates on the enhanced text: zero repo-specific commands (reject ->
+  static fallback), zero hallucinated paths (cited ranges filtered by the
+  windows actually retrieved), char cap 1200, 6000 ms subprocess timeout,
+  fail-open to the static baseline on any error. `UNIFABLE_PROMPT_ENHANCE=0`
+  disables (default on).
+- New `scripts/gate/submit_enhance.py` (host-agnostic policy, stdlib only) +
+  `skills/explore/scripts/enhance-prompt.mjs` (Node entrypoint reusing the
+  explore skill's in-repo machinery) + `tests/test_submit_enhance.py` (policy
+  unit tests) + `tests/test_grade_and_enhance.py` (concurrent wiring tests) +
+  `docs/evals/prompt-enhance.md`.
+
+Verification:
+
+- Bench: four-arm (/tmp/enhance-bench, 2026-06-27) across a fixture repo and
+  the unifable repo with the synth at reasoning omitted. Standard scored
+  quality 9.0 across all four prompts, 4/4 ok, 0 hallucinated paths, 0
+  repo-specific commands; the lite (no-nav) tier collapsed to quality 3 on the
+  large repo at omitted reasoning. See `docs/evals/prompt-enhance.md`.
+- `python3 -m pytest tests/test_submit_enhance.py tests/test_grade_and_enhance.py -q` (34 passed)
+- `just test-all` (pytest 1226 passed + eval_gate_proof + test_gate_robustness 14/14 + audit_waits 46/46)
+- `python3 -m py_compile hooks/gate_prompt.py scripts/gate/submit_enhance.py scripts/gate/classify_task.py`
+- `python3 scripts/generate_docs.py --check` (generated docs current)
+- Director fix: `python3 -m pytest tests/test_director.py -q` (15 passed).
+  Live judge benchmark (gpt-realtime-2, 2 scenarios x 3 wording variants): the
+  shipped wording inlines the concrete command in every directive/steering and
+  drops the baseline's pointer phrasing, with no latency change (~2.3-2.6 s per
+  call across all variants).
+
 ## 1.11.1 - 2026-06-27
 
 - Fixed explore repo-map prefetch hangs on large trees by replacing the final

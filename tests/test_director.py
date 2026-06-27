@@ -84,6 +84,27 @@ def test_director_schema_requires_concrete_target_when_possible() -> None:
     assert "transcript or board" in desc
 
 
+def test_directive_must_be_self_contained_not_taskid_pointer() -> None:
+    """Regression: the director used to emit pointer-references like 'use the spec
+    board's T1 check' instead of the concrete action, so the model received a label it
+    had to look up rather than a runnable instruction. The schema must demand a
+    self-contained, immediately executable directive and forbid bare spec-task-ID
+    references."""
+    desc = gb._JUDGE_SCHEMA["properties"]["directive"]["description"]
+    assert "self-contained and immediately executable" in desc
+    assert "act on this sentence ALONE" in desc
+    assert "NEVER refer to a spec task by its ID" in desc
+    assert "restate that task's concrete check verbatim" in desc
+
+
+def test_steering_must_be_self_contained_not_taskid_pointer() -> None:
+    """Same rule for the arm-path steering text: name the action in full, never a bare
+    task-ID the model must resolve against the board."""
+    desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"]
+    assert "act on the steering text ALONE" in desc
+    assert "NEVER a bare reference to a spec task ID" in desc
+
+
 def test_tool_scope_schema_mentions_mutation_phase_only() -> None:
     desc = gb._JUDGE_SCHEMA["properties"]["tool_scope"]["description"]
     assert "mutation/delegation phase only" in desc

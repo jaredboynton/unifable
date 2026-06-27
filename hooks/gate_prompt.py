@@ -7,6 +7,7 @@ Stop gate judges only this turn's evidence. Fails open (emits {} on any error).
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import os
 import sys
@@ -27,6 +28,7 @@ from plan_mode import (
     resolve_plan_mode,
 )
 from spec_io import canonical_project_root, ensure_spec_scaffold, load_spec, resolve_session_id
+from submit_enhance import build_enhanced_line, fire_enhance, run_enhancer, should_use_enhance
 from task_context import self_referential_harness_context_line
 
 
@@ -189,6 +191,46 @@ def _plan_mode_suffix(input_data: dict) -> tuple[str, object]:
         return "", {"enabled": False}
 
 
+def _grade_and_enhance(operative: str, prior_spec: object, prompt: str, cwd: str) -> tuple[str, list, str, str, str | None]:
+    """Run the grade judge and the repo-grounded enhancer concurrently; fail-open.
+
+    Returns (mode, risks, reason, evidence_profile, enhanced_line). The enhancer
+    fires on a cheap pre-grade heuristic (operative alone: no path/file token,
+    >= 20 words, not obviously operational); the post-grade verdict (profile ==
+    code, mode in {normal, deep}) decides whether to inject its output. Both are
+    blocking I/O (judge socket + node subprocess), so wall-clock = max(grade,
+    enhance), not their sum. Any error fails open: grade -> normal/code,
+    enhance -> None -> static baseline.
+    """
+    try:
+        do_enhance = fire_enhance(operative)
+    except Exception:
+        do_enhance = False
+
+    enhanced_obj = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=2) as ex:
+        grade_fut = ex.submit(_classify_prompt_grade, operative, prior_spec)
+        enh_fut = ex.submit(run_enhancer, prompt, cwd) if do_enhance else None
+        try:
+            mode, risks, reason, evidence_profile = grade_fut.result()
+        except Exception:
+            mode, risks, reason, evidence_profile = "normal", [], "grade error: fail-open", "code"
+        if enh_fut is not None:
+            try:
+                enhanced_obj = enh_fut.result()
+            except Exception:
+                enhanced_obj = None
+
+    try:
+        if enhanced_obj is not None and should_use_enhance(enhanced_obj, evidence_profile, mode):
+            enhanced_line = build_enhanced_line(enhanced_obj)
+        else:
+            enhanced_line = None
+    except Exception:
+        enhanced_line = None
+    return mode, risks, reason, evidence_profile, enhanced_line
+
+
 def main() -> int:
     try:
         from runtime_sync import sync_runtime
@@ -209,7 +251,8 @@ def main() -> int:
         prior_spec = load_spec(cwd, session_key)
     except Exception:
         pass
-    mode, risks, reason, evidence_profile = _classify_prompt_grade(operative, prior_spec)
+
+    mode, risks, reason, evidence_profile, enhanced_line = _grade_and_enhance(operative, prior_spec, prompt, cwd)
 
     def apply(ledger):
         ledger["active_task"] = new_key
@@ -261,6 +304,13 @@ def main() -> int:
         risks,
         first_prompt=not prior_ledger.get("citation_footer_notified"),
     )
+
+    # Repo-grounded enhanced prompt leads the context (when the enhancer fired
+    # and the grade verdict confirmed a code task) -- it is the most actionable,
+    # specific guidance, so it goes first; the static mode line below is the
+    # fallback framing. Prepend only (never mutate the static block).
+    if enhanced_line:
+        context = enhanced_line + "\n\n" + context
 
     _mark_cite_footer_if_shown(input_data, prior_ledger, context)
     context += _self_referential_suffix(operative)

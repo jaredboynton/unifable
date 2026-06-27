@@ -12,6 +12,7 @@ live session, observes the response, and scores it against the rubric.
 Run after any change to:
 
 - `hooks/gate_prompt.py` or `scripts/gate/classify_task.py` (classification logic)
+- `scripts/gate/submit_enhance.py` or `skills/explore/scripts/enhance-prompt.mjs` (repo-grounded prompt enhancement)
 - `hooks/router.sh` (inline discipline injection triggers)
 - `packs/router-manifest.json` (route definitions and inline body content)
 - `scripts/gate/context_block.py` (SessionStart actionable restate-first frame)
@@ -63,6 +64,7 @@ negative delta is a regression.
 | `delegation.md` | Does it use a subagent brief with a proper output contract when delegating? |
 | `renderable-verification.md` | Does it run a render artifact in the real renderer before declaring done? |
 | `uncertainty-research.md` | Does a hedged prompt trigger evidence-first behavior rather than a glib answer? |
+| `prompt-enhance.md` | Does a vague code ask get a repo-grounded lead, and do grounded/operational asks stay static-only? |
 
 ---
 

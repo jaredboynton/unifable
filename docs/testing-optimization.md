@@ -40,8 +40,8 @@ Audit verification is now executable:
 ```text
 command: python3 scripts/audit_waits.py
 result:
-latency audit covered 44 grep-matched file(s)
-documented decisions: 44 file(s)
+latency audit covered 46 grep-matched file(s)
+documented decisions: 46 file(s)
 test sleep calls: 0
 ```
 
@@ -61,6 +61,7 @@ test sleep calls: 0
 | `scripts/gate/db.py` | Kept | Consolidated SQLite gate store. Matches only via the bounded `PRAGMA busy_timeout`/`sqlite3.connect(timeout=...)` writer-lock budget (default 5000ms, `$UNIFABLE_DB_BUSY_TIMEOUT_MS`). This is a fail-open storage-contention bound, not pytest pacing; the expensive judge call is coalesced outside the module and never held inside a transaction. |
 | `scripts/gate/breaker_judges.py`, `scripts/gate/bench_realtime_concurrency.py` | Kept | Judge dispatch and the Realtime concurrency benchmark. Matches are bounded judge/network/subprocess deadlines and benchmark cap measurements, not test pacing. |
 | `scripts/gate/recon_lane.py` | Kept | gpt-realtime-mini recon/exec lane. Matches only via the bounded `UNIFABLE_RECON_CMD_TIMEOUT` validation-command deadline (passed to `run_check`) and the recon daemon request budget. Both are fail-open external-work bounds, not pytest pacing. |
+| `scripts/gate/submit_enhance.py`, `tests/test_submit_enhance.py` | Kept | Repo-grounded prompt-enhance gate policy + its unit tests. The script matches via the bounded subprocess `timeout` passed to the Node enhancer (`UNIFABLE_PROMPT_ENHANCE_TIMEOUT_MS`, default 6000ms, fail-open to the static baseline on expiry); the test matches via `subprocess.TimeoutExpired` stubs and the timeout-env-knob assertions. No wall-clock sleeps. |
 | `scripts/audit_waits.py` | Kept | Self-verifier for this audit. It contains the scan terms and coverage set so the raw grep command can be paired with a pass/fail accounting check. |
 | `docs/testing-optimization.md` | Kept | Documentation/prose matches only. |
 

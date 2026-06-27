@@ -23,6 +23,9 @@ def _steering_description() -> str:
         "claim, then say exactly what to read, fetch, search, or run to ground it. Include "
         "specific paths, URLs, search terms, or read-only commands only when they already "
         "appear in the transcript or are directly implied by it; do NOT invent file paths. "
+        "State the next action in full so the model can act on the steering text ALONE -- the path "
+        "to read, the command or search to run, the doc to fetch -- NEVER a bare reference to a spec "
+        "task ID (e.g. 'T1', 'the spec board's listed checks') the model would have to look up. "
         "Never enumerate tool restrictions, allowed tools, blocked tools, or command "
         "allowlists; the hook appends the exact current restriction list. Do not steer "
         "toward mutating commands, builds, or tests while the claim is ungrounded. For "
@@ -157,6 +160,13 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "confirm the task schema before editing.', 'Run the failing check and paste its "
                 "output.', 'Restate the goal, then add the first requirement.'). When possible, name "
                 "one concrete read/check/edit target that already appears in the transcript or board. "
+                "The directive MUST be self-contained and immediately executable on its own: spell out "
+                "the actual action -- the path to read, the exact read-only command or search to run, "
+                "or the literal check text -- so the model can act on this sentence ALONE without "
+                "looking anything up. NEVER refer to a spec task by its ID (e.g. 'T1', 'the T1 check', "
+                "'the spec board's listed checks') or otherwise point at the board as a place to go "
+                "read the step; if a board task drives the next action, restate that task's concrete "
+                "check verbatim as the imperative. "
                 "Be terse and concrete; empty only when there is genuinely nothing useful left to add."
             ),
         },
