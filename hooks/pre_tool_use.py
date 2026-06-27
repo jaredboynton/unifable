@@ -17,11 +17,12 @@ four cases:
      by the prompt hook and driven via the spec.py CLI (the no-brick escape), never
      hand-written.
 
-  3. EVIDENCE GATE — Bash research whitelist (unconditional): in the research
-     phase (grade STANDARD+, no valid spec yet), Bash may run only `cd`, `ls`, `glob`,
-     `rg`, read-only file inspection (`head`, `tail`, `wc`, `sort`, `uniq`), read-only
-     `git` subcommands and workflow git (`status`, `add`, `commit`, `push` without
-     `--force`), a file whose basename is `trace.sh` or `websearch.sh` when the explore
+  3. EVIDENCE GATE — shell research whitelist (unconditional): in the research
+     phase (grade STANDARD+, no valid spec yet), Bash/REPL/exec_command may run only
+     `cd`, `ls`, `glob`, `rg`, read-only file inspection (`head`, `tail`, `wc`,
+     `sort`, `uniq`), read-only `git` subcommands and workflow git (`status`, `add`,
+     `commit`, `push` without `--force`), a file whose basename is `trace.sh` or
+     `websearch.sh` when the explore
      skill is installed (guidance shows resolved paths), or a user-facing unifusion skill
      script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
      A valid spec unlocks the action phase (all shell commands allowed). LIGHT waives.
@@ -80,17 +81,21 @@ from protected_paths import (
     _is_protected,
     _write_targets,
 )
-from research_bash_guidance import bash_allowed_summary
 from spec_contracts import contract_string, format_spec_validation_block
 from spec_io import canonical_project_root, load_spec, resolve_session_id, save_spec
 from spec_validation import validate_spec
+from tool_restrictions import (
+    DELEGATION_TOOLS as _DELEGATION_TOOLS,
+    WRITE_TOOLS as _WRITE_TOOLS,
+    groundedness_block_message,
+)
 
 # ---------------------------------------------------------------------------
 # Tool names across both hosts (Claude Code and Codex)
 # ---------------------------------------------------------------------------
 
-WRITE_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch"})
-DELEGATION_TOOLS = frozenset({"Task", "Agent"})
+WRITE_TOOLS = frozenset(_WRITE_TOOLS)
+DELEGATION_TOOLS = frozenset(_DELEGATION_TOOLS)
 
 _PROTECTED_CLI = (
     "Specs/ledger are CLI-only via `unifable` "
@@ -705,12 +710,7 @@ def _enforce_breaker(input_data: dict) -> tuple[int | None, str]:
             events = breaker.get("events") if isinstance(breaker.get("events"), list) else []
             if events and events[-1].get("kind") == "REINSTATE" and not steering:
                 pass
-            message = steering or (
-                "You asserted something confidently without backing it up. "
-                "Your tools are restricted to read-only ones (Read, WebSearch, "
-                "WebFetch, Grep, Glob) and whitelisted research Bash "
-                f"({bash_allowed_summary()}) until you ground the claim."
-            )
+            message = groundedness_block_message(steering)
             detail = " ".join(str(message).split())[:80]
             return _block(
                 input_data,

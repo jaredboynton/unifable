@@ -87,7 +87,19 @@ def test_director_schema_requires_concrete_target_when_possible() -> None:
 def test_tool_scope_schema_mentions_mutation_phase_only() -> None:
     desc = gb._JUDGE_SCHEMA["properties"]["tool_scope"]["description"]
     assert "mutation/delegation phase only" in desc
-    assert "does NOT control Read/Grep/Glob/WebSearch/WebFetch or hook-allowed research Bash" in desc
+    assert "does NOT control inspection tools or hook-allowed research Bash" in desc
+
+
+def test_arm_judge_prompt_does_not_own_restriction_copy() -> None:
+    system = gb._JUDGE_SYSTEM
+    steering_desc = gb._JUDGE_SCHEMA["properties"]["steering"]["description"]
+
+    for text in (system, steering_desc):
+        assert "restricted to read-only" not in text
+        assert "read-only ones (Read, WebSearch, WebFetch, Grep, Glob)" not in text
+        assert "whitelisted research Bash until grounded" not in text
+        assert "the hook appends the exact current restriction list" in text
+        assert "exactly what to read, fetch, search, or run" in text
 
 
 def test_arm_judge_without_out_is_backward_compatible() -> None:

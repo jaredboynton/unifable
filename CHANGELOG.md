@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.9.122 - 2026-06-27
+
+- Moved groundedness breaker restriction copy out of judge-authored steering and
+  into deterministic hook-owned output.
+- Added canonical hook-visible tool restriction constants covering inspection,
+  write, delegation, and shell/REPL surfaces.
+- Tightened groundedness judge prompts so they ask for exact grounding actions
+  while the hook appends the exact `Actions restricted to:` list.
+- Extended regression coverage for stale restriction stripping, manifest matcher
+  sync, generated judge prompts, and REPL/exec_command breaker blocking.
+
+Verification:
+
+- `python3 -m pytest -q`
+- `python3 scripts/generate_docs.py --check`
+
 ## 1.9.121 - 2026-06-27
 
 - Trimmed startup, PreToolUse, Stop, and completion-handoff hook wording so the

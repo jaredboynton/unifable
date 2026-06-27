@@ -32,11 +32,12 @@ agent thrashes through edits first and only "cites" at the end.
 ## The two phases
 
 - RESEARCH phase (locked) — the default once a work-shaped task at grade >= STANDARD starts.
-  - ALLOWED: `Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`, read-only MCP
-    (exa/tavily/ref/octocode search+fetch). `Bash` is allowed ONLY for `cd`, `ls`, `glob`, `rg`, or running
-    any file named `trace.sh` or `websearch.sh` (see Bash gating).
-  - BLOCKED: `Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`apply_patch`, `Task`/`Agent`, and non-whitelisted `Bash`, each with a
-    message naming the unlock step.
+  - ALLOWED: inspection tools (`Read`, `Grep`, `Glob`, `WebSearch`, `WebFetch`,
+    `NotebookRead`) plus read-like evidence carriers. `Bash`/`REPL`/`exec_command`
+    are allowed only for the research allowlist (see shell gating).
+  - BLOCKED: `Edit`/`Write`/`MultiEdit`/`NotebookEdit`/`apply_patch`, `Task`/`Agent`,
+    and non-whitelisted `Bash`/`REPL`/`exec_command`, each with a message naming the
+    unlock step.
 - ACTION phase (unlocked) — once the evidence artifact validates, all tools allowed (the existing spec
   gate's pass condition, now richer). Citations sync from ledger activity automatically
   (`sync_citations_from_activity` in `scripts/gate/citations.py`); on Stop, `auto_validate_spec`
@@ -62,9 +63,9 @@ positive transition notify; block counts are not reset on clear (re-block same s
 ## Delta 1 — broaden the locked surface (pre_tool_use.py)
 
 Today guard 2 only fires for `tool_name in WRITE_TOOLS`. Add an evidence-gate guard that also
-fires for `Bash` (classified, below) and treats the spec as the unlock. Reuse `_block()` (exit 2)
-and the grade machinery. LIGHT (quick) waives entirely. The gate is unconditional — there is no
-env disable.
+fires for `Bash`/`REPL`/`exec_command` (classified, below) and treats the spec as the unlock.
+Reuse `_block()` (exit 2) and the grade machinery. LIGHT (quick) waives entirely. The gate is
+unconditional — there is no env disable.
 
 ## Delta 2 — citation fields in the unlock predicate (spec.py SPEC_SCHEMA)
 
@@ -86,16 +87,15 @@ Add, so the spec literally *is* the three evidence types (for **code-profile** t
 Validation extends `validate_spec` (`spec.py:116`) with these; the contract strings
 (`spec.py:216-237`) gain the new fields so the model is told exactly what to fill.
 
-## Delta 3 — Bash gating (the novel, risky part)
+## Delta 3 — shell gating (the novel, risky part)
 
-Classify the `Bash` command string in the research phase:
-- ALLOW only if every command segment is `cd`, `ls`, `glob`, `rg`, invokes a file whose basename is
-  `trace.sh` or `websearch.sh` (directly or through `sh`/`bash`/`zsh`), or invokes a user-facing unifusion skill
-  script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
-- User-facing allowlist copy (PreToolUse blocks, breaker steering, setup block) is install-detected via
-  `scripts/gate/research_bash_guidance.py`: when `SKILL.md` + `scripts/trace.sh` exist under the explore
-  skill, messages name installed script paths (`trace.sh`, and `websearch.sh` when present); otherwise
-  explore scripts are omitted from guidance. Enforcement remains basename `trace.sh` / `websearch.sh` regardless.
+Classify command strings in the research phase:
+- ALLOW only when every command segment passes `scripts/gate/bash_classify.py`'s research allowlist
+  (compact copy from `bash_allowed_summary()`).
+- User-facing allowlist copy is install-detected via `scripts/gate/research_bash_guidance.py`.
+  Groundedness restriction copy is hook-owned in `scripts/gate/tool_restrictions.py`; judge steering
+  names the ungrounded claim and evidence needed, then the PreToolUse hook appends the exact current
+  tool and command restrictions.
 - BLOCK otherwise, with a message that names the allowed commands and says broader Bash unlocks only
   after a valid task spec exists with repo_context citations, acceptance evidence, and prior_art.
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than

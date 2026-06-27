@@ -29,11 +29,14 @@ from __future__ import annotations
 
 from typing import Any
 
+try:
+    from tool_restrictions import INSPECTION_TOOLS
+except ImportError:  # pragma: no cover
+    from scripts.gate.tool_restrictions import INSPECTION_TOOLS
+
 # Read-only tools that stay reachable under any scope so the agent can always
-# ground a claim. Kept in sync with groundedness.RELEASE_TOOLS.
-GROUNDING_FLOOR = frozenset(
-    {"Read", "Grep", "Glob", "WebSearch", "WebFetch", "NotebookRead"}
-)
+# ground a claim. Kept in sync with the hook restriction-copy module.
+GROUNDING_FLOOR = frozenset(INSPECTION_TOOLS)
 
 _DEFAULT_BLOCK_REASON = (
     "That tool is out of scope for the current step. "

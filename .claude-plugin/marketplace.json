@@ -3,7 +3,7 @@
   "owner": { "name": "Jared Boynton", "email": "jared.boynton@gmail.com" },
   "metadata": {
     "description": "unifable — a dual-host (Claude Code + Codex) harness that makes Opus behave like Fable: completion, evidence, and verification enforced as procedure. Fork of fivetaku/fablize.",
-    "version": "1.9.121"
+    "version": "1.9.122"
   },
   "plugins": [
     {

@@ -127,7 +127,7 @@ def _state():
 
 
 def test_mutation_set_is_exactly_writes_edits_bash():
-    for t in ("Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "Bash"):
+    for t in ("Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "Bash", "REPL", "exec_command"):
         assert gb.is_mutation_tool(t), t
     for t in ("WebSearch", "Read", "WebFetch", "Grep", "Glob", "Task", "TodoWrite"):
         assert not gb.is_mutation_tool(t), t

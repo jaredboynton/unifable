@@ -9,34 +9,23 @@ from __future__ import annotations
 
 from typing import Any
 
-try:
-    from research_bash_guidance import groundedness_bash_whitelist_fragment
-except ImportError:  # pragma: no cover
-    from scripts.gate.research_bash_guidance import groundedness_bash_whitelist_fragment
-
-
 def _research_bash_whitelist_summary() -> str:
     try:
-        from research_bash_guidance import bash_allowed_summary
+        from tool_restrictions import bash_research_summary
     except ImportError:
-        from scripts.gate.research_bash_guidance import bash_allowed_summary  # pragma: no cover
-    return bash_allowed_summary()
+        from scripts.gate.tool_restrictions import bash_research_summary  # pragma: no cover
+    return bash_research_summary()
 
 
 def _steering_description() -> str:
-    explore = groundedness_bash_whitelist_fragment()
-    bash_summary = _research_bash_whitelist_summary()
     return (
-        "When verdict=1, a 2-3 sentence steering prompt addressed to the model. Name the "
-        "unproven claim, say its tools are restricted to read-only ones (Read, WebSearch, "
-        "WebFetch, Grep, Glob) and whitelisted research Bash ("
-        f"{bash_summary}, "
-        f"{explore}unifusion skill scripts, spec CLI) until it grounds the claim, and describe the KIND of "
-        "evidence that would "
-        "disarm it -- you do NOT have a repo listing, so do not invent file paths. NEVER "
-        "steer the model to run a command that the breaker blocks (node, npm test, edits); "
-        "prefer reading source files, result fields, and fixture thresholds already in the "
-        "repo. For a claim about THIS repo's code/config, say what files to read. For "
+        "When verdict=1, a compact imperative addressed to the model: name the unproven "
+        "claim, then say exactly what to read, fetch, search, or run to ground it. Include "
+        "specific paths, URLs, search terms, or read-only commands only when they already "
+        "appear in the transcript or are directly implied by it; do NOT invent file paths. "
+        "Never enumerate tool restrictions, allowed tools, blocked tools, or command "
+        "allowlists; the hook appends the exact current restriction list. Do not steer "
+        "toward mutating commands, builds, or tests while the claim is ungrounded. For "
         "in-repo conventions already documented (version bump via just version, AGENTS.md "
         "release rules), steer to those repo files -- not SemVer.org or external docs. For "
         "EXTERNAL or platform/API behavior, steer in order: (1) authoritative "
@@ -49,10 +38,7 @@ def _steering_description() -> str:
         "matters to the user goal. NEVER steer toward verifying unifable/fablize harness "
         "gate state (LIGHT waiver, spec tasks, provisional lift, hook messages) -- those "
         "claims are self-referential and must not arm. Do NOT insist on official docs alone "
-        "when community RE or fresh probing is the correct path. NEVER steer toward blocked "
-        "shell "
-        "commands. Name a specific path only if it already appears in the transcript. "
-        "Empty when verdict=0."
+        "when community RE or fresh probing is the correct path. Empty when verdict=0."
     )
 
 
@@ -179,9 +165,9 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "description": (
                 "STEPWISE DIRECTOR tool gate for the NEXT step. allow: if non-empty, ONLY these tool "
                 "names may run; deny: these tool names are blocked. Use to keep the model in the right "
-                "phase -- e.g. research (allow reads/Grep/Glob, deny Edit/Write), implement (allow "
+                "phase -- e.g. research (allow reads/searches, deny Edit/Write), implement (allow "
                 "Edit/Write/Bash), verify (allow Bash). This shapes the mutation/delegation phase only; "
-                "it does NOT control Read/Grep/Glob/WebSearch/WebFetch or hook-allowed research Bash. "
+                "it does NOT control inspection tools or hook-allowed research Bash. "
                 "Those remain reachable regardless, so never rely on denying them. Leave both arrays "
                 "empty to impose no restriction this step."
             ),
@@ -330,10 +316,10 @@ _JUDGE_SYSTEM = (
     "EXTERNAL/PLATFORM claims: grounded by docs, community prior art (GitHub/issues/gists), or "
     "empirical probe output in the transcript. Do not require official docs when prior art or "
     "empirical proof exists. Do not demand repo files for external truth. "
-    "When arming: verdict=1, name the claim, write a steering prompt restricting tools to read-only "
-    "(Read, WebSearch, WebFetch, Grep, Glob) and whitelisted research Bash until grounded. "
-    "Steer repo claims toward files to read or allowed inspection commands (rg, head, wc), "
-    "never blocked commands. "
+    "When arming: verdict=1, write compact imperative steering only: name the claim, "
+    "then say exactly what to read, fetch, search, or run to ground it. Do NOT enumerate "
+    "tool restrictions, allowed tools, blocked tools, or command allowlists; the hook "
+    "appends the exact current restriction list. "
     "Otherwise verdict=0, steering and claim MUST be empty. "
     "SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a "
     "terse `directive` naming the single best next action toward the goal, and a `tool_scope` "

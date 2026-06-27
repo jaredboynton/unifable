@@ -27,10 +27,10 @@ from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from ledger import ledger_path, load_ledger, save_ledger
-    from research_bash_guidance import bash_allowed_summary
+    from tool_restrictions import bash_research_summary, inspection_tools_csv
 except ImportError:  # pragma: no cover
     from scripts.gate.ledger import ledger_path, load_ledger, save_ledger
-    from scripts.gate.research_bash_guidance import bash_allowed_summary
+    from scripts.gate.tool_restrictions import bash_research_summary, inspection_tools_csv
 
 try:
     import fcntl
@@ -131,7 +131,7 @@ def _append_heavy_unlock(lines: list[str], ctx: BlockContext) -> None:
 
 def _append_bash_allowlist(lines: list[str], ctx: BlockContext) -> None:
     if not ctx.allowlist_sent:
-        lines.append(f"{_ALLOWED_NOW_PREFIX} {bash_allowed_summary()}.")
+        lines.append(f"{_ALLOWED_NOW_PREFIX} {bash_research_summary()}.")
 
 
 def message_includes_unlock(message: str) -> bool:
@@ -226,8 +226,8 @@ def format_bash_research_block(
         lines.append(f"{why}.")
     _append_unlock(lines, ctx)
     if not ctx.allowlist_sent:
-        lines.append(f"{_ALLOWED_NOW_PREFIX} inspection tools: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.")
-        lines.append(f"Bash allowlist: {bash_allowed_summary()}.")
+        lines.append(f"{_ALLOWED_NOW_PREFIX} inspection tools: {inspection_tools_csv()}.")
+        lines.append(f"Bash allowlist: {bash_research_summary()}.")
     return _join_lines(lines)
 
 
@@ -259,9 +259,9 @@ def format_delegation_block(
     _append_heavy_unlock(lines, ctx)
     if not ctx.allowlist_sent:
         lines.append(
-            "Allowed now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, NotebookRead)."
+            f"Allowed now: inspection tools ({inspection_tools_csv()})."
         )
-        lines.append(f"Bash allowlist: {bash_allowed_summary()}.")
+        lines.append(f"Bash allowlist: {bash_research_summary()}.")
     return _join_lines(lines)
 
 

@@ -37,6 +37,7 @@ try:
         stripped_transcript_tail,
         tail_tokens,
     )
+    from tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS, RELEASE_TOOLS as _RELEASE_TOOLS
 except ImportError:  # pragma: no cover
     from scripts.gate.breaker_filters import (
         _SPEC_BOARD_BEGIN,
@@ -58,6 +59,7 @@ except ImportError:  # pragma: no cover
         stripped_transcript_tail,
         tail_tokens,
     )
+    from scripts.gate.tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS, RELEASE_TOOLS as _RELEASE_TOOLS
 
 # Coalesce window: once any judge has fired for a key, concurrent PreToolUse
 # processes from the same parallel tool-call batch (which all judge the identical
@@ -69,10 +71,10 @@ except (TypeError, ValueError):
     JUDGE_COALESCE_WINDOW_SECONDS = 2.0
 
 
-MUTATION_TOOLS = frozenset({"Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch", "Bash"})
+MUTATION_TOOLS = frozenset(GROUNDEDNESS_BLOCKED_TOOLS)
 
 
-RELEASE_TOOLS = frozenset({"Read", "WebFetch", "WebSearch", "Grep", "Glob", "NotebookRead", "view_image"})
+RELEASE_TOOLS = frozenset(_RELEASE_TOOLS)
 
 
 JUDGE_WINDOW_SECONDS = 3
