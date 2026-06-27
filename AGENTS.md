@@ -55,6 +55,17 @@ just version 1.14.0          # or: just version patch|minor|major
   GitHub Release body mirrors those notes.
 - No emojis anywhere (output, commits, code, comments, docs).
 
+## Benches and probes
+
+Live latency / concurrency benchmarks go in `probes/` — not under `scripts/`.
+Name them `probes/bench_<topic>.py` (or `probe_*` when diagnostic). Results
+land in `probes/bench/results/` when the script writes artifacts. Excluded from
+`just test-all` and the wait-audit scan (`scripts/audit_waits.py`). Do not add
+bench scripts at repo root or in `scripts/gate/`.
+
+Harness cost/latency A/B for the plugin itself stays in `benchmark/`. Explore-skill
+trace A/B stays in `skills/explore/scripts/bench/`.
+
 Gate-core conventions (fail-open, host-agnostic, failing-first tests, the pointer +
 rehydrate rule, the 256k judge cap) live in
 [scripts/gate/AGENTS.md](scripts/gate/AGENTS.md).
@@ -71,4 +82,5 @@ rehydrate rule, the 256k judge cap) live in
 | Pack routing (inline discipline) | [packs/router-manifest.json](packs/router-manifest.json), [scripts/gate/pack_router.py](scripts/gate/pack_router.py) |
 | Generated hook/judge reference | [docs/generated/](docs/generated/), [docs/generated-docs-plan.md](docs/generated-docs-plan.md) |
 | Eval rubric + scenarios | [docs/evals/](docs/evals/), [tests/eval_rubric.md](tests/eval_rubric.md) |
+| Live benches / latency probes | [probes/](probes/) (`bench_*`, excluded from `just test-all`) |
 | Other scoped notes | [scripts/AGENTS.md](scripts/AGENTS.md), [tests/AGENTS.md](tests/AGENTS.md), [docs/AGENTS.md](docs/AGENTS.md) |
