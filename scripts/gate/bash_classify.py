@@ -28,7 +28,7 @@ _ALLOWED_COMMANDS = frozenset({"cd", "ls", "glob", "rg", "grep", "egrep", "fgrep
 _AST_GREP_NAMES = frozenset({"ast-grep", "sg"})
 _AST_GREP_REWRITE_FLAGS = frozenset({"-U", "--update", "--rewrite"})
 # Standalone or as pipeline sinks after an allowed command.
-READONLY_INSPECTION_COMMANDS = frozenset({"head", "tail", "wc", "sort", "uniq"})
+READONLY_INSPECTION_COMMANDS = frozenset({"head", "tail", "wc", "sort", "uniq", "jq"})
 _PIPELINE_SINKS = READONLY_INSPECTION_COMMANDS
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
 _UNIFUSION_SCRIPT_NAMES = frozenset(
@@ -295,6 +295,34 @@ def _first_command(tokens: list[str]) -> tuple[str, list[str]]:
     if idx >= len(tokens):
         return "", []
     return tokens[idx], tokens[idx + 1 :]
+
+
+# Shell control keywords. A `;`/`&&`/`||`-split segment can begin with one of
+# these when the command is a loop or conditional (`for f in ...; do CMD; done`).
+# The keyword is not an executable, so it is stripped before classifying the
+# segment's real command; a loop is allowed only when every body command is
+# itself whitelisted (each body segment flows through _allowed_segment).
+_SHELL_COMPOUND_KEYWORDS = frozenset(
+    {"for", "while", "until", "if", "then", "elif", "else", "fi", "do", "done", "case", "esac", "select", "in"}
+)
+
+
+def _strip_compound_keywords(tokens: list[str]) -> list[str]:
+    """Drop leading shell control keywords so a segment's real command can be
+    classified. Returns [] for a pure control segment (a `for`/`select` loop
+    header, or a bare `do`/`done`/`then`/`fi`), which the caller treats as an
+    allowed no-op. The iteration words of a `for`/`select` header are data, not
+    commands, so they are never classified (command substitution inside them is
+    still rejected upstream)."""
+    if not tokens:
+        return []
+    # `for NAME in WORDS` / `select NAME in WORDS`: header only, no command here.
+    if tokens[0] in ("for", "select"):
+        return []
+    out = list(tokens)
+    while out and out[0] in _SHELL_COMPOUND_KEYWORDS:
+        out = out[1:]
+    return out
 
 
 def _agent_blocked_assignment_reason(tokens: list[str]) -> str:
@@ -609,6 +637,11 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
     reason = _agent_blocked_assignment_reason(tokens)
     if reason:
         return False, reason
+
+    stripped = _strip_compound_keywords(tokens)
+    if not stripped:
+        return True, ""  # pure shell control segment (for-header, do, done, then, fi...)
+    tokens = stripped
 
     command, rest = _first_command(tokens)
     if not command:

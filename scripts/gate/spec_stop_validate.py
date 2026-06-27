@@ -231,7 +231,7 @@ def _apply_check_result(
     kind = str(task.get("approach_kind") or "requirement")
     task["attempts"] = int(task.get("attempts") or 0) + 1
     if task.get("status") == "retracted" and task.get("added_by") == "judge":
-        headline = f"{tid} retracted by judge: {str(task.get('judge_reason') or reason)[:80]}"
+        headline = f"{tid} retracted by judge: {str(task.get('judge_reason') or reason)}"
         notify_spec_update(
             spec,
             headline,
@@ -307,9 +307,9 @@ def _apply_check_result(
     advance_primary_if_ready(spec)
     sync_heavy_phase(spec)
     if kind == "frontier" and task["status"] == "accepted_approach":
-        headline = f"{tid} frontier accepted by judge (check passed): {reason[:80]}."
+        headline = f"{tid} frontier accepted by judge (check passed): {reason}."
     elif kind == "frontier" and task["status"] == "rejected_approach":
-        headline = f"{tid} frontier ruled out by judge: {reason[:80]}."
+        headline = f"{tid} frontier ruled out by judge: {reason}."
         if all_frontiers_rejected(spec):
             headline += " All frontiers rejected — primary phase unlocked."
     elif verdict == 1:

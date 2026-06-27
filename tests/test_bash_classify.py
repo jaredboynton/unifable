@@ -98,6 +98,17 @@ ALLOWED = [
     "grep -r foo .",
     "grep -E 'pattern' file.py",
     "rg UNIFABLE_DEV scripts/gate",
+    # jq is a read-only JSON processor (no file-write primitive): standalone and as a sink.
+    "jq '.' file.json",
+    "jq -r '.key' data.json",
+    "rg --files | jq -R .",
+    "rg foo src/ | jq .",
+    # Read-only shell loops/conditionals: allowed when every body command is whitelisted.
+    "for f in specs/*.json; do head \"$f\"; done",
+    "for f in a b c; do rg foo \"$f\"; done",
+    "for f in specs/*.json; do jq '.' \"$f\"; done",
+    "if rg -q foo file; then ls; fi",
+    "while rg -q foo file; do echo hi; done",
 ]
 
 BLOCKED = [
@@ -163,6 +174,12 @@ BLOCKED = [
     "unset UNIFABLE_DEV; rg --files",
     # A bare declaration keyword with no command is not useful research.
     "export",
+    # Loops must not become an escape hatch: a non-whitelisted body command blocks.
+    "for f in *; do cat \"$f\"; done",
+    "for f in *; do rm \"$f\"; done",
+    "for f in $(ls); do head \"$f\"; done",
+    "while read l; do echo \"$l\"; done",
+    "if true; then cat /etc/passwd; fi",
 ]
 
 

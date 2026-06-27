@@ -38,7 +38,7 @@ def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.M
     assert rbg.resolve_explore_websearch_sh() is None
     assert (
         rbg.bash_allowed_summary()
-        == "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, "
+        == "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, jq, "
         "read-only git, git add/commit/push (no --force), read-only python/python3 -c, "
         "unifusion scripts, unifable spec CLI"
     )

@@ -78,7 +78,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.10.1          # or: just version patch|minor|major
+just version 1.10.2          # or: just version patch|minor|major
 
 ```
 
@@ -106,6 +106,13 @@ just version 1.10.1          # or: just version patch|minor|major
   user-visible changes, and verification. The GitHub Release body mirrors those
   notes.
 - No emojis anywhere (output, commits, code, comments, docs).
+- gpt-realtime-2 hard-caps each Realtime `input_text` field at **256,000 chars**
+ (char-driven, not token-driven; validated live 2026-06-27: 255,900 chars / 32k
+ tokens OK, 256,100 chars rejected with `string_above_max_length`). Enforced
+ client-side by `JUDGE_MAX_MESSAGE_CHARS` + `cap_judge_message` in
+ `scripts/gate/transcript_tail.py`; oversized payloads surface as a structured
+ `error`/`response.failed` frame (handled in `codex_judge._ask_once`), not a
+ socket drop. Do not raise this cap.
 
 ## Where to look
 

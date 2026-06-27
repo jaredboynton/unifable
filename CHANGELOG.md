@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.10.2 - 2026-06-27
+
+- Fixed the judge transcript renderer dropping Codex record bodies: `_record_text`
+  in `transcript_tail.py` now falls back to top-level `payload` text
+  (`response_item` / `event_msg` / `turn_context`, including `result.Ok.content`),
+  mirroring unifusion's `codexPayloadText`. Codex proof is no longer invisible to
+  the groundedness disarm judge, which was causing an unsatisfiable
+  "claim still ungrounded" loop until fail-open.
+- Hardened the breaker disarm prompt: `needed` must point only at artifacts
+  already visible in the transcript segment and must not invent file paths or
+  internal record types (turn_context, world_state, event_msg), which the judge
+  was hallucinating and steering toward records the renderer cannot expose.
+- Allowed `jq` (read-only JSON processor) in the pre-spec Bash research whitelist,
+  both standalone and as a pipeline sink.
+- Allowed read-only shell loops/conditionals (`for`/`while`/`until`/`if`/`case`)
+  in the research whitelist: control keywords are stripped and the loop is allowed
+  only when every command in its body is itself whitelisted. Command-substitution
+  and dangerous-assignment guards are unchanged.
+- Stopped truncating load-bearing Spec-update headlines: judge task titles,
+  retraction reasons, and frontier rationales now reach the model whole, and a
+  multi-task reconcile no longer silently drops headlines past the fourth
+  (new `build_spec_update_context` helper).
+
+Verification:
+
+- `python3 -m pytest tests/test_transcript_tail.py tests/test_bash_classify.py tests/test_research_bash_guidance.py tests/test_spec_headlines_not_truncated.py tests/test_judge_transcript.py -q`
+- `just test-all` (1153 passed, 9 subtests passed; 40/40 gate scenarios; 14/14 robustness checks)
+
 ## 1.10.1 - 2026-06-27
 
 - Stopped emitting cite-only PostToolUse `additionalContext` after deterministic

@@ -331,7 +331,7 @@ def _add_judge_requirement(
     nt["reconcile_evidence_refs"] = evidence_refs
     spec["tasks"].append(nt)
     tid = str(nt.get("id") or "")
-    headlines = [f"Judge added {tid}: {title[:80]}"]
+    headlines = [f"Judge added {tid}: {title}"]
     notify_spec_update(spec, headlines[0], highlight_task=tid)
     if supersedes:
         headlines.extend(_apply_supersedes_bundle(spec, tid, supersedes, reason=reason))
@@ -367,7 +367,7 @@ def _apply_reconcile_actions(
             task["status"] = "retracted"
             task["judge_reason"] = reason
             task["reconcile_evidence_refs"] = refs
-            headline = f"Judge retracted {tid}: {reason[:80]}"
+            headline = f"Judge retracted {tid}: {reason}"
             notify_spec_update(spec, headline, highlight_task=tid)
             headlines.append(headline)
         elif kind == "revise":
@@ -405,6 +405,20 @@ def _apply_reconcile_actions(
         sync_heavy_phase(spec)
         advance_primary_if_ready(spec)
     return headlines
+
+
+def build_spec_update_context(headlines: list[str]) -> str:
+    """Join reconcile headlines into the PostToolUse ``Spec update:`` context.
+
+    Headlines carry load-bearing task title/reason/rationale text the main model
+    needs in order to know what changed on the board, so every headline is
+    included -- no count cap that would silently drop a multi-task reconcile.
+    Returns "" when there is nothing to report.
+    """
+    parts = [str(h).strip() for h in (headlines or []) if str(h or "").strip()]
+    if not parts:
+        return ""
+    return "Spec update:\n" + "\n".join(parts)
 
 
 _JUDGE_SYSTEM = (
@@ -732,7 +746,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
                 continue
             t["status"] = "retracted"
             t["judge_reason"] = reason
-            headline = f"Judge retracted {tid}: {reason[:80]}"
+            headline = f"Judge retracted {tid}: {reason}"
         else:  # revise: fix broken checks on agent or judge tasks
             if "title" in adj:
                 t["title"] = adj["title"]
@@ -1043,7 +1057,7 @@ def judge_frontier_comparison(spec: dict[str, Any]) -> list[str]:
         if tid == selected_id:
             t["comparison_winner"] = True
             t["judge_reason"] = f"Selected as best approach: {rationale[:200]}"
-            headlines.append(f"{tid} selected as best frontier: {rationale[:80]}.")
+            headlines.append(f"{tid} selected as best frontier: {rationale}.")
         elif str(t.get("status") or "") == "accepted_approach":
             t["status"] = "rejected_approach"
             t["comparison_winner"] = False

@@ -226,7 +226,7 @@ def _apply_supersedes_bundle(
         if t.get("added_by") == "judge":
             t["status"] = "retracted"
             t["judge_reason"] = base_reason
-            headline = f"Judge retracted {sid}: {base_reason[:80]}"
+            headline = f"Judge retracted {sid}: {base_reason}"
         else:
             t["status"] = "superseded"
             t["superseded_by"] = new_tid

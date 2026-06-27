@@ -430,7 +430,7 @@ def format_approach_board(spec: dict[str, Any]) -> str:
             continue
         tid = str(t.get("id") or "")
         status = str(t.get("status") or "")
-        title = str(t.get("title") or "")[:60]
+        title = str(t.get("title") or "")
         by = str(t.get("added_by") or "agent")
         lines.append(f"  [{kind}] {tid} ({status}, {by}): {title}")
     return "\n".join(lines)

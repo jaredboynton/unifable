@@ -233,7 +233,7 @@ def main() -> int:
         from heavy_workflow import format_approach_board, frontier_tasks
         from spec_hygiene import apply_spec_hygiene
         from spec_io import load_spec, resolve_session_id, save_spec
-        from spec_judge import judge_discover_frontiers, judge_reconcile_spec
+        from spec_judge import build_spec_update_context, judge_discover_frontiers, judge_reconcile_spec
 
         task_id = resolve_session_id(input_data, default=None)
         grade = resolve_grade(ledger, os.environ.get("UNIFABLE_GRADE"))
@@ -254,7 +254,7 @@ def main() -> int:
                 )
                 if headlines:
                     save_spec(cwd, task_id, spec)
-                    discovery_context = "Spec update:\n" + "\n".join(headlines[:4])
+                    discovery_context = build_spec_update_context(headlines)
             if spec and grade == "HEAVY" and tool_name in research_tools and len(frontier_tasks(spec)) < 2:
                 if grade == "HEAVY":
                     n_tools = int(ledger.get("frontier_research_tools") or 0) + 1

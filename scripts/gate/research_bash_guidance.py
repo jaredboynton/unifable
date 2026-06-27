@@ -186,7 +186,7 @@ def explore_trace_compact_item() -> str:
 def bash_allowed_summary() -> str:
     """Compact allowlist for PreToolUse block messages and breaker copy."""
     parts = [
-        "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, "
+        "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, jq, "
         "read-only git, git add/commit/push (no --force), read-only python/python3 -c",
     ]
     explore = explore_trace_compact_item()
@@ -203,7 +203,7 @@ def allowed_research_bash_detail() -> str:
     return (
         "cd, ls, glob, rg, grep/egrep/fgrep, echo (read-only pipeline sinks only), "
         "ast-grep/sg (scan/run/test; no --update/--rewrite), "
-        "read-only file inspection (head, tail, wc, sort, uniq), "
+        "read-only file inspection (head, tail, wc, sort, uniq, jq), "
         "read-only python/python3 -c inspection (no writes, process spawn, or network), "
         "read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
         "tag -l, stash list, blame, shortlog, reflog show, merge-base, name-rev, "
@@ -214,5 +214,7 @@ def allowed_research_bash_detail() -> str:
         f"{explore_clause}, "
         "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
         "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
-        "(unifable restate|add-task|set-primary|add-frontier; legacy unifable-spec alias still accepted)"
+        "(unifable restate|add-task|set-primary|add-frontier; legacy unifable-spec alias still accepted). "
+        "Shell loops/conditionals (for, while, until, if/case) are allowed when every command in the "
+        "body is itself one of the above"
     )

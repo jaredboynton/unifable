@@ -198,6 +198,51 @@ def _render_part_for_prompt(part: Any, meta: dict[str, Any]) -> str:
     return ""
 
 
+def _codex_payload_text(record: dict[str, Any]) -> str:
+    """Codex rollout records nest text under top-level ``payload``
+    (response_item / event_msg / turn_context), not the Claude ``message`` shape.
+
+    Mirrors the JS ``codexPayloadText`` in unifusion's compact-full-transcript.mjs
+    so both renderers expose the same text; precedence is
+    ``message`` -> ``text`` -> ``content[].text`` -> ``result.Ok.content`` -> ``output``.
+    """
+    payload = record.get("payload")
+    if not isinstance(payload, dict):
+        return ""
+    msg = payload.get("message")
+    if isinstance(msg, str) and msg:
+        return msg
+    text = payload.get("text")
+    if isinstance(text, str) and text:
+        return text
+    content = payload.get("content")
+    if isinstance(content, list):
+        parts = [
+            c.get("text")
+            for c in content
+            if isinstance(c, dict) and isinstance(c.get("text"), str) and c.get("text")
+        ]
+        if parts:
+            return "\n".join(parts)
+    result = payload.get("result")
+    ok = result.get("Ok") if isinstance(result, dict) else None
+    ok_content = ok.get("content") if isinstance(ok, dict) else None
+    if isinstance(ok_content, list):
+        parts = []
+        for c in ok_content:
+            if isinstance(c, str):
+                parts.append(c)
+            elif isinstance(c, dict) and isinstance(c.get("text"), str):
+                parts.append(c["text"])
+        parts = [p for p in parts if p]
+        if parts:
+            return "\n".join(parts)
+    output = payload.get("output")
+    if isinstance(output, str) and output:
+        return output
+    return ""
+
+
 def _record_text(record: dict[str, Any], entry: dict[str, Any] | None = None) -> str:
     meta = _tool_format_meta(entry)
     content = record.get("message", {}).get("content") if isinstance(record.get("message"), dict) else None
@@ -215,6 +260,9 @@ def _record_text(record: dict[str, Any], entry: dict[str, Any] | None = None) ->
             return value
         if isinstance(value, (dict, list)):
             return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    cx = _codex_payload_text(record)
+    if cx:
+        return cx
     return ""
 
 
