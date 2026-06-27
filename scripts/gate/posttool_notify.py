@@ -6,6 +6,7 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import os
+import re
 from typing import Any
 
 try:
@@ -85,6 +86,46 @@ def compact_discovery_context(ledger: dict[str, Any], full_context: str) -> str:
     return text
 
 
+_SPECUPDATE_HEADLINE_RE = re.compile(
+    r"^\s*(Judge (?:retracted|added)|T\d+ revised|.*?\bsuperseded by\b.*)",
+    re.IGNORECASE,
+)
+_SPECUPDATE_TID_RE = re.compile(r"\bT\d+\b")
+
+
+def _specupdate_signature(part: str) -> str:
+    """Structural identity of a 'Spec update:' block: the (sorted task-ids, action
+    verbs) it touches, IGNORING the free-text reason. Two reconcile injections that
+    revise/retract the same tasks with the same verbs collapse to one signature even
+    when the judge paraphrases the reason every turn -- which a full-body hash misses.
+    Returns "" when the block carries no recognizable headline (caller keeps it)."""
+    keys: list[str] = []
+    for line in str(part or "").splitlines():
+        m = _SPECUPDATE_HEADLINE_RE.match(line)
+        if not m:
+            continue
+        verb = " ".join(m.group(1).lower().split())
+        verb = re.sub(r"\bt\d+\b", "", verb).strip()
+        tids = ",".join(sorted(set(_SPECUPDATE_TID_RE.findall(line))))
+        keys.append(f"{verb}|{tids}")
+    if not keys:
+        return ""
+    joined = "\n".join(sorted(keys))
+    return hashlib.sha256(joined.encode("utf-8", "replace")).hexdigest()
+
+
+def filter_spec_update(ledger: dict[str, Any], part: str) -> str:
+    """Drop a 'Spec update:' block whose structural signature (tasks + actions)
+    already surfaced this epoch -- the cosmetic-reword churn guard. Fail-open: an
+    unrecognizable block (empty signature) is always kept."""
+    sig = _specupdate_signature(part)
+    if not sig:
+        return part
+    if sig == str(ledger.get("posttool_last_specupdate_sig") or ""):
+        return ""
+    return part
+
+
 def prepare_posttool_parts(
     input_data: dict[str, Any],
     parts: list[str],
@@ -120,6 +161,14 @@ def prepare_posttool_parts(
             if compact:
                 out.append(compact)
                 updates["posttool_last_discovery_headline"] = compact.split("\n", 1)[0].strip()
+            continue
+        if part.startswith("Spec update:"):
+            filtered = filter_spec_update(ledger, part)
+            if filtered:
+                out.append(filtered)
+                sig = _specupdate_signature(filtered)
+                if sig:
+                    updates["posttool_last_specupdate_sig"] = sig
             continue
         out.append(part)
     return out, updates

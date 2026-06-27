@@ -15,6 +15,11 @@ override UNIFABLE_JUDGE_DAEMON via monkeypatch.setenv.
 import os
 
 os.environ.setdefault("UNIFABLE_JUDGE_DAEMON", "0")
+# The PostToolUse advisory judges (reconcile/discover) run in a detached child
+# (posttool_background). Disabled by default during tests so no hook subprocess can
+# fork a real background process or make a live Realtime call; tests that exercise
+# the background path call run_reconcile_job directly or flip this via setenv.
+os.environ.setdefault("UNIFABLE_POSTTOOL_BG", "0")
 
 collect_ignore = [
     "test_gate_robustness.py",

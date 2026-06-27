@@ -1,5 +1,34 @@
 # Changelog
 
+## 1.17.0 - 2026-06-27
+
+- PostToolUse reconcile + frontier-discover judges are now fire-and-forget. These
+  advisory board-maintenance judges gate nothing, so they no longer block the
+  agent's next tool behind a gpt-realtime-2 round-trip on every evidence-changing
+  tool. `gate_post_tool` now spawns `scripts/gate/posttool_background.py` detached
+  (`start_new_session`, the janitor pattern); the child re-derives spec/ledger, runs
+  the judges, applies deltas under `update_spec`'s lock, and enqueues the resulting
+  "Spec update" context via `db.posttool_bg_push`. The next PreToolUse drains and
+  injects it (`_drain_bg_context`), so reconcile lands one tool-step late instead of
+  on the hot path. A `db.posttool_bg_lease` debounce gates one in-flight job per
+  spec_key per TTL window so sequential tools cannot fork a process storm. Fail-open
+  throughout: any error spawns/pushes/drains nothing.
+- Anti-churn guards for the advisory judges: a `spec_judge` revise that lands on an
+  already-applied (title, check) signature is now a no-op (cosmetic-reword loop fix)
+  and per-task revises are capped; `posttool_notify` drops a "Spec update:" block
+  whose structural signature (task ids + action verbs) already surfaced this epoch,
+  even when the reason text is paraphrased (which full-body hash dedup missed).
+- New AGENTS.md drift validator (`scripts/check_agents_md.py`, `just agents-audit`,
+  wired as a pre-commit hook): checks that every AGENTS.md's relative markdown links
+  resolve and that each `just <recipe>` referenced in a code span maps to a real
+  justfile recipe. Prose `just` and `patch|minor|major` args are ignored.
+
+Verification:
+
+- `just version 1.17.0`; `just generated-docs` + `python3 scripts/generate_docs.py --check`
+- `just test-all`
+- `python3 scripts/check_agents_md.py` (passed across all AGENTS.md files)
+
 ## 1.16.0 - 2026-06-27
 
 - Default output style switched from Fable to **mute** on Claude. `install/claude.sh`

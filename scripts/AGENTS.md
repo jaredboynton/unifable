@@ -14,6 +14,8 @@ repo maintenance.
   editing generated Markdown.
 - Scripts must avoid hidden network or credential dependencies unless the command
   name and docs make that dependency clear.
+- AGENTS.md edits must keep links and documented `just` recipes resolvable;
+  `scripts/check_agents_md.py` (`just agents-audit`, pre-commit) enforces this.
 
 ## Verification
 

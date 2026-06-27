@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import sys
+from collections.abc import Callable
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
@@ -204,7 +205,7 @@ def _plan_discover_job(input_data: dict, ledger: dict, spec: dict, tool_name: st
         return False, None
 
 
-def _spec_judge_thunks(
+def _spec_judge_plan(
     input_data: dict,
     ledger: dict,
     cwd: str,
@@ -219,21 +220,20 @@ def _spec_judge_thunks(
     cmd_out,
     verification,
 ):
-    """Plan the session-level spec judges (reconcile + discover) on a snapshot.
+    """Decide whether the session-level spec judges (reconcile + discover) apply.
 
-    Returns (task_id, activity, hygiene_changed, reconcile_thunk, discover_thunk,
-    discover_recorder). The thunks are zero-arg network-only compute calls, or None
-    when the job does not apply or a sibling already claimed this turn's spec judging
-    (coalesce). hygiene_changed flags that deterministic hygiene mutated the snapshot
-    so the caller persists it under the merge lock (this function never saves).
-    Fail-open: returns all-None on any error."""
-    none = (None, None, False, None, None, None)
+    Returns (task_id, activity, hygiene_changed, want_reconcile, want_discover,
+    discover_recorder). want_* are booleans the caller uses to spawn the background
+    job; the actual judge calls + spec mutation happen in the detached child, never
+    here. hygiene_changed flags that deterministic hygiene mutated the snapshot so the
+    caller persists it. A sibling that already claimed this turn's spec judging
+    (coalesce) gets want_*=False. Fail-open: returns all-falsey on any error."""
+    none = (None, None, False, False, False, None)
     try:
         from citations import activity_from_ledger
         from posttool_judges import claim_spec_judging
         from spec_hygiene import apply_spec_hygiene
         from spec_io import load_spec, resolve_session_id
-        from spec_judge import compute_frontier_additions, compute_reconcile_actions
 
         task_id = resolve_session_id(input_data, default=None)
         if not task_id:
@@ -254,77 +254,32 @@ def _spec_judge_thunks(
         want_discover, discover_recorder = _plan_discover_job(input_data, ledger, spec, tool_name)
 
         if not (want_reconcile or want_discover):
-            return (task_id, activity, hygiene_changed, None, None, None)
+            return (task_id, activity, hygiene_changed, False, False, None)
 
         # Coalesce session-level judging across the parallel tool batch: only the
-        # first sibling within the window runs reconcile+discover.
+        # first sibling within the window spawns the background reconcile+discover.
         if not claim_spec_judging(input_data):
-            return (task_id, activity, hygiene_changed, None, None, None)
+            return (task_id, activity, hygiene_changed, False, False, None)
 
-        transcript_path = str(input_data.get("transcript_path") or "") or None
-        reconcile_thunk = None
-        discover_thunk = None
-        if want_reconcile:
-
-            def reconcile_thunk(s=spec, a=activity, t=transcript_path):
-                return compute_reconcile_actions(s, a, transcript_path=t)
-
-        if want_discover:
-
-            def discover_thunk(s=spec, a=activity):
-                return compute_frontier_additions(s, a)
-
-        return (task_id, activity, hygiene_changed, reconcile_thunk, discover_thunk, discover_recorder)
+        return (task_id, activity, hygiene_changed, want_reconcile, want_discover, discover_recorder)
     except Exception:
         return none
 
 
-def _apply_spec_deltas(cwd, task_id, activity, hygiene_changed, reconcile_actions, frontier_additions, discover_recorder) -> str:
-    """Persist hygiene + reconcile + frontier deltas to one base spec under
-    update_spec's lock (hygiene first, then reconcile, then frontier so task ids stay
-    collision-free), build the 'Spec update' context, and record a frontier discovery.
-
-    Running hygiene inside the lock (instead of an earlier unlocked save) means a
-    parallel sibling's citation/HEAVY-adoption updates merge onto the reloaded base
-    instead of racing a whole-doc write. Fail-open: returns ""."""
-    if not (hygiene_changed or reconcile_actions or frontier_additions):
-        return ""
+def _apply_hygiene_only(cwd, task_id, activity) -> None:
+    """Persist deterministic spec hygiene under update_spec's lock. The advisory
+    reconcile/discover deltas are applied by the detached background job, not here.
+    Fail-open: silent on any error."""
     try:
-        from heavy_workflow import format_approach_board
         from spec_hygiene import apply_spec_hygiene
         from spec_io import update_spec
-        from spec_judge import apply_frontier_additions, apply_reconcile_actions, build_spec_update_context
-
-        captured: dict[str, list] = {"headlines": [], "added": []}
 
         def merge(base):
-            if hygiene_changed:
-                apply_spec_hygiene(base, activity, cwd, added_sink={})  # headlines intentionally unsurfaced (parity)
-            if reconcile_actions:
-                captured["headlines"] = apply_reconcile_actions(base, reconcile_actions, evidence=activity)
-            if frontier_additions:
-                captured["added"] = apply_frontier_additions(base, frontier_additions)
+            apply_spec_hygiene(base, activity, cwd, added_sink={})
 
-        merged = update_spec(cwd, task_id, merge)
-        if merged is None:
-            return ""
-        headlines = captured["headlines"]
-        added = captured["added"]
-        discovery_context = build_spec_update_context(headlines) if headlines else ""
-        if added:
-            ids = ", ".join(t["id"] for t in added)
-            frontier_context = (
-                "Spec update:\n"
-                f"Judge added frontier approach(s): {ids}. Explore ALL frontiers"
-                " thoroughly (check each one). The judge compares evidence on Stop"
-                " and may adopt the best over primary.\n" + format_approach_board(merged)
-            )
-            discovery_context = discovery_context + "\n" + frontier_context if discovery_context else frontier_context
-            if discover_recorder is not None:
-                discover_recorder()
-        return discovery_context
+        update_spec(cwd, task_id, merge)
     except Exception:
-        return ""
+        pass
 
 
 def _run_judge_fanout(
@@ -344,16 +299,20 @@ def _run_judge_fanout(
     verification,
     repeat_count: int,
 ) -> tuple[str, str, str]:
-    """Run the applicable PostToolUse judges concurrently and assemble their context.
+    """Spawn the advisory session judges in the background; run the fast ones inline.
 
-    reconcile / discover / breaker-release / repeated-failure hint each cost a
-    gpt-realtime-2 round-trip. They all route through the warm per-session daemon,
-    so we fan the independent ones out concurrently under one wall-clock budget
-    instead of stacking four ~90s deadlines straight-line under the host timeout.
-    reconcile+discover are session-level (coalesced across a parallel tool batch);
-    disarm+hint are tool/failure-specific (per-process). Returns
-    (discovery_context, breaker_context, hint_text); fail-open on every path."""
-    task_id, activity, hygiene_changed, reconcile_thunk, discover_thunk, discover_recorder = _spec_judge_thunks(
+    reconcile + frontier-discover are ADVISORY board maintenance that gate nothing,
+    so they no longer block the hot path on a gpt-realtime-2 round-trip. We compute
+    whether they apply (hygiene snapshot + coalesce claim), then -- if so -- fork a
+    detached child (`posttool_background.spawn_reconcile_job`) that runs the judges,
+    applies the deltas under the spec lock, and ENQUEUES the resulting context for the
+    next PreToolUse to drain. Deterministic spec hygiene still persists inline.
+
+    breaker-release (disarm) and the repeated-failure hint are load-bearing /
+    tool-specific and stay synchronous, fanned out concurrently under one budget.
+    Returns (discovery_context, breaker_context, hint_text); discovery_context is now
+    always "" here (it arrives later via the PreToolUse drain). Fail-open throughout."""
+    task_id, activity, hygiene_changed, want_reconcile, want_discover, _discover_recorder = _spec_judge_plan(
         input_data,
         ledger,
         cwd,
@@ -368,62 +327,60 @@ def _run_judge_fanout(
         verification=verification,
     )
 
+    # Fire-and-forget the advisory session judges (reconcile/discover). The child
+    # records its own frontier discovery, so discover_recorder is only used to bump
+    # the counter when discovery actually adds a frontier -- handled inside the job.
+    if want_reconcile or want_discover:
+        try:
+            from posttool_background import spawn_reconcile_job
+
+            spawn_reconcile_job(input_data, want_reconcile=want_reconcile, want_discover=want_discover)
+        except Exception:
+            pass
+
+    # Persist deterministic hygiene inline under the merge lock (the background job
+    # also runs hygiene on its reloaded base, so this is belt-and-suspenders and never
+    # races the whole-doc write).
+    if task_id and hygiene_changed:
+        _apply_hygiene_only(cwd, task_id, activity)
+
     # Breaker release (per-process; self-gates to "" when not armed / not a release tool).
-    disarm_thunk = None
+    disarm_thunk: Callable[[], str] | None = None
     try:
         from breaker_runtime import is_release_tool
 
         if executed_ok and is_release_tool(tool_name, input_data):
 
-            def disarm_thunk():
+            def disarm_thunk() -> str:
                 return _breaker_release_context(input_data, tool_name, executed_ok)
     except Exception:
         disarm_thunk = None
 
     # Repeated-failure hint (per-process; only when the same failure class repeats).
-    hint_thunk = None
+    hint_thunk: Callable[[], str] | None = None
     if repeat_count:
 
-        def hint_thunk():
+        def hint_thunk() -> str:
             return _repeated_failure_hint(input_data, ledger, cwd, repeat_count)
 
-    has_judges = bool(reconcile_thunk or discover_thunk or disarm_thunk or hint_thunk)
-    reconcile_actions: list = []
-    frontier_additions: list = []
     breaker_context = ""
     hint_text = ""
-    if has_judges:
+    if disarm_thunk is not None or hint_thunk is not None:
         try:
             from posttool_judges import POSTTOOL_JUDGE_BUDGET, run_posttool_judges
 
             result = run_posttool_judges(
-                reconcile=reconcile_thunk,
-                discover=discover_thunk,
                 disarm=disarm_thunk,
                 hint=hint_thunk,
                 budget=POSTTOOL_JUDGE_BUDGET,
             )
-            reconcile_actions = result.reconcile_actions
-            frontier_additions = result.frontier_additions
             breaker_context = result.disarm_message or ""
             hint_text = result.hint_text or ""
         except Exception:
-            # Orchestrator unavailable: skip the advisory judges entirely. We do NOT
-            # fall back to sequential calls -- four straight-line ~90s judges would
-            # blow the host PostToolUse timeout. Empty context is the bounded fail-open.
-            reconcile_actions = []
-            frontier_additions = []
             breaker_context = ""
             hint_text = ""
 
-    # Persist hygiene + any spec deltas under the merge lock (hygiene runs per-process
-    # even when the spec judges were coalesced or skipped).
-    discovery_context = ""
-    if task_id:
-        discovery_context = _apply_spec_deltas(
-            cwd, task_id, activity, hygiene_changed, reconcile_actions, frontier_additions, discover_recorder
-        )
-    return discovery_context, breaker_context, hint_text
+    return "", breaker_context, hint_text
 
 
 def main() -> int:

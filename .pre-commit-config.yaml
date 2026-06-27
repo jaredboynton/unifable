@@ -67,3 +67,10 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      - id: agents-md-validation
+        name: validate AGENTS.md links and `just` recipes resolve
+        entry: python3 scripts/check_agents_md.py
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]

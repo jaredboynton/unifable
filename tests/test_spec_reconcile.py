@@ -156,6 +156,7 @@ def test_post_tool_reconciliation_updates_persisted_spec(monkeypatch, tmp_path):
 
     import gate_post_tool
     import judge_transport
+    import posttool_background
 
     payload = {
         "session_id": "reconcile-post",
@@ -166,6 +167,18 @@ def test_post_tool_reconciliation_updates_persisted_spec(monkeypatch, tmp_path):
         "tool_response": {"content": target.read_text(encoding="utf-8")},
     }
     monkeypatch.setattr(judge_transport, "ask_structured", fake_ask)
+
+    # The advisory reconcile now runs in a detached child. Run it synchronously here
+    # so the test exercises the full PostToolUse -> spawn -> run_reconcile_job wiring
+    # (spawning real subprocesses is disabled under test via UNIFABLE_POSTTOOL_BG=0).
+    def run_now(input_data, *, want_reconcile, want_discover):
+        posttool_background.run_reconcile_job(
+            input_data, want_reconcile=want_reconcile, want_discover=want_discover
+        )
+        return True
+
+    monkeypatch.setattr(posttool_background, "spawn_reconcile_job", run_now)
+
     with patch.object(gate_post_tool, "read_stdin_json", lambda: payload):
         with patch("posttool_notify.emit_json"):
             gate_post_tool.main()

@@ -37,6 +37,7 @@ COVERED = {
     "scripts/gate/janitor.py",
     "scripts/gate/judge_client.py",
     "scripts/gate/posttool_judges.py",
+    "scripts/gate/posttool_background.py",
     "scripts/gate/process_host.py",
     "scripts/gate/realtime_daemon.py",
     "scripts/gate/judge_transport.py",

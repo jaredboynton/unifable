@@ -39,7 +39,7 @@ try:  # bare import on hooks/tests sys.path; package import otherwise
 except ImportError:  # pragma: no cover
     from scripts.gate.ledger import data_root
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 APPLICATION_ID = 0x554E4642  # "UNFB"
 DEFAULT_BUSY_MS = 5000
 
@@ -107,6 +107,16 @@ CREATE TABLE IF NOT EXISTS posttool_frontier_counters (
     research_tools   INTEGER NOT NULL DEFAULT 0,
     discovery_count  INTEGER NOT NULL DEFAULT 0,
     updated_at       TEXT NOT NULL DEFAULT ''
+);
+
+-- Background reconcile/discover (fire-and-forget) state, keyed by spec_key.
+-- `lease_at` is the in-flight claim timestamp (spawn debounce); `pending` holds
+-- the completed context the child enqueues for the next PreToolUse to drain.
+CREATE TABLE IF NOT EXISTS posttool_bg (
+    spec_key   TEXT PRIMARY KEY,
+    lease_at   REAL NOT NULL DEFAULT 0,
+    pending    TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
 );
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -558,8 +568,79 @@ def frontier_get_counts(skey: str) -> tuple[int, int]:
 
 
 # ---------------------------------------------------------------------------
-# Findings (per-project; atomic id minting replaces the counter+flock)
+# Background reconcile/discover lease + pending-context queue (fire-and-forget)
 # ---------------------------------------------------------------------------
+
+
+def posttool_bg_lease(spec_key: str, ts: float, ttl: float) -> bool:
+    """Atomic in-flight claim for the background reconcile/discover job.
+
+    Returns True when THIS caller should spawn the detached job for *spec_key*,
+    False when a job leased within *ttl* seconds is still considered in-flight (so
+    sequential evidence-changing tools do not spawn a process storm). The
+    read-decide-write runs in ONE BEGIN IMMEDIATE transaction on a dedicated table.
+    Fail-open: any DB error returns True (spawn rather than starve reconcile)."""
+
+    def op(conn: sqlite3.Connection) -> bool:
+        row = conn.execute("SELECT lease_at FROM posttool_bg WHERE spec_key=?", (spec_key,)).fetchone()
+        if row is not None:
+            try:
+                if abs(float(ts) - float(row["lease_at"])) < float(ttl):
+                    return False
+            except (TypeError, ValueError):
+                pass
+        conn.execute(
+            "INSERT INTO posttool_bg(spec_key, lease_at, updated_at) VALUES(?,?,?) "
+            "ON CONFLICT(spec_key) DO UPDATE SET lease_at=excluded.lease_at, updated_at=excluded.updated_at",
+            (spec_key, float(ts), utc_now()),
+        )
+        return True
+
+    return _write(op, True)
+
+
+def posttool_bg_push(spec_key: str, body: str) -> None:
+    """Enqueue completed background reconcile context for *spec_key*.
+
+    Appends to any not-yet-drained pending block (blank-line separated) and clears
+    the in-flight lease so the next evidence-changing tool may spawn again. Fail-open."""
+    text = str(body or "").strip()
+
+    def op(conn: sqlite3.Connection) -> None:
+        row = conn.execute("SELECT pending FROM posttool_bg WHERE spec_key=?", (spec_key,)).fetchone()
+        prior = str(row["pending"]) if row is not None and row["pending"] else ""
+        merged = (prior + "\n\n" + text).strip() if (prior and text) else (text or prior)
+        conn.execute(
+            "INSERT INTO posttool_bg(spec_key, lease_at, pending, updated_at) VALUES(?,0,?,?) "
+            "ON CONFLICT(spec_key) DO UPDATE SET pending=excluded.pending, lease_at=0, updated_at=excluded.updated_at",
+            (spec_key, merged, utc_now()),
+        )
+
+    _write(op, None)
+
+
+def posttool_bg_drain(spec_key: str) -> str:
+    """Atomically read-and-clear the pending background context for *spec_key*.
+
+    Returns the queued context (possibly empty). The clear runs in the same write
+    transaction so a concurrent PreToolUse cannot drain the same block twice.
+    Fail-open: any DB error returns ""."""
+
+    def op(conn: sqlite3.Connection) -> str:
+        row = conn.execute("SELECT pending FROM posttool_bg WHERE spec_key=?", (spec_key,)).fetchone()
+        if row is None or not row["pending"]:
+            return ""
+        body = str(row["pending"])
+        conn.execute(
+            "UPDATE posttool_bg SET pending='', updated_at=? WHERE spec_key=?",
+            (utc_now(), spec_key),
+        )
+        return body
+
+    return _write(op, "")
+
+
+
 
 
 def findings_load(root_hash: str) -> dict[str, Any]:

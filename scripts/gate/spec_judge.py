@@ -9,6 +9,7 @@ without a live judge. Host-agnostic; re-exported by the spec.py facade.
 
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 
@@ -317,7 +318,7 @@ def _add_judge_requirement(
     )
     if judge_unresolved >= JUDGE_MAX_UNRESOLVED_ADDED:
         return []
-    req = {"title": title, "check": check}
+    req: dict[str, Any] = {"title": title, "check": check}
     if supersedes:
         req["supersedes"] = supersedes
     filtered = _filter_judge_new_requirements([req], existing_pairs, existing_norm_titles)
@@ -338,6 +339,46 @@ def _add_judge_requirement(
 
 def _revise_headline(tid: str, reason: str) -> str:
     return f"{tid} revised: {reason}"
+
+
+# A judge that re-runs reconcile after every evidence-changing tool can re-propose
+# a cosmetic "revise" of the same task each turn (reword the title; the check is
+# unchanged). Each apply resets the task to pending and emits a fresh "Spec update",
+# which re-triggers reconcile -> a self-perpetuating churn loop. The fix is to make a
+# revise IDEMPOTENT on its semantic result: the (normalized title, check) pair the
+# revise would produce. The first revise to a given signature applies and notifies;
+# a later revise that lands on the SAME signature is a no-op (no status reset, no
+# headline). A genuine change (different check or materially different title) has a
+# new signature and still applies. Cap below bounds pathological churn even when each
+# revise nudges the signature.
+JUDGE_MAX_REVISES_PER_TASK = 3
+
+
+def _revise_signature(title: str, check: str) -> str:
+    norm = f"{_normalize_title(title)}\x00{' '.join(str(check or '').split())}"
+    return hashlib.sha256(norm.encode("utf-8", "replace")).hexdigest()
+
+
+def _revise_is_redundant(task: dict[str, Any], new_title: str, new_check: str) -> bool:
+    """True when this revise lands on a signature already applied to *task*, or the
+    per-task revise cap is exhausted -- so applying it would only churn the board."""
+    sig = _revise_signature(new_title, new_check)
+    seen = task.get("_revise_sigs")
+    seen_list = [str(s) for s in seen] if isinstance(seen, list) else []
+    if sig in seen_list:
+        return True
+    if len(seen_list) >= JUDGE_MAX_REVISES_PER_TASK:
+        return True
+    return False
+
+
+def _record_revise_signature(task: dict[str, Any], new_title: str, new_check: str) -> None:
+    sig = _revise_signature(new_title, new_check)
+    seen = task.get("_revise_sigs")
+    seen_list = [str(s) for s in seen] if isinstance(seen, list) else []
+    if sig not in seen_list:
+        seen_list.append(sig)
+    task["_revise_sigs"] = seen_list[-JUDGE_MAX_REVISES_PER_TASK:]
 
 
 def _apply_reconcile_actions(
@@ -372,6 +413,10 @@ def _apply_reconcile_actions(
             task = by_id.get(tid)
             if task is None or str(task.get("status") or "") in ("retracted", "superseded"):
                 continue
+            new_title = str(action["title"]) if action.get("title") else str(task.get("title") or "")
+            new_check = str(action["check"]) if action.get("check") else str(task.get("check") or "")
+            if _revise_is_redundant(task, new_title, new_check):
+                continue
             if action.get("title"):
                 task["title"] = str(action["title"])
             if action.get("check"):
@@ -384,6 +429,7 @@ def _apply_reconcile_actions(
             task["reconcile_evidence_refs"] = refs
             task["_check_stale"] = True
             task["_revise_this_stop"] = True
+            _record_revise_signature(task, new_title, new_check)
             headline = _revise_headline(tid, reason)
             notify_spec_update(spec, headline, highlight_task=tid)
             headlines.append(headline)
@@ -439,7 +485,11 @@ _RECONCILE_SYSTEM = (
     "impossibility, obsolescence because the constrained file/route/behavior was "
     "removed or absent, or duplicate/subsumed scope. Never retract for mere "
     "difficulty or preference.\n"
-    "- revise: fix a broken or stale requirement title/check.\n"
+    "- revise: fix a broken or stale requirement title/check. Revise ONLY to "
+    "repair a check that no longer tests the requirement (wrong command, moved "
+    "path, stale expectation); NEVER to reword a title or restate a reason whose "
+    "check still holds. A revise that leaves the check unchanged is churn -- return "
+    "no action instead.\n"
     "- supersede: create one concrete replacement requirement with title+check and "
     "supersedes ids for old tasks.\n"
     "- add_requirement: add a missing requirement that is not already covered.\n"
@@ -625,7 +675,7 @@ def _judge_context(transcript_path: str | None) -> tuple[str, dict[str, Any]]:
         from plan_mode import detect_plan_mode, empty_plan_mode
     except ImportError:
         empty_plan_mode = lambda: {"enabled": False, "host": "", "marker": ""}  # noqa: E731
-        detect_plan_mode = lambda _p: empty_plan_mode()  # noqa: E731
+        detect_plan_mode = lambda transcript_path: empty_plan_mode()  # noqa: E731
     plan_mode = detect_plan_mode(transcript_path)
     if not transcript_path:
         return "", plan_mode
@@ -746,6 +796,10 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["judge_reason"] = reason
             headline = f"Judge retracted {tid}: {reason}"
         else:  # revise: fix broken checks on agent or judge tasks
+            new_title = str(adj["title"]) if "title" in adj else str(t.get("title") or "")
+            new_check = str(adj["check"]) if "check" in adj else str(t.get("check") or "")
+            if _revise_is_redundant(t, new_title, new_check):
+                continue
             if "title" in adj:
                 t["title"] = adj["title"]
             if "check" in adj:
@@ -757,6 +811,7 @@ def _apply_adjustments(spec: dict[str, Any], res: Any, skip_ids: Any = ()) -> li
             t["judge_reason"] = reason
             t["_check_stale"] = True
             t["_revise_this_stop"] = True
+            _record_revise_signature(t, new_title, new_check)
             headline = _revise_headline(tid, reason)
         notify_spec_update(spec, headline, highlight_task=tid)
         headlines.append(headline)

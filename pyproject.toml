@@ -37,7 +37,7 @@ ignore = [
 "benchmark/*" = ["E501"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["gate"]
+known-first-party = ["gate", "unifable_runtime"]
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
@@ -53,7 +53,7 @@ indent-style = "space"
 python_version = "3.12"
 explicit_package_bases = false
 namespace_packages = false
-mypy_path = "scripts/gate:scripts/shadow:hooks"
+mypy_path = "scripts/gate:scripts/shadow:hooks:unifable_runtime"
 exclude = [
   "benchmark/results/",
   "\\.venv/",

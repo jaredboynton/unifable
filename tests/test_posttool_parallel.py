@@ -6,8 +6,9 @@ Covers the parallelization pieces independent of a live judge:
     (fail-open), and drops a raising job.
   - run_posttool_judges packs the four named results into a PosttoolResult.
   - claim_spec_judging coalesces sibling spec-judging within the window.
-  - _apply_spec_deltas merges reconcile + frontier deltas onto one base spec under
-    update_spec's lock (reconcile first, frontier ids minted after -> no collision).
+  - posttool_background.run_reconcile_job merges reconcile + frontier deltas onto one
+    base spec under update_spec's lock (reconcile first, frontier ids minted after ->
+    no collision) and enqueues the resulting context for the next PreToolUse.
   - update_spec is a locked read-modify-write that returns None when no spec exists.
 """
 
@@ -361,7 +362,7 @@ def test_concurrent_hygiene_merge_survives():
                 "tool_evidence": [],
                 "command_outputs": [],
             }
-            gate_post_tool._apply_spec_deltas(cwd, "sess", activity, True, [], [], None)
+            gate_post_tool._apply_hygiene_only(cwd, "sess", activity)
 
         t1 = threading.Thread(target=worker, args=(str(path_a),))
         t2 = threading.Thread(target=worker, args=(str(path_b),))
@@ -459,7 +460,7 @@ def test_update_spec_applies_and_saves():
         assert load_spec(cwd, "sess")["restated_goal"] == "updated"
 
 
-# --- delta-merge (_apply_spec_deltas) --------------------------------------
+# --- delta-merge (posttool_background.run_reconcile_job) --------------------
 
 
 def _base_spec(cwd: str) -> None:
@@ -473,13 +474,13 @@ def _base_spec(cwd: str) -> None:
     save_spec(cwd, "sess", spec)
 
 
-def test_apply_spec_deltas_merges_reconcile_then_frontier():
-    import gate_post_tool
+def test_run_reconcile_job_merges_reconcile_then_frontier(monkeypatch):
+    import posttool_background
+    import spec_judge
 
     with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
         os.environ["UNIFABLE_DATA"] = data_dir
         _base_spec(cwd)
-        activity = {"command_outputs": ["rg old-route src -> 0 matches; old route removed"]}
         reconcile_actions = [
             {
                 "action": "retract",
@@ -496,8 +497,17 @@ def test_apply_spec_deltas_merges_reconcile_then_frontier():
                 "reason": "mmap",
             }
         ]
+        monkeypatch.setattr(spec_judge, "compute_reconcile_actions", lambda *_a, **_k: reconcile_actions)
+        monkeypatch.setattr(spec_judge, "compute_frontier_additions", lambda *_a, **_k: frontier_additions)
+        # Feed the evidence the retract cites so apply_reconcile_actions accepts it.
+        import db as _db
+        from ledger import ledger_key
 
-        ctx = gate_post_tool._apply_spec_deltas(cwd, "sess", activity, False, reconcile_actions, frontier_additions, None)
+        skey = ledger_key({"session_id": "sess", "cwd": cwd})
+        _db.activity_add(skey, "command_outputs", ["rg old-route src -> 0 matches; old route removed"])
+
+        payload = {"session_id": "sess", "cwd": cwd}
+        ctx = posttool_background.run_reconcile_job(payload, want_reconcile=True, want_discover=True)
 
         merged = load_spec(cwd, "sess")
         by_id = {t["id"]: t for t in merged["tasks"]}
@@ -512,28 +522,40 @@ def test_apply_spec_deltas_merges_reconcile_then_frontier():
         assert "Judge added frontier approach(s): T2." in ctx
         assert "Explore ALL frontiers thoroughly" in ctx
         assert "Zero-copy mmap" in ctx
+        # And the same context is enqueued for the next PreToolUse to drain.
+        from spec_io import _spec_key, canonical_project_root
+
+        drained = _db.posttool_bg_drain(_spec_key(canonical_project_root(cwd), "sess"))
+        assert "Judge retracted T1" in drained
+        assert "Zero-copy mmap" in drained
 
 
-def test_apply_spec_deltas_records_discovery_once():
-    import gate_post_tool
+def test_run_reconcile_job_records_discovery_once(monkeypatch):
+    import db as _db
+    import posttool_background
+    import spec_judge
+    from ledger import ledger_key
 
     with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
         os.environ["UNIFABLE_DATA"] = data_dir
         _base_spec(cwd)
-        recorded = {"n": 0}
-
-        def recorder():
-            recorded["n"] += 1
-
         frontier_additions = [{"title": "F", "check": "pytest", "scope_paths": [], "reason": "r"}]
-        gate_post_tool._apply_spec_deltas(cwd, "sess", {}, False, [], frontier_additions, recorder)
-        assert recorded["n"] == 1
+        monkeypatch.setattr(spec_judge, "compute_reconcile_actions", lambda *_a, **_k: [])
+        monkeypatch.setattr(spec_judge, "compute_frontier_additions", lambda *_a, **_k: frontier_additions)
+        payload = {"session_id": "sess", "cwd": cwd}
+        skey = ledger_key(payload)
+        posttool_background.run_reconcile_job(payload, want_reconcile=False, want_discover=True)
+        assert _db.frontier_get_counts(skey)[1] == 1
 
 
-def test_apply_spec_deltas_empty_is_noop():
-    import gate_post_tool
+def test_run_reconcile_job_empty_is_noop(monkeypatch):
+    import posttool_background
+    import spec_judge
 
     with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
         os.environ["UNIFABLE_DATA"] = data_dir
         _base_spec(cwd)
-        assert gate_post_tool._apply_spec_deltas(cwd, "sess", {}, False, [], [], None) == ""
+        monkeypatch.setattr(spec_judge, "compute_reconcile_actions", lambda *_a, **_k: [])
+        monkeypatch.setattr(spec_judge, "compute_frontier_additions", lambda *_a, **_k: [])
+        payload = {"session_id": "sess", "cwd": cwd}
+        assert posttool_background.run_reconcile_job(payload, want_reconcile=True, want_discover=True) == ""

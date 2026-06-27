@@ -98,9 +98,12 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
             discover.assert_not_called()
 
     def test_heavy_grade_discovers_frontier_and_emits_spec_update(self) -> None:
-        """At the HEAVY threshold, PostToolUse adds frontier work and emits it."""
+        """At the HEAVY threshold, PostToolUse spawns the background discover job;
+        it adds frontier work under the spec lock and enqueues the 'Spec update' for
+        the next PreToolUse to drain."""
         import db
         import gate_post_tool
+        import posttool_background
         from ledger import ledger_key
 
         with tempfile.TemporaryDirectory() as data_dir, tempfile.TemporaryDirectory() as cwd:
@@ -128,8 +131,8 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
             )
 
             def fake_compute_frontiers(spec_obj, _activity):
-                # The compute half returns validated candidate dicts; the hook's
-                # merge step appends them to the base spec under the spec lock.
+                # The compute half returns validated candidate dicts; the merge step
+                # appends them to the base spec under the spec lock.
                 return [
                     {
                         "title": "Zero-copy mmap",
@@ -139,18 +142,28 @@ class TestPostToolAdjudicateBeforeDiscovery(unittest.TestCase):
                     }
                 ]
 
+            # The advisory discover judge now runs in a detached child. Run it
+            # synchronously here so the test exercises the full spawn -> run wiring.
+            def run_now(input_data, *, want_reconcile, want_discover):
+                posttool_background.run_reconcile_job(
+                    input_data, want_reconcile=want_reconcile, want_discover=want_discover
+                )
+                return True
+
             with patch("gate_post_tool.read_stdin_json", return_value=payload):
                 with patch("evidence_policy.resolve_grade", return_value="HEAVY"):
                     with patch("spec_judge.compute_reconcile_actions", return_value=[]):
                         with patch("spec_judge.compute_frontier_additions", side_effect=fake_compute_frontiers):
-                            with patch("posttool_notify.emit_json") as emit:
-                                rc = gate_post_tool.main()
+                            with patch.object(posttool_background, "spawn_reconcile_job", run_now):
+                                with patch("posttool_notify.emit_json"):
+                                    rc = gate_post_tool.main()
 
             self.assertEqual(rc, 0)
             updated = load_spec(cwd, "sess")
             self.assertEqual(len(updated["tasks"]), 1)
             self.assertEqual(updated["tasks"][0]["approach_kind"], "frontier")
-            ctx = (emit.call_args[0][0].get("hookSpecificOutput") or {}).get("additionalContext") or ""
+            # The frontier 'Spec update' context is enqueued for the next PreToolUse.
+            ctx = db.posttool_bg_drain(posttool_background._spec_key_for(payload))
             self.assertIn("Judge added frontier approach(s): T1.", ctx)
             self.assertIn("Zero-copy mmap", ctx)
             self.assertIn("Explore ALL frontiers thoroughly", ctx)

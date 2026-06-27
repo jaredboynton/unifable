@@ -35,6 +35,10 @@ test-all:
 wait-audit:
     python3 scripts/audit_waits.py
 
+# Validate AGENTS.md links and documented `just` recipes resolve against the tree.
+agents-audit:
+    python3 scripts/check_agents_md.py
+
 # Lint and auto-fix all Python source (ruff check --fix).
 lint:
     uv run --no-project --with-requirements requirements-dev.txt ruff check --fix hooks scripts tests

@@ -258,9 +258,23 @@ def _run_spec_hygiene(input_data: dict, cwd: str) -> list[str]:
         return []
 
 
+def _drain_bg_context(input_data: dict) -> str:
+    """Drain any completed background reconcile/discover context for this session's
+    spec (enqueued by posttool_background after its detached judges finished). Read-
+    and-clear, so it surfaces exactly once, on the first gated tool we allow after the
+    job completed. Fail-open: returns "" on any error."""
+    try:
+        from posttool_background import drain_pending_context
+
+        return drain_pending_context(input_data)
+    except Exception:
+        return ""
+
+
 def _allow_notify(input_data: dict, breaker_notify: str, hygiene_headlines: list[str]) -> int:
     cleared = consume_gate_cleared_notify(input_data, hygiene_headlines)
-    parts = [p.strip() for p in (breaker_notify, cleared) if p and p.strip()]
+    bg = _drain_bg_context(input_data)
+    parts = [p.strip() for p in (bg, breaker_notify, cleared) if p and p.strip()]
     return _emit_allow("\n".join(parts))
 
 
