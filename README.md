@@ -48,6 +48,10 @@ unifable runs **two models at once**, and that is the core of the design:
   no TLS fingerprint — `scripts/gate/codex_judge.py`). It never writes code. It watches, validates,
   and reasons about whether the worker actually did what it claims.
 
+**No Realtime?** Bedrock `nvidia.nemotron-nano-3-30b` is a possible judge substitute — 256K context,
+us-east-1 / us-east-2 / us-west-2, converse-stream + reasoning off. Not integrated. See
+`scripts/bench_bedrock_ttft.py` for TTFT numbers.
+
 The two are **symbiotic**, not sequential. The judge fires on **every tool call** and keeps
 evidence state updated in the background, then renders verdicts at the gates:
 

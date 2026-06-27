@@ -64,6 +64,9 @@ completion gate for load-bearing behavior.
   `codex_judge.py` (gpt-realtime-2 client), `classify_task.py`,
   `bash_classify.py`, `parse_tool_result.py`, `verify_state.py`.
 
+**No Realtime?** Maybe Bedrock `nvidia.nemotron-nano-3-30b` later. 256K context. Cheap on-demand.
+Not wired in. Judge still wants Codex OAuth + Realtime today.
+
 ## Commands
 
 ```bash
