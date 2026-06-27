@@ -22,7 +22,7 @@ _HEADLINE_MAX = 320
 _SPEC_CLI_RE = re.compile(r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)")
 _SUBCMD_RE = re.compile(
     r"(?i)(?:unifable(?:-spec)?|scripts/gate/spec\.py|/gate/spec\.py)\s+"
-    r"(restate|add-task|set-primary|add-frontier|contract|where)\b"
+    r"(restate|add-task|set-primary|add-frontier|where)\b"
 )
 
 MUTATING_SUBCMDS = frozenset({"restate", "add-task", "set-primary", "add-frontier"})
@@ -31,6 +31,11 @@ _ADDED_STDOUT_RE = re.compile(r"^Added (T\d+)\b", re.IGNORECASE)
 _PRIMARY_STDOUT_RE = re.compile(r"^Primary approach set: (T\d+)\b", re.IGNORECASE)
 _FRONTIER_STDOUT_RE = re.compile(r"^Frontier approach added: (T\d+)\b", re.IGNORECASE)
 _RESTATE_STDOUT_RE = re.compile(r"restated_goal set\b", re.IGNORECASE)
+_RESTATE_REDUNDANT_RE = re.compile(r"goal_seeded was already cleared", re.IGNORECASE)
+_RESTATE_REDUNDANT_STEER = (
+    "Restate gate already satisfied -- the goal was already restated. "
+    "Do not run `unifable restate` again; move to the next step."
+)
 
 _TASK_ID_RE = re.compile(r"\bT(\d+)\b")
 _STATUS_ROW_RE = re.compile(r"^\s+\[[^\]]+\]\s+(T\d+)\s+\([^)]+\)\s+(.+)$")
@@ -831,7 +836,10 @@ def build_posttool_spec_context(
     skip = _synthetics_satisfied_by_ack(subcommand, ack)
 
     if subcommand == "restate":
+        redundant = bool(_RESTATE_REDUNDANT_RE.search(stdout))
         novel = _novel_synthetic_guidance(spec, restate_only=True, skip=skip)
+        if redundant:
+            return ("\n".join(p for p in (_RESTATE_REDUNDANT_STEER, novel) if p), guidance_map)
         if novel:
             return novel, guidance_map
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Spec artifact validator and contract helper for the unifable pre-edit gate.
+"""Spec artifact validator facade for the unifable pre-edit gate.
 
 Thin facade: the implementation lives in focused sub-modules and is re-exported here
 so existing callers (`from spec import X` / `import spec as spec_mod; spec_mod.X`) and
@@ -29,7 +29,6 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
         _apply_cli_context,
         _cmd_add_frontier,
         _cmd_add_task,
-        _cmd_contract,
         _cmd_restate,
         _cmd_set_primary,
         main,
@@ -196,7 +195,6 @@ except ImportError:  # pragma: no cover
         _apply_cli_context,
         _cmd_add_frontier,
         _cmd_add_task,
-        _cmd_contract,
         _cmd_restate,
         _cmd_set_primary,
         main,

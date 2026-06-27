@@ -143,6 +143,37 @@ def test_restate_with_no_tasks_emits_add_task_only():
         assert "Goal restated" not in ctx
 
 
+def test_redundant_restate_steers_away_from_restating():
+    spec = spec_template()
+    spec["requires_tasks"] = True
+    spec["restated_goal"] = "ship feature in my own words"
+    spec["goal_seeded"] = False
+    spec["tasks"] = [
+        {"id": "T1", "title": "req", "check": "true", "status": "pending"}
+    ]
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["UNIFABLE_DATA"] = tmp
+        save_spec(tmp, "restate-again", spec)
+        ctx = _ctx(
+            {
+                "session_id": "restate-again",
+                "cwd": tmp,
+                "tool_name": "Bash",
+                "tool_input": {"command": "unifable restate 'ship feature again'"},
+                "tool_response": {
+                    "exit_code": 0,
+                    "stdout": (
+                        "restated_goal set (18 chars); goal_seeded was already cleared "
+                        "(restate gate already satisfied -- no need to restate again; "
+                        "move to the next step)."
+                    ),
+                },
+            }
+        )
+        assert "already satisfied" in ctx
+        assert "Do not run `unifable restate` again" in ctx
+
+
 def test_notify_spec_update_stdout_only_emits_nothing(capsys):
     spec = spec_template()
     spec["requires_tasks"] = True

@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.17.1 - 2026-06-27
+
+- Removed the model-facing `unifable contract` CLI subcommand. Contract strings
+  remain internal hook helpers, while the CLI now exposes only spec-mutating
+  commands (`restate`, `add-task`, `set-primary`, `add-frontier`).
+- Added a redundant-restatement ack/steer: once the restate gate is already
+  satisfied, a repeated `unifable restate` call now tells the model to stop
+  restating and move to the next step instead of silently looking like fresh work.
+
+Verification:
+
+- `just version 1.17.1`; `just generated-docs` + `python3 scripts/generate_docs.py --check`
+- `just test-all`
+
 ## 1.17.0 - 2026-06-27
 
 - PostToolUse reconcile + frontier-discover judges are now fire-and-forget. These
