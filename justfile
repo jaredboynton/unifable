@@ -28,8 +28,11 @@ test-profile:
     uv run --no-project --with-requirements requirements-dev.txt python -m pytest -n 0 tests -q --durations=20 --durations-min=0
 
 # Run pytest + eval_gate_proof + test_gate_robustness (commit.sh parity).
+# UNIFABLE_JUDGE_OFFLINE=1 by default: the suite must not depend on live Realtime
+# judge calls in hook subprocesses (slow, network-bound). Override per-invocation
+# with `UNIFABLE_JUDGE_OFFLINE=0 just test-all` when exercising the live judge.
 test-all:
-    uv run --no-project --with-requirements requirements-dev.txt bash scripts/run_tests.sh
+    UNIFABLE_JUDGE_OFFLINE="${UNIFABLE_JUDGE_OFFLINE:-1}" uv run --no-project --with-requirements requirements-dev.txt bash scripts/run_tests.sh
 
 # Verify every wait/timeout grep match is accounted for in docs/testing-optimization.md.
 wait-audit:

@@ -432,6 +432,31 @@ def ledger_grade(input_data: dict) -> str:
         return "STANDARD"
 
 
+def _plan_mode_allows_stop(input_data: dict) -> bool:
+    """Plan Mode: Stop must always allow so the user can review and approve the
+    plan. The evidence gate (step 1) is INFINITE and its task checks routinely
+    require repo mutation that plan mode forbids, so any block here traps the
+    session in a no-exit loop instead of surfacing the plan -- the Codex symptom
+    this guards. Detection: an explicit plan-mode flag on the Stop payload, else
+    the shared PreToolUse resolver (transcript turn_context / ledger cache set at
+    UserPromptSubmit). Fail-open to False: a detector bug never forces a stop, it
+    falls through to the normal gates."""
+    try:
+        sc = input_data.get("session_context")
+        if isinstance(sc, dict) and sc.get("plan_mode_enabled"):
+            return True
+        if input_data.get("plan_mode_enabled"):
+            return True
+    except Exception:
+        pass
+    try:
+        from plan_mode import resolve_plan_mode_for_hooks
+
+        return bool(resolve_plan_mode_for_hooks(input_data).get("enabled"))
+    except Exception:
+        return False
+
+
 def main() -> int:
     input_data = read_stdin_json()
 
@@ -446,6 +471,16 @@ def main() -> int:
         resolved = locate_transcript(input_data)
         if resolved:
             input_data["transcript_path"] = resolved
+
+    # Plan Mode short-circuit: always allow Stop so the user can approve the plan.
+    # Resolved after transcript_path so the transcript turn_context / ledger scan
+    # works. Must precede the INFINITE evidence gate (step 1) and the completion
+    # handoff judge (step 2) -- plan mode forbids the repo mutation those checks
+    # expect, so any block traps the session looping with no way out (seen on
+    # Codex). Allow-stop emits {} per the AGENTS.md Stop contract.
+    if _plan_mode_allows_stop(input_data):
+        emit_json({})
+        return 0
     from spec_io import canonical_project_root
 
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))

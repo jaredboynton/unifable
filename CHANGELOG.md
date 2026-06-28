@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.20.1 - 2026-06-28
+
+- Stop now always allows completion when the host is in Plan Mode, so the
+  session can surface its plan for approval instead of looping. The completion
+  gate's step 1 (evidence gate) is INFINITE -- it ignores `stop_hook_active` and
+  the stop-block cap until the evidence spec validates -- and its task checks
+  routinely require repo mutation that Plan Mode forbids. With no plan-mode
+  exit, Stop blocked forever and the session (notably Codex) could never leave
+  plan mode. `plan_mode` was consulted in `ledger.py`, `spec_judge.py`, and
+  `pre_tool_use.py` but never in `gate_stop.py`. Added `_plan_mode_allows_stop`
+  (`hooks/gate_stop.py:435`) and an allow-stop short-circuit
+  (`hooks/gate_stop.py:475`) that runs after transcript resolution and before
+  the evidence gate and completion-handoff judge. Detection: explicit
+  `session_context.plan_mode_enabled` on the Stop payload, else the shared
+  resolver (`plan_mode.resolve_plan_mode_for_hooks`: transcript `turn_context` /
+  ledger cache). Fail-open. Regression: `tests/test_stop_plan_mode_allows.py`.
+
 ## 1.20.0 - 2026-06-28
 
 - SessionStart `additionalContext` now surfaces the two global research
