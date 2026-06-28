@@ -6,7 +6,11 @@ Three jobs, all fail-open (a hook bug must never stop a session from starting):
 
 1. Runtime sync: copy the newest cached plugin version into ~/.unifable and
    atomically flip ~/.unifable/current, so hooks never exec from a versioned
-   cache dir the host marketplace may delete (the exit-127 dangle bug).
+   cache dir the host marketplace may delete (the exit-127 dangle bug). Then a
+   version-aware heal (cli_install.ensure_cli) resolves the effective plugin
+   root and re-seeds from it when ~/.unifable/current is missing, broken, or
+   older than the loaded plugin, so the global launchers (unifable, unifusion,
+   unitrace, unisearch) always resolve on PATH.
 2. Janitor dispatch: write an alive-marker for THIS session
    (~/.unifable/alive/<skey>.json carrying the host PID) so the reaper never
    cleans a session whose host process is still alive, then -- throttled to at
@@ -136,6 +140,21 @@ def main() -> int:
         import runtime_sync
 
         runtime_sync.sync_runtime()
+    except Exception:
+        pass
+
+    # Version-aware ping + heal: resolve the effective plugin root (host env then
+    # latest cache semver) and re-seed ~/.unifable from it when current is missing,
+    # broken, or older than the loaded plugin. The cache-scan sync above advances
+    # current to the newest cache version; this guarantees the actually-loaded
+    # plugin is the one installed, so the global launchers (unifable, unifusion,
+    # unitrace, unisearch) always resolve on PATH. Probe-only when current; spawns
+    # the re-seed subprocess only when needs_heal is True. Fail-open, opt-out via
+    # UNIFABLE_CLI_AUTO_HEAL=0.
+    try:
+        import cli_install
+
+        cli_install.ensure_cli()
     except Exception:
         pass
 

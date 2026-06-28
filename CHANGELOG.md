@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.20.0 - 2026-06-28
+
+- SessionStart `additionalContext` now surfaces the two global research
+  launchers it never mentioned: `use unitrace to trace code` and `use unisearch
+  for web research`, each with one runnable example. The frame matched the old
+  interaction surface (only `unifable restate`) and omitted the `unitrace` /
+  `unisearch` commands shipped on `~/.local/bin` in 1.19.0, so the model never
+  learned they were available. Tightened the surrounding preflight prose
+  (restate sentence, write-tools bullet, dropped the redundant narration line)
+  to keep the frame thin (`<950` chars, `<12` non-empty lines) with the added
+  guidance. `scripts/gate/context_block.py`; regenerated `docs/generated/`.
+
 ## 1.19.0 - 2026-06-28
 
 - Renamed the `explore` skill to `unitrace` and `explore-websearch` to `unisearch`

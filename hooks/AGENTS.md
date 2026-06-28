@@ -30,7 +30,12 @@ use these three for load-bearing behavior.
 - `hooks/hooks.json` — the binding. Maps host events to gate scripts via
   `${CLAUDE_PLUGIN_ROOT}`. Adding a hook means adding it here, not just writing the
   script.
-- `session_start.py` — SessionStart: refreshes the stable `~/.unifable` runtime,
+- `session_start.py` — SessionStart: refreshes the stable `~/.unifable` runtime
+  (cache-scan `runtime_sync.sync_runtime` to advance `current` to the newest
+  cached version, plus a version-aware `cli_install.ensure_cli` heal that
+  resolves the effective plugin root and re-seeds `current` from it when it is
+  missing, broken, or older than the loaded plugin, so the global launchers
+  `unifable`/`unifusion`/`unitrace`/`unisearch` always resolve on PATH),
   writes this session's alive-marker (`~/.unifable/alive/<skey>.json` carrying the
   host PID from `scripts/gate/process_host.py`), and -- throttled to once per
   `UNIFABLE_JANITOR_INTERVAL_S` -- spawns `scripts/gate/janitor.py` detached
