@@ -18,6 +18,9 @@
 #   for glm-5.2 (131072; override with GLM_MAX_TOKENS). The agent's built-in web_search and
 #   web_reader tools are always available (Z.AI Coding Plan MCP), so web research works without
 #   extra config.
+# - Thinking mode is ON by default (ACP_GLM_THINKING=true) so the panelist reasons before
+#   answering; override with ACP_GLM_THINKING=false. glm-acp-agent exposes only on/off thinking,
+#   not a low/medium/high effort scale.
 # - The panelist runs against a throwaway copy of the current repo/workdir, so its file writes do
 #   not touch your live checkout, while still letting it inspect the repo for codebase evidence.
 # - macOS has no `timeout`; the run is wrapped in the perl helper from _unifusion_lib.sh
@@ -33,6 +36,7 @@ prompt_file="${1:?usage: run_glm.sh <prompt_file> <output_file>}"
 output_file="${2:?usage: run_glm.sh <prompt_file> <output_file>}"
 GLM_MODEL="${GLM_MODEL:-glm-5.2}"
 GLM_MAX_TOKENS="${GLM_MAX_TOKENS:-131072}"
+export ACP_GLM_THINKING="${ACP_GLM_THINKING:-true}"
 
 case "$prompt_file" in
   /*) ;;

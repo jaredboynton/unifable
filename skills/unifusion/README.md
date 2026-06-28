@@ -31,7 +31,7 @@ Panel composition scales to whatever is installed, one panelist per CLI:
 | `codex` | GPT-5.5 | `-gpt5.5` |
 | `agy` | Gemini 3.5 Flash | `-gemini3.5flash` |
 | `kimi` | Kimi K2.7 | `-kimi2.7` |
-| `glm-acp-agent` | GLM-5.1 | `-glm5.1` |
+| `glm-acp-agent` | GLM-5.2 | `-glm5.2` |
 
 With no external CLI present, unifusion still runs as `opus4.8-4.8` — two independent Opus passes, judged.
 

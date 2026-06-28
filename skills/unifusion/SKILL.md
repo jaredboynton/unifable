@@ -7,7 +7,7 @@ description: >-
   every response into a structured analysis (consensus, contradictions, partial coverage, unique insights,
   blind spots) and writes a final answer grounded in it. One script does it all: it auto-detects every
   model CLI installed and fans the panel out automatically — Opus 4.8 (via the `cb` Bedrock CLI), plus
-  GPT-5.5 (codex), Gemini 3.5 Flash (agy), Kimi K2.7 (kimi), and GLM-5.1 (glm-acp-agent) when present, falling back
+  GPT-5.5 (codex), Gemini 3.5 Flash (agy), Kimi K2.7 (kimi), and GLM-5.2 (glm-acp-agent) when present, falling back
   to two independent Opus 4.8 runs when no external CLI exists. Each panelist runs isolated (plugins and
   non-Exa MCP stripped; cb/codex keep live standard user hooks and fast mode). Saves a timestamped
   provenance .md per run.
@@ -61,7 +61,7 @@ bash <skill_dir>/scripts/unifusion.sh /tmp/unifusion_question.txt
 That single call does everything that used to be separate steps:
 
 - **Detects** the panel: Opus (always, via `cb`) plus every external CLI present — GPT-5.5 (`codex`),
-  Gemini 3.5 Flash (`agy`), Kimi K2.7 (`kimi`), GLM-5.1 (`glm-acp-agent`). With no external CLI it runs **two**
+  Gemini 3.5 Flash (`agy`), Kimi K2.7 (`kimi`), GLM-5.2 (`glm-acp-agent`). With no external CLI it runs **two**
   independent Opus runs (the `opus4.8-4.8` fallback).
 - **Builds** a best-effort factual session-context brief and prepends the *identical* brief to every
   panelist prompt (skipped silently if it can't be built). This is the panel's one shared prior.
@@ -80,7 +80,7 @@ Read the manifest it prints. The lines you act on:
 ```
 RUN_DIR=/tmp/unifusion-panel.XXXXXX        # everything for this run lives here
 PANEL_PROMPT=/.../panel_prompt.md          # the exact prompt every panelist got
-SLUG=opus4.8-gpt5.5-gemini3.5flash-kimi2.7-glm5.1
+SLUG=opus4.8-gpt5.5-gemini3.5flash-kimi2.7-glm5.2
 PANELIST opus-A ok /.../cb_out.md
 PANELIST gpt5.5 ok /.../codex_out.md
 PANELIST gemini3.5flash dropped:timeout /.../gemini_out.md

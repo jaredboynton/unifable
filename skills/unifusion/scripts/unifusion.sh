@@ -128,7 +128,7 @@ ext=0
 $codex_ok && { launch gpt5.5         gpt5.5         codex_out.md  bash "$SCRIPT_DIR/run_codex.sh"  ; ext=$((ext+1)); }
 $agy_ok   && { launch gemini3.5flash gemini3.5flash gemini_out.md bash "$SCRIPT_DIR/run_gemini.sh" ; ext=$((ext+1)); }
 $kimi_ok  && { launch kimi2.7        kimi2.7        kimi_out.md   bash "$SCRIPT_DIR/run_kimi.sh"   ; ext=$((ext+1)); }
-$glm_ok   && { launch glm5.1         glm5.1         glm_out.md    bash "$SCRIPT_DIR/run_glm.sh"   ; ext=$((ext+1)); }
+$glm_ok   && { launch glm5.2         glm5.2         glm_out.md    bash "$SCRIPT_DIR/run_glm.sh"   ; ext=$((ext+1)); }
 
 # No external CLI at all -> run a SECOND cold Opus (the opus4.8-4.8 fallback).
 if [ "$ext" -eq 0 ]; then

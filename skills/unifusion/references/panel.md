@@ -48,9 +48,9 @@ The panel is always Opus 4.8 plus every external model CLI installed, one paneli
 - GPT-5.5 (`codex`) — slug token `gpt5.5`.
 - Gemini 3.5 Flash (`agy`) — slug token `gemini3.5flash`.
 - Kimi K2.7 (`kimi`) — slug token `kimi2.7`.
-- GLM-5.1 (`glm-acp-agent`) — slug token `glm5.1`.
+- GLM-5.2 (`glm-acp-agent`) — slug token `glm5.2`.
 
-So the full panel is `opus4.8-gpt5.5-gemini3.5flash-kimi2.7-glm5.1`. With fewer external CLIs the panel is
+So the full panel is `opus4.8-gpt5.5-gemini3.5flash-kimi2.7-glm5.2`. With fewer external CLIs the panel is
 the richest available subset; with **none**, it runs `opus4.8-4.8` — the **same prompt run twice** as two
 independent Opus 4.8 panelists (two cold `cb` runs), then judged.
 

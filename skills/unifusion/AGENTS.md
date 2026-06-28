@@ -72,7 +72,7 @@ Plain bash + two interpreter helpers; no build step.
 - `scripts/save_run.sh` — writes the provenance `.md` under `${UNIFABLE_DATA:-~/.unifable}/unifusion-runs/`
   only. Accepts a
   single `<run_dir>` 5th arg and auto-discovers `*_out.md` (mapping cb_out→opus-A, cb_out_b→opus-B,
-  codex_out→gpt5.5, gemini_out→gemini3.5flash, kimi_out→kimi2.7, glm_out→glm5.1), or an explicit
+  codex_out→gpt5.5, gemini_out→gemini3.5flash, kimi_out→kimi2.7, glm_out→glm5.2), or an explicit
   `LABEL=path` list as fallback.
 - `references/panel.md`, `references/judge_rubric.md` — panel composition + the two judge tracks.
 
@@ -138,6 +138,7 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
 | `UNIFUSION_KIMI_BIN` | `~/.kimi-code/bin/kimi` | real kimi binary (bypasses shell alias) |
 | `GLM_MODEL` | `glm-5.2` | model passed to glm-acp-agent via `ACP_GLM_MODEL` env |
 | `GLM_MAX_TOKENS` | `131072` | per-call max output tokens (`glm-5.2` API maximum) |
+| `ACP_GLM_THINKING` | `true` | glm-acp-agent thinking mode (on/off; no low/medium/high scale) |
 | `GEMINI_MODEL` | `gemini-3.5-flash` | gemini CLI model id (run_gemini.sh) |
 | `GEMINI_THINKING_LEVEL` | `HIGH` | gemini 3.x Flash reasoning effort: `MINIMAL`/`LOW`/`HIGH` |
 | `AGY_MODEL` | `Gemini 3.5 Flash (Medium)` | agy model name (run_agy.sh baseline) |
