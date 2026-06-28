@@ -13,3 +13,4 @@ scripts/gate/bench/
 .sisyphus/
 .jscpd-report/
 .claude/
+.plans/
