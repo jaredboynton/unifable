@@ -9,9 +9,7 @@ Source hook config: `hooks/hooks.json`.
 | Event | Matcher | Command | Timeout | Status Message |
 |---|---|---|---:|---|
 | SessionStart | (empty) | `"${HOME}/.local/bin/unifable-hook" session_start.py` | 30 |  |
-| UserPromptSubmit | (empty) | `router.sh` | 10 |  |
 | UserPromptSubmit | (empty) | `gate_prompt.py` | 95 |  |
-| UserPromptSubmit | (empty) | `gate_prompt_effort.py` | 10 |  |
 | PreToolUse | ^(Bash|REPL|exec_command|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `pre_tool_use.py` | 10 |  |
 | PostToolUse | .* | `gate_post_tool.py` | 120 |  |
 | PostToolUse | ^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `test_after_edit.py` | 75 |  |

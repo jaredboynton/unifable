@@ -231,6 +231,44 @@ def _grade_and_enhance(operative: str, prior_spec: object, prompt: str, cwd: str
     return mode, risks, reason, evidence_profile, enhanced_line
 
 
+def _router_prefix(input_data: dict) -> str:
+    """Pack-router context, run in-process. Was hooks/router.sh ->
+    pack_router.py as a separate UserPromptSubmit hook; now folded in so the
+    host spawns one process per prompt. Fails open to '' on any error."""
+    try:
+        import pack_router
+        from plugin_root import resolve_plugin_root
+
+        prompt = str(input_data.get("prompt") or "")
+        if not prompt.strip():
+            return ""
+        root = resolve_plugin_root()
+        if root is None:
+            candidate = Path(__file__).resolve().parents[1]
+            root = candidate if (candidate / "packs" / "router-manifest.json").is_file() else None
+        if root is None:
+            return ""
+        out = pack_router.route_prompt(prompt, root=root, input_data=input_data)
+        if not out:
+            return ""
+        return str(out.get("hookSpecificOutput", {}).get("additionalContext") or "")
+    except Exception:
+        return ""
+
+
+def _effort_suffix(input_data: dict) -> str:
+    """Effort-gated playbook context, run in-process. Was
+    hooks/gate_prompt_effort.py as a separate UserPromptSubmit hook; now folded
+    in. Runs after the router so its paragraph suppression sees router_fired_tags
+    for this prompt. Fails open to '' on any error."""
+    try:
+        from gate_prompt_effort import effort_additional_context
+
+        return effort_additional_context(input_data) or ""
+    except Exception:
+        return ""
+
+
 def main() -> int:
     try:
         from runtime_sync import sync_runtime
@@ -244,6 +282,10 @@ def main() -> int:
     cwd = str(canonical_project_root(input_data.get("cwd") or os.getcwd()))
     new_key = _prompt_key(prompt)
     session_key = resolve_session_id(input_data, default="default") or "default"
+
+    # Pack routing runs first (in-process) so the effort playbook below can
+    # suppress paragraphs whose router pack already fired this prompt.
+    router_prefix = _router_prefix(input_data)
 
     operative = operative_prompt(prompt)
     prior_spec = None
@@ -349,12 +391,21 @@ def main() -> int:
         if heavy_scaffold:
             context += "\n\n" + heavy_workflow_brief()
 
-    if context.strip():
+    # Single UserPromptSubmit emission: merge the in-process router prefix (pack
+    # signals) and effort playbook suffix with this hook's grade/enhance context.
+    # router.sh and gate_prompt_effort.py were separate hooks; the host spawned
+    # one process each and concatenated their additionalContext. Folding them in
+    # spawns one process per prompt and preserves that concatenation order.
+    merged = "\n\n".join(
+        p for p in (router_prefix, context.strip(), _effort_suffix(input_data)) if p and p.strip()
+    )
+
+    if merged.strip():
         emit_json(
             {
                 "hookSpecificOutput": {
                     "hookEventName": "UserPromptSubmit",
-                    "additionalContext": context,
+                    "additionalContext": merged,
                 }
             }
         )

@@ -87,21 +87,23 @@ def _playbook_context(matched_tags: set[str] | None = None) -> str:
     return "\n\n".join(parts)
 
 
-def main() -> int:
-    data = _read_stdin_json()
-    effort = _resolved_effort(data)
+def effort_additional_context(data: dict) -> str | None:
+    """Return the effort playbook context to inject, or None.
 
+    Heavy-effort gated, once per session via a marker file, with router-tag
+    paragraph suppression. In-process callable used by both this hook's main()
+    and the consolidated UserPromptSubmit entrypoint (hooks/gate_prompt.py).
+    Returns None for non-heavy effort, an already-injected session, or empty
+    context; fails open to None on any error.
+    """
+    effort = _resolved_effort(data)
     if effort not in HEAVY_EFFORT:
-        _emit({})
-        return 0
+        return None
 
     session_id = str(data.get("session_id") or "nosession")
     marker = _marker_path(session_id)
-
     if os.path.exists(marker):
-        # Already injected this session.
-        _emit({})
-        return 0
+        return None  # already injected this session
 
     # Create marker before building context so a read error still records dedup.
     try:
@@ -110,7 +112,7 @@ def main() -> int:
     except OSError:
         pass  # fail open: marker write failure must not block injection
 
-    # Check which router packs already fired this prompt to avoid duplication.
+    # Suppress playbook paragraphs whose router pack already fired this prompt.
     matched_tags: set[str] = set()
     try:
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
@@ -120,7 +122,12 @@ def main() -> int:
     except Exception:
         pass
 
-    context = _playbook_context(matched_tags)
+    return _playbook_context(matched_tags) or None
+
+
+def main() -> int:
+    data = _read_stdin_json()
+    context = effort_additional_context(data)
     if not context:
         _emit({})
         return 0

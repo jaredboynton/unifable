@@ -10,17 +10,7 @@
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" router.sh", "statusMessage": "routing task signal to pack", "timeout": 10 }
-        ]
-      },
-      {
-        "hooks": [
-          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt.py", "statusMessage": "classifying task mode", "timeout": 95 }
-        ]
-      },
-      {
-        "hooks": [
-          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt_effort.py", "statusMessage": "effort-gated playbook injection", "timeout": 10 }
+          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt.py", "statusMessage": "routing, classifying task mode, effort playbook", "timeout": 95 }
         ]
       }
     ],

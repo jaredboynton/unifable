@@ -18,28 +18,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${HOME}/.local/bin/unifable-hook\" router.sh",
-            "timeout": 10
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
             "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt.py",
             "timeout": 95
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "\"${HOME}/.local/bin/unifable-hook\" gate_prompt_effort.py",
-            "timeout": 10
           }
         ]
       }

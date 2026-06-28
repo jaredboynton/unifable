@@ -146,7 +146,7 @@ a deterministic hook on the host's critical path, not a skill the worker may cho
 
 | Hook | Script | Role |
 |---|---|---|
-| UserPromptSubmit | `router.sh`, `gate_prompt.py`, `gate_prompt_effort.py` | Route task signal to a pack; classify task mode (quick / normal / deep); effort-gated playbook |
+| UserPromptSubmit | `gate_prompt.py` (+ `pack_router.py`, `gate_prompt_effort.py`) | Single entrypoint per prompt: route task signal to a pack, classify task mode (quick / normal / deep), and inject the effort-gated playbook — merged into one `additionalContext` |
 | PreToolUse | `pre_tool_use.py` (+ `bash_classify.py`, `groundedness.py`) | **Evidence gate** + **groundedness breaker** + protected-path guard: block edits, delegation, and non-whitelisted research Bash until the spec validates, and block mutations on an unproven confident claim |
 | PostToolUse | `gate_post_tool.py` | Observe evidence on **every** tool call (read paths, fetched URLs, ran commands, real failures) into the ledger; surface an advisory judge hint on a repeating failure |
 | PostToolUse (edits) | `test_after_edit.py` | Debounced test runner after a file change (`UNIFABLE_TEST_AFTER_EDIT=1`) |
