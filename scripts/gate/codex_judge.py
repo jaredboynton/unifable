@@ -122,7 +122,7 @@ _HANDSHAKE_TIMEOUT = HANDSHAKE_TIMEOUT  # back-compat alias
 
 # Ceiling on out-of-band responses launched on one socket per batch; larger
 # batches are chunked so no socket exceeds it. Set from measurement, not a guess.
-# Re-validated live 2026-06-25 (skills/explore/docs/benchmarks/realtime-concurrency.md):
+# Re-validated live 2026-06-25 (skills/unitrace/docs/benchmarks/realtime-concurrency.md):
 # gpt-realtime-2 was 100% clean at M=128 and dropped ~11% at M=224; gpt-realtime-mini
 # was clean at BOTH 128 and 224. The Realtime API never hard-caps or rate-errors
 # these; the failure is SILENT -- a completed response with empty structured output
@@ -138,7 +138,7 @@ BATCH_MAX_INFLIGHT = int(os.environ.get("UNIFABLE_JUDGE_BATCH_MAX") or 128)
 # wrong-shape object, invalid JSON, or a per-response ``response.failed``. These
 # are not transport/auth failures -- the response completed, the content is just
 # bad -- so feeding the reason back and re-issuing the request almost always
-# recovers on the next try. This mirrors the explore skill submit-phase reask
+# recovers on the next try. This mirrors the unitrace skill submit-phase reask
 # loop (scripts/realtime-trace.mjs runSubmitPhase, ``reask`` default 1) and the
 # documented Realtime recovery of re-issuing ``response.create`` after a failed
 # response. One reask only; bounded by the per-call deadline so it can never

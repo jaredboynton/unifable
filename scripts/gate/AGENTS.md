@@ -42,8 +42,8 @@ later — 256K context, cheap on-demand). The judge needs Codex OAuth + Realtime
   hand the model a numbered index of the real values, have it reference one by
   integer pointer in its structured output, then rehydrate the exact value
   host-side. Models truncate and paraphrase long identifiers; an integer pointer
-  cannot. See `file_refs.py` and the explore READ INDEX / `excerpt_index`
-  (`skills/explore/scripts/lib/rt-rehydrate-submit.mjs`).
+  cannot. See `file_refs.py` and the unitrace READ INDEX / `excerpt_index`
+  (`skills/unitrace/scripts/lib/rt-rehydrate-submit.mjs`).
 - gpt-realtime-2 hard-caps each Realtime `input_text` field at 256,000 chars
   (char-driven, not token-driven; validated live: 255,900 chars OK, 256,100 rejected
   with `string_above_max_length`). Enforced client-side by `JUDGE_MAX_MESSAGE_CHARS`

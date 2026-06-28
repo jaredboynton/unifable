@@ -1,6 +1,6 @@
 # Map PageRank ranking-loop performance
 
-The repo-map prefetch (`skills/explore/scripts/map.mjs`) hung on large trees. The
+The repo-map prefetch (`skills/unitrace/scripts/map.mjs`) hung on large trees. The
 final ranking loop in `runPagerank` (`map-pagerank.mjs`) rescanned every
 definition for every graph edge -- `O(edges x definitions)` -- which on a 2.1 GB
 non-git tree (`/Users/jaredboynton/.claude-`, capped at 5000 source files)
@@ -67,10 +67,10 @@ underlying issue):
    the 5000-file cap is a home dir or cache, never a useful prefetch target. The
    prefetch enumerates once via `listRepoFilesMeta` and returns an empty map
    before the multi-second tag-extraction pass. Override with
-   `EXPLORE_MAP_ALLOW_HUGE=1`; cap tunable via `EXPLORE_MAP_MAX_FILES`.
+   `UNITRACE_MAP_ALLOW_HUGE=1`; cap tunable via `UNITRACE_MAP_MAX_FILES`.
 2. **Graph node/edge cap** (`buildPagerankGraph` -> `overCap`): a tree under the
    file cap can still produce a pathologically dense symbol graph. Past
-   `EXPLORE_PAGERANK_MAX_NODES` (6000) or `EXPLORE_PAGERANK_MAX_EDGES` (2,000,000)
+   `UNITRACE_PAGERANK_MAX_NODES` (6000) or `UNITRACE_PAGERANK_MAX_EDGES` (2,000,000)
    the graph is flagged and `runPagerank` returns `[]`.
 
 `trace-rt.sh` already fails open: if `map.mjs` errors or emits nothing,
@@ -82,7 +82,7 @@ underlying issue):
 | scenario | result | time |
 |---|---|---|
 | pathological `.claude-` tree (non-git, 5000-file cap) | bail, empty map, `skipped: huge-non-git` | **162 ms** |
-| same tree, `EXPLORE_MAP_ALLOW_HUGE=1` | full map completes (was an infinite hang before) | 3.59 s |
+| same tree, `UNITRACE_MAP_ALLOW_HUGE=1` | full map completes (was an infinite hang before) | 3.59 s |
 | unifable repo (git) | real 4216-byte map | **407 ms** |
 | kepler repo (git, 1484 files) | real 4546-byte map | **1.74 s** |
 

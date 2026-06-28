@@ -118,7 +118,7 @@ def test_explore_fixture_scripts_are_executable():
     # scripts lack the exec bit, an agent invoking the worktree copy directly
     # hits "permission denied" (only the installed hermetic copy is chmod'd).
     bench = _load_module("bench.py", "benchmark_bench_fixture_perms")
-    scripts = bench.EXPLORE_SKILL_FIXTURE / "scripts"
+    scripts = bench.UNITRACE_SKILL_FIXTURE / "scripts"
     assert os.access(scripts / "trace.sh", os.X_OK)
     assert os.access(scripts / "websearch.sh", os.X_OK)
 

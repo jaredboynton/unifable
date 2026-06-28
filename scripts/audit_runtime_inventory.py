@@ -138,19 +138,19 @@ def _default_classify(rel: Path) -> tuple[str, str, str] | None:
     name = rel.name
 
     if "/archive/" in posix:
-        return ("archived", "explore-skill", "retired variant kept for reference; excluded from active runtime")
+        return ("archived", "unitrace-skill", "retired variant kept for reference; excluded from active runtime")
     if "/bench/" in posix or name.startswith(("bench-", "bench_")):
-        return ("fixture", "explore-skill", "benchmark harness; dev-only, not an active runtime path")
+        return ("fixture", "unitrace-skill", "benchmark harness; dev-only, not an active runtime path")
     if "/test/" in posix or name.startswith(("test-", "test_")) or name.endswith((".test.mjs", "-test.mjs")):
-        return ("fixture", "explore-skill", "test harness; dev-only, not an active runtime path")
+        return ("fixture", "unitrace-skill", "test harness; dev-only, not an active runtime path")
 
     if rel.parts[0] == "bin" and name in _BIN_LAUNCHERS:
         return ("compat-shim", "runtime", "stable launcher that execs the synced Python runtime")
     if rel.parts[0] == "setup" and rel.suffix == ".sh":
         return ("compat-shim", "setup", "install/uninstall launcher; ports to Python entrypoint with a shell shim")
 
-    if posix.startswith("skills/explore/scripts/"):
-        return ("active", "explore-skill", "supported explore runtime path; targeted for Python port")
+    if posix.startswith("skills/unitrace/scripts/"):
+        return ("active", "unitrace-skill", "supported unitrace runtime path; targeted for Python port")
     if posix.startswith("skills/unifusion/scripts/"):
         return ("active", "unifusion-skill", "supported Unifusion runtime path; targeted for Python port")
 

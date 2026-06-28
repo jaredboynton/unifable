@@ -13,7 +13,7 @@ block from `classify_task.context_for_mode`. The static mode block is the
 fallback used whenever the enhancer does not fire or fails open.
 
 The enhancer (`scripts/gate/submit_enhance.py` + the Node entrypoint
-`skills/explore/scripts/enhance-prompt.mjs`) reuses the explore skill's
+`skills/unitrace/scripts/enhance-prompt.mjs`) reuses the unitrace skill's
 in-repo machinery (retrieveCandidates + mini navigators + one full
 gpt-realtime-2 synth). Hard gates: zero repo-specific commands, zero
 hallucinated paths (cited ranges filtered by the windows actually retrieved),
@@ -232,6 +232,6 @@ escalation, then post it to the customer's Slack channel.
 - `UNIFABLE_PROMPT_ENHANCE_NAV` sets the mini navigator count (default 4; the
   bench-decided Standard tier).
 - `UNIFABLE_PROMPT_ENHANCE_MODEL` sets the synth model (default gpt-realtime-2).
-- `EXPLORE_AST_SKIP_INSTALL=1` (set by the hook) makes retrieval use line-window
+- `UNITRACE_AST_SKIP_INSTALL=1` (set by the hook) makes retrieval use line-window
   hydration instead of installing ast-grep on the critical path; the bench used
   this and scored q=9.

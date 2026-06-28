@@ -101,7 +101,7 @@ Classify command strings in the research phase:
 - Safety: this is an ALLOWLIST (block-by-default in research phase) — higher false-positive risk than
   wfb's edit-only gate. Mitigations: (a) unconditional + fail-open on malformed input (matches
   `pre_tool_use.py:206-209`); (b) the model always retains a full research toolset, so it is never
-  bricked — it can still inspect with `cd`/`ls`/`glob`/`rg`, use `trace.sh` or `websearch.sh`, or run unifusion panel scripts; (c) ship behind the holdout harness
+  bricked — it can still inspect with `cd`/`ls`/`glob`/`rg`, use `unitrace.sh` or `unisearch.sh`, or run unifusion panel scripts; (c) ship behind the holdout harness
   (`scripts/shadow/` + `UNIFABLE_HOLDOUT=1`) and measure block-rate / false-positive-rate.
 
 ## Groundedness breaker — provisional lift
@@ -231,7 +231,7 @@ Regression: `tests/test_supersession.py`.
 
 ## Central Realtime daemon — one process per (session, model)
 
-The judge/breaker/Stop hooks and the explore skill share ONE daemon implementation
+The judge/breaker/Stop hooks and the unitrace skill share ONE daemon implementation
 (`scripts/gate/realtime_daemon.py`): a warm-WebSocket server, single instance per
 key via flock, idle-shutdown, worker pool. Consolidation is on the client side
 (`scripts/gate/judge_client.py`): sockets are model-namespaced so both models run
@@ -305,5 +305,5 @@ no-brick), mirroring wfb's 35/35 adversarial set.
 
 1. Bash gating scope: full lockdown now (writes + Bash allowlist, the stated intent, highest leverage,
    highest false-positive risk) vs. writes-first then add Bash gating after measuring.
-2. Allowlist contents: currently `cd`, `ls`, `glob`, `rg`, any file named `trace.sh` or `websearch.sh`, and the four
+2. Allowlist contents: currently `cd`, `ls`, `glob`, `rg`, any file named `unitrace.sh` or `unisearch.sh`, and the four
    user-facing unifusion skill scripts by basename.

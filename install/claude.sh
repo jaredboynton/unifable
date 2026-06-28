@@ -72,25 +72,21 @@ ep = st.setdefault("enabledPlugins", {})
 ep.pop("fablize@fablize", None)  # remove legacy
 ep[key] = True
 st["alwaysThinkingEnabled"] = True  # unifable: deliberate thinking on by default
-st["outputStyle"] = "mute"          # unifable: mute by default (silent between tools; Fable remains available)
+st["outputStyle"] = "mute"          # unifable: mute by default (silent between tools)
 backup_save(st_p, st)
 print(f"  ✓ registered + enabled {key}; outputStyle=mute; legacy fablize removed from plugin state")
 PY
 
-# 2b) Ship the output styles. mute.md is the default (outputStyle=mute above);
-#     fable.md ships alongside so the Fable orchestrator posture stays selectable.
-#     Each is backed up if a prior copy exists.
+# 2b) Ship the mute output style (outputStyle=mute above). Backed up if a prior copy exists.
 mkdir -p "$CLAUDE_DIR/output-styles"
-for os in mute.md fable.md; do
-  OS_SRC="$CACHE_DIR/output-styles/$os"; OS_DST="$CLAUDE_DIR/output-styles/$os"
-  if [ -f "$OS_SRC" ]; then
-    [ -f "$OS_DST" ] && cp "$OS_DST" "$OS_DST.unifable-bak.$ts"
-    cp "$OS_SRC" "$OS_DST"
-    echo "  ✓ output style installed → $OS_DST"
-  else
-    echo "  ! output-styles/$os not found in cache; skipping"
-  fi
-done
+OS_SRC="$CACHE_DIR/output-styles/mute.md"; OS_DST="$CLAUDE_DIR/output-styles/mute.md"
+if [ -f "$OS_SRC" ]; then
+  [ -f "$OS_DST" ] && cp "$OS_DST" "$OS_DST.unifable-bak.$ts"
+  cp "$OS_SRC" "$OS_DST"
+  echo "  ✓ output style installed → $OS_DST"
+else
+  echo "  ! output-styles/mute.md not found in cache; skipping"
+fi
 
 # 3) Leave the legacy fablize dirs on disk: deleting them mid-session would break the
 #    hooks the CURRENT Claude process already loaded from them. They are disabled in the

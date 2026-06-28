@@ -145,6 +145,79 @@ def test_sync_installs_unifusion_launcher(tmp_path, monkeypatch):
     assert proc.stdout.strip() == f"unifusion-stub: {q}"
 
 
+def test_sync_installs_unitrace_launcher(tmp_path, monkeypatch):
+    # The unitrace launcher rides the same bootstrap path: a real file under
+    # ~/.unifable/bin, symlinked from ~/.local/bin, that execs the synced
+    # deep-trace entry under current/skills/unitrace/scripts/unitrace.sh.
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    assert runtime_sync.sync_runtime() is True
+
+    link = bdir / "unitrace"
+    assert link.is_symlink()
+    assert link.resolve() == (home / "bin" / "unitrace").resolve()
+    bootstrap = home / "bin" / "unitrace"
+    assert bootstrap.is_file()
+    assert "skills/unitrace/scripts/unitrace.sh" in bootstrap.read_text()
+
+    # Stub the synced script so we exercise only the launcher wiring, not the
+    # real trace pipeline (which needs Codex OAuth + gpt-realtime-2).
+    synced = home / "current" / "skills" / "unitrace" / "scripts" / "unitrace.sh"
+    synced.parent.mkdir(parents=True, exist_ok=True)
+    synced.write_text("#!/usr/bin/env bash\necho \"unitrace-stub: $1\"\n")
+    synced.chmod(0o755)
+
+    proc = subprocess.run(
+        [str(link), "how does auth flow"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "unitrace-stub: how does auth flow"
+
+
+def test_sync_installs_unisearch_launcher(tmp_path, monkeypatch):
+    # The unisearch launcher execs the synced external-research entry under
+    # current/skills/unisearch/scripts/unisearch.sh.
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    assert runtime_sync.sync_runtime() is True
+
+    link = bdir / "unisearch"
+    assert link.is_symlink()
+    assert link.resolve() == (home / "bin" / "unisearch").resolve()
+    bootstrap = home / "bin" / "unisearch"
+    assert bootstrap.is_file()
+    assert "skills/unisearch/scripts/unisearch.sh" in bootstrap.read_text()
+
+    synced = home / "current" / "skills" / "unisearch" / "scripts" / "unisearch.sh"
+    synced.parent.mkdir(parents=True, exist_ok=True)
+    synced.write_text("#!/usr/bin/env bash\necho \"unisearch-stub: $1\"\n")
+    synced.chmod(0o755)
+
+    proc = subprocess.run(
+        [str(link), "latest React docs"],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == "unisearch-stub: latest React docs"
+
+
 def test_runtime_survives_cache_deletion(tmp_path, monkeypatch):
     home = tmp_path / "dot-unifable"
     bdir = tmp_path / "local-bin"

@@ -159,15 +159,15 @@ host-agnostic; host wiring lives in `hooks/` and `install/`.
 ## Evidence gate
 
 On any non-trivial task (grade STANDARD+), the worker cannot edit a file, delegate with
-`Task`/`Agent`, run Bash outside the research whitelist (`cd`, `ls`, `glob`, `rg`, the explore skill's
-`trace.sh` and `websearch.sh` when that skill is installed — hook messages show the resolved paths — or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
+`Task`/`Agent`, run Bash outside the research whitelist (`cd`, `ls`, `glob`, `rg`, the unitrace skill's
+`unitrace.sh` and `unisearch.sh` when that skill is installed — hook messages show the resolved paths — or the unifusion skill scripts `unifusion.sh`/`save_run.sh`/`summarize_session.sh`/
 `resolve_session.sh`), or finish until the session's evidence spec
 (stored in the consolidated `~/.unifable/unifable.db`, keyed one per directory+session) validates. The spec
 must carry (for **code-profile** tasks): `repo_context` (`{cite: path:line, why}` the worker actually
 read), `acceptance_criteria` (a runnable `check` plus its live `evidence` output -- placeholders are
 rejected), and `prior_art` (a source URL fetched via WebFetch/curl, required at STANDARD+). **Operational-profile**
 tasks (account research, draft replies, internal-tool synthesis) waive repo_context and prior_art;
-restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, explore-skill `trace.sh` and `websearch.sh` (when installed), and unifusion panel
+restated goal + requirement tasks unlock edits, with Stop-time judge validation. Read, search, web, unitrace-skill `unitrace.sh` and `unisearch.sh` (when installed), and unifusion panel
 research stay available so the worker can gather that evidence; a valid spec unlocks the action phase. Quick/LIGHT tasks are waived.
 
 The spec is **append-only and CLI-only** — never hand-edited. The worker drives it with
@@ -183,8 +183,7 @@ judge-relationship frame: it tells the model a director judge guides it step by 
 restricting tools, tending the spec) and to restate the goal first. All step-by-step guidance is
 delivered at runtime by the per-tool director, not front-loaded here. On Claude the posture is
 reinforced by an output style shipped by `install/claude.sh`: **mute is the default**
-(`output-styles/mute.md` — silent between tool calls, caveman-terse when speaking), with the
-**Fable orchestrator persona** (`output-styles/fable.md`) remaining selectable. The
+(`output-styles/mute.md` — silent between tool calls, caveman-terse when speaking). The
 frame ships only when the plugin is enabled -- it is not injected into host memory files, so it does
 not pollute context for other CLI tools.
 

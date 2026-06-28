@@ -1,0 +1,13 @@
+SECTION Overview
+unitrace.sh orchestrates cursor-agent to answer codebase questions end to end.
+
+SECTION Flow
+The wrapper initializes a run directory, builds a prompt with optional map prefetch, invokes the agent, then hydrates citations.
+<file:scripts/unitrace.sh:287-324>
+
+SECTION KeyFiles
+<file:scripts/unitrace.sh:208-244>
+<file:scripts/expand_citations.py:219-224>
+
+SECTION CodeReferences
+<file:scripts/unitrace.sh:374-385> post-run citation hydration

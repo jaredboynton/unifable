@@ -288,19 +288,19 @@ def scenario_specs() -> list[Scenario]:
         ),
         (
             "BL9",
-            "bash-whitelist trace.sh allowed pre-spec",
+            "bash-whitelist unitrace.sh allowed pre-spec",
             ALLOW,
             EV,
             "STANDARD",
-            lambda cwd: bash(cwd, "bash ./trace.sh --brief auth", "BL9"),
+            lambda cwd: bash(cwd, "bash ./unitrace.sh --brief auth", "BL9"),
         ),
         (
             "BL9c",
-            "bash-whitelist websearch.sh allowed pre-spec",
+            "bash-whitelist unisearch.sh allowed pre-spec",
             ALLOW,
             EV,
             "STANDARD",
-            lambda cwd: bash(cwd, 'bash ./websearch.sh "task goal"', "BL9c"),
+            lambda cwd: bash(cwd, 'bash ./unisearch.sh "task goal"', "BL9c"),
         ),
         (
             "BL9b",

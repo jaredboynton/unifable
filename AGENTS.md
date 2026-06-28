@@ -35,7 +35,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs)
-just version 1.18.0          # or: just version patch|minor|major
+just version 1.19.0          # or: just version patch|minor|major
 ```
 
 ## Release conventions (repo-wide)
@@ -63,8 +63,8 @@ land in `probes/bench/results/` when the script writes artifacts. Excluded from
 `just test-all` and the wait-audit scan (`scripts/audit_waits.py`). Do not add
 bench scripts at repo root or in `scripts/gate/`.
 
-Harness cost/latency A/B for the plugin itself stays in `benchmark/`. Explore-skill
-trace A/B stays in `skills/explore/scripts/bench/`.
+Harness cost/latency A/B for the plugin itself stays in `benchmark/`. Unitrace-skill
+trace A/B stays in `skills/unitrace/scripts/bench/`.
 
 Gate-core conventions (fail-open, host-agnostic, failing-first tests, the pointer +
 rehydrate rule, the 256k judge cap) live in

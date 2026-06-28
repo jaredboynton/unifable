@@ -4,7 +4,7 @@
 Verifies the UserPromptSubmit wiring (ThreadPoolExecutor fan-out, post-grade
 use gate, fail-open on either leg) WITHOUT a live judge or Node subprocess:
 both legs are monkeypatched. This is the deterministic companion to the
-entrypoint smoke (skills/explore/scripts/enhance-prompt.mjs) and the
+entrypoint smoke (skills/unitrace/scripts/enhance-prompt.mjs) and the
 gate-robustness fail-open checks.
 
 Run: python3 -m pytest tests/test_grade_and_enhance.py -q

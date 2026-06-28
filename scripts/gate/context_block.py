@@ -58,6 +58,8 @@ _FRAME_TEMPLATE = (
     "- Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and "
     "delegation stay blocked unless a hook explicitly lifts them.\n"
     "\n"
+    "Do not narrate exploration. Tool calls only until blocked or done.\n"
+    "\n"
     "If a hook blocks you, follow its exact instruction next."
 )
 

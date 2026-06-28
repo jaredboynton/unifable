@@ -37,10 +37,10 @@ def test_every_nonpy_row_has_one_valid_class_and_owner_reason():
 def test_known_paths_classify_as_expected():
     rows, _ = inv.build_inventory(REPO)
     by_path = {r.path: r for r in rows}
-    # Active explore implementation.
-    assert by_path["skills/explore/scripts/enhance-prompt.mjs"].classification == "active"
+    # Active unitrace implementation.
+    assert by_path["skills/unitrace/scripts/enhance-prompt.mjs"].classification == "active"
     # Archived variant.
-    assert by_path["skills/explore/scripts/archive/trace-gemini.sh"].classification == "archived"
+    assert by_path["skills/unitrace/scripts/archive/trace-gemini.sh"].classification == "archived"
     # Stable launcher shim.
     assert by_path["bin/unifable-hook"].classification == "compat-shim"
     # Allowlisted router shim.

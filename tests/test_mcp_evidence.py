@@ -74,7 +74,7 @@ def test_research_bash_evidence_captures_websearch_output():
 
     inp = {
         "tool_name": "Bash",
-        "tool_input": {"command": 'bash ~/.agents/skills/explore/scripts/websearch.sh "immutable inputs"'},
+        "tool_input": {"command": 'bash ~/.agents/skills/unitrace/scripts/websearch.sh "immutable inputs"'},
         "tool_response": {
             "stdout": "Verified facts\n- Harness engineering uses immutable inputs https://example.com/harness\nRecommendation\nUse hooks not skills.",
         },

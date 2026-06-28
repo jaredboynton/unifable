@@ -108,13 +108,13 @@ def test_wire_tokens_tier0_survive_budget():
 
 
 # --------------------------------------------------------------------------- #
-# research_bash_evidence: end-to-end through the explore-script gate
+# research_bash_evidence: end-to-end through the unitrace-script gate
 # --------------------------------------------------------------------------- #
 def test_research_bash_evidence_retains_tail_and_structure():
     big = _big_explore_output()
     inp = {
         "tool_name": "Bash",
-        "tool_input": {"command": 'bash ~/.agents/skills/explore/scripts/websearch.sh "widget"'},
+        "tool_input": {"command": 'bash ~/.agents/skills/unitrace/scripts/websearch.sh "widget"'},
         "tool_response": {"stdout": big},
     }
     ev = research_bash_evidence(inp)

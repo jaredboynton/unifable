@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Reask-on-malformed-structured-output for the realtime judge (codex_judge.py).
 
-Mirrors the explore skill's submit-phase reask: one bounded retry when the model
+Mirrors the unitrace skill's submit-phase reask: one bounded retry when the model
 returns malformed structured output (empty, invalid JSON, wrong shape, or a
 per-response failure), feeding the failure reason back into the next prompt. The
 reask must preserve the existing transport: one shared deadline, the

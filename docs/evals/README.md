@@ -12,7 +12,7 @@ live session, observes the response, and scores it against the rubric.
 Run after any change to:
 
 - `hooks/gate_prompt.py` or `scripts/gate/classify_task.py` (classification logic)
-- `scripts/gate/submit_enhance.py` or `skills/explore/scripts/enhance-prompt.mjs` (repo-grounded prompt enhancement)
+- `scripts/gate/submit_enhance.py` or `skills/unitrace/scripts/enhance-prompt.mjs` (repo-grounded prompt enhancement)
 - `hooks/router.sh` (inline discipline injection triggers)
 - `packs/router-manifest.json` (route definitions and inline body content)
 - `scripts/gate/context_block.py` (SessionStart actionable restate-first frame)

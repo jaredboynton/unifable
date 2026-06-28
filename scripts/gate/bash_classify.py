@@ -6,7 +6,7 @@ spec, Bash may run only `cd`, `ls`, `glob`, `rg`, `grep`/`egrep`/`fgrep`, `echo`
 `ast-grep`/`sg`, read-only file inspection
 (`head`, `tail`, `wc`, `sort`, `uniq`), read-only `git` subcommands, git
 workflow commands (`status`, `add`, `commit`, `push` without `--force`), a file
-whose basename is `trace.sh` or `websearch.sh` when the explore skill is
+whose basename is `unitrace.sh` or `unisearch.sh` when the unitrace skill is
 installed (guidance shows resolved paths), or a file whose basename is one of
 the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
@@ -18,9 +18,9 @@ import re
 import shlex
 
 try:
-    from research_bash_guidance import EXPLORE_SCRIPT_BASENAMES, allowed_research_bash_detail
+    from research_bash_guidance import UNITRACE_SCRIPT_BASENAMES, allowed_research_bash_detail
 except ImportError:  # pragma: no cover
-    from scripts.gate.research_bash_guidance import EXPLORE_SCRIPT_BASENAMES, allowed_research_bash_detail
+    from scripts.gate.research_bash_guidance import UNITRACE_SCRIPT_BASENAMES, allowed_research_bash_detail
 
 ALLOWED_RESEARCH_BASH = allowed_research_bash_detail()
 
@@ -656,11 +656,11 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
-    if base in EXPLORE_SCRIPT_BASENAMES or _is_unifusion_script(command):
+    if base in UNITRACE_SCRIPT_BASENAMES or _is_unifusion_script(command):
         return True, ""
     if base in _TRACE_INTERPRETERS:
         target_base = _basename(_trace_target_from_interpreter(rest))
-        if target_base in EXPLORE_SCRIPT_BASENAMES or target_base in _UNIFUSION_SCRIPT_NAMES:
+        if target_base in UNITRACE_SCRIPT_BASENAMES or target_base in _UNIFUSION_SCRIPT_NAMES:
             return True, ""
     if base in _PY_INTERPRETERS:
         ok, reason = _spec_cli_segment(rest)
@@ -748,7 +748,7 @@ def _allowed_compound(compound: str) -> tuple[bool, str]:
 
 
 def _explore_script_in_segment(seg: str) -> str | None:
-    """Return trace.sh/websearch.sh when this shell segment invokes one."""
+    """Return unitrace.sh/unisearch.sh/websearch.sh/search.sh when this shell segment invokes one."""
     try:
         tokens = shlex.split(seg)
     except ValueError:
@@ -759,17 +759,17 @@ def _explore_script_in_segment(seg: str) -> str | None:
     if not command:
         return None
     base = _basename(command)
-    if base in EXPLORE_SCRIPT_BASENAMES:
+    if base in UNITRACE_SCRIPT_BASENAMES:
         return base
     if base in _TRACE_INTERPRETERS:
         target_base = _basename(_trace_target_from_interpreter(rest))
-        if target_base in EXPLORE_SCRIPT_BASENAMES:
+        if target_base in UNITRACE_SCRIPT_BASENAMES:
             return target_base
     return None
 
 
 def explore_script_in_command(command: str) -> str | None:
-    """Return trace.sh or websearch.sh when *command* invokes one, else None."""
+    """Return the unitrace-skill script basename when *command* invokes one, else None."""
     if not isinstance(command, str) or not command.strip():
         return None
     for line in _join_flag_lines(_logical_lines(command)):

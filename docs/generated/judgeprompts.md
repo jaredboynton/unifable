@@ -2007,7 +2007,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
       "type": "object"
     },
     "verify_cmd": {
-      "description": "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only `git ...`, an `ast-grep` scan, an explore `trace.sh`/`search.sh` query). The breaker runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output grounds the claim -- so you need not arm and force the model to re-run what the breaker can run here. Command MUST be read-only; any mutating command is rejected (never runs) and the arm verdict stands. Empty when verdict=0, when `verify` or `resolve_query` already covers it, or when no single read-only command can settle it.",
+      "description": "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only `git ...`, an `ast-grep` scan, a unitrace `unitrace.sh`/`search.sh` query). The breaker runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output grounds the claim -- so you need not arm and force the model to re-run what the breaker can run here. Command MUST be read-only; any mutating command is rejected (never runs) and the arm verdict stands. Empty when verdict=0, when `verify` or `resolve_query` already covers it, or when no single read-only command can settle it.",
       "type": "string"
     },
     "verify_tasks": {
@@ -2202,7 +2202,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
                 "type": "object"
               },
               "verify_cmd": {
-                "description": "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only `git ...`, an `ast-grep` scan, an explore `trace.sh`/`search.sh` query). The breaker runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output grounds the claim -- so you need not arm and force the model to re-run what the breaker can run here. Command MUST be read-only; any mutating command is rejected (never runs) and the arm verdict stands. Empty when verdict=0, when `verify` or `resolve_query` already covers it, or when no single read-only command can settle it.",
+                "description": "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only `git ...`, an `ast-grep` scan, a unitrace `unitrace.sh`/`search.sh` query). The breaker runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output grounds the claim -- so you need not arm and force the model to re-run what the breaker can run here. Command MUST be read-only; any mutating command is rejected (never runs) and the arm verdict stands. Empty when verdict=0, when `verify` or `resolve_query` already covers it, or when no single read-only command can settle it.",
                 "type": "string"
               },
               "verify_tasks": {

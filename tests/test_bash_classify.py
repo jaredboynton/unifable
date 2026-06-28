@@ -20,24 +20,24 @@ ALLOWED = [
     "glob '**/*.py'",
     "rg foo src/",
     "rg --files",
-    "./trace.sh",
-    "tools/trace.sh --brief auth",
-    "/tmp/trace.sh",
-    "bash trace.sh",
-    "bash ./tools/trace.sh --json",
-    "sh trace.sh",
-    "zsh /tmp/trace.sh",
-    "FOO=bar ./trace.sh",
-    "env FOO=bar ./trace.sh",
-    "./websearch.sh",
-    "tools/websearch.sh 'task goal'",
-    "/tmp/websearch.sh",
-    "bash websearch.sh",
-    "bash ./tools/websearch.sh 'task goal'",
-    "sh websearch.sh",
-    "zsh /tmp/websearch.sh",
-    "FOO=bar ./websearch.sh",
-    "env FOO=bar ./websearch.sh",
+    "./unitrace.sh",
+    "tools/unitrace.sh --brief auth",
+    "/tmp/unitrace.sh",
+    "bash unitrace.sh",
+    "bash ./tools/unitrace.sh --json",
+    "sh unitrace.sh",
+    "zsh /tmp/unitrace.sh",
+    "FOO=bar ./unitrace.sh",
+    "env FOO=bar ./unitrace.sh",
+    "./unisearch.sh",
+    "tools/unisearch.sh 'task goal'",
+    "/tmp/unisearch.sh",
+    "bash unisearch.sh",
+    "bash ./tools/unisearch.sh 'task goal'",
+    "sh unisearch.sh",
+    "zsh /tmp/unisearch.sh",
+    "FOO=bar ./unisearch.sh",
+    "env FOO=bar ./unisearch.sh",
     "ls && rg foo",
     "ls | rg foo",
     "unifable restate 'do the thing well'",
@@ -154,8 +154,8 @@ BLOCKED = [
     "cd subdir && cat file",
     "bash other.sh",
     "bash skills/unifusion/scripts/run_codex.sh /tmp/p /tmp/o",
-    "python trace.sh",
-    "python websearch.sh",
+    "python unitrace.sh",
+    "python unisearch.sh",
     # Command/process substitution executes arbitrary commands -> must stay blocked,
     # now with an explicit, clear reason (previously blocked only by parser fallout).
     "T=$(printf x); rg --files",
@@ -203,8 +203,8 @@ def test_non_string_is_blocked():
 
 
 def test_explore_script_in_command_detects_websearch_and_trace():
-    assert explore_script_in_command('bash ./websearch.sh "goal"') == "websearch.sh"
-    assert explore_script_in_command("~/.agents/skills/explore/scripts/trace.sh q") == "trace.sh"
+    assert explore_script_in_command('bash ./unisearch.sh "goal"') == "unisearch.sh"
+    assert explore_script_in_command("~/.agents/skills/unitrace/scripts/unitrace.sh q") == "unitrace.sh"
     assert explore_script_in_command("rg foo") is None
 
 

@@ -14,7 +14,10 @@ resolver can run. This module keeps the running code OUT of the cache:
 The same bootstrap path also installs the `unifusion` panel launcher
 (~/.unifable/bin/unifusion -> ~/.local/bin/unifusion), which execs the synced
 skill script under current/skills/unifusion so the panel runs from any cwd
-whether or not the plugin is enabled in the current session.
+whether or not the plugin is enabled in the current session. The same mechanism
+installs the `unitrace` and `unisearch` launchers, which exec
+current/skills/unitrace/scripts/unitrace.sh and
+current/skills/unisearch/scripts/unisearch.sh respectively.
 
 The cache is only a download source. Nothing on the runtime path points into it, so
 deleting any cache version cannot brick a session. `sync_runtime()` is invoked from the
@@ -40,7 +43,7 @@ except ImportError:  # pragma: no cover
     from scripts.gate.cli_install import parse_version
 
 # Top-level entries copied from a cache version into ~/.unifable/versions/<v>.
-# `skills` ships the explore/unifusion skill bodies into the stable runtime so they
+# `skills` ships the unitrace/unisearch/unifusion skill bodies into the stable runtime so they
 # resolve from ~/.unifable/current/skills regardless of which CLI or cache invoked
 # the plugin, and self-update to the newest version on each SessionStart sync.
 _RUNTIME_TREE = (
@@ -123,11 +126,45 @@ export PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" UNIFABLE_PLUGIN_ROOT="$ROO
 exec bash "$SCRIPT" "$@"
 """
 
+# unitrace launcher. Execs the synced deep-trace entry under the stable runtime,
+# so `unitrace <question>` works from any cwd whether or not the plugin is enabled
+# (as long as ~/.unifable/current has been seeded once).
+_UNITRACE_BOOTSTRAP = """#!/usr/bin/env bash
+# unitrace launcher bootstrap — managed by runtime_sync.py. Do not edit by hand.
+set -euo pipefail
+ROOT="${UNIFABLE_HOME:-$HOME/.unifable}/current"
+SCRIPT="$ROOT/skills/unitrace/scripts/unitrace.sh"
+if [ ! -f "$SCRIPT" ]; then
+  echo "unitrace: trace script not found at $SCRIPT (run the unifable installer once to seed ~/.unifable)" >&2
+  exit 1
+fi
+export PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" UNIFABLE_PLUGIN_ROOT="$ROOT"
+exec bash "$SCRIPT" "$@"
+"""
+
+# unisearch launcher. Execs the synced external-research entry under the stable
+# runtime, so `unisearch <research goal>` works from any cwd whether or not the
+# plugin is enabled. unisearch.sh self-resolves its sibling unitrace impl.
+_UNISEARCH_BOOTSTRAP = """#!/usr/bin/env bash
+# unisearch launcher bootstrap — managed by runtime_sync.py. Do not edit by hand.
+set -euo pipefail
+ROOT="${UNIFABLE_HOME:-$HOME/.unifable}/current"
+SCRIPT="$ROOT/skills/unisearch/scripts/unisearch.sh"
+if [ ! -f "$SCRIPT" ]; then
+  echo "unisearch: websearch script not found at $SCRIPT (run the unifable installer once to seed ~/.unifable)" >&2
+  exit 1
+fi
+export PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" UNIFABLE_PLUGIN_ROOT="$ROOT"
+exec bash "$SCRIPT" "$@"
+"""
+
 _BOOTSTRAPS = {
     "unifable-hook": _HOOK_BOOTSTRAP,
     "unifable": _CLI_BOOTSTRAP,
     "unifable-spec": _CLI_BOOTSTRAP,
     "unifusion": _UNIFUSION_BOOTSTRAP,
+    "unitrace": _UNITRACE_BOOTSTRAP,
+    "unisearch": _UNISEARCH_BOOTSTRAP,
 }
 
 
@@ -342,7 +379,7 @@ def sync_runtime(*, force: bool = False, source: str | os.PathLike | None = None
         changed = False
         if need:
             dest = home / "versions" / latest_name
-            if _has_runtime(dest) or _copy_version(latest_path, dest):
+            if (not force and _has_runtime(dest)) or _copy_version(latest_path, dest):
                 changed = _flip_current(home, latest_name)
 
         _write_bootstraps(home, bdir)

@@ -54,7 +54,7 @@ def test_frame_carries_preflight_guidance() -> None:
 
 def test_frame_is_thin() -> None:
     ctx = context_block.build_session_context()
-    assert len(ctx) < 900, f"frame is not thin: {len(ctx)} chars"
+    assert len(ctx) < 950, f"frame is not thin: {len(ctx)} chars"
 
 
 def test_payload_shape() -> None:

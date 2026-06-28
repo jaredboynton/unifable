@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """unifable_runtime — shared, host-agnostic Python implementation modules.
 
-This package holds the feature implementations (explore enhance-prompt, search,
+This package holds the feature implementations (unitrace enhance-prompt, search,
 map, trace, websearch; Unifusion; the Realtime transport; the daemon) that used
 to live as Node/Bun scripts under `skills/*/scripts/`. Host adapters under
 `hooks/` and `scripts/gate/` import from here; nothing in here imports back into

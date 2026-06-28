@@ -177,7 +177,7 @@ def run_explore_search(
     timeout: float = _SELF_RESOLVE_TIMEOUT,
     max_chars: int = _SELF_RESOLVE_MAX_CHARS,
 ) -> str:
-    """Run the explore skill's search.sh --json READ-ONLY and return a compact
+    """Run the unitrace skill's search.sh --json READ-ONLY and return a compact
     snippets blob (capped), or '' on any failure/timeout/missing script. Never
     raises -- breaker self-resolution is fail-open."""
     q = str(query or "").strip()

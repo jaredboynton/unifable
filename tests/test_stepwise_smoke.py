@@ -54,7 +54,7 @@ def test_sessionstart_emits_thin_frame(tmp_path) -> None:
     # Thin frame: mandatory restate-first command + research-mode restrictions.
     assert ctx
     # The old fat operating-mode block must be gone.
-    assert len(ctx) < 900
+    assert len(ctx) < 950
 
 
 def test_pretool_enforces_director_scope_live(tmp_path) -> None:

@@ -11,8 +11,8 @@ hands the judge a numbered FILE INDEX of the paths it already saw in the
 transcript; the judge names a file by its index in double brackets ([[n]])
 rather than typing the path; the host rehydrates [[n]] back to the exact path.
 The judge emits integers, never path strings, so truncation is impossible by
-construction. Mirrors the explore skill's READ INDEX / excerpt_index pointer
-submit (skills/explore/scripts/lib/rt-rehydrate-submit.mjs).
+construction. Mirrors the unitrace skill's READ INDEX / excerpt_index pointer
+submit (skills/unitrace/scripts/lib/rt-rehydrate-submit.mjs).
 """
 from __future__ import annotations
 

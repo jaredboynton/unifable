@@ -20,7 +20,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_TASK = REPO_ROOT / "benchmark/tasks/evidence_gate_regression.md"
-EXPLORE_SKILL_FIXTURE = REPO_ROOT / "benchmark/fixtures/explore-skill"
+UNITRACE_SKILL_FIXTURE = REPO_ROOT / "benchmark/fixtures/explore-skill"
 WORKSPACE_ROOT = Path(os.environ.get("UNIFABLE_BENCH_WORKSPACE_ROOT", Path(tempfile.gettempdir()) / "unifable-benchmark-workspaces"))
 TOKEN_RE = re.compile(r"(?P<key>input|output|cached|total)[ _-]?tokens[^0-9]*(?P<value>[0-9][0-9,]*)", re.I)
 
@@ -130,7 +130,7 @@ def _install_explore_skill(home: Path) -> Path:
     dest = home / ".agents" / "skills" / "explore"
     if dest.exists():
         shutil.rmtree(dest)
-    shutil.copytree(EXPLORE_SKILL_FIXTURE, dest)
+    shutil.copytree(UNITRACE_SKILL_FIXTURE, dest)
     for script in (dest / "scripts" / "trace.sh", dest / "scripts" / "websearch.sh"):
         script.chmod(script.stat().st_mode | 0o111)
     return dest.resolve()
@@ -196,12 +196,12 @@ def _env_for(condition: Condition, worktree: Path, run_dir: Path) -> dict[str, s
         env["CODEX_HOME"] = str(_prepare_codex_home(run_dir, condition))
         explore_root = run_dir / "explore-skill-path.txt"
         if explore_root.is_file():
-            env["UNIFABLE_EXPLORE_SKILL_ROOT"] = explore_root.read_text(encoding="utf-8").strip()
+            env["UNIFABLE_UNITRACE_SKILL_ROOT"] = explore_root.read_text(encoding="utf-8").strip()
     if condition.host == "claude":
         env["CLAUDE_CONFIG_DIR"] = str(_prepare_claude_home(run_dir, condition))
         explore_root = run_dir / "explore-skill-path.txt"
         if explore_root.is_file():
-            env["UNIFABLE_EXPLORE_SKILL_ROOT"] = explore_root.read_text(encoding="utf-8").strip()
+            env["UNIFABLE_UNITRACE_SKILL_ROOT"] = explore_root.read_text(encoding="utf-8").strip()
         # Shell env wins over settings.json, so builtin subagents stay disabled
         # regardless of how settings load.
         env["CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"] = "1"

@@ -250,7 +250,7 @@ def main() -> int:
     ap.add_argument("--models", default="gpt-realtime-2,gpt-realtime-mini")
     ap.add_argument("--axes", default="a,b,c")
     ap.add_argument("--out", default="")
-    ap.add_argument("--auth-path", default=os.environ.get("EXPLORE_CODEX_AUTH_PATH"))
+    ap.add_argument("--auth-path", default=os.environ.get("UNITRACE_CODEX_AUTH_PATH"))
     ap.add_argument("--timeout", type=float, default=30.0)
     # Light scope defaults (matches approved plan).
     ap.add_argument("--session-ks", default="8,16,24,32")

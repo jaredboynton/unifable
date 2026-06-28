@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Install-detected copy for explore-skill scripts in Bash whitelist guidance.
+"""Install-detected copy for unitrace-skill scripts in Bash whitelist guidance.
 
-Host-agnostic: resolves whether the explore skill is present on disk and builds
-user-facing allowlist strings. Enforcement (basename trace.sh / websearch.sh)
+Host-agnostic: resolves whether the unitrace skill is present on disk and builds
+user-facing allowlist strings. Enforcement (basename unitrace.sh / unisearch.sh)
 lives in bash_classify.py and is intentionally broader than this guidance.
 """
 
@@ -13,21 +13,21 @@ import os
 import re
 from pathlib import Path
 
-_EXPLORE_NAME_RE = re.compile(r"(?m)^name:\s*explore\s*$")
+_UNITRACE_NAME_RE = re.compile(r"(?m)^name:\s*unitrace\s*$")
 
-EXPLORE_SCRIPT_BASENAMES = ("trace.sh", "websearch.sh", "search.sh")
+UNITRACE_SCRIPT_BASENAMES = ("unitrace.sh", "unisearch.sh", "websearch.sh", "search.sh")
 
-# The stable central runtime (~/.unifable/current/skills/explore) is preferred:
+# The stable central runtime (~/.unifable/current/skills/unitrace) is preferred:
 # runtime_sync seeds it from the newest plugin version every SessionStart, so it
 # resolves regardless of which CLI or plugin cache is active and survives deletion
-# of the legacy hand-maintained host copies below. The explore skill's scripts/
-# holds all three entrypoints (trace.sh, search.sh, websearch.sh); the sibling
-# explore-websearch skill is a thin delegating entrypoint over the same code.
-_DEFAULT_EXPLORE_ROOTS = (
-    ".unifable/current/skills/explore",
-    ".agents/skills/explore",
-    ".claude/skills/explore",
-    ".cursor/skills/explore",
+# of the legacy hand-maintained host copies below. The unitrace skill's scripts/
+# holds the entrypoints (unitrace.sh, search.sh, websearch.sh); the sibling
+# unisearch skill is a thin delegating entrypoint over the same code.
+_DEFAULT_UNITRACE_ROOTS = (
+    ".unifable/current/skills/unitrace",
+    ".agents/skills/unitrace",
+    ".claude/skills/unitrace",
+    ".cursor/skills/unitrace",
 )
 
 
@@ -48,25 +48,25 @@ def _display_path(path: Path) -> str:
 
 def _valid_explore_skill_root(root: Path) -> bool:
     skill_md = root / "SKILL.md"
-    trace_sh = root / "scripts" / "trace.sh"
-    if not skill_md.is_file() or not trace_sh.is_file():
+    unitrace_sh = root / "scripts" / "unitrace.sh"
+    if not skill_md.is_file() or not unitrace_sh.is_file():
         return False
     try:
         text = skill_md.read_text(encoding="utf-8", errors="replace")[:4096]
     except OSError:
         return False
-    return bool(_EXPLORE_NAME_RE.search(text))
+    return bool(_UNITRACE_NAME_RE.search(text))
 
 
 @functools.lru_cache(maxsize=8)
 def _resolve_explore_skill_root_cached(home: str, override: str) -> str | None:
-    """Return explore skill root path string or None; keyed by home + env override."""
+    """Return unitrace skill root path string or None; keyed by home + env override."""
     roots: tuple[Path, ...]
     if override:
         roots = (Path(override).expanduser(),)
     else:
         home_path = Path(home)
-        roots = tuple(home_path / rel for rel in _DEFAULT_EXPLORE_ROOTS)
+        roots = tuple(home_path / rel for rel in _DEFAULT_UNITRACE_ROOTS)
     for root in roots:
         if _valid_explore_skill_root(root):
             return str(root.resolve())
@@ -76,18 +76,18 @@ def _resolve_explore_skill_root_cached(home: str, override: str) -> str | None:
 def _resolve_explore_skill_root() -> Path | None:
     raw = _resolve_explore_skill_root_cached(
         str(_home()),
-        os.environ.get("UNIFABLE_EXPLORE_SKILL_ROOT", "").strip(),
+        os.environ.get("UNIFABLE_UNITRACE_SKILL_ROOT", "").strip(),
     )
     return Path(raw) if raw else None
 
 
 def _installed_explore_scripts() -> list[tuple[str, Path]]:
-    """Return installed explore scripts as (basename, path) pairs in stable order."""
+    """Return installed unitrace scripts as (basename, path) pairs in stable order."""
     root = _resolve_explore_skill_root()
     if root is None:
         return []
     out: list[tuple[str, Path]] = []
-    for name in EXPLORE_SCRIPT_BASENAMES:
+    for name in UNITRACE_SCRIPT_BASENAMES:
         script = root / "scripts" / name
         if script.is_file():
             out.append((name, script.resolve()))
@@ -95,15 +95,15 @@ def _installed_explore_scripts() -> list[tuple[str, Path]]:
 
 
 def resolve_explore_trace_sh() -> Path | None:
-    """Return the explore skill's trace.sh when SKILL.md + script exist."""
+    """Return the unitrace skill's unitrace.sh when SKILL.md + script exist."""
     for name, path in _installed_explore_scripts():
-        if name == "trace.sh":
+        if name == "unitrace.sh":
             return path
     return None
 
 
 def resolve_explore_websearch_sh() -> Path | None:
-    """Return the explore skill's websearch.sh when installed alongside trace.sh."""
+    """Return the unitrace skill's websearch.sh when installed alongside unitrace.sh."""
     for name, path in _installed_explore_scripts():
         if name == "websearch.sh":
             return path
@@ -111,8 +111,8 @@ def resolve_explore_websearch_sh() -> Path | None:
 
 
 def resolve_explore_search_sh() -> Path | None:
-    """Return the explore skill's search.sh (fast read-only code search) when
-    installed alongside trace.sh. Used by the groundedness breaker to self-resolve
+    """Return the unitrace skill's search.sh (fast read-only code search) when
+    installed alongside unitrace.sh. Used by the groundedness breaker to self-resolve
     find/read-checkable claims before arming."""
     for name, path in _installed_explore_scripts():
         if name == "search.sh":
@@ -134,7 +134,7 @@ def _explore_scripts_clause(*, markdown: bool) -> str:
     else:
         parts = [f"{name} ({_display_path(path)})" for name, path in scripts]
     joined = " and ".join(parts)
-    return f"the explore skill's {joined}"
+    return f"the unitrace skill's {joined}"
 
 
 def explore_trace_list_item() -> str:
@@ -180,7 +180,7 @@ def explore_trace_compact_item() -> str:
     if not scripts:
         return ""
     names = "/".join(name for name, _path in scripts)
-    return f", explore {names}"
+    return f", unitrace {names}"
 
 
 def bash_allowed_summary() -> str:

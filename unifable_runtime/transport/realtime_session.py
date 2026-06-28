@@ -29,7 +29,7 @@ _DAEMON_INELIGIBLE = (
 )
 
 
-# --- reask classifiers (mirror explore submit-phase reask) --------------------
+# --- reask classifiers (mirror unitrace submit-phase reask) --------------------
 
 
 def reask_eligible(err_msg: str, ineligible: tuple[str, ...]) -> bool:
@@ -57,7 +57,7 @@ def reask_reason_from_text(text: str) -> str | None:
 
 
 def augment_user_text(user_text: str, reason: str) -> str:
-    """Append the failure reason to the user text so the reask sees it (explore's
+    """Append the failure reason to the user text so the reask sees it (unitrace's
     ``PREVIOUS SUBMIT FAILED`` pattern). Left uncapped; the sender caps per the
     256k field limit before transmit."""
     return (

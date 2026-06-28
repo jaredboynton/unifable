@@ -21,8 +21,8 @@ four cases:
      phase (grade STANDARD+, no valid spec yet), Bash/REPL/exec_command may run only
      `cd`, `ls`, `glob`, `rg`, read-only file inspection (`head`, `tail`, `wc`,
      `sort`, `uniq`), read-only `git` subcommands and workflow git (`status`, `add`,
-     `commit`, `push` without `--force`), a file whose basename is `trace.sh` or
-     `websearch.sh` when the explore
+     `commit`, `push` without `--force`), a file whose basename is `unitrace.sh` or
+     `unisearch.sh` when the unitrace
      skill is installed (guidance shows resolved paths), or a user-facing unifusion skill
      script (`unifusion.sh`, `save_run.sh`, `summarize_session.sh`, `resolve_session.sh`).
      A valid spec unlocks the action phase (all shell commands allowed). LIGHT waives.

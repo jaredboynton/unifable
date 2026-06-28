@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for install-detected explore skill guidance copy."""
+"""Tests for install-detected unitrace skill guidance copy."""
 
 from __future__ import annotations
 
@@ -21,19 +21,19 @@ def _clear_cache() -> None:
 
 def _write_explore_skill(root: Path, *, include_websearch: bool = True) -> Path:
     root.mkdir(parents=True, exist_ok=True)
-    (root / "SKILL.md").write_text("---\nname: explore\n---\n", encoding="utf-8")
-    trace = root / "scripts" / "trace.sh"
-    trace.parent.mkdir(parents=True, exist_ok=True)
-    trace.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    (root / "SKILL.md").write_text("---\nname: unitrace\n---\n", encoding="utf-8")
+    unitrace = root / "scripts" / "unitrace.sh"
+    unitrace.parent.mkdir(parents=True, exist_ok=True)
+    unitrace.write_text("#!/usr/bin/env bash\n", encoding="utf-8")
     if include_websearch:
         (root / "scripts" / "websearch.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
-    return trace.resolve()
+    return unitrace.resolve()
 
 
 def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
+    monkeypatch.delenv("UNIFABLE_UNITRACE_SKILL_ROOT", raising=False)
     assert rbg.resolve_explore_trace_sh() is None
     assert rbg.resolve_explore_websearch_sh() is None
     assert (
@@ -47,54 +47,54 @@ def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.M
 def test_resolve_finds_agents_skill_layout(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
-    trace = _write_explore_skill(tmp_path / ".agents" / "skills" / "explore")
+    monkeypatch.delenv("UNIFABLE_UNITRACE_SKILL_ROOT", raising=False)
+    trace = _write_explore_skill(tmp_path / ".agents" / "skills" / "unitrace")
     assert rbg.resolve_explore_trace_sh() == trace
-    websearch = tmp_path / ".agents" / "skills" / "explore" / "scripts" / "websearch.sh"
+    websearch = tmp_path / ".agents" / "skills" / "unitrace" / "scripts" / "websearch.sh"
     assert rbg.resolve_explore_websearch_sh() == websearch.resolve()
     summary = rbg.bash_allowed_summary()
-    assert "explore trace.sh/websearch.sh" in summary
+    assert "unitrace unitrace.sh/websearch.sh" in summary
     detail = rbg.allowed_research_bash_detail()
-    assert "~/.agents/skills/explore/scripts/trace.sh" in detail
-    assert "~/.agents/skills/explore/scripts/websearch.sh" in detail
+    assert "~/.agents/skills/unitrace/scripts/unitrace.sh" in detail
+    assert "~/.agents/skills/unitrace/scripts/websearch.sh" in detail
 
 
 def test_env_override_wins(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     custom = tmp_path / "custom-explore"
     trace = _write_explore_skill(custom)
-    monkeypatch.setenv("UNIFABLE_EXPLORE_SKILL_ROOT", str(custom))
+    monkeypatch.setenv("UNIFABLE_UNITRACE_SKILL_ROOT", str(custom))
     assert rbg.resolve_explore_trace_sh() == trace
 
 
 def test_invalid_skill_md_name_rejected(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
-    root = tmp_path / ".agents" / "skills" / "explore"
+    root = tmp_path / ".agents" / "skills" / "unitrace"
     root.mkdir(parents=True)
     (root / "SKILL.md").write_text("---\nname: other\n---\n", encoding="utf-8")
-    trace = root / "scripts" / "trace.sh"
+    trace = root / "scripts" / "unitrace.sh"
     trace.parent.mkdir(parents=True, exist_ok=True)
     trace.write_text("#!/bin/bash\n", encoding="utf-8")
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
+    monkeypatch.delenv("UNIFABLE_UNITRACE_SKILL_ROOT", raising=False)
     assert rbg.resolve_explore_trace_sh() is None
 
 
 def test_trace_only_without_websearch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
-    _write_explore_skill(tmp_path / ".agents" / "skills" / "explore", include_websearch=False)
+    monkeypatch.delenv("UNIFABLE_UNITRACE_SKILL_ROOT", raising=False)
+    _write_explore_skill(tmp_path / ".agents" / "skills" / "unitrace", include_websearch=False)
     _clear_cache()
     assert rbg.resolve_explore_trace_sh() is not None
     assert rbg.resolve_explore_websearch_sh() is None
-    assert "explore trace.sh" in rbg.bash_allowed_summary()
+    assert "unitrace unitrace.sh" in rbg.bash_allowed_summary()
 
 
 def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
+    monkeypatch.delenv("UNIFABLE_UNITRACE_SKILL_ROOT", raising=False)
     assert rbg.explore_trace_list_item() == ""
     detail = rbg.allowed_research_bash_detail()
     assert "read-only python/python3 -c inspection" in detail
@@ -102,33 +102,33 @@ def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert ", ," not in detail
     assert ", the unifusion skill scripts" in detail
 
-    _write_explore_skill(tmp_path / ".agents" / "skills" / "explore")
+    _write_explore_skill(tmp_path / ".agents" / "skills" / "unitrace")
     _clear_cache()
     item = rbg.explore_trace_list_item()
-    assert item.startswith(", the explore skill's trace.sh (")
+    assert item.startswith(", the unitrace skill's unitrace.sh (")
     assert " and websearch.sh (" in item
     detail = rbg.allowed_research_bash_detail()
     assert ", ," not in detail
-    assert ", the explore skill's trace.sh" in detail
+    assert ", the unitrace skill's unitrace.sh" in detail
     assert "websearch.sh" in detail
 
 
 def test_markdown_placeholders(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     monkeypatch.setenv("HOME", str(tmp_path))
-    monkeypatch.delenv("UNIFABLE_EXPLORE_SKILL_ROOT", raising=False)
+    monkeypatch.delenv("UNIFABLE_UNITRACE_SKILL_ROOT", raising=False)
     assert rbg.explore_trace_list_item_md() == ""
     assert rbg.explore_trace_inline_md() == ""
 
-    _write_explore_skill(tmp_path / ".agents" / "skills" / "explore")
+    _write_explore_skill(tmp_path / ".agents" / "skills" / "unitrace")
     _clear_cache()
     assert (
         rbg.explore_trace_list_item_md()
-        == ", the explore skill's `trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`) "
-        "and `websearch.sh` (`~/.agents/skills/explore/scripts/websearch.sh`)"
+        == ", the unitrace skill's `unitrace.sh` (`~/.agents/skills/unitrace/scripts/unitrace.sh`) "
+        "and `websearch.sh` (`~/.agents/skills/unitrace/scripts/websearch.sh`)"
     )
     assert (
         rbg.explore_trace_inline_md()
-        == "the explore skill's `trace.sh` (`~/.agents/skills/explore/scripts/trace.sh`) "
-        "and `websearch.sh` (`~/.agents/skills/explore/scripts/websearch.sh`), "
+        == "the unitrace skill's `unitrace.sh` (`~/.agents/skills/unitrace/scripts/unitrace.sh`) "
+        "and `websearch.sh` (`~/.agents/skills/unitrace/scripts/websearch.sh`), "
     )

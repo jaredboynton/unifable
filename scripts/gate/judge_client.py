@@ -6,7 +6,7 @@ MODEL and runs one structured request over the warm WebSocket. The default model
 (gpt-realtime-2) keeps the original socket path so existing judge behavior is
 byte-identical; other models (e.g. gpt-realtime-mini, the recon/exec lane) get
 their own per-model socket + process so a mini pool never shares a session/socket
-with the gpt-realtime-2 judge. This mirrors the explore skill's daemon-client.mjs
+with the gpt-realtime-2 judge. This mirrors the unitrace skill's daemon-client.mjs
 namespacing -- one central daemon (scripts/gate/realtime_daemon.py), per-model
 warm sockets.
 

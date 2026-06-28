@@ -1,5 +1,5 @@
 {
-  "_comment": "Per-path classification overrides for scripts/audit_runtime_inventory.py. Every entry needs path, classification (active|compat-shim|legacy-flag|archived|fixture), owner, and reason. Rule-based defaults in the audit cover archive/bench/test/bin/setup/explore/unifusion; this file explains the residue and any future legacy-flag entries.",
+  "_comment": "Per-path classification overrides for scripts/audit_runtime_inventory.py. Every entry needs path, classification (active|compat-shim|legacy-flag|archived|fixture), owner, and reason. Rule-based defaults in the audit cover archive/bench/test/bin/setup/unitrace/unifusion; this file explains the residue and any future legacy-flag entries.",
   "entries": [
     {
       "path": "hooks/router.sh",
@@ -26,10 +26,10 @@
       "reason": "full verification suite runner; dev tooling, not a runtime path"
     },
     {
-      "path": "skills/explore-websearch/scripts/websearch.sh",
+      "path": "skills/unisearch/scripts/unisearch.sh",
       "classification": "active",
-      "owner": "explore-websearch-skill",
-      "reason": "supported gate-allowlisted websearch entrypoint; delegates to the explore implementation, targeted for Python port"
+      "owner": "unisearch-skill",
+      "reason": "supported gate-allowlisted websearch entrypoint; delegates to the unitrace implementation, targeted for Python port"
     }
   ]
 }

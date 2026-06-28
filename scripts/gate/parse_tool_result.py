@@ -379,10 +379,10 @@ def mcp_evidence(input_data: dict[str, Any], limit: int = MCP_EVIDENCE_CHARS) ->
 
 
 # --------------------------------------------------------------------------- #
-# Research-output compression (explore trace.sh / websearch.sh stdout)
+# Research-output compression (unitrace unitrace.sh / unisearch.sh stdout)
 # --------------------------------------------------------------------------- #
 # The legacy path fed this stdout through ledger.redact, which flattens newlines
-# and HEAD-truncates to the budget. trace.sh/websearch.sh put their high-signal
+# and HEAD-truncates to the budget. unitrace.sh/unisearch.sh put their high-signal
 # payload -- source URLs, file:line code refs, and the closing Recommendation /
 # Key-files summary -- across the body and at the TAIL, so head-truncation drops
 # exactly what an evidence_only research judge adjudicates against, and the
@@ -674,7 +674,7 @@ def repl_nested_activity(input_data: dict[str, Any]) -> tuple[list[str], list[st
 
 
 def research_bash_evidence(input_data: dict[str, Any], limit: int = RESEARCH_BASH_EVIDENCE_CHARS) -> str | None:
-    """Compact ``<script>: <result>`` evidence for explore trace.sh/websearch.sh Bash.
+    """Compact ``<script>: <result>`` evidence for unitrace unitrace.sh/unisearch.sh Bash.
 
     Captured into ledger['tool_evidence'] and surfaced to the Stop validation
     judge so research requirements can be adjudicated against the actual
@@ -709,7 +709,7 @@ def command_output_evidence(input_data: dict[str, Any], limit: int = COMMAND_OUT
     see the proof. Captured into ledger['command_outputs'] and surfaced to the Stop
     validation judge as its own corpus category.
 
-    Deferred to research_bash_evidence for explore trace.sh/websearch.sh (richer
+    Deferred to research_bash_evidence for unitrace unitrace.sh/unisearch.sh (richer
     capture) to avoid double-recording. Output is compressed with
     compress_research_output (newline-preserving, secret-redacted, salience-budgeted).
     Returns None for non-shell tools, empty output, or explore-script commands."""
@@ -771,7 +771,7 @@ def fetched_url_targets(input_data: dict[str, Any]) -> list[str]:
     if is_shell_tool(tool):
         cmd = command_from_input(input_data)
         if _explore_script_in_bash_command(cmd):
-            # websearch.sh / trace.sh embed source URLs in stdout, not the argv.
+            # unisearch.sh / unitrace.sh embed source URLs in stdout, not the argv.
             out.extend(_urls_from_any(input_data.get("tool_response")))
     if _is_fetch_tool(tool):
         out.extend(_urls_from_any(input_data.get("tool_response")))

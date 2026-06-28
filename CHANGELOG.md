@@ -1,5 +1,58 @@
 # Changelog
 
+## 1.19.0 - 2026-06-28
+
+- Renamed the `explore` skill to `unitrace` and `explore-websearch` to `unisearch`
+  (directories, `name:` frontmatter, SKILL.md headings/descriptions, and the
+  entry scripts `trace.sh` -> `unitrace.sh` and `websearch.sh` -> `unisearch.sh`).
+  The deep-trace entry is now `skills/unitrace/scripts/unitrace.sh`; the external-
+  research entry is `skills/unisearch/scripts/unisearch.sh`, a thin delegator that
+  self-resolves its sibling `skills/unitrace` implementation (one impl, no drift).
+  Internal JS module filenames and function names containing "explore" (e.g.
+  `explore-skill-context.mjs`, `explore_exec`, `runExplorePhase`) are intentionally
+  left as-is; the trace pipeline phase names ("explore phase", "nav explore") are
+  unchanged.
+- New global `unitrace` and `unisearch` launchers on `~/.local/bin`, mirroring the
+  `unifusion` launcher added in 1.18.0. `scripts/gate/runtime_sync.py` now writes
+  `_UNITRACE_BOOTSTRAP` + `_UNISEARCH_BOOTSTRAP` (registered in `_BOOTSTRAPS`) that
+  exec `~/.unifable/current/skills/unitrace/scripts/unitrace.sh` and
+  `.../skills/unisearch/scripts/unisearch.sh`. So `unitrace "<question>"` and
+  `unisearch "<research goal>"` run from any cwd whether or not the plugin is
+  enabled, as long as `~/.unifable/current` has been seeded once. `setup/uninstall.sh`
+  now also removes the `unitrace` + `unisearch` links.
+- **Breaking: `EXPLORE_*` env-var prefix migration.** All `EXPLORE_*` knobs are
+  renamed: websearch-specific vars (`EXPLORE_WS_*`, `EXPLORE_ALPHA_*`,
+  `EXPLORE_WEBSEARCH_*`) -> `UNISEARCH_*`; everything else (RT, SEARCH, MAP, GREP,
+  AST, PAGERANK, BENCH, HOME, IMPL_DIR, SKILL_*, RUNS_DIR, etc.) -> `UNITRACE_*`.
+  Anyone overriding `EXPLORE_*` knobs today must switch to the new prefixes. The
+  `UNIFABLE_EXPLORE_SKILL_ROOT` env override is now `UNIFABLE_UNITRACE_SKILL_ROOT`.
+- Gate allowlist (`scripts/gate/research_bash_guidance.py` + `bash_classify.py`):
+  `UNITRACE_SCRIPT_BASENAMES = ("unitrace.sh", "unisearch.sh", "websearch.sh",
+  "search.sh")`; the skill-name regex now matches `name: unitrace`; default roots
+  point at `skills/unitrace`; `submit_enhance._entrypoint_path` resolves
+  `skills/unitrace/scripts/enhance-prompt.mjs`. The trace seed matcher
+  (`rt-map-seed.mjs`) now triggers on `\b(?:uni)?trace\b` so "unitrace" questions
+  still get curated trace seeds, and the curated seed path is `scripts/unitrace.sh`.
+- Runtime inventory (`scripts/audit_runtime_inventory.py`) + its allowlist
+  (`docs/benchmarks/python-consolidation-runtime-allowlist.json`) re-pointed at
+  `skills/unitrace` / `skills/unisearch` with `unitrace-skill` / `unisearch-skill`
+  owners. Regenerated `docs/generated/` (judgeprompts now reference
+  `unitrace.sh`/`search.sh`). Updated README, root + skills `AGENTS.md`, and
+  `docs/evidence-gate-design.md` prose/paths.
+- Tests: added `test_sync_installs_unitrace_launcher` +
+  `test_sync_installs_unisearch_launcher` to `tests/test_runtime_sync.py`; updated
+  `test_research_bash_guidance.py`, `test_bash_classify.py`,
+  `test_runtime_inventory.py`, `test_submit_enhance.py`, `test_command_output_evidence.py`,
+  `test_mcp_evidence.py`, `test_research_evidence_compress.py`,
+  `test_codex_judge_reask.py`, and the in-skill node tests (`rt-map-seed`,
+  `rt-pick-passages`, `rt-trace-utils`, `explore-wire-format`) to the new skill
+  names, script basenames, and `UNITRACE_*`/`UNISEARCH_*` env vars.
+- SessionStart frame (`scripts/gate/context_block.py`) now includes mute discipline:
+  "Do not narrate exploration. Tool calls only until blocked or done." Regenerated
+  hook-output docs; thin-frame test cap raised to 950 chars.
+- Removed `output-styles/fable.md`. `install/claude.sh` ships only `mute.md` as the
+  default output style (`outputStyle=mute`).
+
 ## 1.18.0 - 2026-06-27
 
 - New global `unifusion` launcher on `~/.local/bin`. The SessionStart runtime-sync
@@ -479,7 +532,7 @@ Verification:
   implementation (one engine, no duplicated lib): it resolves the explore copy
   from `~/.unifable/current/skills/explore`, then a sibling fallback.
 - Pointed the research-Bash gate resolver at the central runtime first
-  (`research_bash_guidance._DEFAULT_EXPLORE_ROOTS`), so `trace.sh` / `search.sh`
+  (`research_bash_guidance._DEFAULT_UNITRACE_ROOTS`), so `trace.sh` / `search.sh`
   / `websearch.sh` resolve from `~/.unifable/current` and survive removal of the
   legacy hand-maintained `~/.agents/skills/explore` copy.
 - Rewrote `skills/explore/SKILL.md` to document the central path and the

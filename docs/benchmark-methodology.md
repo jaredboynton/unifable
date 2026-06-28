@@ -163,7 +163,7 @@ snapshot of the worktree filesystem (`bench.py` `_snapshot_worktree` /
 
 The run above used the operator's **inherited** environment (real `$HOME`), so the
 Claude cells inherited non-unifable user hooks — notably an explore hard-gate that
-blocks Read/Grep/Glob until a `trace.sh` that did not exist there, leaving the agent
+blocks Read/Grep/Glob until a `unitrace.sh` that did not exist there, leaving the agent
 believing it had no file tools and routing everything through delegation. That is an
 environmental confound, not a property of unifable, which the hermetic run isolates.
 

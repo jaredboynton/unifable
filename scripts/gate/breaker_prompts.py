@@ -148,7 +148,7 @@ _JUDGE_SCHEMA: dict[str, Any] = {
             "description": (
                 "When verdict=1 AND the claim is settleable by RUNNING one READ-ONLY shell command "
                 "whose exit code is the answer (e.g. `rg -q PATTERN path`, `grep -q ...`, a read-only "
-                "`git ...`, an `ast-grep` scan, an explore `trace.sh`/`search.sh` query). The breaker "
+                "`git ...`, an `ast-grep` scan, a unitrace `unitrace.sh`/`search.sh` query). The breaker "
                 "runs it on a recon/exec lane and DE-ESCALATES if exit 0 plus the captured output "
                 "grounds the claim -- so you need not arm and force the model to re-run what the "
                 "breaker can run here. Command MUST be read-only; any mutating command is rejected "

@@ -48,7 +48,7 @@ PY
 
 echo "unifable uninstall complete ($host/$scope)."
 B="${UNIFABLE_BIN_DIR:-$HOME/.local/bin}"
-rm -f "$B/unifable" "$B/unifable-hook" "$B/unifable-spec" "$B/unifusion"
-echo "  removed (if present): $B/unifable, $B/unifable-hook, $B/unifable-spec, $B/unifusion"
+rm -f "$B/unifable" "$B/unifable-hook" "$B/unifable-spec" "$B/unifusion" "$B/unitrace" "$B/unisearch"
+echo "  removed (if present): $B/unifable, $B/unifable-hook, $B/unifable-spec, $B/unifusion, $B/unitrace, $B/unisearch"
 echo "  Claude: also run /plugin to uninstall the plugin (removes its hooks)."
 echo "  Codex:  run 'codex plugin remove unifable@unifable'. If upgrading from a legacy skill install, also remove unifable entries from ~/.codex/hooks.json (back up first)."

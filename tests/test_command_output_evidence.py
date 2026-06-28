@@ -72,7 +72,7 @@ def test_deferred_for_explore_script():
     so command_output_evidence stays out of the way (no double-recording)."""
     inp = {
         "tool_name": "Bash",
-        "tool_input": {"command": "bash ~/.agents/skills/explore/scripts/websearch.sh 'x'"},
+        "tool_input": {"command": "bash ~/.agents/skills/unitrace/scripts/websearch.sh 'x'"},
         "tool_response": {"stdout": "Verified facts\n- something https://example.com/a"},
     }
     assert command_output_evidence(inp) is None

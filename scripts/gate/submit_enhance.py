@@ -2,7 +2,7 @@
 
 Host-agnostic policy layer (no Claude/Codex host imports; stdlib only). The
 heavy lifting (retrieve + mini-nav + full synth) runs in a Node subprocess
-(skills/explore/scripts/enhance-prompt.mjs) that reuses the explore skill's
+(skills/unitrace/scripts/enhance-prompt.mjs) that reuses the unitrace skill's
 in-repo machinery. This module decides WHETHER to enhance, runs it with a hard
 timeout, hard-gates the output (no repo-specific commands; char caps), and
 fail-opens to the static baseline on any error.
@@ -195,13 +195,13 @@ def gate_enhanced(enhanced: dict) -> dict | None:
 
 
 def _entrypoint_path() -> Path | None:
-    """Resolve skills/explore/scripts/enhance-prompt.mjs relative to this file.
+    """Resolve skills/unitrace/scripts/enhance-prompt.mjs relative to this file.
 
     This file lives at <plugin>/scripts/gate/submit_enhance.py, so the entrypoint
-    is at <plugin>/skills/explore/scripts/enhance-prompt.mjs = parents[2]/...
+    is at <plugin>/skills/unitrace/scripts/enhance-prompt.mjs = parents[2]/...
     """
     try:
-        p = Path(__file__).resolve().parents[2] / "skills" / "explore" / "scripts" / "enhance-prompt.mjs"
+        p = Path(__file__).resolve().parents[2] / "skills" / "unitrace" / "scripts" / "enhance-prompt.mjs"
         return p if p.is_file() else None
     except Exception:
         return None
@@ -223,7 +223,7 @@ def run_enhancer(prompt: str, cwd: str, timeout_ms: int | None = None) -> dict |
         return None
     timeout = (timeout_ms if timeout_ms and timeout_ms > 0 else _timeout_ms()) / 1000.0
     env = dict(os.environ)
-    env["EXPLORE_AST_SKIP_INSTALL"] = env.get("EXPLORE_AST_SKIP_INSTALL", "1")
+    env["UNITRACE_AST_SKIP_INSTALL"] = env.get("UNITRACE_AST_SKIP_INSTALL", "1")
     payload = json.dumps({"prompt": prompt, "cwd": cwd})
     try:
         proc = subprocess.run(

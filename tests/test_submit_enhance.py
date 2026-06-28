@@ -9,7 +9,7 @@ Unit-tests the Python policy layer ONLY (no Node, no daemon, no network):
     cited_ranges clamped to 8 and typed.
   - fail-open: missing node / missing script / timeout / nonzero exit / bad
     JSON / ok:false / empty prompt all -> None (static baseline used).
-  - entrypoint path resolves to the shipped skills/explore/scripts/enhance-prompt.mjs.
+  - entrypoint path resolves to the shipped skills/unitrace/scripts/enhance-prompt.mjs.
 
 The Node entrypoint + live daemon are exercised separately (smoke + eval); here
 the subprocess is stubbed so the suite stays fast, deterministic, and offline.
@@ -184,7 +184,7 @@ def test_entrypoint_path_resolves_to_explore_script():
     p = se._entrypoint_path()
     assert p is not None, "entrypoint path did not resolve (plugin-root mismatch?)"
     assert p.name == "enhance-prompt.mjs"
-    assert p.parent.as_posix().endswith("skills/explore/scripts")
+    assert p.parent.as_posix().endswith("skills/unitrace/scripts")
     assert p.is_file(), f"entrypoint missing on disk: {p}"
 
 
