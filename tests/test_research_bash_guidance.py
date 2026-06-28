@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import runpy
 import sys
 from pathlib import Path
 
@@ -38,7 +39,8 @@ def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.M
     assert rbg.resolve_explore_websearch_sh() is None
     assert (
         rbg.bash_allowed_summary()
-        == "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, jq, "
+        == "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, cat/nl (file reads only), "
+        "head, tail, wc, sort, uniq, jq, "
         "read-only git, git add/commit/push (no --force), read-only python/python3 -c, "
         "unifusion scripts, unifable spec CLI"
     )
@@ -91,6 +93,23 @@ def test_trace_only_without_websearch(tmp_path: Path, monkeypatch: pytest.Monkey
     assert "unitrace unitrace.sh" in rbg.bash_allowed_summary()
 
 
+def test_cat_nl_guidance_reaches_breaker_prompt_summary() -> None:
+    prompts = runpy.run_path(str(REPO / "scripts" / "gate" / "breaker_prompts.py"))
+    texts = {
+        "summary": rbg.bash_allowed_summary(),
+        "detail": rbg.allowed_research_bash_detail(),
+        "breaker_summary": prompts["_research_bash_whitelist_summary"](),
+    }
+    failures: list[str] = []
+    for name, text in texts.items():
+        missing = [cmd for cmd in ("cat", "nl") if cmd not in text]
+        if missing:
+            failures.append(f"missing cat/nl in {name}: missing={missing}; text={text!r}")
+        if "file reads only" not in text:
+            failures.append(f"missing file-read constraint in {name}: {text!r}")
+    assert not failures, "\n".join(failures)
+
+
 def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     _clear_cache()
     monkeypatch.setenv("HOME", str(tmp_path))
@@ -98,6 +117,7 @@ def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert rbg.explore_trace_list_item() == ""
     detail = rbg.allowed_research_bash_detail()
     assert "read-only python/python3 -c inspection" in detail
+    assert "cat/nl file reads only" in detail
     assert "no writes, process spawn, or network" in detail
     assert ", ," not in detail
     assert ", the unifusion skill scripts" in detail

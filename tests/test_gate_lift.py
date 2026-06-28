@@ -130,7 +130,7 @@ def test_non_mutating_read_bash_is_not_lifted(monkeypatch, tmp_path):
     _prep(monkeypatch, tmp_path)
     called = {"n": 0}
     monkeypatch.setattr(gl, "judge_gate_lift", lambda **k: called.__setitem__("n", called["n"] + 1) or {"lift": 1})
-    for read_cmd in ("cat README.md", "nl file.txt", "pwd"):
+    for read_cmd in ("cat", "nl", "pwd"):
         input_data, tool_input = _bash_input(tmp_path, read_cmd)
         rc = ptu._enforce_bash(input_data, tool_input, str(tmp_path), tool_name="Bash")
         assert rc != 0, read_cmd  # stays blocked
@@ -141,8 +141,9 @@ def test_whitelisted_research_bash_never_calls_judge(monkeypatch, tmp_path):
     _prep(monkeypatch, tmp_path)
     called = {"n": 0}
     monkeypatch.setattr(gl, "judge_gate_lift", lambda **k: called.__setitem__("n", called["n"] + 1) or {"lift": 1})
-    input_data, tool_input = _bash_input(tmp_path, "ls -la /dst")
-    assert ptu._enforce_bash(input_data, tool_input, str(tmp_path), tool_name="Bash") == 0
+    for command in ("ls -la /dst", "cat README.md", "nl -ba README.md"):
+        input_data, tool_input = _bash_input(tmp_path, command)
+        assert ptu._enforce_bash(input_data, tool_input, str(tmp_path), tool_name="Bash") == 0
     assert called["n"] == 0  # ls is allowed research -> the lift path is never reached
 
 

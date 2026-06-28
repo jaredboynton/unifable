@@ -35,7 +35,7 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
 # bump the plugin version everywhere (all 4 plugin dirs)
-just version 1.20.1          # or: just version patch|minor|major
+just version 1.21.0          # or: just version patch|minor|major
 ```
 
 ## Release conventions (repo-wide)

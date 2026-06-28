@@ -381,6 +381,12 @@ def sync_runtime(*, force: bool = False, source: str | os.PathLike | None = None
             dest = home / "versions" / latest_name
             if (not force and _has_runtime(dest)) or _copy_version(latest_path, dest):
                 changed = _flip_current(home, latest_name)
+                # A swallowed OSError in _flip_current can strand current on the
+                # old version even though the new one was just copied. Retry once
+                # when the new version is valid but current did not advance, so a
+                # single transient flip failure cannot leave the runtime stale.
+                if not changed and _has_runtime(dest) and current_version(home) != latest_name:
+                    changed = _flip_current(home, latest_name)
 
         _write_bootstraps(home, bdir)
         _gc_versions(home, protect=current_version(home))

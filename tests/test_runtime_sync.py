@@ -353,3 +353,45 @@ def test_fail_open_when_no_cache(tmp_path, monkeypatch):
 
     assert runtime_sync.sync_runtime() is False
     assert runtime_sync.current_version(home) is None
+
+
+def test_sync_retries_flip_after_transient_failure(tmp_path, monkeypatch):
+    # _flip_current can swallow a transient OSError (e.g. a fleeting .current.tmp
+    # collision) and return False, stranding current on the old version even
+    # though the new one was copied. sync_runtime must retry the flip once so a
+    # single transient failure cannot leave the runtime stale.
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    assert runtime_sync.sync_runtime() is True
+    _seed_cache_version(cache, "1.0.1")
+    assert runtime_sync.sync_runtime() is True
+    assert runtime_sync.current_version(home) == "1.0.1"
+    # versions/1.0.1 is now populated, so the next sync skips _copy_version and
+    # the first os.replace call in the path is _flip_current's atomic swap.
+
+    # Strand current back on the old version to set up the retry scenario.
+    (home / "current").unlink()
+    os.symlink(os.path.join("versions", "1.0.0"), home / "current")
+    assert runtime_sync.current_version(home) == "1.0.0"
+
+    real_replace = os.replace
+    calls = {"n": 0}
+
+    def flaky_replace(src, dst):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise OSError("simulated transient flip failure")
+        return real_replace(src, dst)
+
+    monkeypatch.setattr(runtime_sync.os, "replace", flaky_replace)
+
+    changed = runtime_sync.sync_runtime()
+
+    assert changed is True
+    assert runtime_sync.current_version(home) == "1.0.1"
+    assert calls["n"] >= 2, "sync_runtime must retry _flip_current after the first failure"

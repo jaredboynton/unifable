@@ -1,5 +1,37 @@
 # Changelog
 
+## 1.21.0 - 2026-06-28
+
+- Bash research whitelist now allows `cat` and `nl` for explicit file reads
+  before the evidence spec validates. They must name an actual file (no stdin,
+  no shell redirections, no `/etc/`, `/dev/`, or pure-variable paths), and they
+  work standalone, in `&&`/`||` chains, and as read-only pipeline sinks. This
+  closes the gap where reading a single file to ground work required the
+  heavier `unitrace` / `unisearch` path or manual `head`/`tail`. Updated the
+  allowlist guidance (`scripts/gate/bash_classify.py`,
+  `scripts/gate/research_bash_guidance.py`) and gate proof scenarios
+  (`tests/eval_gate_proof.py`).
+- Standing groundedness-breaker status in PostToolUse is now actionable.
+  Instead of a truncated "ARMED on '<claim>'" line, the context line states
+  why mutation tools are blocked and the exact next step to clear it, reusing
+  the stored breaker steering/directive when available. Provisional lifts
+  similarly state their scope, reason, and the drift warning. Routing prefixes
+  and dedup remain unchanged (`hooks/gate_post_tool.py`).
+- Runtime sync retries the `~/.unifable/current` flip once if a transient
+  `OSError` (e.g. a `.current.tmp` collision) would otherwise leave `current`
+  stranded on the old version after the new one was already copied
+  (`scripts/gate/runtime_sync.py`).
+- Thinner SessionStart frame for the global research launchers: drops the
+  inline examples so the line reads "use unitrace for code tracing; use
+  unisearch for web research" (`scripts/gate/context_block.py`).
+
+Verification:
+
+- `python3 -m py_compile hooks/gate_post_tool.py scripts/gate/bash_classify.py scripts/gate/research_bash_guidance.py scripts/gate/runtime_sync.py scripts/gate/context_block.py`
+- `python3 -m pytest tests/test_bash_classify.py tests/test_bash_pretooluse_gate.py tests/test_gate_lift.py tests/test_research_bash_guidance.py tests/test_runtime_sync.py tests/test_breaker_status_context.py tests/test_spec_gate.py tests/test_spec_state_notifications.py -q`
+- `just generated-docs`
+- `just test-all`
+
 ## 1.20.1 - 2026-06-28
 
 - Stop now always allows completion when the host is in Plan Mode, so the

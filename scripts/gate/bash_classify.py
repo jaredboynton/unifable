@@ -30,6 +30,32 @@ _AST_GREP_REWRITE_FLAGS = frozenset({"-U", "--update", "--rewrite"})
 # Standalone or as pipeline sinks after an allowed command.
 READONLY_INSPECTION_COMMANDS = frozenset({"head", "tail", "wc", "sort", "uniq", "jq"})
 _PIPELINE_SINKS = READONLY_INSPECTION_COMMANDS
+_FILE_READ_COMMANDS = frozenset({"cat", "nl"})
+_NL_OPTS_WITH_VALUE = frozenset(
+    {
+        "-b",
+        "--body-numbering",
+        "-d",
+        "--section-delimiter",
+        "-f",
+        "--footer-numbering",
+        "-h",
+        "--header-numbering",
+        "-i",
+        "--line-increment",
+        "-l",
+        "--join-blank-lines",
+        "-n",
+        "--number-format",
+        "-s",
+        "--number-separator",
+        "-v",
+        "--starting-line-number",
+        "-w",
+        "--number-width",
+    }
+)
+_PURE_VAR_RE = re.compile(r"^\$(?:[A-Za-z_][A-Za-z0-9_]*|\{[A-Za-z_][A-Za-z0-9_]*\})$")
 _TRACE_INTERPRETERS = frozenset({"bash", "sh", "zsh"})
 _UNIFUSION_SCRIPT_NAMES = frozenset(
     {
@@ -589,6 +615,88 @@ def _command_substitution_reason(text: str) -> str:
     return ""
 
 
+def _redirection_reason(text: str) -> str:
+    """Reason if *text* contains a live shell redirection, else ""."""
+    i, n = 0, len(text)
+    in_single = in_double = False
+    while i < n:
+        ch = text[i]
+        if in_single:
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if ch == "\\" and i + 1 < n:
+            i += 2
+            continue
+        if ch == "'":
+            in_single = True
+            i += 1
+            continue
+        if ch == '"':
+            in_double = not in_double
+            i += 1
+            continue
+        if not in_double and ch in "<>":
+            return "cat/nl file inspection does not allow shell redirections"
+        i += 1
+    return ""
+
+
+def _safe_file_read_segment(base: str, rest: list[str], segment: str, *, stdin_ok: bool) -> tuple[bool, str]:
+    """Allow cat/nl only when they read explicit files or display prior pipe output."""
+    redir = _redirection_reason(segment)
+    if redir:
+        return False, redir
+
+    files: list[str] = []
+    idx = 0
+    while idx < len(rest):
+        tok = rest[idx]
+        if tok == "--":
+            files.extend(rest[idx + 1 :])
+            break
+        if tok == "-":
+            return False, "cat/nl stdin reads are not allowed before the evidence spec is validated"
+        if tok.startswith("--"):
+            opt_name = tok.split("=", 1)[0]
+            if base == "nl" and opt_name in _NL_OPTS_WITH_VALUE and "=" not in tok and idx + 1 < len(rest):
+                idx += 2
+                continue
+            if tok in ("--help", "--version"):
+                idx += 1
+                continue
+            if "=" in tok:
+                idx += 1
+                continue
+            return False, f"{base} option {tok} is not in the read-only file-inspection allowlist"
+        if tok.startswith("-"):
+            if base == "nl" and tok in _NL_OPTS_WITH_VALUE and idx + 1 < len(rest):
+                idx += 2
+                continue
+            idx += 1
+            continue
+        files.append(tok)
+        idx += 1
+
+    for path in files:
+        if path == "-":
+            return False, "cat/nl stdin reads are not allowed before the evidence spec is validated"
+        normalized = path.strip("'\"")
+        if _PURE_VAR_RE.match(normalized):
+            return False, "cat/nl file reads must name an explicit file before the evidence spec is validated"
+        if normalized.startswith("/etc/") or normalized == "/etc":
+            return False, "cat/nl reads from sensitive system paths are not allowed before the evidence spec is validated"
+        if normalized.startswith("/dev/") or normalized == "/dev":
+            return False, "cat/nl reads from device paths are not allowed before the evidence spec is validated"
+
+    if files:
+        return True, ""
+    if stdin_ok:
+        return True, ""
+    return False, "cat/nl must name at least one file before the evidence spec is validated"
+
+
 def _declaration_segment(seg: str) -> tuple[bool, tuple[bool, str] | None]:
     """Classify a pure variable-declaration segment (`T=val`, `export A=1 B=2`).
 
@@ -650,6 +758,8 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
     base = _basename(command)
     if base in _ALLOWED_COMMANDS or base in READONLY_INSPECTION_COMMANDS:
         return True, ""
+    if base in _FILE_READ_COMMANDS:
+        return _safe_file_read_segment(base, rest, seg, stdin_ok=False)
     if base in _SPEC_CLI_NAMES:
         ok, reason = _validate_spec_append_args(rest)
         if ok:
@@ -707,12 +817,14 @@ def _allowed_pipeline_sink(seg: str) -> tuple[bool, str]:
     reason = _agent_blocked_assignment_reason(tokens)
     if reason:
         return False, reason
-    command, _rest = _first_command(tokens)
+    command, rest = _first_command(tokens)
     if not command:
         return False, "no executable command found in pipeline"
     base = _basename(command)
     if base in _PIPELINE_SINKS:
         return True, ""
+    if base in _FILE_READ_COMMANDS:
+        return _safe_file_read_segment(base, rest, seg, stdin_ok=True)
     return False, f"{base} is not an allowed read-only pipeline sink"
 
 

@@ -220,7 +220,12 @@ def test_breaker_status_context_armed_and_open(monkeypatch):
         "load_breaker",
         lambda inp: {"breaker_armed": True, "breaker_claim": "the build passes"},
     )
-    assert "breaker: ARMED on 'the build passes'" in gate_post_tool._breaker_status_context({})
+    # Structural, not exact-wording (tests/AGENTS.md): keep the routing prefix,
+    # name the claim, and carry an actionable next step (even with no steering).
+    armed = gate_post_tool._breaker_status_context({})
+    assert armed.startswith("breaker: ARMED")
+    assert "the build passes" in armed
+    assert "To disarm:" in armed
 
     monkeypatch.setattr(
         breaker_state,

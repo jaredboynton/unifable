@@ -56,7 +56,7 @@ _FRAME_TEMPLATE = (
     "- Bash/REPL/exec_command are limited to: {research_bash}.\n"
     "- Write tools and delegation stay blocked until a hook lifts them.\n"
     "\n"
-    "On PATH (read-only): use unitrace to trace code, ex: unitrace \"where is the evidence gate enforced?\"; use unisearch for web research, ex: unisearch \"SessionStart contract\".\n"
+    "On PATH: use unitrace for code tracing; use unisearch for web research.\n"
     "\n"
     "If a hook blocks you, follow its exact instruction next."
 )
