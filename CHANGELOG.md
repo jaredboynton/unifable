@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.17.4 - 2026-06-28
+
+- UserPromptSubmit consolidated from three hook processes to one. `router.sh`
+  (pack routing) and `gate_prompt_effort.py` (effort-gated playbook) are now
+  invoked in-process by `hooks/gate_prompt.py` via `_router_prefix()` and
+  `_effort_suffix()`, which merge their output with the grade/enhance context
+  into a single `additionalContext` emission (router -> grade/enhance -> effort
+  order preserved). Both `hooks/hooks.json` and `.codex-plugin/hooks.json` now
+  wire one UserPromptSubmit entry. The host spawns one process per prompt instead
+  of three, cutting per-prompt shell-out and token overhead with identical
+  output. `router.sh` and `gate_prompt_effort.py` remain as files (dispatch tests
+  and runtime_sync still target them).
+
+Verification:
+
+- `python3 -m py_compile hooks/gate_prompt.py scripts/gate/pack_router.py`
+- `python3 -m pytest tests/test_pack_router.py tests/test_effort_inject.py tests/test_grade_and_enhance.py -q`
+- `python3 scripts/generate_docs.py --check`
+- `just test-all`
+
 ## 1.17.3 - 2026-06-28
 
 - SessionStart restate instruction now states the restate gate is a one-time
