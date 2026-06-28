@@ -90,15 +90,18 @@ def test_restate_accepts_goal_flag_alias(repo, data):
 
 
 def test_second_restate_acks_already_satisfied(repo, data):
-    # First restate clears goal_seeded; the second must announce the gate is
-    # already satisfied so the PostToolUse steer can stop the redundant repeat.
+    # First restate clears goal_seeded; the second must emit a distinguishable
+    # ack that the redundant-detection regex recognizes, so the PostToolUse steer
+    # can stop the redundant repeat.
+    from model_notify import _RESTATE_REDUNDANT_RE
+
     first = _run(["restate", "establish the goal in my own words"], repo, "sess-twice", data)
     assert first.returncode == 0, first.stderr
-    assert "goal_seeded cleared" in first.stdout
+    assert not _RESTATE_REDUNDANT_RE.search(first.stdout)
     second = _run(["restate", "a thinner restatement"], repo, "sess-twice", data)
     assert second.returncode == 0, second.stderr
-    assert "already cleared" in second.stdout
-    assert "no need to restate again" in second.stdout
+    assert _RESTATE_REDUNDANT_RE.search(second.stdout)
+    assert second.stdout != first.stdout
 
 
 def test_error_prog_is_unifable(repo, data):

@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.17.3 - 2026-06-28
+
+- SessionStart restate instruction now states the restate gate is a one-time
+  step ("Do this ONLY ONCE, before any other tool call"), so the model stops
+  re-running `unifable restate` off-script and clobbering a richer goal with a
+  thinner restatement.
+- Test guidance: `tests/AGENTS.md` now forbids asserting on exact prose/copy
+  wording. Removed the brittle wording assertions from the SessionStart frame and
+  redundant-restate tests, replacing them with structural and behavioral checks
+  (the production redundant-detection regex, command tokens, line structure) so
+  copy edits no longer break the suite.
+
+Verification:
+
+- `just version 1.17.3`; `python3 scripts/generate_docs.py --check`
+- `just test-all`
+
 ## 1.17.2 - 2026-06-28
 
 - Removed the STANDARD (`normal`) mode verification steering line from

@@ -49,7 +49,7 @@ _FRAME_TEMPLATE = (
     "\n"
     "unifable restate '<goal in your own words>'\n"
     "\n"
-    "Do this before any other tool call. Until it succeeds, read-only inspection stays available, "
+    "Do this ONLY ONCE, before any other tool call. Until it succeeds, read-only inspection stays available, "
     "but write tools, delegation, and mutating Bash/REPL work stay blocked.\n"
     "\n"
     "Before the spec validates:\n"

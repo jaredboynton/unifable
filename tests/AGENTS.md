@@ -8,6 +8,8 @@ test rubrics.
 ## Rules
 
 - Do not weaken or delete protected tests to make a suite pass.
+- Do not assert on exact prose/copy wording. Test behavior and structure, not
+  human-readable strings; wording changes must not break tests.
 - New gate behavior needs a failing-first or regression test near the affected
   module.
 - Prefer focused tests while iterating, then run `just test-all` before release.
