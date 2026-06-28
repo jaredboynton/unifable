@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.21.1 - 2026-06-28
+
+- Fix a research-gate deadlock in REPL-only sessions (`CLAUDE_CODE_REPL=1`).
+  When every tool must run inside the `REPL` tool, shell is invoked as a
+  positional string -- `await sh("unifable add-task ...")` -- but the gate's
+  shell-command extractor only recognized the object form
+  (`Bash({command: ...})` / `sh({command: ...})` / `exec_command({cmd: ...})`).
+  Positional `sh("...")` extracted to nothing, so `pre_tool_use._enforce_bash`
+  fell through to a blanket "REPL code is not a whitelisted research read"
+  block -- even for whitelisted commands like the spec CLI. The Stop gate then
+  kept demanding `unifable add-task` while the only way to run it was wrongly
+  blocked. `repl_shell_cmds_from_code` now also matches positional-string and
+  tagged-template forms (`sh("...")`, `sh(\`...\`)`, `sh\`...\``), with
+  order-preserving dedupe so a command is never double-counted
+  (`scripts/gate/parse_tool_result.py`). The single chokepoint fixes the
+  pre-tool gate, the breaker research bypass, and citation extraction together.
+
+Verification:
+
+- `python3 -m py_compile scripts/gate/parse_tool_result.py`
+- `python3 -m pytest tests/test_citation_verify.py tests/test_bash_pretooluse_gate.py tests/test_groundedness_breaker.py -q`
+- `just test-all`
+
 ## 1.21.0 - 2026-06-28
 
 - Bash research whitelist now allows `cat` and `nl` for explicit file reads

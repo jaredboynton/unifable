@@ -563,11 +563,24 @@ _REPL_WEBFETCH_URL_RE = re.compile(
 )
 _REPL_CAT_RE = re.compile(r"(?:^|[^A-Za-z0-9_$])cat\s*\(\s*['\"]([^'\"]+)['\"]")
 _REPL_BASH_CMD_RE = re.compile(
-    r"(?:^|[^A-Za-z0-9_$])(?:Bash|sh)\s*\(\s*\{[^}]*command\s*:\s*['\"]([^'\"]+)['\"]",
+    r"(?:^|[^A-Za-z0-9_$])(?:Bash|sh)\s*\(\s*\{[^}]*command\s*:\s*['\"](?P<cmd>[^'\"]+)['\"]",
     re.DOTALL,
 )
 _REPL_EXEC_CMD_RE = re.compile(
-    r"(?:^|[^A-Za-z0-9_$])(?:tools\.)?exec_command\s*\(\s*\{[^}]*?\bcmd\s*:\s*['\"]([^'\"]+)['\"]",
+    r"(?:^|[^A-Za-z0-9_$])(?:tools\.)?exec_command\s*\(\s*\{[^}]*?\bcmd\s*:\s*['\"](?P<cmd>[^'\"]+)['\"]",
+    re.DOTALL,
+)
+# Claude Code's REPL exposes shell as a positional-string call -- sh("cmd") /
+# Bash('cmd') / sh(`cmd`) -- not the object form above. Match a quoted/backtick
+# first argument (honoring backslash escapes) so the gate can classify the inner
+# command instead of falling through to a blanket "not a whitelisted read" block.
+_REPL_BASH_STR_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_$])(?:Bash|sh)\s*\(\s*(?P<q>['\"`])(?P<cmd>(?:\\.|(?!(?P=q)).)*)(?P=q)",
+    re.DOTALL,
+)
+# Tagged-template form: sh`cmd` / Bash`cmd`.
+_REPL_BASH_TAG_RE = re.compile(
+    r"(?:^|[^A-Za-z0-9_$])(?:Bash|sh)\s*`(?P<cmd>(?:\\.|[^`])*)`",
     re.DOTALL,
 )
 _REPL_VIEW_IMAGE_PATH_RE = re.compile(
@@ -582,11 +595,22 @@ _REPL_TOOL_PATH_RE = re.compile(
 
 
 def repl_shell_cmds_from_code(code: str) -> list[str]:
-    """Shell commands embedded in REPL / Codex exec JS source."""
+    """Shell commands embedded in REPL / Codex exec JS source.
+
+    Covers the object form (Bash({command:...}) / exec_command({cmd:...})) and the
+    positional-string and tagged-template forms (sh("..."), sh(`...`), sh`...`)
+    that Claude Code's REPL actually exposes. Order-preserving dedupe so a command
+    matched by more than one pattern is reported once."""
     out: list[str] = []
-    for pattern in (_REPL_BASH_CMD_RE, _REPL_EXEC_CMD_RE):
-        out.extend(m.group(1) for m in pattern.finditer(code))
-    return out
+    for pattern in (_REPL_BASH_CMD_RE, _REPL_EXEC_CMD_RE, _REPL_BASH_STR_RE, _REPL_BASH_TAG_RE):
+        out.extend(m.group("cmd") for m in pattern.finditer(code))
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for cmd in out:
+        if cmd not in seen:
+            seen.add(cmd)
+            deduped.append(cmd)
+    return deduped
 
 
 def repl_code_from_input(input_data: dict[str, Any]) -> str:

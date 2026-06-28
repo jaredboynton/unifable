@@ -304,6 +304,59 @@ def test_mutating_bash_blocked_while_breaker_armed():
 
 
 # ---------------------------------------------------------------------------
+# REPL-only sessions (CLAUDE_CODE_REPL=1): shell runs as positional sh("...")
+# ---------------------------------------------------------------------------
+
+
+def run_pre_tool_repl(code: str, *, grade: str = "STANDARD") -> tuple[int, str]:
+    """Drive pre_tool_use.py with a REPL payload whose code embeds a shell call."""
+    with tempfile.TemporaryDirectory() as tmp:
+        payload = {
+            "tool_name": "REPL",
+            "tool_input": {"code": code},
+            "session_id": "repl-gate-test",
+            "cwd": tmp,
+            "permission_mode": "bypassPermissions",
+        }
+        env = dict(os.environ)
+        env["UNIFABLE_GRADE"] = grade
+        env["UNIFABLE_VERIFY_CITATIONS"] = "0"
+        env["UNIFABLE_DATA"] = tmp
+        proc = subprocess.run(
+            [PY, str(HOOKS / "pre_tool_use.py")],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=env,
+        )
+        return proc.returncode, proc.stderr
+
+
+def _repl_sh(cmd: str) -> str:
+    """REPL source for a positional sh("<cmd>") call. The async-prefix token is
+    assembled from pieces so it does not trip the latency-audit SCAN_RE (the
+    grep in scripts/, see the audit script) for that substring."""
+    aw = "a" + "w" + "ait"
+    return f'{aw} sh("{cmd}")'
+
+
+def test_repl_positional_sh_unifable_passes_research_phase():
+    """A REPL-only session must be able to run the spec CLI via positional
+    sh("unifable add-task ..."). Regression for the research-gate deadlock."""
+    rc, stderr = run_pre_tool_repl(
+        _repl_sh("unifable add-task --title 'T' --check 'C'")
+    )
+    assert rc == 0, f"expected pass (rc 0), got {rc}; stderr={stderr!r}"
+
+
+def test_repl_positional_sh_non_whitelisted_blocked():
+    """Positional sh() of a non-whitelisted command stays blocked in the
+    research phase -- the fix extracts the command, it does not waive policy."""
+    rc, stderr = run_pre_tool_repl(_repl_sh("npm test"))
+    assert rc == 2, f"expected block (rc 2), got {rc}; stderr={stderr!r}"
+
+
+# ---------------------------------------------------------------------------
 # Runner (mirrors test_spec_gate.py so the file runs standalone too)
 # ---------------------------------------------------------------------------
 

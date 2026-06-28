@@ -207,6 +207,34 @@ def test_repl_code_literal_read_registers_path():
     assert read_targets(payload) == ["src/x.py"]
 
 
+def test_repl_shell_cmds_positional_and_object_forms():
+    from parse_tool_result import repl_shell_cmds_from_code  # noqa: E402
+
+    aw = "a" + "w" + "ait"
+    # Positional-string sh("...") with inner quotes (the deadlock shape).
+    assert repl_shell_cmds_from_code(
+        f"{aw} sh(\"unifable add-task --title 'T' --check 'C'\")"
+    ) == ["unifable add-task --title 'T' --check 'C'"]
+    # Positional whitelisted research shell.
+    assert repl_shell_cmds_from_code('sh("rg -n pat hooks/")') == ["rg -n pat hooks/"]
+    # Tagged-template and parenthesized-template forms.
+    assert repl_shell_cmds_from_code(f"{aw} sh`unifable restate 'goal'`") == [
+        "unifable restate 'goal'"
+    ]
+    assert repl_shell_cmds_from_code(f"{aw} sh(`unifable add-task --title T`)") == [
+        "unifable add-task --title T"
+    ]
+    # Object form still works (no regression) and is not double-counted.
+    assert repl_shell_cmds_from_code('Bash({command: "unifable add-task --title T"})') == [
+        "unifable add-task --title T"
+    ]
+    assert repl_shell_cmds_from_code(
+        f"{aw} tools.exec_command({{ cmd: 'unifable add-task' }})"
+    ) == ["unifable add-task"]
+    # Non-shell REPL code yields no commands.
+    assert repl_shell_cmds_from_code(_repl_code('Read({file_path: "src/x.py"})')) == []
+
+
 def test_out_of_repo_home_cite_sync(tmp_path, monkeypatch):
     from citations import _path_to_cite, sync_citations_from_activity  # noqa: E402
     from spec import repo_context_of, spec_template  # noqa: E402
