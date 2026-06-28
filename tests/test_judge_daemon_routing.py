@@ -18,8 +18,8 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts" / "gate"))
 
-import realtime_daemon as jd  # noqa: E402
 import judge_client as jc  # noqa: E402
+import realtime_daemon as jd  # noqa: E402
 
 
 def _worker():

@@ -60,7 +60,6 @@ def _heavy_spec_with_approaches(**overrides) -> dict:
 
 
 sys.path.insert(0, str(HOOKS))
-import gate_stop  # noqa: E402
 import pre_tool_use  # noqa: E402
 
 # ---------------------------------------------------------------------------

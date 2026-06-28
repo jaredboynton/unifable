@@ -27,7 +27,6 @@ from parse_tool_result import (  # noqa: E402
 from spec import auto_validate_spec, load_spec, save_spec, spec_template  # noqa: E402
 from spec_judge import _evidence_payload  # noqa: E402
 
-
 # --------------------------------------------------------------------------- #
 # command_output_evidence: capture shape + boundaries
 # --------------------------------------------------------------------------- #

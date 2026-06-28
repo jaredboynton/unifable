@@ -23,7 +23,6 @@ Blocks completion in priority order; fails open on malformed input:
 
 from __future__ import annotations
 
-import json
 import os
 import sys
 from pathlib import Path
@@ -32,7 +31,6 @@ _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent / "scripts" / "gate"))
 sys.path.insert(0, str(_HERE.parent / "scripts" / "shadow"))
 
-from atomicio import write_text_atomic
 from evidence_policy import resolve_evidence_profile, resolve_grade
 from ledger import emit_json, load_ledger, read_stdin_json, save_ledger
 from transcript_locate import locate_transcript

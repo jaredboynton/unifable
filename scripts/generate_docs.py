@@ -31,7 +31,6 @@ import codex_judge  # noqa: E402
 import completion_handoff  # noqa: E402
 import context_block  # noqa: E402
 import gate_prompt_effort  # noqa: E402
-import gate_stop  # noqa: E402
 import grade_override  # noqa: E402
 import heavy_workflow  # noqa: E402
 import hook_output  # noqa: E402

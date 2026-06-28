@@ -86,7 +86,11 @@ from spec_io import canonical_project_root, load_spec, resolve_session_id, save_
 from spec_validation import validate_spec
 from tool_restrictions import (
     DELEGATION_TOOLS as _DELEGATION_TOOLS,
+)
+from tool_restrictions import (
     WRITE_TOOLS as _WRITE_TOOLS,
+)
+from tool_restrictions import (
     groundedness_block_message,
 )
 

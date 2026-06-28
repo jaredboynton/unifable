@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
+
 def _research_bash_whitelist_summary() -> str:
     try:
         from tool_restrictions import bash_research_summary

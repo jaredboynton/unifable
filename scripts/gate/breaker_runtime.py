@@ -30,6 +30,8 @@ try:
         record_adjudicated_claim,
         render_events,
     )
+    from tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS
+    from tool_restrictions import RELEASE_TOOLS as _RELEASE_TOOLS
     from transcript_locate import locate_transcript as _locate_transcript
     from transcript_tail import (
         TRANSCRIPT_TOKEN_BUDGET,
@@ -37,7 +39,6 @@ try:
         stripped_transcript_tail,
         tail_tokens,
     )
-    from tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS, RELEASE_TOOLS as _RELEASE_TOOLS
 except ImportError:  # pragma: no cover
     from scripts.gate.breaker_filters import (
         _SPEC_BOARD_BEGIN,
@@ -52,6 +53,8 @@ except ImportError:  # pragma: no cover
         record_adjudicated_claim,
         render_events,
     )
+    from scripts.gate.tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS
+    from scripts.gate.tool_restrictions import RELEASE_TOOLS as _RELEASE_TOOLS
     from scripts.gate.transcript_locate import locate_transcript as _locate_transcript
     from scripts.gate.transcript_tail import (
         TRANSCRIPT_TOKEN_BUDGET,
@@ -59,7 +62,6 @@ except ImportError:  # pragma: no cover
         stripped_transcript_tail,
         tail_tokens,
     )
-    from scripts.gate.tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS, RELEASE_TOOLS as _RELEASE_TOOLS
 
 # Coalesce window: once any judge has fired for a key, concurrent PreToolUse
 # processes from the same parallel tool-call batch (which all judge the identical

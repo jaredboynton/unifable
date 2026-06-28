@@ -146,7 +146,7 @@ def test_pretool_sanitizes_phantom_and_allows_edit(tmp_path):
     rc, out, err = _run_pre_tool(payload, str(data))
     assert rc == 0, err
     out_obj = json.loads(out or "{}")
-    from spec import load_spec, spec_path
+    from spec import load_spec
 
     os.environ["UNIFABLE_DATA"] = str(data)
     updated = load_spec(tmp_path, sess)

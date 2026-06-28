@@ -844,7 +844,6 @@ def test_adjudication_survives_event_log_overflow(monkeypatch):
     state = default_breaker()
     # Disarm a claim, then flood the log past MAX_EVENTS so the DISARM ages out.
     append_event(state, "DISARM", claim="the parser bug is X", grounded=True)
-    from breaker_runtime import _apply_release  # disarm path records the durable claim
     # Simulate the durable record the disarm path writes.
     state.setdefault("breaker_adjudicated_claims", [])
     if "the parser bug is X" not in state["breaker_adjudicated_claims"]:
