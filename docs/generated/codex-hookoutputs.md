@@ -27,7 +27,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nDo this before any other tool call. Until it succeeds, read-only inspection stays available, but write tools, delegation, and mutating Bash/REPL work stay blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, jq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.\n- Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and delegation stay blocked unless a hook explicitly lifts them.\n\nIf a hook blocks you, follow its exact instruction next.",
+    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nDo this ONLY ONCE, before any other tool call. Until it succeeds, read-only inspection stays available, but write tools, delegation, and mutating Bash/REPL work stay blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, head, tail, wc, sort, uniq, jq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, explore trace.sh/websearch.sh/search.sh, unifusion scripts, unifable spec CLI.\n- Write tools (Edit, Write, MultiEdit, NotebookEdit, apply_patch) and delegation stay blocked unless a hook explicitly lifts them.\n\nIf a hook blocks you, follow its exact instruction next.",
     "hookEventName": "SessionStart"
   }
 }
@@ -84,7 +84,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "After any edit, run one verification command that exercises the change (a test, typecheck, lint, or build); if none applies, name the reason. The Stop gate blocks completion until a verification has run for changed files.\nCite evidence for load-bearing claims: path:line for code, cmd -> output for tool results, a URL for research/prior art. Never claim verification not observed in a tool result.",
+    "additionalContext": "Cite evidence for load-bearing claims: path:line for code, cmd -> output for tool results, a URL for research/prior art. Never claim verification not observed in a tool result.",
     "hookEventName": "UserPromptSubmit"
   }
 }

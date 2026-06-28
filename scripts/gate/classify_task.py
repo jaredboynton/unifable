@@ -63,13 +63,7 @@ def context_for_mode(
         shown = [f for f in risk_flags if f != "uncertainty"]
         if shown:
             lines.append("Risk flags: " + ", ".join(shown) + ".")
-    if mode == "normal":
-        lines.append(
-            "After any edit, run one verification command that exercises the change "
-            "(a test, typecheck, lint, or build); if none applies, name the reason. "
-            "The Stop gate blocks completion until a verification has run for changed files."
-        )
-    elif mode == "deep":
+    if mode == "deep":
         lines.append(
             "Define the exit proof before completion and verify changed behavior before final. "
             "After any edit, run one verification command that exercises the change "

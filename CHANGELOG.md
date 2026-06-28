@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.17.2 - 2026-06-28
+
+- Removed the STANDARD (`normal`) mode verification steering line from
+  `context_for_mode`. It advertised "The Stop gate blocks completion until a
+  verification has run for changed files," but the observation gate
+  (`verify_state.should_block_stop`) only hard-blocks at HEAVY, so the line
+  overstated enforcement on every STANDARD prompt and cost tokens each turn. The
+  HEAVY (`deep`) verification guidance, which the gate actually backs, is
+  unchanged.
+
+Verification:
+
+- `python3 tests/test_classify_ambiguity.py`; `python3 scripts/generate_docs.py`
+- `just test-all`
+
 ## 1.17.1 - 2026-06-27
 
 - Removed the model-facing `unifable contract` CLI subcommand. Contract strings
