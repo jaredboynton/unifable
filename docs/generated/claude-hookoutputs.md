@@ -12,7 +12,6 @@ Source hook config: `hooks/hooks.json`.
 | UserPromptSubmit | (empty) | `gate_prompt.py` | 95 |  |
 | PreToolUse | ^(Bash|REPL|exec_command|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `pre_tool_use.py` | 10 |  |
 | PostToolUse | .* | `gate_post_tool.py` | 120 |  |
-| PostToolUse | ^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `test_after_edit.py` | 75 |  |
 | Stop | (empty) | `gate_stop.py` | 120 |  |
 
 ## Rendered Model-Visible Outputs

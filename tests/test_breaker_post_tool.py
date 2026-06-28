@@ -105,7 +105,24 @@ def _run_post_tool(payload: dict, judge: ScriptedReleaseJudge | None = None):
             return rc, {}
 
 
-def test_post_tool_disarms_and_emits_breaker_open():
+def _run_release(payload: dict, judge: ScriptedReleaseJudge) -> str:
+    """Run the detached disarm worker's body inline (the path the background child
+    runs after gate_post_tool dispatches it). Returns the enqueued message."""
+    import breaker_judges
+    import breaker_release_lane
+
+    fresh = str((payload.get("tool_response") or {}).get("content") or "")
+    with patch.object(breaker_judges, "_default_judge", judge):
+        return breaker_release_lane.run_release_job(
+            payload, str(payload.get("tool_name") or ""), fresh
+        )
+
+
+def test_post_tool_dispatches_release_when_armed():
+    """gate_post_tool no longer disarms inline; it spawns the detached worker for a
+    release tool while the breaker is armed. Verify dispatch, not state mutation."""
+    import gate_post_tool
+
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "PT1"
         _armed_breaker(dd, sess, cwd)
@@ -116,18 +133,45 @@ def test_post_tool_disarms_and_emits_breaker_open():
             "tool_input": {"file_path": str(Path(cwd) / "foo.py")},
             "tool_response": {"content": "the hook reads transcript tail"},
         }
-        judge = ScriptedReleaseJudge(grounded=1)
-        rc, out = _run_post_tool(payload, judge)
+        with patch.object(gate_post_tool, "read_stdin_json", lambda: payload):
+            with patch("breaker_release_lane.spawn_release_job", return_value=True) as spawn:
+                rc = gate_post_tool.main()
         assert rc == 0
-        ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert ctx.strip()
+        assert spawn.call_count == 1
+        # State is untouched on the hot path: the worker (run inline below) mutates it.
+        state = load_breaker({"session_id": sess, "cwd": cwd})
+        assert state["breaker_armed"] is True
+
+
+def test_release_worker_disarms_and_enqueues_breaker_open():
+    import breaker_release_lane
+
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        sess = "PT1b"
+        _armed_breaker(dd, sess, cwd)
+        payload = {
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_name": "Read",
+            "tool_input": {"file_path": str(Path(cwd) / "foo.py")},
+            "tool_response": {"content": "the hook reads transcript tail"},
+        }
+        judge = ScriptedReleaseJudge(grounded=1)
+        msg = _run_release(payload, judge)
+        assert msg.strip()
         state = load_breaker({"session_id": sess, "cwd": cwd})
         assert state["breaker_armed"] is False
         assert any(e.get("kind") == "DISARM" for e in state["events"])
         assert judge.calls == 1
+        # The message is enqueued for PreToolUse/Stop to drain.
+        drained = breaker_release_lane.drain_pending_release(payload)
+        assert drained.strip()
+        assert breaker_release_lane.drain_pending_release(payload) == ""
 
 
-def test_post_tool_stays_armed_when_release_judge_says_no():
+def test_release_worker_stays_armed_when_judge_says_no():
+    import breaker_release_lane
+
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "PT2"
         _armed_breaker(dd, sess, cwd)
@@ -139,17 +183,16 @@ def test_post_tool_stays_armed_when_release_judge_says_no():
             "tool_input": {"url": "https://example.com/doc"},
             "tool_response": {"content": "not relevant"},
         }
-        rc, out = _run_post_tool(payload, judge)
-        assert rc == 0
-        ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert ctx.strip()
+        msg = _run_release(payload, judge)
+        assert msg.strip()
         state = load_breaker({"session_id": sess, "cwd": cwd})
         assert state["breaker_armed"] is True
         assert state["breaker_steering"] == "read groundedness.py:1 and cite the release path"
         assert any(e.get("kind") == "NEEDED" for e in state["events"])
+        assert breaker_release_lane.drain_pending_release(payload).strip()
 
 
-def test_post_tool_emits_provisional_lift_context():
+def test_release_worker_emits_provisional_lift():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "PT4"
         _armed_breaker(dd, sess, cwd)
@@ -166,13 +209,33 @@ def test_post_tool_emits_provisional_lift_context():
             "tool_input": {"file_path": str(Path(cwd) / "foo.py")},
             "tool_response": {"content": "baseline scores"},
         }
-        rc, out = _run_post_tool(payload, judge)
-        assert rc == 0
-        ctx = (out.get("hookSpecificOutput") or {}).get("additionalContext") or ""
-        assert ctx.strip()
+        msg = _run_release(payload, judge)
+        assert msg.strip()
         state = load_breaker({"session_id": sess, "cwd": cwd})
         assert state["breaker_provisional"] is True
         assert any(e.get("kind") == "LIFT" for e in state["events"])
+
+
+def test_release_worker_noop_when_disarmed():
+    """Worker dispatched but breaker already disarmed by a sibling: no judge call,
+    nothing enqueued, lease released."""
+    import breaker_release_lane
+
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        sess = "PT3b"
+        os.environ["UNIFABLE_DATA"] = dd
+        payload = {
+            "session_id": sess,
+            "cwd": cwd,
+            "tool_name": "Read",
+            "tool_input": {"file_path": str(Path(cwd) / "foo.py")},
+            "tool_response": {"content": "data"},
+        }
+        judge = ScriptedReleaseJudge(grounded=1)
+        msg = _run_release(payload, judge)
+        assert msg == ""
+        assert judge.calls == 0
+        assert breaker_release_lane.drain_pending_release(payload) == ""
 
 
 def test_post_tool_skips_release_when_disarmed():

@@ -28,12 +28,6 @@
         "hooks": [
           { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" gate_post_tool.py", "statusMessage": "observing tool evidence", "timeout": 120 }
         ]
-      },
-      {
-        "matcher": "^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$",
-        "hooks": [
-          { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" test_after_edit.py", "statusMessage": "test-after-edit", "timeout": 75 }
-        ]
       }
     ],
     "Stop": [

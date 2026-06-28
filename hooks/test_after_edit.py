@@ -224,30 +224,25 @@ def run_tests(root: str, cmd: list[str], label: str) -> str:
     return f"FAIL ({label}) exit={result.returncode}:\n{tail}"
 
 
-def main() -> int:
+def compute_test_context(data: dict) -> str:
+    """Core test-after-edit logic, host-agnostic. Returns a context summary string
+    to surface, or "" to stay silent (disabled, non-edit tool, skipped path, no
+    runner, debounced, or runner binary missing). Callable in-process from
+    gate_post_tool (single PostToolUse entrypoint) or from this module's standalone
+    main(). Never raises for expected conditions; the caller wraps fail-open."""
     # Opt-in gate — off by default
     if not os.environ.get("UNIFABLE_TEST_AFTER_EDIT"):
-        _emit_skip()
-        return 0
-
-    try:
-        raw = sys.stdin.read()
-        data: dict = json.loads(raw) if raw.strip() else {}
-    except Exception:  # noqa: BLE001
-        _emit_skip()
-        return 0
+        return ""
 
     tool_name = data.get("tool_name", "")
     if tool_name not in EDIT_TOOLS:
-        _emit_skip()
-        return 0
+        return ""
 
     tool_input = data.get("tool_input") or {}
     file_path = tool_input.get("file_path") or tool_input.get("path") or ""
 
     if file_path and should_skip_path(file_path):
-        _emit_skip()
-        return 0
+        return ""
 
     # Determine start directory for runner discovery
     if file_path:
@@ -257,18 +252,30 @@ def main() -> int:
 
     root, cmd, label = discover_runner(start_dir)
     if not cmd:
-        _emit_skip()
-        return 0
+        return ""
 
     if is_debounced(root):
+        return ""
+
+    stamp_debounce(root)
+    return run_tests(root, cmd, label) or ""
+
+
+def main() -> int:
+    try:
+        raw = sys.stdin.read()
+        data: dict = json.loads(raw) if raw.strip() else {}
+    except Exception:  # noqa: BLE001
         _emit_skip()
         return 0
 
-    stamp_debounce(root)
-    summary = run_tests(root, cmd, label)
+    try:
+        summary = compute_test_context(data)
+    except Exception:  # noqa: BLE001 — fail open
+        _emit_skip()
+        return 0
 
     if not summary:
-        # Runner binary missing — silent skip
         _emit_skip()
         return 0
 

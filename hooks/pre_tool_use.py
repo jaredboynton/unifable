@@ -275,10 +275,25 @@ def _drain_bg_context(input_data: dict) -> str:
         return ""
 
 
+def _drain_release_context(input_data: dict) -> str:
+    """Drain any completed background breaker-release (disarm) message for this
+    session's breaker (enqueued by breaker_release_lane after its detached release
+    judge finished). Read-and-clear, so the lift surfaces exactly once on the first
+    gated tool we allow after the worker completed. The armed-branch disarm judge in
+    evaluate_pre_tool is the backstop if the worker has not finished. Fail-open."""
+    try:
+        from breaker_release_lane import drain_pending_release
+
+        return drain_pending_release(input_data)
+    except Exception:
+        return ""
+
+
 def _allow_notify(input_data: dict, breaker_notify: str, hygiene_headlines: list[str]) -> int:
     cleared = consume_gate_cleared_notify(input_data, hygiene_headlines)
     bg = _drain_bg_context(input_data)
-    parts = [p.strip() for p in (bg, breaker_notify, cleared) if p and p.strip()]
+    release = _drain_release_context(input_data)
+    parts = [p.strip() for p in (bg, release, breaker_notify, cleared) if p and p.strip()]
     return _emit_allow("\n".join(parts))
 
 

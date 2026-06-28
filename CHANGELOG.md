@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.17.5 - 2026-06-27
+
+- PostToolUse no longer disarms the groundedness breaker inline. The breaker LIFT
+  (disarm) moved off the hot path into a detached worker
+  (`scripts/gate/breaker_release_lane.py`): `gate_post_tool.py` dispatches it on a
+  release tool while the breaker is armed, the worker runs the transcript release
+  judge under the same `breaker_lock` as the foreground arm, persists the disarmed
+  state, and enqueues the lift message (`db.breaker_release_*`) for the next
+  PreToolUse (or Stop, on a text-only tail) to drain. A `breaker_release_bg` lease
+  debounces one in-flight disarm per breaker per TTL so an edit burst cannot fork a
+  process storm. Arming stays synchronous in PreToolUse (it must block a mutation),
+  and PreToolUse re-runs the release judge on every armed call, so a slow or dead
+  worker self-heals — the next gated tool disarms itself. This closes the prior
+  race where the inline PostToolUse disarm wrote breaker state without the lock.
+- The standalone test-after-edit PostToolUse hook is folded into `gate_post_tool.py`
+  (`_test_after_edit_context`, self-gated on `UNIFABLE_TEST_AFTER_EDIT=1`). Both
+  `hooks/hooks.json` and `.codex-plugin/hooks.json` now wire one PostToolUse entry
+  instead of two, so the host spawns one PostToolUse process per tool call.
+
+Verification:
+
+- `python3 -m py_compile hooks/gate_post_tool.py hooks/pre_tool_use.py hooks/gate_stop.py scripts/gate/breaker_release_lane.py scripts/gate/db.py`
+- `python3 -m pytest tests/test_breaker_release_lane.py tests/test_breaker_post_tool.py -q`
+- `just test-all`
+
 ## 1.17.4 - 2026-06-28
 
 - UserPromptSubmit consolidated from three hook processes to one. `router.sh`

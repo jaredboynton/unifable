@@ -109,6 +109,58 @@ def _attach_validate_context(payload: dict, ctx: str) -> None:
         hso["additionalContext"] = f"{existing}\n{ctx}".strip() if existing else ctx
 
 
+def _advance_release(input_data: dict) -> str:
+    """Stop-barrier convergence for the async breaker-release (disarm) lane.
+
+    Two parts, both fail-open:
+      1. Drain any pending disarm message a detached worker already enqueued
+         (read-and-clear), so a lift that landed after the last gated tool still
+         surfaces at end of turn.
+      2. If the breaker is STILL armed (e.g. the model went text-only, so no
+         release tool fired in PostToolUse and no worker was dispatched), run the
+         release judge synchronously under breaker_lock here -- Stop is the only
+         barrier that reliably fires on a text-only tail. Mirrors the former inline
+         PostToolUse disarm, now consolidated to the one place it is load-bearing.
+    Never blocks or raises into the Stop path."""
+    try:
+        from breaker_release_lane import drain_pending_release
+
+        drained = drain_pending_release(input_data) or ""
+    except Exception:
+        drained = ""
+
+    converged = ""
+    try:
+        import time as _time
+
+        from breaker_orchestration import evaluate_post_tool_release
+        from breaker_state import breaker_lock, load_breaker, save_breaker
+        from ledger import load_ledger
+
+        with breaker_lock(input_data):
+            state = load_breaker(input_data)
+            if state.get("breaker_armed") or state.get("breaker_provisional"):
+                # No fresh tool block on a text-only tail; the release judge reads the
+                # transcript segment. verify_key lane is handled by _advance_auto_verify.
+                if not state.get("breaker_verify_key"):
+                    active_task = ""
+                    try:
+                        active_task = str((load_ledger(input_data) or {}).get("active_task") or "")
+                    except Exception:
+                        active_task = ""
+                    _grounded, _needed, msg = evaluate_post_tool_release(
+                        input_data, state, fresh_tool="", active_task=active_task
+                    )
+                    save_breaker(input_data, state)
+                    converged = str(msg or "")
+        _ = _time  # imported for parity with _advance_auto_verify; no sleep here
+    except Exception:
+        converged = ""
+
+    parts = [p.strip() for p in (drained, converged) if p and p.strip()]
+    return "\n".join(parts)
+
+
 def _advance_auto_verify(input_data: dict) -> str:
     """Stop-parity for the breaker's async auto-grounding lane: poll any dispatched
     background verification and persist the result so a model that dispatched then
@@ -712,7 +764,8 @@ def main() -> int:
 
     warning = warning_after_max_blocks(ledger)
     verify_note = _advance_auto_verify(input_data)
-    parts = [p for p in (warning, verify_note) if p and str(p).strip()]
+    release_note = _advance_release(input_data)
+    parts = [p for p in (warning, verify_note, release_note) if p and str(p).strip()]
     if parts:
         emit_json({"systemMessage": "\n".join(parts)})
     else:

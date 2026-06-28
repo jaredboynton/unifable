@@ -81,31 +81,6 @@ def _spec_context(input_data: dict, tool_name: str, cwd: str) -> tuple[str, dict
         return "", None
 
 
-def _breaker_release_context(input_data: dict, tool_name: str, executed_ok: bool) -> str:
-    try:
-        from breaker_orchestration import evaluate_post_tool_release
-        from breaker_runtime import is_release_tool
-        from breaker_state import load_breaker, save_breaker
-
-        if not executed_ok or not is_release_tool(tool_name, input_data):
-            return ""
-        breaker = load_breaker(input_data)
-        if not breaker.get("breaker_armed") and not breaker.get("breaker_provisional"):
-            return ""
-        fresh = _fresh_tool_block(input_data, tool_name, executed_ok)
-        if not fresh:
-            return ""
-        from ledger import load_ledger
-
-        ledger = load_ledger(input_data)
-        active_task = str(ledger.get("active_task") or "")
-        _grounded, _needed, message = evaluate_post_tool_release(input_data, breaker, fresh_tool=fresh, active_task=active_task)
-        save_breaker(input_data, breaker)
-        return message
-    except Exception:
-        return ""
-
-
 def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int) -> str:
     """Advisory nudge when the same failure class repeats. Rides the existing
     repeated-failure signal (already bounded), spends one judge call for a concrete
@@ -344,17 +319,29 @@ def _run_judge_fanout(
     if task_id and hygiene_changed:
         _apply_hygiene_only(cwd, task_id, activity)
 
-    # Breaker release (per-process; self-gates to "" when not armed / not a release tool).
-    disarm_thunk: Callable[[], str] | None = None
+    # Breaker release (disarm): the LIFT moves OFF the hot path. Arming stays
+    # synchronous in PreToolUse; here we only dispatch a detached worker that runs
+    # the release judge under breaker_lock and enqueues the disarm message for the
+    # next PreToolUse (or Stop) to drain. PreToolUse's armed branch re-runs the
+    # release judge on every armed call (breaker_orchestration.evaluate_pre_tool,
+    # elif armed -> disarm_judge), so a slow/dead worker self-heals -- the worker
+    # just makes the lift usually-already-done. Fail-open: a dispatch failure leaves
+    # the arm, which PreToolUse/Stop converge (the safe direction).
     try:
         from breaker_runtime import is_release_tool
 
         if executed_ok and is_release_tool(tool_name, input_data):
+            fresh = _fresh_tool_block(input_data, tool_name, executed_ok)
+            if fresh:
+                from breaker_state import load_breaker
 
-            def disarm_thunk() -> str:
-                return _breaker_release_context(input_data, tool_name, executed_ok)
+                breaker = load_breaker(input_data)
+                if breaker.get("breaker_armed") or breaker.get("breaker_provisional"):
+                    from breaker_release_lane import spawn_release_job
+
+                    spawn_release_job(input_data, tool_name, fresh)
     except Exception:
-        disarm_thunk = None
+        pass
 
     # Repeated-failure hint (per-process; only when the same failure class repeats).
     hint_thunk: Callable[[], str] | None = None
@@ -365,22 +352,32 @@ def _run_judge_fanout(
 
     breaker_context = ""
     hint_text = ""
-    if disarm_thunk is not None or hint_thunk is not None:
+    if hint_thunk is not None:
         try:
             from posttool_judges import POSTTOOL_JUDGE_BUDGET, run_posttool_judges
 
             result = run_posttool_judges(
-                disarm=disarm_thunk,
                 hint=hint_thunk,
                 budget=POSTTOOL_JUDGE_BUDGET,
             )
-            breaker_context = result.disarm_message or ""
             hint_text = result.hint_text or ""
         except Exception:
-            breaker_context = ""
             hint_text = ""
 
     return "", breaker_context, hint_text
+
+
+def _test_after_edit_context(input_data: dict) -> str:
+    """Test-after-edit, folded in-process from the former second PostToolUse hook.
+    Self-gates to "" unless UNIFABLE_TEST_AFTER_EDIT=1 and the tool is an edit tool
+    with a discoverable runner; debounce + per-run timeout live inside. Fail-open."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from test_after_edit import compute_test_context
+
+        return compute_test_context(input_data) or ""
+    except Exception:
+        return ""
 
 
 def main() -> int:
@@ -462,6 +459,7 @@ def main() -> int:
 
     spec_context, guidance_map = _spec_context(input_data, tool_name, cwd)
     breaker_status_context = _breaker_status_context(input_data)
+    test_context = _test_after_edit_context(input_data)
 
     if repeat:
         _sig, _count = repeat
@@ -475,6 +473,8 @@ def main() -> int:
             parts.append(spec_context)
         if breaker_status_context:
             parts.append(breaker_status_context)
+        if test_context:
+            parts.append(test_context)
         _emit_context(input_data, parts, guidance_map=guidance_map, failure_sig=_sig)
     else:
         parts: list[str] = []
@@ -491,6 +491,8 @@ def main() -> int:
             parts.append(breaker_status_context)
         if breaker_context:
             parts.append(breaker_context)
+        if test_context:
+            parts.append(test_context)
         _emit_context(input_data, parts, guidance_map=guidance_map)
     return 0
 

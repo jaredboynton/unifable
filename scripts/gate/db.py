@@ -119,6 +119,13 @@ CREATE TABLE IF NOT EXISTS posttool_bg (
     updated_at TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS breaker_release_bg (
+    rel_key    TEXT PRIMARY KEY,
+    lease_at   REAL NOT NULL DEFAULT 0,
+    pending    TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS projects (
     root_hash        TEXT PRIMARY KEY,
     root             TEXT NOT NULL DEFAULT '',
@@ -642,7 +649,71 @@ def posttool_bg_drain(spec_key: str) -> str:
 
 
 
+def breaker_release_lease(rel_key: str, ts: float, ttl: float) -> bool:
+    """Atomic in-flight claim for the background breaker-release (disarm) job.
 
+    Returns True when THIS caller should spawn the detached disarm worker for
+    *rel_key* (breaker key + claim + repo/tool fingerprint), False when a job
+    leased within *ttl* seconds is still in-flight (so a burst of release-tool
+    calls does not spawn a process storm). One BEGIN IMMEDIATE transaction.
+    Fail-open: any DB error returns True (spawn rather than starve the disarm)."""
+
+    def op(conn: sqlite3.Connection) -> bool:
+        row = conn.execute("SELECT lease_at FROM breaker_release_bg WHERE rel_key=?", (rel_key,)).fetchone()
+        if row is not None:
+            try:
+                if abs(float(ts) - float(row["lease_at"])) < float(ttl):
+                    return False
+            except (TypeError, ValueError):
+                pass
+        conn.execute(
+            "INSERT INTO breaker_release_bg(rel_key, lease_at, updated_at) VALUES(?,?,?) "
+            "ON CONFLICT(rel_key) DO UPDATE SET lease_at=excluded.lease_at, updated_at=excluded.updated_at",
+            (rel_key, float(ts), utc_now()),
+        )
+        return True
+
+    return _write(op, True)
+
+
+def breaker_release_push(rel_key: str, body: str) -> None:
+    """Enqueue a completed background disarm message for *rel_key*.
+
+    Appends to any not-yet-drained pending block (blank-line separated) and clears
+    the in-flight lease so a later release tool may spawn again. Fail-open."""
+    text = str(body or "").strip()
+
+    def op(conn: sqlite3.Connection) -> None:
+        row = conn.execute("SELECT pending FROM breaker_release_bg WHERE rel_key=?", (rel_key,)).fetchone()
+        prior = str(row["pending"]) if row is not None and row["pending"] else ""
+        merged = (prior + "\n\n" + text).strip() if (prior and text) else (text or prior)
+        conn.execute(
+            "INSERT INTO breaker_release_bg(rel_key, lease_at, pending, updated_at) VALUES(?,0,?,?) "
+            "ON CONFLICT(rel_key) DO UPDATE SET pending=excluded.pending, lease_at=0, updated_at=excluded.updated_at",
+            (rel_key, merged, utc_now()),
+        )
+
+    _write(op, None)
+
+
+def breaker_release_drain(rel_key: str) -> str:
+    """Atomically read-and-clear the pending disarm message for *rel_key*.
+
+    The clear runs in the same write transaction so a concurrent PreToolUse cannot
+    drain the same block twice. Fail-open: any DB error returns ""."""
+
+    def op(conn: sqlite3.Connection) -> str:
+        row = conn.execute("SELECT pending FROM breaker_release_bg WHERE rel_key=?", (rel_key,)).fetchone()
+        if row is None or not row["pending"]:
+            return ""
+        body = str(row["pending"])
+        conn.execute(
+            "UPDATE breaker_release_bg SET pending='', updated_at=? WHERE rel_key=?",
+            (utc_now(), rel_key),
+        )
+        return body
+
+    return _write(op, "")
 def findings_load(root_hash: str) -> dict[str, Any]:
     """Return {'findings': {fid: row}, 'counter': N} for a project."""
 
