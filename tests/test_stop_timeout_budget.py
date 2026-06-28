@@ -14,6 +14,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
+sys.path.insert(0, str(REPO / "hooks"))  # gate_stop lives here (test_gate_stop_passes_a_budget)
 
 import codex_judge  # noqa: E402
 import spec_stop_validate as ssv  # noqa: E402

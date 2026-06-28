@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""Bump the unifable plugin version across every manifest, setup/setup.sh, and
-the `just version` example in AGENTS.md.
+"""Bump the unifable plugin version across every manifest and the
+`just version` example in AGENTS.md.
 
 This is the single enforcement point for the version-bump convention in
 AGENTS.md: the version string lives in four plugin dirs (each a plugin.json plus
-a marketplace.json), in setup/setup.sh's progress.json writer, and in AGENTS.md's
-concrete `just version X.Y.Z` example. This sets them all to one target value in
-a single pass and refuses to finish if any managed pattern still reads the old
-version.
+a marketplace.json) and in AGENTS.md's concrete `just version X.Y.Z` example.
+This sets them all to one target value in a single pass and refuses to finish if
+any managed pattern still reads the old version.
 
 Usage:
     python3 scripts/bump_version.py 1.9.4    # set an explicit version
@@ -31,10 +30,10 @@ CANONICAL = ".claude-plugin/plugin.json"  # source of the current version
 SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
 
 # Each pattern captures the semver in group(2) so the post-bump check is uniform.
-# VERSION_FIELD: a JSON "version": "X.Y.Z" field -- also matches the literal
-# inside setup/setup.sh's heredoc. JUST_VERSION: the concrete `just version X.Y.Z`
-# example in AGENTS.md; the `just version <X.Y.Z>` angle-bracket form and the
-# patch|minor|major forms carry no semver, so they are left untouched.
+# VERSION_FIELD: a JSON "version": "X.Y.Z" field. JUST_VERSION: the concrete
+# `just version X.Y.Z` example in AGENTS.md; the `just version <X.Y.Z>` angle
+# bracket form and the patch|minor|major forms carry no semver, so they are left
+# untouched.
 VERSION_FIELD = re.compile(r'("version"\s*:\s*")(\d+\.\d+\.\d+)(")')
 JUST_VERSION = re.compile(r"(\bjust version )(\d+\.\d+\.\d+)\b")
 
@@ -51,7 +50,6 @@ TARGETS: list[tuple[str, re.Pattern[str], str]] = [
     (".devin-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
     (".factory-plugin/plugin.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
     (".factory-plugin/marketplace.json", VERSION_FIELD, r"\g<1>{new}\g<3>"),
-    ("setup/setup.sh", VERSION_FIELD, r"\g<1>{new}\g<3>"),
     ("AGENTS.md", JUST_VERSION, r"\g<1>{new}"),
 ]
 MANAGED = {rel for rel, _, _ in TARGETS}

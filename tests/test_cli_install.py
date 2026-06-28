@@ -42,13 +42,6 @@ def _write_cli_tree(root: Path, *, version: str, executable: bool = True) -> Non
     hooks = root / "hooks"
     hooks.mkdir(parents=True, exist_ok=True)
     (hooks / "pre_tool_use.py").write_text("# stub\n", encoding="utf-8")
-    setup = root / "setup"
-    setup.mkdir(parents=True, exist_ok=True)
-    install_src = REPO / "setup" / "install-bin.sh"
-    (setup / "install-bin.sh").write_text(
-        install_src.read_text(encoding="utf-8"),
-        encoding="utf-8",
-    )
     bin_dir = root / "bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     for name in ("unifable", "unifable-spec", "unifable-hook"):
@@ -56,6 +49,31 @@ def _write_cli_tree(root: Path, *, version: str, executable: bool = True) -> Non
         target.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
         mode = stat.S_IRWXU if executable else stat.S_IRUSR | stat.S_IWUSR
         target.chmod(mode)
+
+
+# Real-runtime dirs copied into a fake cache "version" so runtime_sync can seed
+# from it (mirrors tests/test_runtime_sync.py). Includes unifable_runtime for the
+# bootstrap preflight and skills so the unifusion launcher resolves.
+_RUNTIME_DIRS = ("hooks", "scripts", "unifable_runtime", "bin", "setup", "packs", "skills")
+
+
+def _seed_runtime_version(cache_parent: Path, version: str) -> Path:
+    vdir = cache_parent / version
+    vdir.mkdir(parents=True, exist_ok=True)
+    for name in _RUNTIME_DIRS:
+        src = REPO / name
+        if src.is_dir():
+            (Path(vdir) / name).mkdir(parents=True, exist_ok=True)
+            # shallow copy: copytree into the existing dir
+            import shutil
+
+            shutil.copytree(src, vdir / name, dirs_exist_ok=True)
+    # Manifest so read_plugin_version resolves the version dir.
+    (vdir / ".claude-plugin").mkdir(parents=True, exist_ok=True)
+    (vdir / ".claude-plugin" / "plugin.json").write_text(
+        json.dumps({"name": "unifable", "version": version}), encoding="utf-8"
+    )
+    return vdir
 
 
 class TestParseVersion(unittest.TestCase):
@@ -229,27 +247,43 @@ class TestProbeAndEnsureCli(unittest.TestCase):
         self.assertTrue(state.broken)
 
     def test_ensure_cli_heals_into_bindir(self) -> None:
-        bindir, current, old = self._make_dirs()
-        _write_cli_tree(current, version="1.9.27")
-        _write_cli_tree(old, version="1.9.25")
-        (bindir / "unifable").symlink_to(old / "bin" / "unifable")
+        # Auto-heal now seeds via runtime_sync: it copies the plugin runtime into
+        # ~/.unifable/current and links ~/.local/bin at stable bootstrap launchers
+        # there (not a direct symlink into the plugin root, which would dangle on
+        # cache cleanup).
+        import tempfile
+
+        base = Path(tempfile.mkdtemp(prefix="unifable-cli-heal-"))
+        cache = base / "cache"
+        bindir = base / "bindir"
+        home = base / "home"
+        bindir.mkdir()
+        cache.mkdir()
+        version = "1.9.27"
+        vdir = _seed_runtime_version(cache, version)
 
         with mock.patch.dict(
             os.environ,
-            {"UNIFABLE_BIN_DIR": str(bindir)},
+            {
+                "UNIFABLE_BIN_DIR": str(bindir),
+                "UNIFABLE_HOME": str(home),
+                "UNIFABLE_CACHE_ROOTS": str(cache),
+            },
             clear=False,
         ):
             for key in ("CLAUDE_PLUGIN_ROOT", "PLUGIN_ROOT", "UNIFABLE_PLUGIN_ROOT"):
                 os.environ.pop(key, None)
-            healed = ensure_cli(plugin_root=current)
+            healed = ensure_cli(plugin_root=vdir)
 
         self.assertTrue(healed)
-        target = (bindir / "unifable").resolve()
-        self.assertEqual(target, (current / "bin" / "unifable").resolve())
-        self.assertTrue(os.access(target, os.X_OK))
-        hook_target = (bindir / "unifable-hook").resolve()
-        self.assertEqual(hook_target, (current / "bin" / "unifable-hook").resolve())
-        self.assertTrue(os.access(hook_target, os.X_OK))
+        link = bindir / "unifable"
+        self.assertTrue(link.is_symlink())
+        bootstrap = (home / "bin" / "unifable")
+        self.assertEqual(link.resolve(), bootstrap.resolve())
+        self.assertTrue(bootstrap.is_file())  # real bootstrap, not a cache symlink
+        self.assertTrue(os.access(bootstrap, os.X_OK))
+        hook_link = bindir / "unifable-hook"
+        self.assertEqual(hook_link.resolve(), (home / "bin" / "unifable-hook").resolve())
 
     def test_ensure_cli_respects_opt_out(self) -> None:
         bindir, current, _old = self._make_dirs()

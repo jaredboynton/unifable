@@ -40,7 +40,6 @@ managed_paths=(
   ".devin-plugin/marketplace.json"
   ".factory-plugin/plugin.json"
   ".factory-plugin/marketplace.json"
-  "setup/setup.sh"
   "AGENTS.md"
   "docs/generated/claude-hookoutputs.md"
   "docs/generated/codex-hookoutputs.md"

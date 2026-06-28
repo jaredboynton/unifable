@@ -35,6 +35,13 @@ def _daemon_enabled() -> bool:
     )
 
 
+def _judge_offline() -> bool:
+    """True when the hermetic offline knob is set. Skip the daemon spawn/connect
+    (whose backoff sleeps ~3s) and fall straight through to the direct call, which
+    raises offline -> the caller fails open. Mirrors codex_judge's own check."""
+    return os.environ.get("UNIFABLE_JUDGE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def _accepts_on_usage(fn: Any) -> bool:
     """True if `fn` takes an `on_usage` kwarg (or **kwargs). Keeps the seam working
     when callers monkeypatch codex_judge.ask_structured with a narrower fake."""
@@ -77,14 +84,6 @@ def ask_structured(
     ``model="gpt-realtime-mini"`` to run on the recon/exec lane's daemon."""
     import codex_judge
 
-    # Hermetic test knob: when set, the judge is deterministically unreachable so a
-    # hook's breaker/director/Stop judging fails open regardless of whether the dev
-    # machine has live Realtime credentials. This makes judge-orthogonal gate tests
-    # (evidence gate, citations) deterministic instead of silently depending on
-    # credential presence. Production never sets it; the gate stays always-on.
-    if os.environ.get("UNIFABLE_JUDGE_OFFLINE", "").strip().lower() in ("1", "true", "yes", "on"):
-        raise codex_judge.JudgeError("judge offline (UNIFABLE_JUDGE_OFFLINE)")
-
     # Only pass model to direct calls when explicitly set, so the default path
     # stays exactly codex_judge's own MODEL default (byte-identical judge).
     direct_model_kwargs: dict[str, Any] = {} if model is None else {"model": model}
@@ -98,7 +97,7 @@ def ask_structured(
             system, user, schema, schema_name=schema_name, **direct_model_kwargs, **kwargs
         )
 
-    if _daemon_enabled():
+    if _daemon_enabled() and not _judge_offline():
         try:
             from judge_client import DEFAULT_MODEL, daemon_ask
 

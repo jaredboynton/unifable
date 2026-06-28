@@ -273,10 +273,16 @@ summary). Implemented in `scripts/gate/parse_tool_result.py`, locked by
 /plugin install unifable@unifable
 ```
 
-Then install the spec CLI + record setup state (optional; the operating-mode context is delivered by the SessionStart hook whenever the plugin is enabled, so no block is injected into CLAUDE.md):
+The SessionStart hook seeds the stable `~/.unifable` runtime and links
+`unifable` (and the `unifusion` panel launcher) into `~/.local/bin` automatically
+on the first session after install — no separate setup step. The operating-mode
+context is delivered by the SessionStart hook whenever the plugin is enabled, so
+no block is injected into CLAUDE.md.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/setup/setup.sh" global   # or: local
+# Non-interactive alternative to the /plugin commands above (also seeds the
+# runtime + bin links at install time, so they work before the first session):
+bash install/claude.sh
 ```
 
 Hooks register automatically from `hooks/hooks.json` on install.

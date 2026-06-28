@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Auto-heal the unifable CLI symlink on UserPromptSubmit.
 
-Probes the installed `unifable` on PATH and re-runs setup/install-bin.sh when the
-symlink is missing, broken, non-executable, points at a stale plugin root, or
-targets an older plugin version than the loaded plugin.
+Probes the installed `unifable` on PATH and re-runs the runtime sync
+(scripts/gate/runtime_sync.py) when the symlink is missing, broken,
+non-executable, points at a stale plugin root, or targets an older plugin
+version than the loaded plugin.
 """
 
 from __future__ import annotations
@@ -12,6 +13,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -237,15 +239,16 @@ def cli_install_state(plugin_root: Path | None = None) -> dict:
     }
 
 
-def _run_install_bin(plugin_root: Path) -> bool:
-    script = plugin_root / "setup" / "install-bin.sh"
+def _run_runtime_sync(plugin_root: Path) -> bool:
+    """Seed ~/.unifable + bin links from this plugin root via runtime_sync.py."""
+    script = plugin_root / "scripts" / "gate" / "runtime_sync.py"
     if not script.is_file():
         return False
     env = os.environ.copy()
     env.setdefault("UNIFABLE_BIN_DIR", str(bindir()))
     try:
         proc = subprocess.run(
-            ["bash", str(script), str(plugin_root)],
+            [sys.executable or "python3", str(script), "--source", str(plugin_root)],
             env=env,
             capture_output=True,
             text=True,
@@ -268,6 +271,6 @@ def ensure_cli(*, plugin_root: Path | None = None) -> bool:
         installed = probe_installed_cli()
         if not needs_heal(current, installed):
             return False
-        return _run_install_bin(current.plugin_root)
+        return _run_runtime_sync(current.plugin_root)
     except Exception:
         return False

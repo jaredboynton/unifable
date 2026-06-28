@@ -34,15 +34,15 @@ python3 -m pytest tests/test_groundedness_breaker.py -q
 # compile-check the hot path before committing
 python3 -m py_compile hooks/pre_tool_use.py scripts/gate/groundedness.py scripts/gate/ledger.py
 
-# bump the plugin version everywhere (all 4 plugin dirs + setup/setup.sh)
-just version 1.17.5          # or: just version patch|minor|major
+# bump the plugin version everywhere (all 4 plugin dirs)
+just version 1.18.0          # or: just version patch|minor|major
 ```
 
 ## Release conventions (repo-wide)
 
 - Version bumps touch ALL manifests together: `.claude-plugin/`, `.codex-plugin/`,
-  `.devin-plugin/`, `.factory-plugin/` (`plugin.json` + `marketplace.json`) and
-  `setup/setup.sh`. Do not hand-edit them: run `just version <X.Y.Z>` (or
+  `.devin-plugin/`, `.factory-plugin/` (`plugin.json` + `marketplace.json`). Do not
+  hand-edit them: run `just version <X.Y.Z>` (or
   `just version patch|minor|major`), which sets every version field in one pass via
   `scripts/bump_version.py` and exits nonzero if any straggler of the old version
   remains in the managed set.

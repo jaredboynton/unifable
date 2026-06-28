@@ -108,7 +108,10 @@ home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex
   Antigravity binary; verified clean, has its own anti-empty guard.
 
 `SKILL.md` is the entry; the skill is reachable identically at `~/.agents/skills/unifusion` and
-`~/.claude/skills/unifusion` (same inode).
+`~/.claude/skills/unifusion` (same inode). A global `unifusion` launcher on `~/.local/bin`
+(`scripts/gate/runtime_sync.py` `_BOOTSTRAPS["unifusion"]`, seeded by the installers + the
+SessionStart hook) execs `~/.unifable/current/skills/unifusion/scripts/unifusion.sh`, so the
+panel runs from any cwd whether or not the plugin is enabled in the current session.
 
 ## Runner contract (every `run_*.sh`)
 

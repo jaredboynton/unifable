@@ -63,6 +63,7 @@ COVERED = {
     "tests/test_mcp_evidence.py",
     "tests/test_posttool_parallel.py",
     "tests/test_posttool_timeout_budget.py",
+    "tests/test_realtime_ws_protocol.py",
     "tests/test_runtime_sync.py",
     "tests/test_spec_state_notifications.py",
     "tests/test_stop_codex_json.py",

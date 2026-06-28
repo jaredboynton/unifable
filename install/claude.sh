@@ -98,11 +98,35 @@ done
 #      rm -rf "$PLUGINS/marketplaces/fablize" "$PLUGINS/cache/fablize"
 echo "  · legacy fablize disabled in state; on-disk dirs left intact (safe to delete after restart)"
 
-# 4) Delegate the shared setup tail to setup.sh so the bin link, CLAUDE.md block
-#    strip, and ~/.unifable/progress.json state record all stay owned in one place
-#    (no drift between the installer and setup.sh). Idempotent; takes effect next
-#    session. setup.sh is host-aware (auto-detects claude from the cache path).
-bash "$CACHE_DIR/setup/setup.sh" global claude
+# 4) Seed the stable ~/.unifable runtime + bin links (so `unifable`/`unifusion`
+#    work on PATH before the first SessionStart fires) and strip any prior
+#    <!-- UNIFABLE --> / <!-- UNIFABLE-ORCH --> / <!-- FABLIZE --> static block
+#    from ~/.claude/CLAUDE.md (legacy migration cleanup — context is now delivered
+#    by the SessionStart hook, not a static block). The SessionStart hook keeps
+#    ~/.unifable and the bin links current on every session thereafter.
+MEMFILE="$CLAUDE_DIR/CLAUDE.md"
+mkdir -p "$(dirname "$MEMFILE")"; touch "$MEMFILE"
+ts="$(python3 -c 'import time;print(int(time.time()))')"
+if [ -s "$MEMFILE" ]; then
+  cp "$MEMFILE" "$MEMFILE.unifable-bak.$ts" && echo "  backup: $MEMFILE.unifable-bak.$ts"
+  python3 - "$MEMFILE" <<'PY'
+import sys, re, pathlib
+p = pathlib.Path(sys.argv[1])
+cur = p.read_text(encoding="utf-8")
+new = cur
+for tag in ("UNIFABLE", "UNIFABLE-ORCH", "FABLIZE"):
+    new = re.sub(r"<!-- " + tag + r":BEGIN.*?" + tag + r":END -->\n?", "", new, flags=re.S)
+new = new.rstrip()
+if new != cur:
+    p.write_text(new + ("\n" if new else ""), encoding="utf-8")
+    print(f"  stripped prior static block(s) from {p.name} (context now delivered via SessionStart hook)")
+else:
+    print(f"  {p.name}: no prior static block (already clean)")
+PY
+fi
+UNIFABLE_BIN_DIR="$HOME/.local/bin" python3 "$CACHE_DIR/scripts/gate/runtime_sync.py" --source "$CACHE_DIR" >/dev/null 2>&1 \
+  && echo "  ✓ unifable runtime seeded under ~/.unifable; unifable + unifusion linked into $HOME/.local/bin" \
+  || echo "  ! runtime sync skipped (will self-heal on next SessionStart)"
 
 echo "unifable: Claude install complete. RESTART Claude Code for the plugin swap to take effect."
 echo "  Operating-mode context is delivered by the SessionStart hook (no CLAUDE.md block)."

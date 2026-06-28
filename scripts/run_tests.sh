@@ -16,6 +16,14 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
+# Hermetic suite: force the Realtime judge deterministically unreachable so the
+# standalone harnesses (eval_gate_proof.py, test_gate_robustness.py) — which run
+# real hook subprocesses but assert fail-open / grade-driven behavior, not live
+# verdicts — never make a ~1.3s live WebSocket call per hook. pytest gets the same
+# default via tests/conftest.py; setting it here covers the non-pytest jobs too.
+# Override (UNIFABLE_JUDGE_OFFLINE=0) only when intentionally exercising a live judge.
+export UNIFABLE_JUDGE_OFFLINE="${UNIFABLE_JUDGE_OFFLINE:-1}"
+
 SERIAL="${PYTEST_SERIAL:-0}"
 TIMING="${TEST_TIMING:-0}"
 pids=()

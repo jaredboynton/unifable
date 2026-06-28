@@ -40,6 +40,13 @@ it returns: **judge** the answers and **save** the provenance.
 Throughout, `<skill_dir>` is the directory containing this SKILL.md (when installed:
 `~/.claude/skills/unifusion`).
 
+The panel is also reachable as a **global `unifusion` command** on `~/.local/bin`
+(linked by the SessionStart runtime-sync hook and the `install/*.sh` tails via
+`scripts/gate/runtime_sync.py`). `unifusion <question_file>` runs from any cwd,
+whether or not the plugin is enabled in the current session, as long as the
+plugin has been installed once (so `~/.unifable/current` is seeded). It execs the
+synced skill script under `~/.unifable/current/skills/unifusion/scripts/unifusion.sh`.
+
 ## Step 1 — Write the question, verbatim
 
 Write the user's question **exactly as asked** to a temp file under `/tmp/`. Do not write `question.txt` in

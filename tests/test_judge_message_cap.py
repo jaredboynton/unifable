@@ -21,6 +21,8 @@ from transcript_tail import (  # noqa: E402
     fit_judge_user_message,
 )
 
+from unifable_runtime.transport import realtime_ws as _ws  # noqa: E402
+
 _SCHEMA = {
     "type": "object",
     "properties": {"verdict": {"type": "integer"}},
@@ -65,6 +67,9 @@ def test_disarm_shaped_message_under_limit():
 
 
 def test_ask_structured_caps_before_send(monkeypatch):
+    # conftest forces the hermetic offline knob on; this test drives the real
+    # ask_structured path with a fake socket, so clear it.
+    monkeypatch.delenv("UNIFABLE_JUDGE_OFFLINE", raising=False)
     captured: list[dict] = []
 
     def fake_fresh_tokens(auth_path, force=False):
@@ -90,7 +95,9 @@ def test_ask_structured_caps_before_send(monkeypatch):
     huge = "A" * 300_000
     monkeypatch.setattr(cj, "_fresh_tokens", fake_fresh_tokens)
     monkeypatch.setattr(cj, "_ws_connect", fake_ws_connect)
-    monkeypatch.setattr(cj, "_read_frame", fake_read_frame)
+    # _read_message lives in the canonical transport and resolves _read_frame in
+    # its own namespace, so patch the seam there (not on the cj re-export).
+    monkeypatch.setattr(_ws, "_read_frame", fake_read_frame)
     monkeypatch.setattr(cj, "_send_text", capture_send)
 
     out = cj.ask_structured(huge, huge, _SCHEMA, schema_name="cap_test")

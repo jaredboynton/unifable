@@ -3,9 +3,9 @@
 bumped past the pre-fix baseline (T5 check).
 
 Mirrors the managed set in scripts/bump_version.py: the four plugin dirs
-(plugin.json + marketplace.json), setup/setup.sh, and the `just version X.Y.Z`
-example in AGENTS.md must all read one semver, and it must differ from the
-pre-fix 1.9.24 so a release that forgot to bump fails this check."""
+(plugin.json + marketplace.json) and the `just version X.Y.Z` example in
+AGENTS.md must all read one semver, and it must differ from the pre-fix 1.9.24
+so a release that forgot to bump fails this check."""
 
 from __future__ import annotations
 
@@ -27,7 +27,6 @@ FIELD_FILES = [
     ".devin-plugin/marketplace.json",
     ".factory-plugin/plugin.json",
     ".factory-plugin/marketplace.json",
-    "setup/setup.sh",
 ]
 
 

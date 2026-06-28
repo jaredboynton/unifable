@@ -238,7 +238,9 @@ class TestFilesystemReap:
 
     def test_never_touch_stable_runtime(self, tmp_path, monkeypatch):
         monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
-        # bin/, versions/, current, progress.json must survive untouched.
+        # bin/, versions/, current, and an arbitrary top-level file must survive
+        # untouched (the janitor reaps specific subdirs/files only, never the
+        # stable runtime root).
         (tmp_path / "bin").mkdir()
         binf = tmp_path / "bin" / "unifable"
         binf.write_text("#launcher")
@@ -250,13 +252,13 @@ class TestFilesystemReap:
         _stale(stale_in_ver)
         cur = tmp_path / "current"
         cur.symlink_to(ver)
-        prog = tmp_path / "progress.json"
-        prog.write_text("{}")
+        top = tmp_path / "top-level.json"
+        top.write_text("{}")
         janitor.run(age_s=AGE_S, provenance_age_s=PROV_AGE_S, max_reap=100, ps_provider=lambda pid: None)
         assert binf.exists() and binf.read_text() == "#launcher"
         assert stale_in_ver.exists(), "versions/ is stable runtime -- never reaped"
         assert cur.is_symlink()
-        assert prog.exists() and prog.read_text() == "{}"
+        assert top.exists() and top.read_text() == "{}"
 
     def test_dead_alive_marker_reaped(self, tmp_path, monkeypatch):
         monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))

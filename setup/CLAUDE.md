@@ -2,4 +2,4 @@
 
 ## Claude Code
 
-Use the imported setup-script guidance for files in this directory.
+Use the imported uninstall-script guidance for files in this directory.

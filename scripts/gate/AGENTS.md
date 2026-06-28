@@ -98,7 +98,7 @@ Reap rules (age = `UNIFABLE_JANITOR_AGE_S`, default 24h; provenance =
 - `unifusion-runs/*.md` by the 30d provenance window.
 - Dead alive-markers (host not live AND old) unlinked.
 
-**Never touched:** `bin/`, `versions/`, `current`, `progress.json`, the
+**Never touched:** `bin/`, `versions/`, `current`, the
 `unifable.db` schema (only row DELETEs), and any skey/dir_hash with a live
 marker. Env knobs: `UNIFABLE_JANITOR=0` disables; `UNIFABLE_JANITOR_INTERVAL_S`
 (default 3600) throttles sweeps; `UNIFABLE_JANITOR_AGE_S`,

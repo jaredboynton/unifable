@@ -47,9 +47,8 @@ print("  removed static block(s)" if new != cur else "  no static block found (a
 PY
 
 echo "unifable uninstall complete ($host/$scope)."
-rm -f "${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable"
-rm -f "${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable-spec"
-echo "  removed: ${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable (if present)"
-echo "  removed: ${UNIFABLE_BIN_DIR:-$HOME/.local/bin}/unifable-spec (if present)"
+B="${UNIFABLE_BIN_DIR:-$HOME/.local/bin}"
+rm -f "$B/unifable" "$B/unifable-hook" "$B/unifable-spec" "$B/unifusion"
+echo "  removed (if present): $B/unifable, $B/unifable-hook, $B/unifable-spec, $B/unifusion"
 echo "  Claude: also run /plugin to uninstall the plugin (removes its hooks)."
 echo "  Codex:  run 'codex plugin remove unifable@unifable'. If upgrading from a legacy skill install, also remove unifable entries from ~/.codex/hooks.json (back up first)."

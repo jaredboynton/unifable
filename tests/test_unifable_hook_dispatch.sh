@@ -68,25 +68,32 @@ else
   pass "stale UNIFABLE_PLUGIN_ROOT exit 0"
 fi
 
-# 3) Real ~/.local/bin symlink when present (refresh from repo first)
-if [ -x "$ROOT/setup/install-bin.sh" ]; then
-  bash "$ROOT/setup/install-bin.sh" "$ROOT" >/dev/null 2>&1 || true
+# 3) Real ~/.local/bin symlink when present (refresh via runtime_sync into a
+#    sandboxed UNIFABLE_HOME/BIN_DIR so the test never mutates the user's real
+#    ~/.local/bin; no --source -> scans the real cache roots, mirroring the
+#    SessionStart hook path)
+SYNC="$ROOT/scripts/gate/runtime_sync.py"
+UFHOME="$TMP/.unifable"; UFBIN="$TMP/local-bin"
+mkdir -p "$UFBIN"
+if [ -f "$SYNC" ]; then
+  UNIFABLE_HOME="$UFHOME" UNIFABLE_BIN_DIR="$UFBIN" \
+    python3 "$SYNC" >/dev/null 2>&1 || true
 fi
-if [ -x "$HOME/.local/bin/unifable-hook" ]; then
-  OUT3="$(run_hook "$HOME/.local/bin/unifable-hook" 2>&1)" || RC3=$?
+if [ -x "$UFBIN/unifable-hook" ]; then
+  OUT3="$(run_hook "$UFBIN/unifable-hook" 2>&1)" || RC3=$?
   RC3="${RC3:-0}"
   if [ "$RC3" -ne 0 ]; then
-    fail "~/.local/bin/unifable-hook exit $RC3; output: $OUT3"
+    fail "sandboxed unifable-hook exit $RC3; output: $OUT3"
   else
     VERDICT3="$(codex_verdict "$OUT3")"
     if [ "$VERDICT3" = "FAIL" ]; then
-      fail "~/.local/bin codex verdict FAIL; output: $OUT3"
+      fail "sandboxed unifable-hook verdict FAIL; output: $OUT3"
     else
-      pass "~/.local/bin/unifable-hook exit 0 verdict=$VERDICT3"
+      pass "sandboxed unifable-hook exit 0 verdict=$VERDICT3"
     fi
   fi
 else
-  pass "~/.local/bin/unifable-hook not installed (skipped)"
+  pass "sandboxed unifable-hook not seeded (no cache; skipped)"
 fi
 
 # 4) Runtime survives cache-version deletion (sandboxed; never touches real ~/.unifable)

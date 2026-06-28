@@ -57,7 +57,7 @@ ALLOWED = [
     "rg foo | head -20",
     "ls && rg foo | head",
     "head -20 f",
-    "wc -l setup/setup.sh",
+    "wc -l scripts/bump_version.py",
     "tail -5 README.md",
     "sort -u paths.txt",
     "uniq counts.txt",

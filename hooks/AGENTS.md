@@ -39,7 +39,7 @@ use these three for load-bearing behavior.
   Then injects the thin judge-relationship frame via `additionalContext`
   (`scripts/gate/context_block.py`): a director judge guides the model step by step
   and it restates the goal first; the per-tool director supplies step-by-step
-  guidance at runtime. Ships only when the plugin is enabled; setup.sh / install
+  guidance at runtime. Ships only when the plugin is enabled; the install
   scripts strip stale blocks. Fail-open throughout: a janitor bug never blocks a
   session or changes the `hookSpecificOutput` payload.
 - `pre_tool_use.py` — PreToolUse entrypoint: evidence gate + protected paths + the

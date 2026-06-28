@@ -60,6 +60,9 @@ def test_augment_user_text_appends_reason() -> None:
 
 def _patch_ask_once(monkeypatch, side_effects):
     """Replace _ask_once with a scripted sequence; record (user_text, force_refresh)."""
+    # conftest forces the hermetic offline knob on; these tests exercise the real
+    # ask_structured dispatch flow with a scripted _ask_once, so clear it.
+    monkeypatch.delenv("UNIFABLE_JUDGE_OFFLINE", raising=False)
     calls: list[dict] = []
     seq = list(side_effects)
 

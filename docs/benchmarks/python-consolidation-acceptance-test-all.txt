@@ -1,0 +1,91 @@
+uv run --no-project --with-requirements requirements-dev.txt bash scripts/run_tests.sh
+latency audit covered 54 grep-matched file(s)
+documented decisions: 54 file(s)
+test sleep calls: 0
+ID   SCENARIO                                                                EXPECT ACTUAL RESULT
+-------------------------------------------------------------------------------------------------
+E1   evidence-gate STANDARD, no spec                                         block  block  PASS
+E2   evidence-gate STANDARD, spec missing repo_context                       block  block  PASS
+E3   evidence-gate STANDARD, cited spec                                      allow  allow  PASS
+E4   evidence-gate STANDARD, repo_context malformed (no :line)               block  block  PASS
+E5   evidence-gate repo_context placeholder why                              block  block  PASS
+E5b  evidence-gate repo_context missing why                                  block  block  PASS
+E6b  evidence-gate STANDARD missing prior_art                                block  block  PASS
+E6   evidence-gate acceptance evidence faked                                 block  block  PASS
+E7   evidence-gate HEAVY missing prior_art                                   block  block  PASS
+E8   evidence-gate HEAVY full (incl prior_art {cite,why})                    allow  allow  PASS
+E9   evidence-gate HEAVY prior_art not a URL                                 block  block  PASS
+E9b  evidence-gate prior_art missing why                                     block  block  PASS
+BL1  bash-whitelist rm blocked pre-spec                                      block  block  PASS
+BL2  bash-whitelist git diff allowed pre-spec                                allow  allow  PASS
+BL2b bash-whitelist git commit allowed pre-spec                              allow  allow  PASS
+BL3  bash-whitelist echo allowed pre-spec                                    allow  allow  PASS
+BL4  bash-whitelist pytest blocked pre-spec                                  block  block  PASS
+BL5  bash-whitelist cat blocked pre-spec                                     block  block  PASS
+BL6  bash-whitelist chained ls && cat blocked pre-spec                       block  block  PASS
+BL7  bash-whitelist rg allowed pre-spec                                      allow  allow  PASS
+BL8  bash-whitelist ls allowed pre-spec                                      allow  allow  PASS
+BL13 bash-whitelist cd && rg allowed pre-spec                                allow  allow  PASS
+BL9  bash-whitelist trace.sh allowed pre-spec                                allow  allow  PASS
+BL9c bash-whitelist websearch.sh allowed pre-spec                            allow  allow  PASS
+BL9b bash-whitelist unifusion.sh allowed pre-spec                            allow  allow  PASS
+BL10 bash-unlock: valid spec allows mutate (action phase)                    allow  allow  PASS
+BL11 bash-whitelist LIGHT waives                                             allow  allow  PASS
+BL12 bash-whitelist: removed escape env ignored, non-whitelist still blocked block  block  PASS
+DG1  delegation Task blocked pre-spec                                        block  block  PASS
+DG2  delegation Agent blocked pre-spec                                       block  block  PASS
+DG3  delegation LIGHT waives                                                 allow  allow  PASS
+DG4  delegation valid spec unlocks action phase                              allow  allow  PASS
+N1   no-brick LIGHT (quick) waives spec                                      allow  allow  PASS
+N2   specs are CLI-only: direct spec edit is blocked                         block  block  PASS
+N3   no-brick whitelisted Bash (rg) allowed pre-spec                         allow  allow  PASS
+B1   bypass write protected ledger (even with cited spec)                    block  block  PASS
+B2   bypass path traversal out of spec dir                                   block  block  PASS
+S1   spec-only env does NOT downgrade: cited-less spec still blocked         block  block  PASS
+D1   default (no gate env): gate ON, uncited edit blocked                    block  block  PASS
+D2   removed escape env UNIFABLE_EVIDENCE_GATE=0 ignored, edit still blocked block  block  PASS
+
+40/40 scenarios pass
+bringing up nodes...
+bringing up nodes...
+
+........................................................................ [  5%]
+........................................................................ [ 10%]
+........................................................................ [ 15%]
+........................................................................ [ 21%]
+.........u.......................................u...................... [ 26%]
+.u...................................................................... [ 31%]
+........................................................................ [ 36%]
+........................................................................ [ 41%]
+...........................u...........u.u..u..uu....................... [ 46%]
+........................................................................ [ 52%]
+........................................................................ [ 57%]
+........................................................................ [ 62%]
+........................................................................ [ 67%]
+........................................................................ [ 73%]
+............................================================================================================
+unifable observation gate — robustness / safety checks
+================================================================================
+  [OK] gate_prompt.py empty-stdin exit0+noblock
+  [OK] gate_prompt.py bad-json exit0+noblock
+  [OK] gate_post_tool.py empty-stdin exit0+noblock
+  [OK] gate_post_tool.py bad-json exit0+noblock
+  [OK] gate_stop.py empty-stdin exit0+noblock
+  [OK] gate_stop.py bad-json exit0+noblock
+  [OK] stop_hook_active=true -> no block (observation gate)
+  [OK] blocks first 2 then allows (no infinite trap)
+  [OK] deep + code edit + tsc success -> allow
+  [OK] KO lecture prompt (quick default) -> allow
+  [OK] deep-only: normal task changed+unverified -> allow (no block)
+  [OK] deep analysis, no change -> allow (no false-positive nag)
+  [OK] evidence gate ignores stop_hook_active (no spec -> block)
+  [OK] evidence gate ignores the cap (4/4 blocks, infinite)
+--------------------------------------------------------------------------------
+RESULT: all pass (14 checks)
+............................................ [ 78%]
+........................................................................ [ 83%]
+........................................................................ [ 88%]
+........................................................................ [ 94%]
+........................................................................ [ 99%]
+........                                                                 [100%]
+1367 passed, 9 subtests passed in 6.38s

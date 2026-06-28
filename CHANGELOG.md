@@ -1,5 +1,60 @@
 # Changelog
 
+## 1.18.0 - 2026-06-27
+
+- New global `unifusion` launcher on `~/.local/bin`. The SessionStart runtime-sync
+  hook (`scripts/gate/runtime_sync.py`) and the `install/*.sh` tails now link a
+  `unifusion` bootstrap (alongside `unifable`/`unifable-hook`/`unifable-spec`)
+  that execs `~/.unifable/current/skills/unifusion/scripts/unifusion.sh`. The
+  panel now runs as `unifusion <question_file>` from any cwd, whether or not the
+  plugin is enabled in the current session, as long as the plugin has been
+  installed once (so `~/.unifable/current` is seeded). Survives cache-version
+  deletion like the other launchers.
+- Retired the `unifable:setup` slash command and deleted `setup/setup.sh` +
+  `setup/install-bin.sh`. The bin install is fully owned by the SessionStart hook
+  (and seeded at install time by `install/claude.sh` / `install/codex.sh` via
+  `runtime_sync.py --source <cache>`); the legacy `<!-- UNIFABLE -->` /
+  `<!-- UNIFABLE-ORCH -->` / `<!-- FABLIZE -->` block-strip is now inlined into
+  the installers. `progress.json` (write-only state) is dropped. `setup/uninstall.sh`
+  remains and now also removes the `unifusion` link.
+- Extracted the canonical Realtime transport out of `scripts/gate/codex_judge.py`
+  into a new `unifable_runtime/transport/` package: `realtime_ws.py` (RFC 6455
+  WebSocket client + Codex OAuth token lifecycle + connection lifecycle) and
+  `realtime_session.py` (pure session helpers — response routing, reask
+  classifiers, reasoning config, concurrent-batch frame router). `codex_judge.py`
+  is now a gate adapter that composes both, owns the 256k message cap
+  (`transcript_tail`) + env-driven constants + token-usage recording, keeps the
+  public `ask_structured` API stable, re-exports the transport names so existing
+  tests that monkeypatch `cj._ws_connect` / `cj._fresh_tokens` / `cj._encode_frame`
+  keep working, and adds `ask_structured_batch`.
+- Hermetic test suite. `UNIFABLE_JUDGE_OFFLINE=1` is now the default in
+  `tests/conftest.py` and `scripts/run_tests.sh`, so the direct judge path fails
+  open instead of making a live ~1.3s Realtime WebSocket call per hook dispatch —
+  verdicts no longer silently depend on Codex credential presence.
+  `scripts/gate/judge_transport.py` moved the offline check so the daemon
+  spawn/connect (and its ~3s backoff) is skipped when offline. Judge-behavior
+  tests inject a `judge_fn` or patch the transport seam and clear the knob.
+- Pinned xdist to `-n 8` in `pytest.ini` (was `-n auto`): with 1367 fast tests,
+  per-worker startup + IPC + CPU contention dominates beyond ~8 workers.
+  Measured on a 16-core M4 Max: `-n 8` ~= 6.5s vs `-n auto` (16) ~= 12s.
+- `scripts/bump_version.py`, `scripts/check_versions_consistent.py`,
+  `scripts/commit.sh`, and the justfile no longer manage a `setup/setup.sh`
+  version field. `scripts/gate/cli_install.py` UserPromptSubmit auto-heal now
+  re-seeds via `runtime_sync.py` instead of `install-bin.sh`. `scripts/gate/grade_override.py`
+  judge prompt updated ("installer release tail" replaces "setup.sh release tail").
+- New `tests/test_realtime_ws_protocol.py` (RFC 6455 frame + JWT-expiry fixtures);
+  `scripts/audit_waits.py` and `docs/testing-optimization.md` add it to the
+  wait-audit covered set. Added `docs/posttool-async-dispatch-plan.md` (design
+  doc; no code) and `docs/benchmarks/python-consolidation-*.txt` snapshots.
+
+Verification:
+
+- `python3 -m py_compile scripts/gate/runtime_sync.py scripts/gate/cli_install.py scripts/gate/codex_judge.py scripts/gate/judge_transport.py scripts/gate/grade_override.py scripts/bump_version.py scripts/check_versions_consistent.py unifable_runtime/transport/realtime_ws.py unifable_runtime/transport/realtime_session.py`
+- `bash -n install/claude.sh install/codex.sh setup/uninstall.sh scripts/commit.sh tests/test_unifable_hook_dispatch.sh`
+- `python3 -m pytest tests/test_runtime_sync.py tests/test_cli_install.py tests/test_janitor.py tests/test_bump_version.py tests/test_realtime_ws_protocol.py tests/test_codex_judge_reask.py tests/test_judge_message_cap.py -q`
+- `just generated-docs` (regenerates `docs/generated/*.md`)
+- `just test-all`
+
 ## 1.17.5 - 2026-06-27
 
 - PostToolUse no longer disarms the groundedness breaker inline. The breaker LIFT

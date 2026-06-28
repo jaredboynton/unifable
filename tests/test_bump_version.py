@@ -39,7 +39,6 @@ def test_all_manifests_still_managed():
         ".devin-plugin/plugin.json",
         ".factory-plugin/plugin.json",
         ".factory-plugin/marketplace.json",
-        "setup/setup.sh",
     ):
         assert rel in bv.MANAGED, rel
 

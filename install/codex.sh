@@ -127,17 +127,40 @@ if [ -d "$CODEX_HOME/skills/fablize" ]; then
   echo "  ✓ removed legacy ~/.codex/skills/fablize"
 fi
 
-# 5) Delegate the shared setup tail to setup.sh so the bin link, AGENTS.md block
-#    strip, and ~/.unifable/progress.json state record all stay owned in one place
-#    (no drift between the installer and setup.sh). Idempotent. setup.sh is
-#    host-aware (auto-detects codex from the cache path), but pass the host
-#    explicitly for determinism. ROOT resolves to the cached plugin root.
-CACHE_SETUP="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 3 -name setup.sh -path '*/setup/*' 2>/dev/null | sort | tail -1)"
-if [ -n "$CACHE_SETUP" ]; then
-  CACHE_ROOT="$(dirname "$(dirname "$CACHE_SETUP")")"
-  bash "$CACHE_ROOT/setup/setup.sh" global codex
+# 5) Seed the stable ~/.unifable runtime + bin links (so `unifable`/`unifusion`
+#    work on PATH before the first SessionStart fires) and strip any prior
+#    <!-- UNIFABLE --> / <!-- UNIFABLE-ORCH --> / <!-- FABLIZE --> static block
+#    from ~/.codex/AGENTS.md (legacy migration cleanup — context is now delivered
+#    by the SessionStart hook, not a static block). The SessionStart hook keeps
+#    ~/.unifable and the bin links current on every session thereafter.
+MEMFILE="$CODEX_HOME/AGENTS.md"
+mkdir -p "$(dirname "$MEMFILE")"; touch "$MEMFILE"
+ts="$(python3 -c 'import time;print(int(time.time()))')"
+if [ -s "$MEMFILE" ]; then
+  cp "$MEMFILE" "$MEMFILE.unifable-bak.$ts" && echo "  backup: $MEMFILE.unifable-bak.$ts"
+  python3 - "$MEMFILE" <<'PY'
+import sys, re, pathlib
+p = pathlib.Path(sys.argv[1])
+cur = p.read_text(encoding="utf-8")
+new = cur
+for tag in ("UNIFABLE", "UNIFABLE-ORCH", "FABLIZE"):
+    new = re.sub(r"<!-- " + tag + r":BEGIN.*?" + tag + r":END -->\n?", "", new, flags=re.S)
+new = new.rstrip()
+if new != cur:
+    p.write_text(new + ("\n" if new else ""), encoding="utf-8")
+    print(f"  stripped prior static block(s) from {p.name} (context now delivered via SessionStart hook)")
+else:
+    print(f"  {p.name}: no prior static block (already clean)")
+PY
+fi
+CACHE_SYNC="$(find "$CODEX_HOME/plugins/cache/$MKT/$PLUG" -maxdepth 4 -name runtime_sync.py -path '*/scripts/gate/*' 2>/dev/null | sort | tail -1)"
+if [ -n "$CACHE_SYNC" ]; then
+  CACHE_ROOT="$(dirname "$(dirname "$(dirname "$CACHE_SYNC")")")"
+  UNIFABLE_BIN_DIR="$HOME/.local/bin" python3 "$CACHE_SYNC" --source "$CACHE_ROOT" >/dev/null 2>&1 \
+    && echo "  ✓ unifable runtime seeded under ~/.unifable; unifable + unifusion linked into $HOME/.local/bin" \
+    || echo "  ! runtime sync skipped (will self-heal on next SessionStart)"
 else
-  echo "  ! setup.sh not found under $CODEX_HOME/plugins/cache/$MKT/$PLUG — bin link + state record skipped"
+  echo "  ! runtime_sync.py not found under $CODEX_HOME/plugins/cache/$MKT/$PLUG — bin link skipped (self-heals on next SessionStart)"
 fi
 
 echo "unifable: Codex native-plugin install complete. RESTART Codex; the plugin loads its own hooks."

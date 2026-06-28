@@ -2,17 +2,19 @@
 
 ## Scope
 
-These rules apply to setup, uninstall, and install-bin scripts.
+These rules apply to the uninstall script (`setup/uninstall.sh`). The bin
+install and runtime seeding are owned by `scripts/gate/runtime_sync.py` (run by
+the SessionStart hook and the `install/*.sh` tails); there is no `setup.sh`.
 
 ## Rules
 
-- Setup must keep managed blocks fresh and remove stale generated blocks.
+- Keep uninstall idempotent and reversible; back up the host memory file before
+  stripping legacy blocks.
+- Keep the bin-removal set in sync with `runtime_sync._BOOTSTRAPS`
+  (`unifable`, `unifable-hook`, `unifable-spec`, `unifusion`).
 - Keep global runtime refresh behavior aligned with `hooks/session_start.py` and
   `scripts/gate/runtime_sync.py`.
-- Version strings in `setup/setup.sh` are managed by `just version`; do not
-  hand-edit them.
 
 ## Verification
 
-- Run shell syntax checks on touched scripts.
-- Run version consistency checks after setup/version edits.
+- Run shell syntax checks on touched scripts (`bash -n setup/uninstall.sh`).

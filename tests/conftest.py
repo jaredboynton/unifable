@@ -20,6 +20,14 @@ os.environ.setdefault("UNIFABLE_JUDGE_DAEMON", "0")
 # fork a real background process or make a live Realtime call; tests that exercise
 # the background path call run_reconcile_job directly or flip this via setenv.
 os.environ.setdefault("UNIFABLE_POSTTOOL_BG", "0")
+# The direct judge path (judge_transport.ask_structured) is forced deterministically
+# unreachable so subprocess hook dispatch (gate_prompt.py / pre_tool_use.py) fails
+# open instead of making a live Realtime WebSocket call -- which on a dev machine with
+# codex credentials costs ~1.3s per hook invocation and makes the suite non-hermetic
+# (verdicts would silently depend on credential presence). Judge-behavior tests
+# inject a judge_fn or patch ask_structured at the transport layer and are unaffected;
+# tests that need a live verdict override this via monkeypatch.setenv.
+os.environ.setdefault("UNIFABLE_JUDGE_OFFLINE", "1")
 
 collect_ignore = [
     "test_gate_robustness.py",

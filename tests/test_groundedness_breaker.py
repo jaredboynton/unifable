@@ -145,7 +145,7 @@ def test_whitelisted_bash_is_release_tool_with_input():
     )
     assert gb.is_release_tool(
         "Bash",
-        {"tool_name": "Bash", "tool_input": {"command": "wc -l setup/setup.sh"}},
+        {"tool_name": "Bash", "tool_input": {"command": "wc -l scripts/bump_version.py"}},
     )
     assert not gb.is_release_tool("Bash")
     assert not gb.is_release_tool(

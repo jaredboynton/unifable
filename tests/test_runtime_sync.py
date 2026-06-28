@@ -27,8 +27,9 @@ import runtime_sync  # noqa: E402
 
 # Top-level dirs a fake cache "version" needs to be a runnable plugin.
 # Includes unifable_runtime so the seeded runtime can satisfy the shared
-# interpreter preflight the bootstraps run.
-_RUNTIME_DIRS = ("hooks", "scripts", "unifable_runtime", "bin", "setup", "packs")
+# interpreter preflight the bootstraps run, and skills so the unifusion
+# launcher bootstrap can resolve the synced panel script.
+_RUNTIME_DIRS = ("hooks", "scripts", "unifable_runtime", "bin", "setup", "packs", "skills")
 
 
 def _seed_cache_version(cache_parent: Path, version: str) -> Path:
@@ -101,6 +102,47 @@ def test_sync_seeds_runtime_and_links(tmp_path, monkeypatch):
     assert hook_link.is_symlink()
     assert hook_link.resolve() == (home / "bin" / "unifable-hook").resolve()
     assert (home / "bin" / "unifable-hook").is_file()  # real bootstrap, not a cache symlink
+
+
+def test_sync_installs_unifusion_launcher(tmp_path, monkeypatch):
+    # The unifusion launcher rides the same bootstrap path as the unifable CLIs:
+    # a real file under ~/.unifable/bin, symlinked from ~/.local/bin, that execs
+    # the synced skill script under current/skills/unifusion.
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    assert runtime_sync.sync_runtime() is True
+
+    link = bdir / "unifusion"
+    assert link.is_symlink()
+    assert link.resolve() == (home / "bin" / "unifusion").resolve()
+    bootstrap = home / "bin" / "unifusion"
+    assert bootstrap.is_file()  # real bootstrap, not a cache symlink
+    assert "skills/unifusion/scripts/unifusion.sh" in bootstrap.read_text()
+
+    # End-to-end resolution: the bootstrap must exec the synced skill script.
+    # Stub the synced script so we exercise only the launcher wiring, not the
+    # real panel fan-out (which would call paid model CLIs).
+    synced = home / "current" / "skills" / "unifusion" / "scripts" / "unifusion.sh"
+    synced.parent.mkdir(parents=True, exist_ok=True)
+    synced.write_text("#!/usr/bin/env bash\necho \"unifusion-stub: $1\"\n")
+    synced.chmod(0o755)
+
+    q = tmp_path / "q.md"
+    q.write_text("hello panel\n")
+    proc = subprocess.run(
+        [str(link), str(q)],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.strip() == f"unifusion-stub: {q}"
 
 
 def test_runtime_survives_cache_deletion(tmp_path, monkeypatch):

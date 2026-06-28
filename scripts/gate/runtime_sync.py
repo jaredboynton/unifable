@@ -11,6 +11,11 @@ resolver can run. This module keeps the running code OUT of the cache:
   ~/.unifable/bin/unifable*   stable bootstrap launchers (real files) that exec from current
   ~/.local/bin/unifable*      -> ~/.unifable/bin/unifable*   (~/.unifable is never deleted)
 
+The same bootstrap path also installs the `unifusion` panel launcher
+(~/.unifable/bin/unifusion -> ~/.local/bin/unifusion), which execs the synced
+skill script under current/skills/unifusion so the panel runs from any cwd
+whether or not the plugin is enabled in the current session.
+
 The cache is only a download source. Nothing on the runtime path points into it, so
 deleting any cache version cannot brick a session. `sync_runtime()` is invoked from the
 SessionStart hook (and as a UserPromptSubmit backstop); it copies a newer cache version
@@ -100,10 +105,29 @@ PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
 exec python3 "$SPEC" "$@"
 """
 
+# unifusion panel launcher. Execs the synced skill script under the stable
+# runtime, so `unifusion <question_file>` works from any cwd whether or not the
+# plugin is enabled in the current session (as long as ~/.unifable/current has
+# been seeded once by the installer or the SessionStart hook). The skill's own
+# SCRIPT_DIR resolution finds its sibling runners from there.
+_UNIFUSION_BOOTSTRAP = """#!/usr/bin/env bash
+# unifusion launcher bootstrap — managed by runtime_sync.py. Do not edit by hand.
+set -euo pipefail
+ROOT="${UNIFABLE_HOME:-$HOME/.unifable}/current"
+SCRIPT="$ROOT/skills/unifusion/scripts/unifusion.sh"
+if [ ! -f "$SCRIPT" ]; then
+  echo "unifusion: panel script not found at $SCRIPT (run the unifable installer once to seed ~/.unifable)" >&2
+  exit 1
+fi
+export PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" UNIFABLE_PLUGIN_ROOT="$ROOT"
+exec bash "$SCRIPT" "$@"
+"""
+
 _BOOTSTRAPS = {
     "unifable-hook": _HOOK_BOOTSTRAP,
     "unifable": _CLI_BOOTSTRAP,
     "unifable-spec": _CLI_BOOTSTRAP,
+    "unifusion": _UNIFUSION_BOOTSTRAP,
 }
 
 
@@ -292,8 +316,8 @@ def sync_runtime(*, force: bool = False, source: str | os.PathLike | None = None
     """Seed/refresh ~/.unifable. Return True if `current` flipped.
 
     `source`, when it names a valid versioned runtime dir, is preferred over the
-    latest-cache scan (used by install-bin.sh to seed the exact version installed). An
-    invalid/non-semver source falls back to the latest cache so install never no-ops.
+    latest-cache scan (used by the installers and the UserPromptSubmit auto-heal
+    to seed the exact version installed). An invalid/non-semver source falls back
     """
     if not _enabled():
         return False

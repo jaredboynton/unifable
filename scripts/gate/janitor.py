@@ -49,7 +49,7 @@ Reap targets + rules (age = ``UNIFABLE_JANITOR_AGE_S``, default 24h):
     alive/<skey>.json whose host is NOT currently live AND started_at > age
       -> unlink (the marker itself).
 
-NEVER touched: bin/, versions/, current, progress.json, the unifable.db schema
+NEVER touched: bin/, versions/, current, the unifable.db schema
 (only row DELETEs), and any skey/dir_hash with a live alive-marker.
 
 Stdlib only; host-agnostic. Run: ``python3 scripts/gate/janitor.py --run``.
