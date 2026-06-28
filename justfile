@@ -41,23 +41,23 @@ agents-audit:
 
 # Lint and auto-fix all Python source (ruff check --fix).
 lint:
-    uv run --no-project --with-requirements requirements-dev.txt ruff check --fix hooks scripts tests
+    uv run --no-project --with-requirements requirements-dev.txt ruff check --fix hooks scripts unifable_runtime tests
 
 # Format all Python source in place (ruff format).
 format:
-    uv run --no-project --with-requirements requirements-dev.txt ruff format hooks scripts tests
+    uv run --no-project --with-requirements requirements-dev.txt ruff format hooks scripts unifable_runtime tests
 
 # Run mypy strict type checking on hooks and scripts/gate.
 typecheck:
-    uv run --no-project --with-requirements requirements-dev.txt mypy hooks scripts/gate
+    uv run --no-project --with-requirements requirements-dev.txt mypy hooks scripts/gate unifable_runtime
 
 # Detect dead code with vulture (min-confidence 80).
 dead-code:
-    uv run --no-project --with-requirements requirements-dev.txt vulture hooks scripts tests --min-confidence 80
+    uv run --no-project --with-requirements requirements-dev.txt vulture hooks scripts unifable_runtime tests --min-confidence 80
 
 # Detect unused dependencies with deptry.
 unused-deps:
-    uv run --no-project --with-requirements requirements-dev.txt deptry . --requirements-files requirements-dev.txt --ignore DEP001 --known-first-party scripts
+    uv run --no-project --with-requirements requirements-dev.txt deptry . --requirements-files requirements-dev.txt --ignore DEP001 --known-first-party scripts --known-first-party unifable_runtime
 
 # Check cyclomatic complexity (radon cc, only grade A-C pass, D+ flagged).
 complexity:

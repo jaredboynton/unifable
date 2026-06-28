@@ -41,6 +41,7 @@ except ImportError:  # pragma: no cover
 _RUNTIME_TREE = (
     "hooks",
     "scripts",
+    "unifable_runtime",
     "packs",
     "bin",
     "setup",
@@ -70,6 +71,13 @@ if [ -z "$script" ] || [ ! -f "$ROOT/hooks/$script" ]; then
   exit 0
 fi
 export PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" UNIFABLE_PLUGIN_ROOT="$ROOT"
+# Python 3.12+ contract. Hooks must fail open (emit {} / exit 0) so a stale
+# interpreter degrades the gate to a no-op instead of bricking the host turn.
+if ! PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+    "import unifable_runtime as rt; rt.require_supported_python()" 2>/dev/null; then
+  echo "{}"
+  exit 0
+fi
 case "$script" in
   *.sh) exec bash "$ROOT/hooks/$script" ;;
   *) exec python3 "$ROOT/hooks/$script" ;;
@@ -86,6 +94,9 @@ if [ ! -f "$SPEC" ]; then
   exit 1
 fi
 export PLUGIN_ROOT="$ROOT" CLAUDE_PLUGIN_ROOT="$ROOT" UNIFABLE_PLUGIN_ROOT="$ROOT"
+# Python 3.12+ contract; the CLI is interactive, so surface the canonical error.
+PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+  "import unifable_runtime as rt; rt.require_supported_python()" || exit 1
 exec python3 "$SPEC" "$@"
 """
 

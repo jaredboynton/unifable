@@ -21,6 +21,11 @@ set -euo pipefail
 ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
 
 command -v python3 >/dev/null 2>&1 || { echo "unifable: python3 is required."; exit 1; }
+# Python 3.12+ is the single supported runtime. Use the shared contract in
+# unifable_runtime so setup rejects an old interpreter with the same message the
+# hooks and launchers emit, instead of failing deep in a port later.
+PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}" python3 -c \
+  "import unifable_runtime as rt; rt.require_supported_python()" || exit 1
 
 # --- host detection (overridable by $2) ---
 host="${2:-}"

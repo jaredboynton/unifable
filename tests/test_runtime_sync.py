@@ -26,7 +26,9 @@ sys.path.insert(0, str(GATE))
 import runtime_sync  # noqa: E402
 
 # Top-level dirs a fake cache "version" needs to be a runnable plugin.
-_RUNTIME_DIRS = ("hooks", "scripts", "bin", "setup", "packs")
+# Includes unifable_runtime so the seeded runtime can satisfy the shared
+# interpreter preflight the bootstraps run.
+_RUNTIME_DIRS = ("hooks", "scripts", "unifable_runtime", "bin", "setup", "packs")
 
 
 def _seed_cache_version(cache_parent: Path, version: str) -> Path:
@@ -167,6 +169,51 @@ def test_sync_from_explicit_source(tmp_path, monkeypatch):
 
     assert runtime_sync.sync_runtime(source=str(older)) is True
     assert runtime_sync.current_version(home) == "1.5.0"
+
+
+def test_sync_copies_unifable_runtime_into_current(tmp_path, monkeypatch):
+    # Wave 2 contract: the shared package lands in the synced runtime so hook
+    # and CLI launchers can import unifable_runtime from ~/.unifable/current.
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    assert runtime_sync.sync_runtime() is True
+
+    pkg = home / "current" / "unifable_runtime" / "__init__.py"
+    assert pkg.is_file(), "unifable_runtime not synced into ~/.unifable/current"
+
+    # The synced package is importable from the runtime root and enforces 3.12+.
+    root = (home / "current").resolve()
+    proc = subprocess.run(
+        [sys.executable, "-c", "import unifable_runtime as rt; print(rt.MIN_PYTHON)"],
+        env={**env, "PYTHONPATH": str(root)},
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    assert proc.returncode == 0, proc.stderr
+    assert "(3, 12)" in proc.stdout
+
+
+def test_synced_hook_runs_with_preflight(tmp_path, monkeypatch):
+    # The bootstrap now runs the 3.12+ preflight before dispatch; on a supported
+    # interpreter (this one) the hook must still succeed and emit dict-or-empty.
+    home = tmp_path / "dot-unifable"
+    bdir = tmp_path / "local-bin"
+    cache = tmp_path / "cache"
+    env = _env(home, bdir, cache)
+    _apply_env(monkeypatch, env)
+
+    _seed_cache_version(cache, "1.0.0")
+    assert runtime_sync.sync_runtime() is True
+
+    rc, out = _run_hook(bdir / "unifable-hook", env)
+    assert rc == 0, f"hook exited {rc} with preflight present; output: {out!r}"
+    assert _is_dict_or_empty(out), f"hook emitted malformed output: {out!r}"
 
 
 def test_invalid_source_falls_back_to_latest_cache(tmp_path, monkeypatch):

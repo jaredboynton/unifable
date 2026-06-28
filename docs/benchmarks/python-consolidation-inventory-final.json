@@ -1,0 +1,2280 @@
+{
+  "active_hits": [
+    "skills/explore-websearch/scripts/websearch.sh: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/ast-context.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/enhance-prompt.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/explore-hydrate.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/explore-skill-context.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/code-line.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/codex-alpha-search-client.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/codex-responses-client.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/daemon-client.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/explore-output-prompt.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/explore-wire-format.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/htools.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/realtime_client.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rehydrate-explore-wire.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/render-trace-structured.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-agent-session.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/rt-explore-nav.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/rt-explore-runtime.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-map-seed.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-pick-passages.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-pipeline-seed.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-rehydrate-submit.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-rehydrate-websearch.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/rt-session-utils.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/rt-tools.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/rt-trace-utils.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/rt-web-run-tools.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/lib/rt-web-run.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/trace-citations.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/trace-schema.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/lib/websearch-schema.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/map-ast-extract.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/map-lib.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/map-pagerank.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/map-sigmap.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/map.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/map.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/realtime-search.mjs: active row carries forbidden ['.mjs']",
+    "skills/explore/scripts/realtime-trace.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/realtime-websearch.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/repo-context.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/search-fast.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/search-lib.mjs: active row carries forbidden ['.js', '.mjs', 'bun', 'node']",
+    "skills/explore/scripts/search-rt.mjs: active row carries forbidden ['.mjs', 'bun', 'node']",
+    "skills/explore/scripts/search-seed.mjs: active row carries forbidden ['.js', '.mjs', 'node']",
+    "skills/explore/scripts/search.sh: active row carries forbidden ['.mjs', 'bun', 'node']",
+    "skills/explore/scripts/setup.sh: active row carries forbidden ['.js', '.mjs', 'bun', 'node']",
+    "skills/explore/scripts/trace-rt.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/websearch-lib.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/explore/scripts/websearch-rt.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/unifusion/scripts/_acp_client.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/unifusion/scripts/compact-full-transcript.mjs: active row carries forbidden ['.mjs', 'node']",
+    "skills/unifusion/scripts/handoff-density.mjs: active row carries forbidden ['.mjs']",
+    "skills/unifusion/scripts/prompt-adaptation.mjs: active row carries forbidden ['.mjs']",
+    "skills/unifusion/scripts/renderer-prompt-guides.mjs: active row carries forbidden ['.mjs']",
+    "skills/unifusion/scripts/run_glm.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/unifusion/scripts/selfcheck.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/unifusion/scripts/summarize_session.sh: active row carries forbidden ['.mjs', 'node']",
+    "skills/unifusion/scripts/tool-use-format.mjs: active row carries forbidden ['.mjs', 'node']"
+  ],
+  "counts": {
+    "active": 73,
+    "archived": 75,
+    "compat-shim": 7,
+    "fixture": 36,
+    "python": 16
+  },
+  "fail_on_active": [
+    ".js",
+    ".mjs",
+    "bun",
+    "node"
+  ],
+  "problems": [],
+  "rows": [
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "runtime",
+      "path": "bin/unifable",
+      "reason": "stable launcher that execs the synced Python runtime"
+    },
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "runtime",
+      "path": "bin/unifable-hook",
+      "reason": "stable launcher that execs the synced Python runtime"
+    },
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "runtime",
+      "path": "bin/unifable-spec",
+      "reason": "stable launcher that execs the synced Python runtime"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "hooks/gate_prompt.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "gate",
+      "path": "hooks/router.sh",
+      "reason": "thin UserPromptSubmit wrapper; body is exec python3 scripts/gate/pack_router.py, no Node/Bun"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "bun",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "hooks/test_after_edit.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "release",
+      "path": "scripts/commit.sh",
+      "reason": "CI release commit helper; dev tooling, not shipped on a runtime path"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/codex_judge.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/file_refs.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/judge_client.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".js",
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/ledger.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "bun",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/parse_tool_result.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/process_host.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "bun",
+        "node",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/spec_stop_validate.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/submit_enhance.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/tool_output_compress.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/tool_use_format.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/transcript_tail.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "node",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/gate/verify_lane.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        "npm"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "scripts/generate_docs.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "release",
+      "path": "scripts/pre-commit-generated-docs.sh",
+      "reason": "pre-commit generated-docs refresh; dev tooling, not a runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "release",
+      "path": "scripts/run_tests.sh",
+      "reason": "full verification suite runner; dev tooling, not a runtime path"
+    },
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "setup",
+      "path": "setup/install-bin.sh",
+      "reason": "install/uninstall launcher; ports to Python entrypoint with a shell shim"
+    },
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "setup",
+      "path": "setup/setup.sh",
+      "reason": "install/uninstall launcher; ports to Python entrypoint with a shell shim"
+    },
+    {
+      "classification": "compat-shim",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "setup",
+      "path": "setup/uninstall.sh",
+      "reason": "install/uninstall launcher; ports to Python entrypoint with a shell shim"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-websearch-skill",
+      "path": "skills/explore-websearch/scripts/websearch.sh",
+      "reason": "supported gate-allowlisted websearch entrypoint; delegates to the explore implementation, targeted for Python port"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-rescore-trace.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-search-precision.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-search-precision.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-trace-gk.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-trace-gm.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-trace-parity.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-trace-rt.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-trace-sandbox.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-trace-transport.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-websearch-modes.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-websearch-rt.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-websearch.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-websearch.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/bench-ws-overlap.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/cerebras-search.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/cursor-acp-trace.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/cursor-harness.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/cursor-index.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/cursor-trace-pretooluse.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/gemini-trace.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/grok-trace.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/bench-scorer-common.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/bench-scorer.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/bench-trace-scorer.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/bench-websearch-scorer.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/gk-tools.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/hcursor-h2.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/hcursor-index.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/hcursor-proto.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/hproto.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/repoqa-tasks.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/rt-exa-tools.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/rt-research-runtime.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/rt-research-tools.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/rt-submit-cerebras.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/lib/xai_client.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-alpha-search-fetch.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-alpha-search-fetch.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-alpha-search.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-alpha-search.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-rt-web-run.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-rt-web-run.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-rt-websearch.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/probe-rt-websearch.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/search-cerebras.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/search-mcp-server.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/search.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-acp-concurrency.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-acp-feedback.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-trace-concurrency.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-trace-gk.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-trace-gm.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-trace-inputs.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-trace-ten-dirs.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test-websearch-gemini.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/bench-scorer.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/bench-trace-scorer.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/bench-websearch-scorer.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/cerebras-search.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/extract-proto-fields.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/grounding-verify.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/index-codec.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/proto-oracle.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/proto-oracle.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/rt-exa-tools.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/rt-research-runtime.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/rt-research-tools.test.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/run-oracle.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/test-gemini-trace.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/test/test-grok-trace.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/trace-cursor.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/trace-gemini.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/trace-gk.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/websearch-gemini.mjs",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "archived",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/archive/websearch-gemini.sh",
+      "reason": "retired variant kept for reference; excluded from active runtime"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/ast-context.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/bench/trace-ab.mjs",
+      "reason": "benchmark harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/bench/trace-ab.sh",
+      "reason": "benchmark harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/enhance-prompt.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/env.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "python",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": false,
+      "owner": "gate",
+      "path": "skills/explore/scripts/expand_citations.py",
+      "reason": "Python file flagged for Node/Bun content reference"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/explore-hydrate.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/explore-skill-context.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/fixtures/map-ast-repo/lib/frontier.rb",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/hermetic-home.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/code-line.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/codex-alpha-search-client.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/codex-responses-client.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/daemon-client.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/explore-output-prompt.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/explore-wire-format.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/htools.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/realtime_client.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rehydrate-explore-wire.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/render-trace-structured.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-agent-session.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-explore-nav.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-explore-runtime.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-map-seed.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-pick-passages.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-pipeline-seed.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-rehydrate-submit.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-rehydrate-websearch.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-session-utils.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-tools.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-trace-utils.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-web-run-tools.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/rt-web-run.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/trace-citations.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/trace-schema.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/lib/websearch-schema.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/map-ast-extract.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node",
+        "npm",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/map-lib.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/map-pagerank.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/map-sigmap.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/map.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/map.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/realtime-search.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/realtime-trace.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/realtime-websearch.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/repo-context.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/search-fast.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "bun",
+        "node",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/search-lib.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "bun",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/search-rt.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node",
+        "pnpm",
+        "yarn"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/search-seed.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "bun",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/search.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "bun",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/setup.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test-hermetic-home.sh",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test-search-lib.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test-search.sh",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test-trace-rt.sh",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test-websearch-rt.sh",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test-websearch.sh",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/ast-context.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/code-line.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/enhance-prompt-system.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/explore-skill-context.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/explore-wire-format.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/map-ast-extract.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".js",
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/map-pagerank.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/map-sigmap.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/realtime-frame.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/repo-context.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-agent-session.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-explore-nav.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-explore-runtime.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-map-seed.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-pick-passages.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-rehydrate-submit.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-rehydrate-websearch.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-trace-utils.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/rt-web-run-tools.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/search-seed.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/test-realtime-trace.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/test-trace-schema.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/test-websearch-lib.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/test/websearch-schema.test.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/trace-rt.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/trace.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node",
+        "npm"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/websearch-lib.mjs",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/websearch-rt.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/explore/scripts/websearch.sh",
+      "reason": "supported explore runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/_acp_client.mjs",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/_unifusion_lib.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/compact-full-transcript.mjs",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/handoff-density.mjs",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/prompt-adaptation.mjs",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/renderer-prompt-guides.mjs",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/resolve_session.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/run_agy.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/run_claude.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/run_codex.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/run_gemini.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/run_glm.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/run_kimi.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/save_run.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/selfcheck.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/summarize_session.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "fixture",
+      "content_tokens": [
+        ".mjs",
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "explore-skill",
+      "path": "skills/unifusion/scripts/test-tool-use-format.mjs",
+      "reason": "test harness; dev-only, not an active runtime path"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [
+        "node"
+      ],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/tool-use-format.mjs",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    },
+    {
+      "classification": "active",
+      "content_tokens": [],
+      "is_nonpy": true,
+      "owner": "unifusion-skill",
+      "path": "skills/unifusion/scripts/unifusion.sh",
+      "reason": "supported Unifusion runtime path; targeted for Python port"
+    }
+  ],
+  "trees": [
+    "hooks",
+    "scripts",
+    "setup",
+    "bin",
+    "skills",
+    "packs"
+  ]
+}
