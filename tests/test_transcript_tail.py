@@ -107,6 +107,82 @@ def test_claude_shaped_record_unaffected_by_payload_fallback():
     assert "claude shaped" in out
 
 
+def test_repl_bash_tooluseresult_stdout_surfaced():
+    """REPL-only sessions leave inline tool_result.content empty and put stdout in
+    the record-level toolUseResult; the judge renderer must surface it, not just
+    the bare [tool_result] placeholder."""
+    line = json.dumps(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "repl_x", "content": "", "is_error": False}],
+            },
+            "toolUseResult": {
+                "stdout": "SECRET SCANS: running\nSECRET SCAN OK: gitleaks\n[pre-commit] all checks passed\nOK",
+                "stderr": "",
+                "interrupted": False,
+            },
+        }
+    )
+    out = stripped_transcript(line)
+    assert "SECRET SCAN OK" in out
+    assert "all checks passed" in out
+    assert "[tool_result]" in out  # framing preserved
+
+
+def test_repl_read_tooluseresult_file_content_surfaced():
+    line = json.dumps(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "repl_r", "content": "", "is_error": False}],
+            },
+            "toolUseResult": {
+                "type": "text",
+                "file": {"filePath": "/repo/.gitignore", "content": "node_modules/\n.env\nreference/\n", "numLines": 3},
+            },
+        }
+    )
+    out = stripped_transcript(line)
+    assert "node_modules/" in out
+    assert "reference/" in out
+
+
+def test_repl_webfetch_tooluseresult_result_surfaced():
+    line = json.dumps(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "repl_w", "content": "", "is_error": False}],
+            },
+            "toolUseResult": {"url": "https://x.io", "code": 200, "result": "FETCHED BODY MARKER abc"},
+        }
+    )
+    out = stripped_transcript(line)
+    assert "FETCHED BODY MARKER abc" in out
+
+
+def test_inline_tool_result_unaffected_by_tooluseresult_fallback():
+    """A normal inline tool_result body still renders [tool_result] + its content,
+    and the fallback does not append a duplicate body."""
+    line = json.dumps(
+        {
+            "type": "user",
+            "message": {
+                "role": "user",
+                "content": [{"type": "tool_result", "content": "ran probe -> 0 ok"}],
+            },
+            "toolUseResult": {"stdout": "SHOULD NOT APPEAR TWICE"},
+        }
+    )
+    out = stripped_transcript(line)
+    assert "ran probe -> 0 ok" in out
+    assert "SHOULD NOT APPEAR TWICE" not in out
+
+
 if __name__ == "__main__":
     import pytest
 

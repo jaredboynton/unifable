@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.21.2 - 2026-06-28
+
+- Surface REPL tool output to the groundedness-breaker judge. In REPL-only
+  sessions (`CLAUDE_CODE_REPL=1`) Claude Code leaves the inline
+  `tool_result.content` empty and puts the real output in the record-level
+  `toolUseResult` (Bash `{stdout,stderr}`, Read `{file:{content}}`, WebFetch
+  `{result}`, ...). The judge transcript renderer rendered the inline form first,
+  which returns the non-empty `"[tool_result]"` placeholder, so its existing
+  `toolUseResult` fallback was never reached and the judge saw every tool result
+  as an empty `[tool_result]`. With no visible output, the arm judge armed on
+  already-proven claims (e.g. "the change was committed", seen right after
+  `SECRET SCAN OK`) and the disarm judge could never ground them, deadlocking
+  mutation/Bash. `_record_text` now falls back to the record-level
+  `toolUseResult` when the inline render is empty or placeholder-only, preserving
+  the `[tool_result]` framing (`scripts/gate/transcript_tail.py`). Non-REPL
+  inline-content sessions are unaffected.
+
+Verification:
+
+- `python3 -m py_compile scripts/gate/transcript_tail.py`
+- `python3 -m pytest tests/test_transcript_tail.py tests/test_groundedness_breaker.py tests/test_judge_transcript.py tests/test_tool_use_format.py tests/test_transcript_lineage.py -q`
+- `just test-all`
+
 ## 1.21.1 - 2026-06-28
 
 - Fix a research-gate deadlock in REPL-only sessions (`CLAUDE_CODE_REPL=1`).

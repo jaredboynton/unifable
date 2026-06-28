@@ -243,6 +243,36 @@ def _codex_payload_text(record: dict[str, Any]) -> str:
     return ""
 
 
+def _tool_use_result_text(record: dict[str, Any]) -> str:
+    """Text from a record-level ``toolUseResult`` (Claude REPL-mode shape).
+
+    In REPL-only sessions (CLAUDE_CODE_REPL=1) the inline tool_result.content is
+    empty and the real output lives here: Bash {stdout,stderr}, Read
+    {file:{content}} or {stdout}, WebFetch {result}, WebSearch {results}, etc.
+    Without this, the judge sees only the "[tool_result]" placeholder and arms on
+    already-proven claims it cannot then disarm. Returns "" when nothing textual."""
+    tur = record.get("toolUseResult")
+    if isinstance(tur, str):
+        return tur.strip()
+    if not isinstance(tur, dict):
+        return ""
+    parts: list[str] = []
+    for key in ("stdout", "stderr"):
+        v = tur.get(key)
+        if isinstance(v, str) and v.strip():
+            parts.append(v)
+    if parts:
+        return "\n".join(parts).strip()
+    f = tur.get("file")
+    if isinstance(f, dict) and isinstance(f.get("content"), str) and f["content"].strip():
+        return f["content"].strip()
+    for key in ("result", "content", "message", "output"):
+        v = tur.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    return ""
+
+
 def _record_text(record: dict[str, Any], entry: dict[str, Any] | None = None) -> str:
     meta = _tool_format_meta(entry)
     content = record.get("message", {}).get("content") if isinstance(record.get("message"), dict) else None
@@ -252,6 +282,15 @@ def _record_text(record: dict[str, Any], entry: dict[str, Any] | None = None) ->
         return content
     if isinstance(content, list):
         rendered = "\n\n".join(part for part in (_render_part_for_prompt(item, meta) for item in content) if part)
+        # A REPL-mode tool_result renders to the bare "[tool_result]" placeholder
+        # (inline content is empty); the real output is in the record-level
+        # toolUseResult. Fall back to it so the judge sees the actual stdout/file
+        # body, preserving the tool_result framing the renderer/compaction expect.
+        if rendered and rendered.strip() != "[tool_result]":
+            return rendered
+        tur_text = _tool_use_result_text(record)
+        if tur_text:
+            return f"[tool_result]\n{tur_text}" if rendered else tur_text
         if rendered:
             return rendered
     for key in ("toolUseResult", "lastPrompt", "aiTitle", "summary"):

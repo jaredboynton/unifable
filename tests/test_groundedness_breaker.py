@@ -771,6 +771,42 @@ def test_transcript_segment_preserves_full_tool_call_and_result(tmp_path):
     assert tool_result_tail in seg
 
 
+def test_transcript_segment_surfaces_repl_tooluseresult(tmp_path):
+    """REPL-only sessions leave inline tool_result.content empty and put the real
+    output in the record-level toolUseResult. The judge segment must carry that
+    output so arm/disarm can see the proof instead of a bare [tool_result]."""
+    import json
+
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "git commit -q -m x && echo OK"}}],
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "repl_c", "content": "", "is_error": False}],
+                },
+                "toolUseResult": {"stdout": "SECRET SCAN OK: gitleaks\nOK", "stderr": "", "interrupted": False},
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    seg = gb.transcript_segment({"transcript_path": str(f)})
+    assert "SECRET SCAN OK" in seg
+    assert "@@tool Bash" in seg
+
+
 def test_transcript_segment_tails_by_token_budget(tmp_path):
     f = tmp_path / "t.jsonl"
     f.write_text("old0 old1 old2 keep3 keep4 keep5", encoding="utf-8")
