@@ -1022,6 +1022,145 @@ def test_provisional_monitor_allows_on_track_edit(monkeypatch):
     assert judge.disarm_calls == 1
 
 
+class _ContentMonitorJudge:
+    """Monitor verdict is DRIVEN by whether the proof string is visible in the
+    segment, mirroring the real failure mode: invisible proof -> re-arm (drift 2),
+    visible proof -> on track (drift 0). The disarm verdict keeps the lift in place
+    so the monitor actually runs."""
+
+    def __init__(self, proof: str):
+        self.proof = proof
+        self.monitor_calls = 0
+        self.monitor_saw_proof = None
+
+    def __call__(self, system, user, schema):
+        s = system.lower()
+        if "provisional-lift monitor" in s:
+            self.monitor_calls += 1
+            self.monitor_saw_proof = self.proof in user
+            drift = 0 if self.monitor_saw_proof else 2
+            return {"drift_level": drift, "feedback": "" if drift == 0 else "No visible measurement; return to scope."}
+        if "release monitor" in s:
+            return {
+                "grounded": 0,
+                "needed": "",
+                "load_bearing": 1,
+                "provisional_release": 1,
+                "lift_reason": "verifying the measured figures",
+                "lift_scope": "finish the measurement and commit the docs",
+            }
+        return {"verdict": 0, "steering": "", "claim": "", "load_bearing": 0}
+
+
+def test_provisional_monitor_sees_repl_tooluseresult_proof(tmp_path):
+    """Regression for the REPL-visibility fix: when the measurement proof lives only
+    in a record-level toolUseResult (REPL-only sessions), the renderer must surface
+    it to the monitor so an in-scope mutation is NOT re-armed. If a future renderer
+    change re-hid toolUseResult, the monitor would see no proof and re-arm here."""
+    import json
+
+    from breaker_state import lift_provisional
+
+    proof = "RTKmarginal=10.3KB"
+    f = tmp_path / "t.jsonl"
+    f.write_text(
+        json.dumps(
+            {
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "name": "Bash", "input": {"command": "node transcript-savings.mjs"}}],
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {
+                "type": "user",
+                "message": {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "repl_m", "content": "", "is_error": False}],
+                },
+                "toolUseResult": {
+                    "stdout": "base=129450KB removedOff=476KB removedOn=487KB " + proof + " (+2.2%) files=40 with_RTK_gain=8",
+                    "stderr": "",
+                    "interrupted": False,
+                },
+            }
+        )
+        + "\n"
+        + json.dumps(
+            {"type": "assistant", "message": {"role": "assistant", "content": [{"type": "text", "text": "Docs now cite +10.3KB / +2.2% over pre-RTK trim."}]}}
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    state = _state()
+    lift_provisional(state, "the RTK marginal is +10.3KB over pre-RTK trim", "reason", "finish + commit the docs", "")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = _ContentMonitorJudge(proof)
+    input_data = {"tool_name": "Bash", "session_id": "S", "cwd": str(tmp_path), "transcript_path": str(f)}
+    blocked, steering, _ = gb.evaluate_pre_tool(input_data, state, now=1.0, active_task="P", judge=judge)
+    assert judge.monitor_calls == 1
+    assert judge.monitor_saw_proof is True, "renderer must surface toolUseResult stdout to the monitor"
+    assert blocked is False
+    assert state["breaker_provisional"] is True
+    assert not any(e.get("kind") == "REINSTATE" for e in state["events"])
+
+
+def test_monitor_scrubs_phantom_task_id(monkeypatch):
+    """A monitor re-arm must not surface a task ID the spec board never contained:
+    the host scrubs any T<n> token absent from the segment (the 'T17/T18 unresolved'
+    confabulation), while the drift=2 verdict itself still stands."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript with no board ids")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(state, "claim X", "reason", "edit config only", "")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(
+        grounded=0,
+        monitor_drift_level=2,
+        monitor_feedback="Off-track; T17/T18 still unresolved, return to scope.",
+    )
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is True
+    assert state["breaker_armed"] is True
+    assert "T17" not in steering and "T18" not in steering
+    assert steering.strip()
+    assert any(e.get("kind") == "REINSTATE" for e in state["events"])
+
+
+def test_monitor_keeps_real_task_id(monkeypatch):
+    """A task ID that DOES appear in the segment is preserved -- only phantom IDs are
+    scrubbed."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "SPEC BOARD: T17 open; finish it.")
+    from breaker_state import lift_provisional
+
+    state = _state()
+    lift_provisional(state, "claim X", "reason", "edit config only", "")
+    state["breaker_key"] = gb.breaker_key("S", "P")
+    judge = RoutingJudge(
+        grounded=0,
+        monitor_drift_level=2,
+        monitor_feedback="T17 still open; return to scope.",
+    )
+    blocked, steering, _ = gb.evaluate_pre_tool(_pre("Edit"), state, now=1.0, active_task="P", judge=judge)
+    assert blocked is True
+    assert "T17" in steering
+
+
+def test_scrub_phantom_task_ids_unit():
+    from breaker_judges import _scrub_phantom_task_ids as scrub
+
+    seg = "SPEC BOARD: T17 open. removedOn=487KB"
+    assert scrub("Off-track; T17/T18 still unresolved.", seg) == "Off-track; T17 still unresolved."
+    assert "T19" not in scrub("Drift; T19/T20 unresolved, return.", seg)
+    assert scrub("Keep T17 in scope.", seg) == "Keep T17 in scope."
+    assert scrub("T19/T20 only.", "no ids") == "only."
+    assert scrub("", seg) == ""
+
+
 def test_full_disarm_clears_provisional(monkeypatch):
     monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
     from breaker_state import lift_provisional

@@ -8,6 +8,7 @@ from breaker_filters / breaker_prompts / breaker_runtime (all downward).
 from __future__ import annotations
 
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -444,6 +445,33 @@ def disarm_judge(
     return ReleaseVerdict(grounded, needed, load_bearing, provisional, lift_reason, lift_scope)
 
 
+_PHANTOM_TASK_ID_RE = re.compile(r"\bT\d+\b")
+_MONITOR_GENERIC_FEEDBACK = "Return to the verification scope."
+
+
+def _scrub_phantom_task_ids(feedback: str, segment: str) -> str:
+    """Drop T<n> task-ID citations the monitor invented: any T\\d+ token not present
+    verbatim in the segment (which includes the rendered spec board) is removed, so a
+    hallucinated 'T17/T18 unresolved' can never reach the model. Scrubs the MESSAGE
+    only; the drift verdict is unchanged. Fail-safe: any error returns feedback as-is."""
+    try:
+        text = str(feedback or "")
+        if not text.strip():
+            return text
+        phantom = {tok for tok in _PHANTOM_TASK_ID_RE.findall(text) if tok not in segment}
+        if not phantom:
+            return text
+        # Remove each phantom token together with adjacent list punctuation/space
+        # (covers "T17/T18", "T17, T18", " T17 ").
+        cleaned = re.sub(r"[\s,/]*\b(?:" + "|".join(re.escape(t) for t in phantom) + r")\b", "", text)
+        cleaned = re.sub(r"\(\s*\)", "", cleaned)
+        cleaned = re.sub(r"\s+([,.;:])", r"\1", cleaned)
+        cleaned = re.sub(r"\s{2,}", " ", cleaned).strip(" ,/;:-")
+        return cleaned if cleaned.strip() else _MONITOR_GENERIC_FEEDBACK
+    except Exception:
+        return feedback
+
+
 def monitor_provisional_judge(
     claim: str,
     scope: str,
@@ -465,4 +493,6 @@ def monitor_provisional_judge(
     if drift not in (0, 1, 2):
         drift = 0
     feedback = str(obj.get("feedback", "") or "").strip() if drift in (1, 2) else ""
+    if feedback:
+        feedback = _scrub_phantom_task_ids(feedback, segment)
     return drift, feedback

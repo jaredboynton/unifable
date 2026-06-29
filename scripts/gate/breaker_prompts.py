@@ -360,6 +360,8 @@ _MONITOR_SCHEMA: dict[str, Any] = {
             "description": (
                 "When drift_level=1, ONE concrete advisory nudge (never blocks). "
                 "When drift_level=2, 1-2 sentences re-arming guidance. "
+                "Never cite a task ID (e.g. T17) that is not present verbatim in the SPEC BOARD / "
+                "transcript; restate the concrete check instead. "
                 "Empty when drift_level=0."
             ),
         },
@@ -465,6 +467,9 @@ _MONITOR_SYSTEM = (
     "Set drift_level=2 ONLY for egregious off-track work: clearly unrelated refactors, new confident "
     "ungrounded claims, or abandoning verification entirely. Write re-arming guidance in feedback. "
     "When uncertain, prefer drift_level=0 or 1 over 2. When drift_level=0, feedback MUST be empty. "
+    "Treat the rendered SPEC BOARD block as the ONLY authoritative task status; never cite a task ID "
+    "(e.g. T17) that does not appear verbatim in the transcript/board -- restate the concrete check "
+    "instead of naming an ID. "
     "Call the function once."
 )
 

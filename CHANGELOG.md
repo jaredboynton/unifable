@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.21.3 - 2026-06-29
+
+- Harden the provisional-lift monitor against phantom board-task citations and
+  pin the REPL tool-output visibility fix. The monitor judge
+  (`monitor_provisional_judge`) could emit a `drift_level=2` re-arm whose
+  `feedback` cited spec-board task IDs that do not exist in the rendered board
+  (e.g. "T17/T18 still unresolved" when the board says "Spec complete: all tasks
+  validated" and those IDs appear nowhere in the transcript). Two-layer guard:
+  (2a) the `_MONITOR_SYSTEM` prompt and the `feedback` schema field now instruct
+  the monitor to treat the rendered SPEC BOARD block as the only authoritative
+  task status and never cite a task ID absent from it (`scripts/gate/breaker_prompts.py`);
+  (2b) a deterministic host-side scrub `_scrub_phantom_task_ids` strips any `T<n>`
+  token from monitor `feedback` that is not present verbatim in the segment, so
+  an invented ID can never reach the model regardless of judge output. The drift
+  verdict itself is never overridden -- only the message text is cleaned -- so
+  real drift is never masked (`scripts/gate/breaker_judges.py`). Fail-safe: any
+  error returns the original feedback. Also adds a regression test proving the
+  renderer surfaces record-level `toolUseResult` proof to the monitor (pins the
+  1.21.2 visibility fix against future renderer regressions).
+
+Verification:
+
+- `python3 -m py_compile scripts/gate/breaker_judges.py scripts/gate/breaker_prompts.py`
+- `python3 -m pytest tests/test_groundedness_breaker.py -q`
+- `just test-all`
+
 ## 1.21.2 - 2026-06-28
 
 - Surface REPL tool output to the groundedness-breaker judge. In REPL-only
