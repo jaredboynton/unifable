@@ -1,5 +1,25 @@
 # Changelog
 
+## 1.21.5 - 2026-06-29
+
+- Whitelist the cse-sweep skill's read-only evidence entrypoint `sweep.sh` in the
+  research-phase Bash gate. Running a cse-sweep is read-only evidence gathering
+  (it writes only to a `/tmp` run dir) and grounds the spec, so it belongs in the
+  pre-spec research phase alongside the unitrace scripts. `bash_classify.py` now
+  trusts `sweep.sh` by basename both standalone (`scripts/sweep.sh ...`) and via an
+  interpreter (`bash/sh/zsh scripts/sweep.sh ...`), mirroring the existing
+  `UNITRACE_SCRIPT_BASENAMES` precedent via a new `CSE_TOOLS_SCRIPT_BASENAMES`
+  constant in `research_bash_guidance.py`. The block-message allowlist copy
+  (`bash_allowed_summary`, `allowed_research_bash_detail`) names it too. All other
+  guards (protected paths, command substitution, redirection, dangerous env) are
+  unchanged: `python sweep.sh`, `bash other.sh`, `$(...)`, and `UNIFABLE_DEV=` stay
+  blocked.
+
+Verification:
+
+- `python3 -m pytest tests/test_bash_classify.py tests/test_research_bash_guidance.py -q`
+- `just test-all`
+
 ## 1.21.4 - 2026-06-29
 
 - Retune Realtime reasoning effort and prompt steering across unitrace/unisearch

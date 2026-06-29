@@ -17,6 +17,13 @@ _UNITRACE_NAME_RE = re.compile(r"(?m)^name:\s*unitrace\s*$")
 
 UNITRACE_SCRIPT_BASENAMES = ("unitrace.sh", "unisearch.sh", "websearch.sh", "search.sh")
 
+# cse-tools read-only evidence skills. sweep.sh (cse-sweep) is a read-only
+# multi-platform evidence gather/synthesize entrypoint that writes only to a /tmp
+# run dir, so it grounds a spec exactly like a search and is allowed pre-spec.
+# Trusted by basename here (and via bash/sh/zsh in bash_classify.py), mirroring
+# the unitrace precedent above.
+CSE_TOOLS_SCRIPT_BASENAMES = ("sweep.sh",)
+
 # The stable central runtime (~/.unifable/current/skills/unitrace) is preferred:
 # runtime_sync seeds it from the newest plugin version every SessionStart, so it
 # resolves regardless of which CLI or plugin cache is active and survives deletion
@@ -193,6 +200,7 @@ def bash_allowed_summary() -> str:
     explore = explore_trace_compact_item()
     if explore:
         parts.append(explore.lstrip(", "))
+    parts.append("cse-sweep sweep.sh")
     parts.append("unifusion scripts, unifable spec CLI")
     return ", ".join(parts)
 
@@ -213,6 +221,7 @@ def allowed_research_bash_detail() -> str:
         "count-objects, merge-tree, config get), "
         "git workflow (add, commit, push without --force)"
         f"{explore_clause}, "
+        "the cse-sweep skill's read-only evidence entrypoint sweep.sh, "
         "the unifusion skill scripts unifusion.sh|save_run.sh|summarize_session.sh|resolve_session.sh "
         "(~/.claude/skills/unifusion/scripts/), or the append-only spec CLI "
         "(unifable restate|add-task|set-primary|add-frontier; legacy unifable-spec alias still accepted). "

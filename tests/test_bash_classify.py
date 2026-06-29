@@ -38,6 +38,18 @@ ALLOWED = [
     "zsh /tmp/unisearch.sh",
     "FOO=bar ./unisearch.sh",
     "env FOO=bar ./unisearch.sh",
+    # cse-sweep read-only evidence entrypoint: standalone + via bash/sh/zsh.
+    "scripts/sweep.sh --dry-run --topic x",
+    "./sweep.sh --topic x",
+    "/tmp/sweep.sh --smoke",
+    "bash scripts/sweep.sh --topic x",
+    "bash ./scripts/sweep.sh --smoke",
+    "sh sweep.sh --dry-run",
+    "zsh /tmp/sweep.sh",
+    "FOO=bar ./sweep.sh --dry-run",
+    "env FOO=bar bash scripts/sweep.sh --dry-run",
+    "cd subdir && bash scripts/sweep.sh --dry-run",
+    "scripts/sweep.sh --dry-run | head",
     "ls && rg foo",
     "ls | rg foo",
     "unifable restate 'do the thing well'",
@@ -173,6 +185,12 @@ BLOCKED = [
     "bash skills/unifusion/scripts/run_codex.sh /tmp/p /tmp/o",
     "python unitrace.sh",
     "python unisearch.sh",
+    # cse-sweep basename is trusted, but the guards around it are not weakened:
+    # a non-trace interpreter, command substitution, and dangerous env all block.
+    "python sweep.sh",
+    "bash sweep.sh $(whoami)",
+    "UNIFABLE_DEV=1 bash sweep.sh",
+    "PATH=/tmp; bash sweep.sh",
     # Command/process substitution executes arbitrary commands -> must stay blocked,
     # now with an explicit, clear reason (previously blocked only by parser fallout).
     "T=$(printf x); rg --files",

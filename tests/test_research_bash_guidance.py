@@ -42,6 +42,7 @@ def test_resolve_absent_when_no_skill_tree(tmp_path: Path, monkeypatch: pytest.M
         == "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, cat/nl (file reads only), "
         "head, tail, wc, sort, uniq, jq, "
         "read-only git, git add/commit/push (no --force), read-only python/python3 -c, "
+        "cse-sweep sweep.sh, "
         "unifusion scripts, unifable spec CLI"
     )
 
@@ -121,7 +122,8 @@ def test_list_item_comma_hygiene(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     assert "no writes, process spawn, or network" in detail
     assert ", ," not in detail
     assert ", the unifusion skill scripts" in detail
-
+    assert "sweep.sh" in detail
+    assert "sweep.sh" in rbg.bash_allowed_summary()
     _write_explore_skill(tmp_path / ".agents" / "skills" / "unitrace")
     _clear_cache()
     item = rbg.explore_trace_list_item()

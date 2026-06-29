@@ -7,7 +7,8 @@ spec, Bash may run only `cd`, `ls`, `glob`, `rg`, `grep`/`egrep`/`fgrep`, `echo`
 (`head`, `tail`, `wc`, `sort`, `uniq`), read-only `git` subcommands, git
 workflow commands (`status`, `add`, `commit`, `push` without `--force`), a file
 whose basename is `unitrace.sh` or `unisearch.sh` when the unitrace skill is
-installed (guidance shows resolved paths), or a file whose basename is one of
+installed (guidance shows resolved paths), the cse-sweep skill's read-only
+evidence entrypoint `sweep.sh`, or a file whose basename is one of
 the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
 """
@@ -18,9 +19,17 @@ import re
 import shlex
 
 try:
-    from research_bash_guidance import UNITRACE_SCRIPT_BASENAMES, allowed_research_bash_detail
+    from research_bash_guidance import (
+        CSE_TOOLS_SCRIPT_BASENAMES,
+        UNITRACE_SCRIPT_BASENAMES,
+        allowed_research_bash_detail,
+    )
 except ImportError:  # pragma: no cover
-    from scripts.gate.research_bash_guidance import UNITRACE_SCRIPT_BASENAMES, allowed_research_bash_detail
+    from scripts.gate.research_bash_guidance import (
+        CSE_TOOLS_SCRIPT_BASENAMES,
+        UNITRACE_SCRIPT_BASENAMES,
+        allowed_research_bash_detail,
+    )
 
 ALLOWED_RESEARCH_BASH = allowed_research_bash_detail()
 
@@ -766,11 +775,15 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
-    if base in UNITRACE_SCRIPT_BASENAMES or _is_unifusion_script(command):
+    if base in UNITRACE_SCRIPT_BASENAMES or base in CSE_TOOLS_SCRIPT_BASENAMES or _is_unifusion_script(command):
         return True, ""
     if base in _TRACE_INTERPRETERS:
         target_base = _basename(_trace_target_from_interpreter(rest))
-        if target_base in UNITRACE_SCRIPT_BASENAMES or target_base in _UNIFUSION_SCRIPT_NAMES:
+        if (
+            target_base in UNITRACE_SCRIPT_BASENAMES
+            or target_base in CSE_TOOLS_SCRIPT_BASENAMES
+            or target_base in _UNIFUSION_SCRIPT_NAMES
+        ):
             return True, ""
     if base in _PY_INTERPRETERS:
         ok, reason = _spec_cli_segment(rest)
