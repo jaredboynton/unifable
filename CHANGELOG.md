@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.21.4 - 2026-06-29
+
+- Retune Realtime reasoning effort and prompt steering across unitrace/unisearch
+  skill paths. Explore (agentic + nav mini batch) now omits API reasoning and
+  prepends a steer line (`Respond quickly, do not reason.`) on user turns via
+  shared `withReasoningSteer()` in `skills/unitrace/scripts/lib/realtime_client.mjs`.
+  Submit paths (trace + unisearch session fallback + trace daemon submit) default
+  to `reasoning.effort: low`. Unisearch daemon synth and parallel scorer use omit
+  + steer; prompt enhancer synth uses `low` + steer (replacing the prior omit-only
+  config). Defaults: `DEFAULT_UNITRACE_REASONING_EFFORT=none`,
+  `DEFAULT_SUBMIT_REASONING_EFFORT=low`; shell wrappers updated accordingly.
+- Fix warm-socket daemon IPC: `realtime_daemon._handle()` now forwards
+  `reasoning_effort` from client requests into `codex_judge._response_create()`,
+  so per-call reasoning settings from `daemonAsk`/`daemonAskBatch` actually apply
+  (previously every daemon call silently inherited `UNIFABLE_JUDGE_REASONING_EFFORT`).
+
+Verification:
+
+- `node --test skills/unitrace/scripts/test/reasoning-steer.test.mjs`
+- `python3 -m pytest tests/test_judge_daemon_routing.py::test_handle_forwards_reasoning_effort -q`
+- `just test-all`
+
 ## 1.21.3 - 2026-06-29
 
 - Harden the provisional-lift monitor against phantom board-task citations and

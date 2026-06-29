@@ -399,9 +399,22 @@ export class RealtimeConnection {
   }
 }
 
-export const DEFAULT_UNITRACE_REASONING_EFFORT = "low";
-export const DEFAULT_SUBMIT_REASONING_EFFORT = "minimal";
+export const DEFAULT_UNITRACE_REASONING_EFFORT = "none";
+export const DEFAULT_SUBMIT_REASONING_EFFORT = "low";
 export const DEFAULT_REASONING_EFFORT = DEFAULT_SUBMIT_REASONING_EFFORT;
+
+// Prepend to user turns when reasoning is omitted (or when low + steer is desired).
+// Realtime-2 ignores effort "none"; omit falls back to minimal — steering suppresses
+// visible reasoning summaries and lowers TTFT (codex-api / sse_bench measured).
+export const REALTIME_REASONING_STEER = "Respond quickly, do not reason.";
+
+export function withReasoningSteer(userText, enabled = true) {
+  if (!enabled || userText == null) return userText ?? "";
+  const text = String(userText);
+  if (!text.trim()) return text;
+  if (text.trimStart().startsWith(REALTIME_REASONING_STEER)) return text;
+  return `${REALTIME_REASONING_STEER}\n\n${text}`;
+}
 
 // Sentinels that disable reasoning by OMITTING the `reasoning` field entirely.
 // The Realtime API has no "none"/"off" effort level; the way to run with no

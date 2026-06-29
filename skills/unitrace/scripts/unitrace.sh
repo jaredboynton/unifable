@@ -4,12 +4,12 @@
 # Usage:
 #   unitrace.sh "How does authentication flow through this service?"
 #
-# Delegates to trace-rt.sh with explore reasoning low and submit reasoning minimal.
+# Delegates to trace-rt.sh with explore reasoning omitted (+ steer) and submit low.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 exec env \
-  UNITRACE_RT_UNITRACE_REASONING_EFFORT="${UNITRACE_RT_UNITRACE_REASONING_EFFORT:-low}" \
-  UNITRACE_RT_SUBMIT_REASONING_EFFORT="${UNITRACE_RT_SUBMIT_REASONING_EFFORT:-minimal}" \
+  UNITRACE_RT_UNITRACE_REASONING_EFFORT="${UNITRACE_RT_UNITRACE_REASONING_EFFORT:-none}" \
+  UNITRACE_RT_SUBMIT_REASONING_EFFORT="${UNITRACE_RT_SUBMIT_REASONING_EFFORT:-low}" \
   "$SCRIPT_DIR/trace-rt.sh" "$@"

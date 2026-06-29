@@ -323,6 +323,39 @@ def test_sock_path_other_model_is_namespaced():
     assert mini != jc._sock_path("abc123", "some-other-model")
 
 
+def test_handle_forwards_reasoning_effort(monkeypatch):
+    d = _daemon()
+    captured: list[dict] = []
+
+    def fake_submit(req, _timeout):
+        captured.append(dict(req))
+        return ({}, None)
+
+    class _Sock:
+        def settimeout(self, _t):
+            pass
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(d, "submit", fake_submit)
+    monkeypatch.setattr(
+        jd,
+        "recv_msg",
+        lambda _c: {
+            "system": "sys",
+            "user": "usr",
+            "schema": {"type": "object"},
+            "schema_name": "verdict",
+            "reasoning_effort": "none",
+        },
+    )
+    monkeypatch.setattr(jd, "send_msg", lambda _c, _m: None)
+    d._handle(_Sock())
+    assert len(captured) == 1
+    assert captured[0]["reasoning_effort"] == "none"
+
+
 def test_drain_outbox_registers_holder_and_sends_response_create(monkeypatch):
     # Regression guard: the holder registration + response.create send MUST live
     # INSIDE the while-loop. A prior revert once de-indented them out of the loop,

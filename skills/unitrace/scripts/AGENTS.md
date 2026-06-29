@@ -39,8 +39,8 @@ files.
   this prevents narration-only turns.
 - Keep Realtime sockets hot across tool rounds and prune conversation items with
   `conversation.item.delete` unless a debug path explicitly needs reconnects.
-- Search and trace should prefer low/minimal reasoning settings that existing
-  wrappers already set; raise them only for a measured reason.
+- Search and trace explore paths use omit + steer; submit uses reasoning `low`.
+  `UNITRACE_*_REASONING_EFFORT` env vars remain overrides.
 
 ## Warm Daemon Pool (search, websearch, trace)
 
@@ -69,7 +69,7 @@ files.
   hydrates and coalesces. `agentic` (legacy `explore_exec` loop) is the override
   and the automatic fail-open; `hybrid` adds a one-turn agentic top-up.
 - Submit synthesizes over the daemon pool (`runDaemonPointerSubmit`, full
-  `gpt-realtime-2`, reasoning omitted) and reuses the pointer rehydrate +
+  `gpt-realtime-2`, reasoning `low`) and reuses the pointer rehydrate +
   validate + reask path; a miss/invalid result falls back to the live-session
   `runSubmitPhase`. Submit generation is the dominant cost.
 - These defaults were chosen by `scripts/bench/trace-ab.sh` on the kepler

@@ -7,6 +7,7 @@ import { RtAgentSession, RealtimeError } from "./lib/rt-agent-session.mjs";
 import {
   askStructured,
   realtimeReasoningConfig,
+  withReasoningSteer,
   DEFAULT_SUBMIT_REASONING_EFFORT,
 } from "./lib/realtime_client.mjs";
 import {
@@ -102,7 +103,7 @@ const WS_SCORE_SCHEMA = {
 
 function wsScorePromptFor(goal, entry) {
   const excerpt = (entry.excerpts && entry.excerpts.length ? entry.excerpts.join(" ") : entry.text || "").slice(0, WS_SCORE_EXCERPT_MAX);
-  return [
+  const raw = [
     "GOAL:",
     goal,
     "",
@@ -112,6 +113,7 @@ function wsScorePromptFor(goal, entry) {
     "",
     "How directly does this SOURCE help answer the GOAL? Return the integer score 0-10 now.",
   ].join("\n");
+  return withReasoningSteer(raw);
 }
 
 // Score every fetched page in parallel across the warm mini pool, keep pages
@@ -129,6 +131,7 @@ async function scoreAndRankSources(goal, fetchLog, { debug = false } = {}) {
       user: wsScorePromptFor(goal, e),
       schema: WS_SCORE_SCHEMA,
       schemaName: "score",
+      reasoningEffort: "none",
     })),
     { model: WS_SCORER_MODEL },
   );
@@ -257,7 +260,7 @@ async function runPointerSubmitPhase(conn, {
 // daemon is never on the correctness path.
 async function runDaemonPointerSubmit({ submitPacket, fetchLog, reask, debug = false }) {
   const schema = websearchPointerSchema({ fetchLog });
-  let userText = submitPacket;
+  let userText = withReasoningSteer(submitPacket);
   const t0 = Date.now();
   for (let attempt = 0; attempt <= (reask ? 1 : 0); attempt += 1) {
     const parsed = await daemonAsk(

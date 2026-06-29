@@ -490,6 +490,9 @@ class JudgeDaemon:
                 "schema": msg.get("schema") or {},
                 "schema_name": str(msg.get("schema_name") or "result"),
             }
+            re = msg.get("reasoning_effort")
+            if re is not None and str(re).strip():
+                req["reasoning_effort"] = str(re).strip()
             try:
                 obj, usage = self.submit(req, REQUEST_TIMEOUT)
             except Exception as exc:

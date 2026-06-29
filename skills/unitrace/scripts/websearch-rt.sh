@@ -27,7 +27,7 @@
 #   UNISEARCH_WS_SUBMIT_FRESH_CONTEXT  between-round prune: delete (default), reconnect, or off
 #   UNISEARCH_WS_SEARCH_REASONING_EFFORT  search round reasoning (default: low)
 #   UNISEARCH_WS_FETCH_REASONING_EFFORT   fetch round reasoning (default: low)
-#   UNISEARCH_WS_SUBMIT_REASONING_EFFORT  submit round reasoning (default: minimal)
+#   UNISEARCH_WS_SUBMIT_REASONING_EFFORT  submit round reasoning (default: low)
 #   UNISEARCH_WS_REASONING_EFFORT  optional override for both phases
 #   UNITRACE_WORKSPACE            caller repo for AGENTS.md/README context (default: cwd)
 #   UNISEARCH_WEBSEARCH_SKILL_CONTEXT set to 1 to inject explore skill inventory

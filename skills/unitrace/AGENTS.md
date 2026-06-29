@@ -10,7 +10,7 @@ view is `scripts/gate/transcript_tail.py` (Python port of patchpress tool format
 
 | Script | Model / API | Auth |
 |---|---|---|
-| `websearch.sh` | **Default:** gpt-realtime-2 via `websearch-rt.sh` (2 rounds: web_run/alpha + pointer submit; search `low`, submit `minimal`) | Codex OAuth + `curl` |
+| `websearch.sh` | **Default:** gpt-realtime-2 via `websearch-rt.sh` (2 rounds: web_run/alpha + pointer submit; search `low`, submit `low`) | Codex OAuth + `curl` |
 | `websearch-rt.sh` | **gpt-realtime-2** Realtime WebSocket + Codex `alpha/search` via `web_run` (default) | Codex OAuth + `curl` |
 
 **Retired (archived under `scripts/archive/`, do not use):** the `UNISEARCH_WS_BACKEND=exa` RT backend, the `ensemble` (F3 multi-backend) fetch mode, and `websearch-gemini.sh` (Gemini + Exa-MCP path) are retired — the native alpha `swarm` arm beats them on judged quality and breadth. Alpha is the only supported RT websearch backend.
@@ -20,7 +20,7 @@ view is `scripts/gate/transcript_tail.py` (Python port of patchpress tool format
 **Alpha defaults (speed):** one coalesced `alpha/search` batch per RT turn (`UNISEARCH_WS_STOP_SEARCHES=1`, `UNISEARCH_WS_COALESCE_WEB_RUN=1`), `128000` max output tokens (the model cap; small caps truncate multi-page fetches), query-matched per-URL excerpts for submit, mandatory citation coverage (cite every on-topic fetched source).
 
 **Daemon-pool source scoring + focused synthesis (mirrors `search-fast.mjs`).** After the host swarm fetch and authority gate, websearch scores EVERY fetched page 0-10 for goal relevance in PARALLEL across the warm daemon pool (`scoreAndRankSources` -> `daemonAskBatch`), keeps pages >= floor (best first), and synthesizes the report from only the top-ranked sources via a single daemon turn (`runDaemonPointerSubmit` -> `daemonAsk`). This replaces the old monolithic submit that ingested all ~45 pages in one slow turn. Measured A/B (MCP goal): scoring 43 pages = ~0.8s on the mini pool (kept top 24), synth 12.3s vs 15.4s monolithic; same 6-section structure and citation coverage.
-- **Scorer = `gpt-realtime-mini`** (`UNISEARCH_WS_SCORER_MODEL`, 2x TPS, reasoning omitted); **synthesis = `gpt-realtime-2`** (`UNISEARCH_WS_SYNTH_MODEL`) with reasoning OMITTED (`reasoning_effort:"none"` -> daemon sends no `reasoning` field). The pool warms concurrently with the host fanout so scoring pays no connect+handshake.
+- **Scorer = `gpt-realtime-mini`** (`UNISEARCH_WS_SCORER_MODEL`, 2x TPS, reasoning omitted + steer); **daemon synth = `gpt-realtime-2`** (`UNISEARCH_WS_SYNTH_MODEL`) with reasoning omitted + steer on user turns; **session submit fallback** uses reasoning `low`. The pool warms concurrently with the host fanout so scoring pays no connect+handshake.
 - **Citations validate/rehydrate against the FULL fetchLog**, so pruning to the top-K never invalidates citation indices (each entry keeps its `fetchIndex`).
 - **Fail-open (daemon never on the correctness path):** if the score batch is unavailable, all pruned pages pass through unscored; if the daemon synth misses or fails validation after one reask, it falls back to the legacy session submit (which reconnects the RT socket first). Force the legacy path with `UNISEARCH_WS_DAEMON=0`.
 - **Knobs:** `UNISEARCH_WS_DAEMON` (default on), `UNISEARCH_WS_SCORER_MODEL` (`gpt-realtime-mini`), `UNISEARCH_WS_SYNTH_MODEL` (`gpt-realtime-2`), `UNISEARCH_WS_SCORE_MIN` (floor 4 = the rubric's "useful supporting context" band and up), `UNISEARCH_WS_SYNTH_MAX_SOURCES` (24), `UNISEARCH_WS_SCORE_EXCERPT_MAX` (1200). The daemon pool, namespace, and process-pool design are shared with search and the judge (see "Warm daemon pool"); websearch uses the `"websearch"` namespace so its sockets never collide.
@@ -73,15 +73,13 @@ Reasoning `omit` (no `reasoning` field) beats `minimal` on both TPS and TTFT. `g
 | `gpt-realtime-2` | minimal | 107.5 / 110.0 | 445 / 461 ms |
 | `gpt-realtime-mini` | omit | 219.3 / 176.7 | 308 / 185 ms |
 
-
-
 All gpt-realtime-2 function-call loops force `tool_choice: "required"` every turn and carry the prompt line "Do not narrate steps or tool calls. Perform all searching/reading silently." `finish`/`submit` tools are always in the toolset so required is always satisfiable, and it eliminates plain-text non-answer turns. Applies to: search (`realtime-search.mjs`), trace explore phase (`realtime-trace.mjs`, gated by `UNITRACE_RT_UNITRACE_TOOL_REQUIRED`, default on), and submit phases (`askStructured`, already required).
 
 ## Trace transports
 
 | Script | Model / API | Auth |
 |---|---|---|
-| `unitrace.sh` | **Default:** gpt-realtime-2 via `trace-rt.sh` (explore `low` / submit `minimal`) | Codex OAuth (`codex login` → `~/.codex/auth.json`) |
+| `unitrace.sh` | **Default:** gpt-realtime-2 via `trace-rt.sh` (explore omit + steer / submit `low`) | Codex OAuth (`codex login` → `~/.codex/auth.json`) |
 | `trace-rt.sh` | **gpt-realtime-2** via OpenAI **Realtime WebSocket** (direct entry; env overrides) | Codex OAuth |
 
 Superseded trace variants (`trace-gemini.sh` Gemini CLI, `trace-gk.sh` Grok, `trace-cursor.sh` cursor-agent) are retired under `scripts/archive/`.
@@ -90,8 +88,8 @@ Superseded trace variants (`trace-gemini.sh` Gemini CLI, `trace-gk.sh` Grok, `tr
 
 **gpt-realtime-2** (OpenAI Realtime WebSocket) is the target model/API for deep codebase trace in this skill. Default entry: `unitrace.sh` → `trace-rt.sh` / `realtime-trace.mjs`.
 
-- Explore phase: default mode `nav` (host-driven micro-agent), with `agentic` (legacy `explore_exec` Realtime loop, reasoning `low`) as the override and the automatic fail-open.
-- Submit phase: Realtime structured output (`askStructured` / function call JSON) with host pointer rehydration, synthesized over the warm daemon pool by default; default reasoning effort `minimal` on the session fallback, omitted on the daemon path.
+- Explore phase: default mode `nav` (host-driven micro-agent, omit + steer on user turns), with `agentic` (legacy `explore_exec` Realtime loop, same explore defaults) as the override and the automatic fail-open.
+- Submit phase: Realtime structured output (`askStructured` / function call JSON) with host pointer rehydration, synthesized over the warm daemon pool by default; default reasoning effort `low` on both daemon and session fallback paths.
 - **Do not** add Codex Responses HTTP (`chatgpt.com/backend-api/codex/responses`) or other Responses-API submit paths here — they are out of scope and were removed after bench showed no win over Realtime submit.
 
 ## Trace fast path (nav explore + daemon submit)
@@ -99,7 +97,7 @@ Superseded trace variants (`trace-gemini.sh` Gemini CLI, `trace-gk.sh` Grok, `tr
 A/B-decided defaults on the kepler precision set (`scripts/bench/trace-ab.sh`; results + tradeoffs in `docs/benchmarks/trace-fast.md`). Do not change these without a new benchmark run.
 
 - **Explore = `nav` (`UNITRACE_RT_UNITRACE_MODE`, default).** `lib/rt-explore-nav.mjs`: host seeds the read cache with the search-fast retriever (`retrieveCandidates` — one combined rg → classify/score → AST-hydrate, pinned), then fans out **8 parallel `gpt-realtime-mini` navigators** (`UNITRACE_RT_NAV_COUNT=8`, `UNITRACE_RT_NAV_ROUNDS=1`) over the warm pool. Each navigator (distinct facet framing) returns `grep_terms` + `read_paths`; the host greps (one combined rg) and reads (`toolReadRange`, confined + preamble-stripped), unions/dedups by path+range, and writes into the same `readCache` the submit phase consumes. mini never reads files itself. Breadth in one round beat depth (4×2/6×2/8×2) on the bench.
-- **Submit = daemon pool, full `gpt-realtime-2`, reasoning omitted** (`runDaemonPointerSubmit` → `daemonAsk`, `UNITRACE_RT_DAEMON=1`, `UNITRACE_RT_SYNTH_MODEL=gpt-realtime-2`). Reuses the pointer rehydrate + `validateTraceObject` + one-reask path; a daemon miss or post-reask invalid result falls back to the live-session `runSubmitPhase`. A **mini synth collapsed quality** (bench score 3 vs 5-6), so the synth model stays full; submit generation is the dominant cost in every mode.
+- **Submit = daemon pool, full `gpt-realtime-2`, reasoning `low`** (`runDaemonPointerSubmit` → `daemonAsk`, `UNITRACE_RT_DAEMON=1`, `UNITRACE_RT_SYNTH_MODEL=gpt-realtime-2`). Reuses the pointer rehydrate + `validateTraceObject` + one-reask path; a daemon miss or post-reask invalid result falls back to the live-session `runSubmitPhase`. A **mini synth collapsed quality** (bench score 3 vs 5-6), so the synth model stays full; submit generation is the dominant cost in every mode.
 - **Three-tier fail-open:** nav → (daemon unavailable) agentic `explore_exec` loop; daemon submit → live-session submit → agentic submit. The daemon is never on the correctness path. `hybrid` mode adds a one-turn agentic top-up on thin coverage (override; added latency without a quality win on the bench).
 - **Pool warming:** `realtime-trace.mjs` warms the synth pool (and the nav-model pool when it differs) concurrently with connect + explore, so neither batch pays a connect+handshake. Shared pool/namespace design is in "Warm daemon pool"; trace uses the `"trace"` namespace.
 - **Knobs:** `UNITRACE_RT_UNITRACE_MODE` (`nav`|`agentic`|`hybrid`), `UNITRACE_RT_NAV_MODEL` (`gpt-realtime-mini`), `UNITRACE_RT_NAV_COUNT` (8), `UNITRACE_RT_NAV_ROUNDS` (1), `UNITRACE_RT_DAEMON` (1), `UNITRACE_RT_SYNTH_MODEL` (`gpt-realtime-2`), `UNITRACE_RT_NAV_SEED_SPANS` (12), `UNITRACE_RT_NAV_ROUND_SPANS` (8).

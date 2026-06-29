@@ -28,7 +28,7 @@ works from any cwd whether or not the plugin is enabled (as long as
 
 Default path is gpt-realtime-2 via `websearch-rt.sh`: two rounds (web_run via
 Codex `alpha/search`, then pointer submit) with search reasoning `low` and
-submit `minimal`. Requires Codex OAuth (`codex login`) and `curl`.
+submit `low`. Requires Codex OAuth (`codex login`) and `curl`.
 
 The implementation is shared with the sibling **unitrace** skill (deep trace +
 fast locate); this skill is the external-research entrypoint. The complementary

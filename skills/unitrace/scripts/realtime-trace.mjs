@@ -5,6 +5,7 @@ import {
   RealtimeError,
   askStructured,
   realtimeReasoningConfig,
+  withReasoningSteer,
   DEFAULT_UNITRACE_REASONING_EFFORT,
   DEFAULT_SUBMIT_REASONING_EFFORT,
 } from "./lib/realtime_client.mjs";
@@ -261,7 +262,7 @@ async function runExplorePhase(session, {
     item: {
       type: "message",
       role: "user",
-      content: [{ type: "input_text", text: prompt }],
+      content: [{ type: "input_text", text: withReasoningSteer(prompt) }],
     },
   };
   conn.send(userItem);
@@ -640,7 +641,7 @@ async function runSubmitPhase(conn, {
 }
 
 // Daemon pointer submit: run the pointer-index submit over the warm daemon pool
-// with reasoning OMITTED ("none"), reusing the same rehydrate + validate + reask
+// with submit reasoning (default low), reusing the same rehydrate + validate + reask
 // loop as the live-session path. Returns rendered markdown + structured object on
 // success, or null to signal fail-open to runSubmitPhase. The daemon is never on
 // the correctness path.
@@ -666,7 +667,7 @@ async function runDaemonPointerSubmit({
         user: userText,
         schema,
         schemaName: SUBMIT_POINTER_SCHEMA_NAME,
-        reasoningEffort: "none",
+        reasoningEffort: UNITRACE_RT_SUBMIT_REASONING_EFFORT,
       },
       { model: UNITRACE_RT_SYNTH_MODEL },
     );

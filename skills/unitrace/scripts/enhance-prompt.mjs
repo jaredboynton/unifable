@@ -5,10 +5,9 @@
 //
 // Tier (bench-decided 2026-06-27, /tmp/enhance-bench): Standard
 //   retrieveCandidates seed -> 4 parallel gpt-realtime-mini navigators ->
-//   term-hydrate -> ONE full gpt-realtime-2 synth (reasoning OMITTED, the
-//   proven trace-submit config). At omitted reasoning, nav's pruning to ~5-7
-//   windows is what lets the full synth score q=9 on real repos; the lite
-//   (no-nav) tier collapsed to q=3 on large repos at omitted reasoning.
+//   term-hydrate -> ONE full gpt-realtime-2 synth (reasoning low + steer on user).
+//   Nav's pruning to ~5-7 windows is what lets the full synth score q=9 on real repos; the lite
+//   (no-nav) tier collapsed to q=3 on large repos without nav.
 //
 // Reuses the in-repo explore skill machinery (no copies):
 //   ./search-fast.mjs        retrieveCandidates
@@ -27,6 +26,7 @@
 
 import { retrieveCandidates } from "./search-fast.mjs";
 import { daemonAsk, daemonAskBatch, warmDaemonPool } from "./lib/daemon-client.mjs";
+import { withReasoningSteer } from "./lib/realtime_client.mjs";
 import { NAV_SCHEMA, dedupNavProposals } from "./lib/rt-explore-nav.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -181,7 +181,7 @@ async function run() {
       const indexText = buildNavIndex(windows);
       const requests = Array.from({ length: NAV_COUNT }, (_, i) => ({
         system: NAV_INSTRUCTIONS,
-        user: navPromptFor(prompt, indexText, FACETS[i % FACETS.length]),
+        user: withReasoningSteer(navPromptFor(prompt, indexText, FACETS[i % FACETS.length])),
         schema: NAV_SCHEMA,
         schemaName: "navigate",
       }));
@@ -197,14 +197,17 @@ async function run() {
 
     if (!windows.length) return { ok: false };
 
+    const synthUser = withReasoningSteer(
+      `USER ASK:\n${prompt}\n\n${buildWindowsText(windows)}\n\nWrite the enhanced prompt now (call the enhance tool).`,
+    );
     const obj = await daemonAsk(
       NAMESPACE,
       {
         system: SYNTH_SYSTEM,
-        user: `USER ASK:\n${prompt}\n\n${buildWindowsText(windows)}\n\nWrite the enhanced prompt now (call the enhance tool).`,
+        user: synthUser,
         schema: ENHANCE_SCHEMA,
         schemaName: "enhance",
-        reasoningEffort: "none",
+        reasoningEffort: "low",
       },
       { model: SYNTH_MODEL },
     );
