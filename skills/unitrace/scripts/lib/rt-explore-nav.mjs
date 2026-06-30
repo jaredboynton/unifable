@@ -18,7 +18,6 @@ import { buildReadIndex, orderReadCacheEntries } from "./rt-rehydrate-submit.mjs
 import { toolReadRange, confine } from "./htools.mjs";
 import { normalizeReadPath } from "./trace-schema.mjs";
 import { daemonAskBatch } from "./daemon-client.mjs";
-import { withReasoningSteer } from "./realtime_client.mjs";
 
 const STRIP_PREAMBLE = process.env.UNITRACE_RT_STRIP_COMMENTS !== "0";
 
@@ -228,7 +227,7 @@ export async function runExploreNav({
     const indexText = buildNavIndex(readCache, seedPaths, indexFiles);
     const requests = Array.from({ length: navCount }, (_, i) => ({
       system: NAV_INSTRUCTIONS,
-      user: withReasoningSteer(navPromptFor(question, indexText, FACETS[i % FACETS.length])),
+      user: navPromptFor(question, indexText, FACETS[i % FACETS.length]),
       schema: NAV_SCHEMA,
       schemaName: "navigate",
     }));

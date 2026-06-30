@@ -27,6 +27,7 @@ import path from "node:path";
 import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { withReasoningSteer } from "./realtime_client.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // daemon-client is at <repo>/skills/unitrace/scripts/lib; the shared daemon lives
@@ -173,7 +174,7 @@ async function askOnSlot(namespace, model, slot, { system, user, schema, schemaN
   }
   if (!conn) return null;
   try {
-    const req = { v: 1, system, user, schema, schema_name: schemaName };
+    const req = { v: 1, system, user: withReasoningSteer(user, reasoningEffort), schema, schema_name: schemaName };
     if (reasoningEffort) req.reasoning_effort = reasoningEffort;
     sendFramed(conn, req);
     const resp = await recvFramed(conn, REQUEST_TIMEOUT_MS);

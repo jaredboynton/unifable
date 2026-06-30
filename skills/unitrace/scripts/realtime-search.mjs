@@ -12,7 +12,7 @@
 //
 // Env: see realtime_client.mjs (UNITRACE_RT_*).
 
-import { realtimeReasoningConfig } from "./lib/realtime_client.mjs";
+import { realtimeReasoningConfig, withReasoningSteer } from "./lib/realtime_client.mjs";
 import { RtAgentSession } from "./lib/rt-agent-session.mjs";
 import { waitForResponse } from "./lib/rt-session-utils.mjs";
 
@@ -34,13 +34,15 @@ function toRtTools(toolSpecs) {
   });
 }
 
+const SEARCH_REASONING_EFFORT = process.env.UNITRACE_SEARCH_REASONING_EFFORT || "minimal";
+
 function userItem(text) {
   return {
     type: "conversation.item.create",
     item: {
       type: "message",
       role: "user",
-      content: [{ type: "input_text", text: String(text ?? "") }],
+      content: [{ type: "input_text", text: withReasoningSteer(String(text ?? ""), SEARCH_REASONING_EFFORT) }],
     },
   };
 }

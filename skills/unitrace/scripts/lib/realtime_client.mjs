@@ -403,13 +403,25 @@ export const DEFAULT_UNITRACE_REASONING_EFFORT = "none";
 export const DEFAULT_SUBMIT_REASONING_EFFORT = "low";
 export const DEFAULT_REASONING_EFFORT = DEFAULT_SUBMIT_REASONING_EFFORT;
 
-// Prepend to user turns when reasoning is omitted (or when low + steer is desired).
+// Prepend to user turns when reasoning is omitted or low/minimal.
 // Realtime-2 ignores effort "none"; omit falls back to minimal — steering suppresses
 // visible reasoning summaries and lowers TTFT (codex-api / sse_bench measured).
+// At medium/high/xhigh the steer contradicts the API level, so we passthrough.
 export const REALTIME_REASONING_STEER = "Respond quickly, do not reason.";
 
+const STEER_EFFORTS = new Set([
+  "", "none", "off", "omit", "false", "no", "disable", "disabled", "minimal", "low",
+]);
+
+export function shouldSteerForEffort(effort) {
+  const e = typeof effort === "string" ? effort.trim().toLowerCase() : effort;
+  return e == null || STEER_EFFORTS.has(e);
+}
+
+// enabled may be a boolean (legacy) or a reasoning-effort string (auto-decide).
 export function withReasoningSteer(userText, enabled = true) {
-  if (!enabled || userText == null) return userText ?? "";
+  const on = typeof enabled === "string" ? shouldSteerForEffort(enabled) : Boolean(enabled);
+  if (!on || userText == null) return userText ?? "";
   const text = String(userText);
   if (!text.trim()) return text;
   if (text.trimStart().startsWith(REALTIME_REASONING_STEER)) return text;
@@ -466,7 +478,7 @@ export async function askStructured(conn, {
     item: {
       type: "message",
       role: "user",
-      content: [{ type: "input_text", text: user }],
+      content: [{ type: "input_text", text: withReasoningSteer(user, reasoningEffort) }],
     },
   };
   conn.send(userItem);

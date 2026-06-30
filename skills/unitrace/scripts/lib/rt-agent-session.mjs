@@ -3,6 +3,7 @@ import {
   RealtimeConnection,
   RealtimeError,
   realtimeReasoningConfig,
+  withReasoningSteer,
 } from "./realtime_client.mjs";
 import {
   flushFrames,
@@ -138,7 +139,7 @@ export class RtAgentSession {
       item: {
         type: "message",
         role: "user",
-        content: [{ type: "input_text", text: userPrompt }],
+        content: [{ type: "input_text", text: withReasoningSteer(userPrompt, reasoningEffort) }],
       },
     };
     this.send(userItem);
@@ -195,7 +196,7 @@ export class RtAgentSession {
             item: {
               type: "message",
               role: "user",
-              content: [{ type: "input_text", text: nudgeText }],
+              content: [{ type: "input_text", text: withReasoningSteer(nudgeText, reasoningEffort) }],
             },
           };
           this.send(nudge);

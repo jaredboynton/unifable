@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   REALTIME_REASONING_STEER,
   withReasoningSteer,
+  shouldSteerForEffort,
   DEFAULT_UNITRACE_REASONING_EFFORT,
   DEFAULT_SUBMIT_REASONING_EFFORT,
   realtimeReasoningConfig,
@@ -22,6 +23,23 @@ test("withReasoningSteer is idempotent", () => {
 
 test("withReasoningSteer disabled returns input unchanged", () => {
   assert.equal(withReasoningSteer("hello", false), "hello");
+});
+
+test("withReasoningSteer steers for low/none/minimal efforts", () => {
+  for (const e of ["low", "none", "minimal", "off", ""]) {
+    assert.ok(withReasoningSteer("x", e).startsWith(REALTIME_REASONING_STEER), `effort=${e || "(empty)"}`);
+  }
+});
+
+test("withReasoningSteer passthrough at medium/high/xhigh", () => {
+  for (const e of ["medium", "high", "xhigh"]) {
+    assert.equal(withReasoningSteer("x", e), "x", `effort=${e}`);
+  }
+});
+
+test("shouldSteerForEffort matches policy", () => {
+  for (const e of ["low", "none", "minimal", "off", ""]) assert.ok(shouldSteerForEffort(e), e);
+  for (const e of ["medium", "high", "xhigh"]) assert.ok(!shouldSteerForEffort(e), e);
 });
 
 test("default reasoning efforts match policy", () => {

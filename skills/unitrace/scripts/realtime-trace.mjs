@@ -289,7 +289,7 @@ async function runExplorePhase(session, {
           role: "user",
           content: [{
             type: "input_text",
-            text: `SEED READS (already in FILES READ; do not rediscover): ${seedPaths.join(", ")}. Use explore_exec for remaining load-bearing paths only.`,
+            text: withReasoningSteer(`SEED READS (already in FILES READ; do not rediscover): ${seedPaths.join(", ")}. Use explore_exec for remaining load-bearing paths only.`, UNITRACE_RT_UNITRACE_REASONING_EFFORT),
           }],
         },
       };
@@ -360,7 +360,7 @@ async function runExplorePhase(session, {
           item: {
             type: "message",
             role: "user",
-            content: [{ type: "input_text", text: "Call explore_exec once more for any missing load-bearing files, then stop." }],
+            content: [{ type: "input_text", text: withReasoningSteer("Call explore_exec once more for any missing load-bearing files, then stop.", UNITRACE_RT_UNITRACE_REASONING_EFFORT) }],
           },
         };
         conn.send(nudge);

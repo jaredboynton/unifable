@@ -26,7 +26,6 @@
 
 import { retrieveCandidates } from "./search-fast.mjs";
 import { daemonAsk, daemonAskBatch, warmDaemonPool } from "./lib/daemon-client.mjs";
-import { withReasoningSteer } from "./lib/realtime_client.mjs";
 import { NAV_SCHEMA, dedupNavProposals } from "./lib/rt-explore-nav.mjs";
 import { fileURLToPath } from "node:url";
 
@@ -181,7 +180,7 @@ async function run() {
       const indexText = buildNavIndex(windows);
       const requests = Array.from({ length: NAV_COUNT }, (_, i) => ({
         system: NAV_INSTRUCTIONS,
-        user: withReasoningSteer(navPromptFor(prompt, indexText, FACETS[i % FACETS.length])),
+        user: navPromptFor(prompt, indexText, FACETS[i % FACETS.length]),
         schema: NAV_SCHEMA,
         schemaName: "navigate",
       }));
@@ -197,9 +196,7 @@ async function run() {
 
     if (!windows.length) return { ok: false };
 
-    const synthUser = withReasoningSteer(
-      `USER ASK:\n${prompt}\n\n${buildWindowsText(windows)}\n\nWrite the enhanced prompt now (call the enhance tool).`,
-    );
+    const synthUser = `USER ASK:\n${prompt}\n\n${buildWindowsText(windows)}\n\nWrite the enhanced prompt now (call the enhance tool).`;
     const obj = await daemonAsk(
       NAMESPACE,
       {

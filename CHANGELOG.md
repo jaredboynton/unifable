@@ -1,5 +1,35 @@
 # Changelog
 
+## 1.21.6 - 2026-06-29
+
+- Centralize Realtime reasoning steer across all skill-path prompts. The
+  effort-aware `withReasoningSteer(user, effort)` and new `shouldSteerForEffort`
+  helper in `skills/unitrace/scripts/lib/realtime_client.mjs` now decide from the
+  call's reasoning effort: steer (prepend `Respond quickly, do not reason.`) only
+  when effort is omitted or in `{none, off, omit, minimal, low}`, passthrough at
+  `medium`/`high`/`xhigh` where the steer would contradict the API level. The
+  steer is applied at two chokepoints so every skill daemon call and every direct
+  structured submit is covered once: `askOnSlot` in
+  `skills/unitrace/scripts/lib/daemon-client.mjs` (covers enhance nav + synth,
+  trace daemon submit, unisearch daemon synth + scorer, search fast-path scoring)
+  and `askStructured` in `realtime_client.mjs` (covers trace + unisearch session
+  submit, search finish turn). Direct agentic user-turn sends that bypass both
+  chokepoints are wrapped explicitly: `realtime-search.mjs` `userItem`,
+  `lib/rt-agent-session.mjs` `userPrompt` + nudge, and `realtime-trace.mjs`
+  explore seed note + nudge. Redundant manual wraps added in 1.21.4
+  (`enhance-prompt.mjs`, `lib/rt-explore-nav.mjs`, `realtime-websearch.mjs`
+  scorer + synth) are removed since the chokepoints now own them. Gate judges
+  (breaker/spec/grade/completion/suicide-loop) are excluded by design: they flow
+  through Python `judge_transport` -> `codex_judge`, never these JS chokepoints.
+  Backward compatible: a boolean second arg to `withReasoningSteer` still works.
+  Idempotency guarantees no double-prefix during the transition.
+
+Verification:
+
+- `node --test skills/unitrace/scripts/test/reasoning-steer.test.mjs`
+- `python3 -m pytest tests/test_judge_daemon_routing.py -q`
+- `just test-all`
+
 ## 1.21.5 - 2026-06-29
 
 - Whitelist the cse-sweep skill's read-only evidence entrypoint `sweep.sh` in the
