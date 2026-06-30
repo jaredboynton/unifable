@@ -8,7 +8,6 @@ import {
   mergeWebRunSearchQueries,
   mergeWebRunOpenUrls,
   excerptForUrl,
-  shouldStopWebRun,
   queryTerms,
   selectQuerySpans,
   scoreUrlAuthority,
@@ -56,14 +55,6 @@ test("mergeWebRunSearchQueries dedupes across calls", () => {
   const merged = mergeWebRunSearchQueries(calls);
   assert.equal(merged.length, 3);
   assert.deepEqual(merged.map((q) => q.q), ["MCP spec", "MCP official", "MCP github"]);
-});
-
-test("shouldStopWebRun stops after one search by default", () => {
-  const ctx = createWebsearchContext();
-  ctx.searchCount = 0;
-  assert.equal(shouldStopWebRun(ctx), false);
-  ctx.searchCount = 1;
-  assert.equal(shouldStopWebRun(ctx), true);
 });
 
 test("buildWebRunToolSchemas exposes web_run", () => {

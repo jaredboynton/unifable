@@ -61,6 +61,23 @@ def test_pretool_manifest_matchers_sync_with_canonical_gated_tools() -> None:
         assert matcher == expected
         for tool in tr.PRETOOL_GATED_TOOLS:
             assert re.match(matcher, tool), f"{rel}: matcher dropped {tool!r}"
+        assert re.match(matcher, "mcp__github__create_issue"), f"{rel}: matcher dropped MCP tools"
+        assert re.match(matcher, "mcp__filesystem__read_file"), f"{rel}: matcher dropped read-like MCP tools"
+        for tool in ("Read", "WebSearch", "WebFetch", "webrun", "Grep", "Glob", "TodoWrite"):
+            assert not re.match(matcher, tool), f"{rel}: matcher unexpectedly catches {tool!r}"
+
+
+def test_mcp_tool_classification_is_read_like_or_mutation() -> None:
+    assert tr.is_mcp_read_like_tool("mcp__filesystem__read_file")
+    assert tr.is_mcp_read_like_tool("mcp__github__search_repositories")
+    assert tr.is_mcp_mutation_tool("mcp__github__create_issue")
+    assert tr.is_mcp_mutation_tool("mcp__memory__delete_entities")
+    assert tr.is_mcp_mutation_tool("mcp__storage__upload_file")
+    assert tr.is_mcp_mutation_tool("mcp__x__recompute")
+    assert not tr.is_mcp_mutation_tool("WebSearch")
+    assert tr.mcp_input_forces_mutation({"query": "UPDATE users SET name = 'x'"})
+    assert tr.mcp_input_forces_mutation({"path": "x", "content": "new"})
+    assert not tr.mcp_input_forces_mutation({"query": "SELECT * FROM users"})
 
 
 def test_pretool_breaker_block_appends_hook_owned_footer(tmp_path, monkeypatch, capsys) -> None:

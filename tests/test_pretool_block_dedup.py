@@ -150,6 +150,43 @@ def test_emit_pretool_block_has_no_channel_prefix(capsys):
     assert isinstance(err, str)
 
 
+def test_claude_pretool_block_emits_structured_deny(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("UNIFABLE_HOST", "claude")
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    input_data = {"session_id": "claude-deny", "cwd": str(tmp_path), "hook_event_name": "PreToolUse"}
+    rc = emit_pretool_block(
+        input_data,
+        kind="bash",
+        detail="rm",
+        full_message="Destructive command blocked by hook.",
+    )
+    captured = capsys.readouterr()
+    payload = json.loads(captured.out)
+
+    assert rc == 0
+    assert captured.err == ""
+    assert payload["hookSpecificOutput"]["hookEventName"] == "PreToolUse"
+    assert payload["hookSpecificOutput"]["permissionDecision"] == "deny"
+    assert payload["hookSpecificOutput"]["permissionDecisionReason"] == "Destructive command blocked by hook."
+
+
+def test_codex_pretool_block_keeps_exit_2_stderr(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("UNIFABLE_HOST", "codex")
+    monkeypatch.setenv("UNIFABLE_DATA", str(tmp_path))
+    input_data = {"session_id": "codex-deny", "cwd": str(tmp_path), "turn_id": "t1"}
+    rc = emit_pretool_block(
+        input_data,
+        kind="bash",
+        detail="rm",
+        full_message="Destructive command blocked by hook.",
+    )
+    captured = capsys.readouterr()
+
+    assert rc == 2
+    assert captured.out == ""
+    assert "Destructive command blocked by hook." in captured.err
+
+
 def test_mixed_block_kinds_second_is_compact_not_full_footer(tmp_path, capsys):
 
     os.environ["UNIFABLE_DATA"] = str(tmp_path)

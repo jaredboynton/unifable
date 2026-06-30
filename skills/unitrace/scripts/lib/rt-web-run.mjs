@@ -90,18 +90,6 @@ export function webRunCommandsFromArgs(args) {
   return commands;
 }
 
-export function promptFromSearchCommands(commands, fallbackPrompt = "") {
-  const queries = commands?.search_query;
-  if (!Array.isArray(queries) || !queries.length) return fallbackPrompt;
-  const lines = queries.map((q) => {
-    const parts = [`Search: ${q.q}`];
-    if (q.recency != null) parts.push(`recency=${q.recency}d`);
-    if (Array.isArray(q.domains) && q.domains.length) parts.push(`domains=${q.domains.join(",")}`);
-    return parts.join(" ");
-  });
-  return `${lines.join("\n")}\n\nUse web search and answer with citations.`;
-}
-
 export async function callAlphaSearch({
   authPathOverride,
   searchModel,

@@ -84,6 +84,61 @@ def test_bash_protected_write_redirect_and_sed():
         assert pp.bash_protected_write(f"rm {spec}", cwd) is not None
 
 
+def test_bash_protected_write_catches_redirect_variants():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        _with_data_root(dd)
+        spec = str(Path(dd) / "specs" / "k" / "S" / "spec.json")
+        quoted = f"'{spec}'"
+        commands = [
+            f"printf x >> {quoted}",
+            f"cat <<'EOF' > {quoted}\nx\nEOF",
+            f"python3 - <<'PY' > {quoted}\nprint('x')\nPY",
+            f"cat >{quoted} <<'EOF'\nx\nEOF",
+        ]
+        for command in commands:
+            assert pp.bash_protected_write(command, cwd) is not None, command
+
+
+def test_bash_protected_write_catches_tee_sed_perl_variants():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        _with_data_root(dd)
+        spec = str(Path(dd) / "specs" / "k" / "S" / "spec.json")
+        commands = [
+            f"tee {spec}",
+            f"printf x | tee '{spec}'",
+            f"printf x | tee -a '{spec}' >/dev/null",
+            f"sed -i '' 's/a/b/' '{spec}'",
+            f"sed -Ei 's/a/b/' '{spec}'",
+            f"sed --in-place 's/a/b/' '{spec}'",
+            f"perl -i -pe 's/a/b/' '{spec}'",
+            f"perl --in-place -pe 's/a/b/' '{spec}'",
+            f"perl -0777 -i -pe 's/a/b/s' '{spec}'",
+        ]
+        for command in commands:
+            assert pp.bash_protected_write(command, cwd) is not None, command
+
+
+def test_bash_protected_write_catches_dd_and_install_variants():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        _with_data_root(dd)
+        spec = str(Path(dd) / "specs" / "k" / "S" / "spec.json")
+        commands = [
+            f"dd if=/dev/null of={spec}",
+            f"install /dev/null {spec}",
+            f"install -D /dev/null '{spec}'",
+            f"install /dev/null --target-directory={Path(spec).parent}",
+        ]
+        for command in commands:
+            assert pp.bash_protected_write(command, cwd) is not None, command
+
+
+def test_bash_protected_write_catches_repo_local_relative_unifable():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        _with_data_root(dd)
+        assert pp.bash_protected_write("echo x > .unifable/state.json", cwd) is not None
+        assert pp.bash_protected_write("printf x | tee .unifable/findings.json", cwd) is not None
+
+
 def test_bash_protected_write_ignores_nonmutating_and_unprotected():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         _with_data_root(dd)

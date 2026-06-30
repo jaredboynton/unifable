@@ -10,7 +10,7 @@ Source hook config: `.codex-plugin/hooks.json`.
 |---|---|---|---:|---|
 | SessionStart | (empty) | `"${HOME}/.local/bin/unifable-hook" session_start.py` | 30 |  |
 | UserPromptSubmit | (empty) | `gate_prompt.py` | 95 | routing, classifying task mode, effort playbook |
-| PreToolUse | ^(Bash|REPL|exec_command|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch)$ | `pre_tool_use.py` | 10 | pre-edit/bash/delegation spec gate |
+| PreToolUse | ^(Bash|REPL|exec_command|Shell|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch|mcp__.*)$ | `pre_tool_use.py` | 10 | pre-edit/bash/delegation spec gate |
 | PostToolUse | .* | `gate_post_tool.py` | 120 | observing tool evidence |
 | Stop | (empty) | `gate_stop.py` | 120 | completion verification gate |
 
@@ -24,7 +24,7 @@ stdout:
 ```json
 {
   "hookSpecificOutput": {
-    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nRun it once, before any other tool call; until it succeeds, write tools, delegation, and mutating Bash/REPL stay blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, cat/nl (file reads only), head, tail, wc, sort, uniq, jq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, unitrace unitrace.sh/websearch.sh/search.sh, cse-sweep sweep.sh, unifusion scripts, unifable spec CLI.\n- Write tools and delegation stay blocked until a hook lifts them.\n\nOn PATH: use unitrace for code tracing; use unisearch for web research.\n\nIf a hook blocks you, follow its exact instruction next.",
+    "additionalContext": "FIRST ACTION REQUIRED: your first tool call MUST run this CLI command:\n\nunifable restate '<goal in your own words>'\n\nRun it once, before any other tool call; until it succeeds, write tools, delegation, and mutating Bash/REPL stay blocked.\n\nBefore the spec validates:\n- Inspection tools stay available: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.\n- Bash/REPL/exec_command are limited to: cd, ls, glob, rg, grep, find (read-only), echo (sink pipes only), ast-grep/sg, cat/nl/sed -n (file reads only), head, tail, wc, sort, uniq, jq, pytest -q, read-only git, git add/commit/push (no --force), read-only python/python3 -c, unitrace unitrace.sh/websearch.sh/search.sh, cse-sweep sweep.sh, unifusion scripts, unifable spec CLI.\n- Write tools and delegation stay blocked until a hook lifts them.\n\nOn PATH: use unitrace for code tracing; use unisearch for web research.\n\nIf a hook blocks you, follow its exact instruction next.",
     "hookEventName": "SessionStart"
   }
 }
@@ -158,7 +158,7 @@ Next:
 1. unifable restate '<goal in your own words>'
 2. unifable add-task --title '<requirement>' --check '<runnable check>'
 Allowed now: inspection tools: Read, Grep, Glob, WebSearch, WebFetch, NotebookRead.
-Bash allowlist: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, cat/nl (file reads only), head, tail, wc, sort, uniq, jq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, unitrace unitrace.sh/websearch.sh/search.sh, cse-sweep sweep.sh, unifusion scripts, unifable spec CLI.
+Bash allowlist: cd, ls, glob, rg, grep, find (read-only), echo (sink pipes only), ast-grep/sg, cat/nl/sed -n (file reads only), head, tail, wc, sort, uniq, jq, pytest -q, read-only git, git add/commit/push (no --force), read-only python/python3 -c, unitrace unitrace.sh/websearch.sh/search.sh, cse-sweep sweep.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:
@@ -178,7 +178,7 @@ Next:
 3. unifable set-primary --title '<fallback approach>' --check '<runnable proof>'
 4. unifable add-frontier --title '<approach>' --check '<exploration check>' twice, for two distinct approaches
 Allowed now: inspection tools (Read, Grep, Glob, WebSearch, WebFetch, NotebookRead).
-Bash allowlist: cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, cat/nl (file reads only), head, tail, wc, sort, uniq, jq, read-only git, git add/commit/push (no --force), read-only python/python3 -c, unitrace unitrace.sh/websearch.sh/search.sh, cse-sweep sweep.sh, unifusion scripts, unifable spec CLI.
+Bash allowlist: cd, ls, glob, rg, grep, find (read-only), echo (sink pipes only), ast-grep/sg, cat/nl/sed -n (file reads only), head, tail, wc, sort, uniq, jq, pytest -q, read-only git, git add/commit/push (no --force), read-only python/python3 -c, unitrace unitrace.sh/websearch.sh/search.sh, cse-sweep sweep.sh, unifusion scripts, unifable spec CLI.
 ```
 
 exit code:

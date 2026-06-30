@@ -9,7 +9,7 @@ import { pipelineSeedReads } from "./rt-pipeline-seed.mjs";
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const STRIP_PREAMBLE = process.env.UNITRACE_RT_STRIP_COMMENTS !== "0";
 const SCRIPT_NAME_RE = /[\w.-]+\.(?:sh|mjs|js|ts|tsx|py|md)\b/gi;
-const MAP_LINE_RE = /^([^\s:#]+):(\d+)(?:-(\d+))?/;
+const MAP_LINE_RE = /^([^\s:#]+):(\d+)(?:-(\d+))?(?:\s+(.*))?$/;
 
 function envInt(name, fallback) {
   const v = process.env[name];
@@ -52,7 +52,7 @@ export function parseMapLineRanges(mapBlock) {
     const start = Number(m[2]);
     const end = Number(m[3] || m[2]);
     if (!path.includes("/")) continue;
-    out.push({ path, start_line: start, end_line: end });
+    out.push({ path, start_line: start, end_line: end, label: (m[4] || "").trim() });
   }
   return out;
 }
@@ -67,24 +67,53 @@ export function namedPathsFromQuestion(question) {
 }
 
 function resolveCandidate(workspace, candidate) {
+  const preferSourceTwin = (rel) => {
+    if (!/\.js$/i.test(rel)) return rel;
+    const tsRel = rel.replace(/\.js$/i, ".ts");
+    const tsAbs = confine(workspace, tsRel);
+    if (tsAbs && existsSync(tsAbs)) return normalizeReadPath(workspace, tsRel) || rel;
+    return rel;
+  };
   const tries = candidate.includes("/")
-    ? [candidate]
-    : [`scripts/${candidate}`, candidate];
+    ? [candidate, `skills/unitrace/${candidate}`]
+    : [`scripts/${candidate}`, `skills/unitrace/scripts/${candidate}`, candidate];
   for (const p of tries) {
     const abs = confine(workspace, p);
     if (abs && existsSync(abs)) {
       const rel = normalizeReadPath(workspace, p);
-      if (rel) return rel;
+      if (rel) return preferSourceTwin(rel);
     }
   }
   return null;
 }
 
-const CURATED_TRACE_SEEDS = [
-  { path: "scripts/unitrace.sh", start_line: 1, end_line: 20 },
-  { path: "scripts/trace-rt.sh", start_line: 1, end_line: 120 },
-  { path: "scripts/realtime-trace.mjs", start_line: 1, end_line: 80 },
-];
+function traceSeedTargets(question) {
+  const q = String(question || "").toLowerCase();
+  const wantsUnitrace = /\bunitrace(?:\.sh)?\b/.test(q);
+  const wantsTraceRt = /\btrace-rt(?:\.sh)?\b/.test(q) || /\brealtime-trace(?:\.mjs)?\b/.test(q) || /\btrace rt\b/.test(q);
+  if (wantsUnitrace) return ["scripts/unitrace.sh", "scripts/trace-rt.sh", "scripts/realtime-trace.mjs"];
+  if (wantsTraceRt) return ["scripts/trace-rt.sh", "scripts/realtime-trace.mjs"];
+  return [];
+}
+
+function allowArchive(question) {
+  return /\b(archive|cursor|acp|gemini|grok|legacy|retired)\b/i.test(String(question || ""));
+}
+
+function allowWire(question) {
+  return /\bwire\b/i.test(String(question || ""));
+}
+
+function allowTests(question) {
+  return /\b(test|tests|fixture|benchmark|bench)\b/i.test(String(question || ""));
+}
+
+function disallowSeedPath(rel, question) {
+  if (!allowArchive(question) && /(^|\/)archive\//.test(rel)) return true;
+  if (!allowWire(question) && /(^|\/)(explore-hydrate\.sh|rehydrate-explore-wire\.mjs)$/.test(rel)) return true;
+  if (!allowTests(question) && /(^|\/)(tests?|fixtures?)\/|(^|\/)test-[^/]+/.test(rel)) return true;
+  return false;
+}
 
 export function requiredSeedPaths(question, workspace) {
   const out = [];
@@ -92,21 +121,30 @@ export function requiredSeedPaths(question, workspace) {
     const rel = resolveCandidate(workspace, name);
     if (rel) out.push(rel);
   }
-  const q = String(question || "").toLowerCase();
-  if (/\b(?:uni)?trace\b/.test(q)) {
-    for (const p of ["scripts/unitrace.sh", "scripts/trace-rt.sh", "scripts/realtime-trace.mjs"]) {
-      const rel = resolveCandidate(workspace, p);
-      if (rel && !out.includes(rel)) out.push(rel);
-    }
+  for (const p of traceSeedTargets(question)) {
+    const rel = resolveCandidate(workspace, p);
+    if (rel && !out.includes(rel)) out.push(rel);
   }
   return out;
 }
 
 function curatedTraceSeeds(question, workspace) {
   const q = String(question || "").toLowerCase();
-  if (!/\b(?:uni)?trace\b/.test(q)) return [];
   const out = [];
-  for (const spec of CURATED_TRACE_SEEDS) {
+  const specs = [];
+  if (/\bunitrace(?:\.sh)?\b/.test(q)) {
+    specs.push({ path: "scripts/unitrace.sh", start_line: 1, end_line: 20 });
+  }
+  if (/\btrace-rt(?:\.sh)?\b|\brealtime-trace(?:\.mjs)?\b|\btrace rt\b/.test(q)) {
+    specs.push({ path: "scripts/trace-rt.sh", start_line: 340, end_line: 405 });
+    if (/\b(render|rendered|rendering|pointer|rehydrate|submit|final)\b/.test(q)) {
+      specs.push({ path: "scripts/realtime-trace.mjs", start_line: 906, end_line: 1055 });
+    } else {
+      specs.push({ path: "scripts/realtime-trace.mjs", start_line: 190, end_line: 340 });
+    }
+  }
+  if (!specs.length) return out;
+  for (const spec of specs) {
     const rel = resolveCandidate(workspace, spec.path);
     if (rel) out.push({ rel, ...spec });
   }
@@ -120,12 +158,40 @@ function readSeedSpec(workspace, spec, onRead, filesRead, readCache, lines) {
   const end = spec.end_line || lines;
   const r = toolReadRange(workspace, rel, { start_line: start, end_line: end, stripPreamble: STRIP_PREAMBLE });
   if (!r.ok) return null;
-  if (onRead) onRead(rel, r.content || "");
+  if (onRead) onRead(rel, r.content || "", spec.pin ? { pin: true } : {});
   else {
     filesRead.add(rel);
     readCache.set(rel, r.content || "");
   }
   return rel;
+}
+
+function mapFocusTerms(question, workspace) {
+  const focus = new Set();
+  for (const rel of requiredSeedPaths(question, workspace)) {
+    const base = basename(rel).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
+    if (base.length >= 2) focus.add(base);
+  }
+  for (const ident of codeSymbolIdents(question)) focus.add(ident.toLowerCase());
+  if (!focus.size) {
+    for (const ident of mentionedIdentsFromQuery(question)) {
+      if (ident.length >= 4) focus.add(ident.toLowerCase());
+    }
+  }
+  return focus;
+}
+
+function scoreMapRange(range, question, focusTerms) {
+  const label = String(range.label || "").toLowerCase();
+  let score = 0;
+  for (const term of focusTerms) {
+    if (term.length >= 4 && label.includes(term.toLowerCase())) score += 3;
+  }
+  const q = String(question || "").toLowerCase();
+  if (/\b(lookup|looked up|required|route)\b/.test(q) && /getrequiredscope/.test(label)) score += 10;
+  if (/\b(enforc|missing|granted|insufficient)\b/.test(q) && /hasscope/.test(label)) score += 8;
+  if (/\b(public|passthrough|allowed)\b/.test(q) && /matchespathpolicy|public/.test(label)) score += 6;
+  return score;
 }
 
 export function deriveSeedPaths(question, mapBlock, workspace, { max = 4 } = {}) {
@@ -134,19 +200,23 @@ export function deriveSeedPaths(question, mapBlock, workspace, { max = 4 } = {})
 
   const push = (p) => {
     const rel = resolveCandidate(workspace, p);
-    if (!rel || seen.has(rel)) return;
+    if (!rel || seen.has(rel) || disallowSeedPath(rel, question)) return;
     seen.add(rel);
     ranked.push(rel);
   };
 
   for (const p of requiredSeedPaths(question, workspace)) push(p);
 
-  const idents = mentionedIdentsFromQuery(question);
+  const idents = mapFocusTerms(question, workspace);
   for (const p of extractMapPaths(mapBlock)) {
     if (ranked.length >= max) break;
     const base = basename(p).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
     const name = basename(p).toLowerCase();
-    if ([...idents].some((id) => base.includes(id.toLowerCase()) || id.toLowerCase().includes(base) || name.includes(id.toLowerCase()))) {
+    const full = p.toLowerCase();
+    if ([...idents].some((id) => {
+      const token = id.toLowerCase();
+      return base.includes(token) || token.includes(base) || name.includes(token) || full.includes(token);
+    })) {
       push(p);
     }
   }
@@ -291,19 +361,32 @@ export function seedExploreReads({
   if (seedFromMap) {
     for (const spec of curatedTraceSeeds(question, workspace)) {
       if (paths.length >= max) break;
-      const rel = readSeedSpec(workspace, spec, onRead, filesRead, readCache, lines);
+      const rel = readSeedSpec(workspace, { ...spec, pin: true }, onRead, filesRead, readCache, lines);
       if (rel) record(rel);
     }
     const mapRanges = parseMapLineRanges(mapBlock);
-    const idents = mentionedIdentsFromQuery(question);
+    const idents = mapFocusTerms(question, workspace);
+    const bestByRel = new Map();
     for (const range of mapRanges) {
-      if (paths.length >= max) break;
       const rel = resolveCandidate(workspace, range.path);
       if (!rel || seen.has(rel)) continue;
       const base = basename(rel).replace(/\.[a-z0-9]+$/i, "").toLowerCase();
-      const identHit = [...idents].some((id) => base.includes(id.toLowerCase()) || id.toLowerCase().includes(base));
+      const full = rel.toLowerCase();
+      const identHit = [...idents].some((id) => {
+        const token = id.toLowerCase();
+        return base.includes(token) || token.includes(base) || full.includes(token);
+      });
       if (!identHit && !requiredSeedPaths(question, workspace).includes(rel)) continue;
-      const r = readSeedSpec(workspace, { rel, start_line: range.start_line, end_line: range.end_line }, onRead, filesRead, readCache, lines);
+      if (disallowSeedPath(rel, question)) continue;
+      const scored = { ...range, rel, score: scoreMapRange(range, question, idents) };
+      const prev = bestByRel.get(rel);
+      if (!prev || scored.score > prev.score) bestByRel.set(rel, scored);
+    }
+    for (const range of bestByRel.values()) {
+      if (paths.length >= max) break;
+      const startLine = Math.max(1, range.start_line - 6);
+      const endLine = Math.max(range.end_line, range.start_line) + 12;
+      const r = readSeedSpec(workspace, { rel: range.rel, start_line: startLine, end_line: endLine, pin: true }, onRead, filesRead, readCache, lines);
       if (r) record(r);
     }
   }

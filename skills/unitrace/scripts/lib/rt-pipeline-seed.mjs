@@ -8,6 +8,11 @@ const TRACE_PIPELINE = [
   { path: "scripts/trace-rt.sh", start_line: 280, end_line: 380 },
 ];
 
+const TRACE_SUBMIT_RENDER = [
+  { path: "scripts/lib/rt-rehydrate-submit.mjs", start_line: 1, end_line: 140 },
+  { path: "scripts/lib/render-trace-structured.mjs", start_line: 1, end_line: 120 },
+];
+
 const TEMPLATES = [
   {
     re: /\btrace\.sh\b/i,
@@ -20,14 +25,28 @@ const TEMPLATES = [
       ...TRACE_PIPELINE,
     ],
   },
+  {
+    re: /\b(trace-rt|submit|pointer|render(?:ed|ing)? trace)\b/i,
+    reads: [
+      { path: "scripts/realtime-trace.mjs", start_line: 906, end_line: 1055 },
+      ...TRACE_SUBMIT_RENDER,
+      ...TRACE_PIPELINE,
+    ],
+  },
 ];
 
 function resolveRead(workspace, spec) {
-  const abs = confine(workspace, spec.path);
-  if (!abs || !existsSync(abs)) return null;
-  const rel = normalizeReadPath(workspace, spec.path);
-  if (!rel) return null;
-  return { rel, start_line: spec.start_line, end_line: spec.end_line };
+  const tries = spec.path.includes("/")
+    ? [spec.path, `skills/unitrace/${spec.path}`]
+    : [`scripts/${spec.path}`, `skills/unitrace/scripts/${spec.path}`, spec.path];
+  for (const candidate of tries) {
+    const abs = confine(workspace, candidate);
+    if (!abs || !existsSync(abs)) continue;
+    const rel = normalizeReadPath(workspace, candidate);
+    if (!rel) continue;
+    return { rel, start_line: spec.start_line, end_line: spec.end_line };
+  }
+  return null;
 }
 
 export function pipelineSeedReads(question, workspace, filesRead, onRead) {

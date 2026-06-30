@@ -225,6 +225,27 @@ test("retrieval de-prioritizes test files so the implementation is not evicted b
   }
 });
 
+test("retrieval keeps path-signaled architecture files in the candidate pool", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uni-pathboost-"));
+  try {
+    fs.mkdirSync(path.join(dir, "gateway", "src"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "server"), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "gateway", "src", "index.ts"),
+      "export function enforceScope() {\n  return getRequiredScopes();\n}\n",
+    );
+    fs.writeFileSync(
+      path.join(dir, "server", "audit.ts"),
+      Array.from({ length: 8 }, () => "function audit_scope_decision() { return 'scope'; }\n").join(""),
+    );
+    const { candidates } = await retrieveCandidates(dir, "how does the gateway scope enforcement work");
+    assert.ok(candidates.length > 0);
+    assert.ok(candidates.some((c) => c.path.includes("gateway/src/index.ts")), "expected gateway path to be retained");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function summary(overrides) {
   return {
     name: "rtinfer",

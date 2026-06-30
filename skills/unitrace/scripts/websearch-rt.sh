@@ -13,20 +13,12 @@
 #   UNITRACE_SEARCH_MODEL       alpha/search model (default: gpt-5.4)
 #   UNISEARCH_ALPHA_TRANSPORT    curl (default) or fetch
 #   UNISEARCH_WS_TIMEOUT         total deadline seconds (default: 600)
-#   UNISEARCH_WS_SEARCH_MAX_TURNS   search round tool cap (default: 3)
-#   UNISEARCH_WS_FETCH_MAX_TURNS    fetch round tool cap (default: 3)
-#   UNISEARCH_WS_STOP_SEARCHES      stop after N alpha batches (default: 1)
-#   UNISEARCH_WS_STOP_URLS            also require N URLs before early stop (default: 3)
 #   UNISEARCH_WS_COALESCE_WEB_RUN     merge parallel web_run into one alpha call (default: 1)
 #   UNISEARCH_WS_ALPHA_MAX_OUTPUT_TOKENS  alpha/search max_output_tokens (default: 128000, the model cap; small caps truncate multi-page fetches)
-#   UNISEARCH_WS_ALPHA_SEARCH_MAX_TURNS   search round cap for alpha (default: 1)
-#   UNISEARCH_WS_ALPHA_PARALLEL_TOOL_CALLS  RT parallel web_run (default: 0)
 #   UNISEARCH_WS_SUBMIT_PACKET_MAX  max submit packet chars (default: 45000)
 #   UNISEARCH_WS_SUBMIT_REASK       one reask on validation failure (default: 1)
 #   UNISEARCH_WS_SWARM_OPEN_CAP    swarm: max URLs opened in the single open pass (default: 18)
 #   UNISEARCH_WS_SUBMIT_FRESH_CONTEXT  between-round prune: delete (default), reconnect, or off
-#   UNISEARCH_WS_SEARCH_REASONING_EFFORT  search round reasoning (default: low)
-#   UNISEARCH_WS_FETCH_REASONING_EFFORT   fetch round reasoning (default: low)
 #   UNISEARCH_WS_SUBMIT_REASONING_EFFORT  submit round reasoning (default: low)
 #   UNISEARCH_WS_REASONING_EFFORT  optional override for both phases
 #   UNITRACE_WORKSPACE            caller repo for AGENTS.md/README context (default: cwd)

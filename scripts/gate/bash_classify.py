@@ -2,9 +2,9 @@
 """Classify whether a Bash command is allowed during the pre-spec research phase.
 
 Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
-spec, Bash may run only `cd`, `ls`, `glob`, `rg`, `grep`/`egrep`/`fgrep`, `echo` (read-only pipeline sinks only),
+spec, Bash may run only `cd`, `ls`, `glob`, `rg`, `grep`/`egrep`/`fgrep`, `find` (read-only predicates/actions), `echo` (read-only pipeline sinks only),
 `ast-grep`/`sg`, read-only file inspection
-(`head`, `tail`, `wc`, `sort`, `uniq`), read-only `git` subcommands, git
+(`cat`/`nl` file reads, `sed -n` print ranges, `head`, `tail`, `wc`, `sort`, `uniq`), targeted pytest verification, read-only `git` subcommands, git
 workflow commands (`status`, `add`, `commit`, `push` without `--force`), and
 NON-DESTRUCTIVE branch switching (`git checkout [-b|-B] <branch> [start-point]`,
 `git switch [-c|-C] <branch> [start-point]`, or a bare `git checkout|switch
@@ -48,6 +48,46 @@ _AST_GREP_REWRITE_FLAGS = frozenset({"-U", "--update", "--rewrite"})
 READONLY_INSPECTION_COMMANDS = frozenset({"head", "tail", "wc", "sort", "uniq", "jq"})
 _PIPELINE_SINKS = READONLY_INSPECTION_COMMANDS
 _FILE_READ_COMMANDS = frozenset({"cat", "nl"})
+_SED_COMMANDS = frozenset({"sed", "gsed"})
+_FIND_COMMANDS = frozenset({"find", "gfind"})
+_SED_PRINT_SCRIPT_RE = re.compile(r"^(?:(?:\d+|\$)?(?:,(?:\d+|\$))?p|/(?:\\.|[^/])*/p)$")
+_FIND_OPTS_WITH_VALUE = frozenset(
+    {
+        "-maxdepth",
+        "-mindepth",
+        "-name",
+        "-iname",
+        "-path",
+        "-ipath",
+        "-type",
+        "-size",
+        "-mtime",
+        "-mmin",
+        "-newer",
+        "-regex",
+        "-iregex",
+    }
+)
+_FIND_READONLY_FLAGS = frozenset(
+    {"-print", "-print0", "-ls", "-not", "!", "-o", "-or", "-a", "-and", "(", ")"}
+)
+_FIND_BLOCKED_ACTIONS = frozenset(
+    {
+        "-delete",
+        "-exec",
+        "-execdir",
+        "-ok",
+        "-okdir",
+        "-fprint",
+        "-fprint0",
+        "-fprintf",
+        "-fls",
+        "-quit",
+    }
+)
+_PYTEST_COMMANDS = frozenset({"pytest", "py.test"})
+_PYTEST_VALUE_OPTS = frozenset({"--maxfail", "-k"})
+_PYTEST_SAFE_FLAGS = frozenset({"-q", "--quiet", "-x", "-s", "--tb=short", "--tb=auto"})
 _NL_OPTS_WITH_VALUE = frozenset(
     {
         "-b",
@@ -324,6 +364,11 @@ def _split_outside_quotes(segment: str, *, pipe: bool, compound: bool) -> list[s
             buf.append(ch)
             i += 1
             continue
+        if ch == "\\" and i + 1 < n:
+            buf.append(ch)
+            buf.append(segment[i + 1])
+            i += 2
+            continue
         if compound and (segment.startswith("&&", i) or segment.startswith("||", i)):
             parts.append("".join(buf))
             buf = []
@@ -467,8 +512,11 @@ def _validate_spec_append_args(args: list[str]) -> tuple[bool, str]:
             "spec CLI --force is not allowed: the agent cannot overwrite or "
             "remove a spec (creation is automatic, removal is judge-only)."
         )
+    visible_args = [tok for tok in args if tok != "--"]
+    if not visible_args or visible_args[0] in ("-h", "--help", "help", "-V", "--version", "version"):
+        return True, ""
     sub = ""
-    for tok in args:
+    for tok in visible_args:
         if tok.startswith("-"):
             continue
         sub = tok
@@ -849,6 +897,108 @@ def _safe_file_read_segment(base: str, rest: list[str], segment: str, *, stdin_o
     return False, "cat/nl must name at least one file before the evidence spec is validated"
 
 
+def _safe_sed_read_segment(rest: list[str], segment: str, *, stdin_ok: bool = False) -> tuple[bool, str]:
+    """Allow only sed print-range reads such as `sed -n '1,120p' file`."""
+    redir = _redirection_reason(segment)
+    if redir:
+        return False, redir
+    scripts: list[str] = []
+    files: list[str] = []
+    idx = 0
+    while idx < len(rest):
+        tok = rest[idx]
+        if tok == "--":
+            files.extend(rest[idx + 1 :])
+            break
+        if tok in ("-i", "--in-place") or tok.startswith("-i") or tok.startswith("--in-place="):
+            return False, "sed in-place editing is not allowed before the evidence spec is validated"
+        if tok in ("-n", "--quiet", "--silent", "-E", "-r"):
+            idx += 1
+            continue
+        if tok in ("-e", "--expression"):
+            if idx + 1 >= len(rest):
+                return False, "sed -e requires a script"
+            scripts.append(rest[idx + 1])
+            idx += 2
+            continue
+        if tok.startswith("-e") and len(tok) > 2:
+            scripts.append(tok[2:])
+            idx += 1
+            continue
+        if tok.startswith("-"):
+            return False, f"sed option {tok} is not in the read-only print allowlist"
+        if not scripts:
+            scripts.append(tok)
+        else:
+            files.append(tok)
+        idx += 1
+
+    if not scripts:
+        return False, "sed must name a print script before the evidence spec is validated"
+    for script in scripts:
+        if not _SED_PRINT_SCRIPT_RE.match(script):
+            return False, "sed is allowed only for read-only print ranges before the evidence spec is validated"
+    if not files and not stdin_ok:
+        return False, "sed print inspection must name at least one file before the evidence spec is validated"
+    return True, ""
+
+
+def _safe_find_segment(rest: list[str]) -> tuple[bool, str]:
+    """Allow read-only find predicates/actions; block exec/delete/file output."""
+    if not rest:
+        return False, "find must name a path before the evidence spec is validated"
+    idx = 0
+    saw_path = False
+    while idx < len(rest):
+        tok = rest[idx]
+        if tok in _FIND_BLOCKED_ACTIONS:
+            return False, f"find action {tok} is not allowed before the evidence spec is validated"
+        if tok in _FIND_OPTS_WITH_VALUE:
+            if idx + 1 >= len(rest):
+                return False, f"find option {tok} requires a value"
+            idx += 2
+            continue
+        if tok in _FIND_READONLY_FLAGS:
+            idx += 1
+            continue
+        if tok.startswith("-"):
+            return False, f"find option/action {tok} is not in the read-only allowlist"
+        saw_path = True
+        idx += 1
+    if not saw_path:
+        return False, "find must name a path before the evidence spec is validated"
+    return True, ""
+
+
+def _safe_pytest_args(args: list[str]) -> tuple[bool, str]:
+    idx = 0
+    while idx < len(args):
+        tok = args[idx]
+        if tok == "--":
+            return True, ""
+        if tok in _PYTEST_VALUE_OPTS:
+            if idx + 1 >= len(args):
+                return False, f"pytest option {tok} requires a value"
+            idx += 2
+            continue
+        if tok in _PYTEST_SAFE_FLAGS or tok.startswith("--maxfail=") or tok.startswith("--tb="):
+            idx += 1
+            continue
+        if tok.startswith("-"):
+            return False, f"pytest option {tok} is not in the pre-spec verification allowlist"
+        idx += 1
+    return True, ""
+
+
+def _safe_pytest_segment(base: str, rest: list[str]) -> tuple[bool, str]:
+    """Allow targeted pytest verification before edits; protected writes still block first."""
+    if base in _PYTEST_COMMANDS:
+        return _safe_pytest_args(rest)
+    if base in _PY_INTERPRETERS and len(rest) >= 2 and rest[0] == "-m" and rest[1] == "pytest":
+        return _safe_pytest_args(rest[2:])
+    return False, ""
+
+
 def _declaration_segment(seg: str) -> tuple[bool, tuple[bool, str] | None]:
     """Classify a pure variable-declaration segment (`T=val`, `export A=1 B=2`).
 
@@ -912,6 +1062,15 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
         return True, ""
     if base in _FILE_READ_COMMANDS:
         return _safe_file_read_segment(base, rest, seg, stdin_ok=False)
+    if base in _SED_COMMANDS:
+        return _safe_sed_read_segment(rest, seg)
+    if base in _FIND_COMMANDS:
+        return _safe_find_segment(rest)
+    pytest_ok, pytest_reason = _safe_pytest_segment(base, rest)
+    if pytest_ok:
+        return True, ""
+    if pytest_reason:
+        return False, pytest_reason
     if base in _SPEC_CLI_NAMES:
         ok, reason = _validate_spec_append_args(rest)
         if ok:
@@ -934,6 +1093,11 @@ def _allowed_segment(seg: str) -> tuple[bool, str]:
             return True, ""
         if reason:
             return False, reason
+        pytest_ok, pytest_reason = _safe_pytest_segment(base, rest)
+        if pytest_ok:
+            return True, ""
+        if pytest_reason:
+            return False, pytest_reason
         # Not a spec.py call: allow a provably read-only inline `-c` program.
         # A `-c` body with an unsafe token returns (False, reason); a non-`-c`
         # invocation (script file) returns (False, "") and falls through to block.
@@ -981,6 +1145,8 @@ def _allowed_pipeline_sink(seg: str) -> tuple[bool, str]:
         return True, ""
     if base in _FILE_READ_COMMANDS:
         return _safe_file_read_segment(base, rest, seg, stdin_ok=True)
+    if base in _SED_COMMANDS:
+        return _safe_sed_read_segment(rest, seg, stdin_ok=True)
     return False, f"{base} is not an allowed read-only pipeline sink"
 
 

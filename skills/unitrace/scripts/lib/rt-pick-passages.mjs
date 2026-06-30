@@ -6,6 +6,8 @@ import { MAX_SPAN, safeRelPath } from "./trace-schema.mjs";
 
 const MAX_PASSAGES = 5;
 const DEFAULT_SPAN = 35;
+const DOC_PATH_RE = /(^|\/)(README|AGENTS|CLAUDE|CHANGELOG)(\.[^/]+)?$|\.mdx?$|\.txt$|\.rst$|\.adoc$|\.json$|\.jsonl$|\.ndjson$|\.ya?ml$|\.toml$|\.ini$|\.cfg$|\.conf$|\.env(\.[^/]+)?$|\.properties$|\.csv$|\.tsv$|\.xml$|\.html?$/i;
+const SOURCE_PATH_RE = /\.(sh|mjs|cjs|js|ts|tsx|jsx|py|rb|rs|go|java|kt|swift|php|c|cc|cpp|h|hpp)$/i;
 
 function lineCount(workspace, rel) {
   const p = join(workspace, rel);
@@ -44,6 +46,21 @@ function spanFromExcerpt(excerpt) {
   return { start_line: min, end_line: max };
 }
 
+function isSourcePath(rel) {
+  return SOURCE_PATH_RE.test(String(rel || ""));
+}
+
+function isDocPath(rel) {
+  return DOC_PATH_RE.test(String(rel || ""));
+}
+
+function prefersSource(question) {
+  const q = String(question || "");
+  if (/\b(README|AGENTS|CLAUDE|CHANGELOG)\b/.test(q) || /\.md\b/i.test(q)) return false;
+  if (SOURCE_PATH_RE.test(q)) return true;
+  return /\b(how|trace|flow|phase|pipeline|call|entry(?:point)?|render|submit|explore|function|script|module|implementation|implement|orchestr|handler)\b/i.test(q);
+}
+
 export function pickCodePassages({
   workspace,
   filesRead,
@@ -53,6 +70,7 @@ export function pickCodePassages({
   maxPassages = MAX_PASSAGES,
 }) {
   const priority = new Set(seedPaths);
+  const preferSourceFirst = prefersSource(question);
   const ordered = [...filesRead]
     .map((p) => safeRelPath(workspace, p))
     .filter(Boolean)
@@ -60,6 +78,11 @@ export function pickCodePassages({
       const pa = priority.has(a) ? 0 : 1;
       const pb = priority.has(b) ? 0 : 1;
       if (pa !== pb) return pa - pb;
+      if (preferSourceFirst) {
+        const sa = isSourcePath(a) ? 0 : isDocPath(a) ? 1 : 2;
+        const sb = isSourcePath(b) ? 0 : isDocPath(b) ? 1 : 2;
+        if (sa !== sb) return sa - sb;
+      }
       return a.localeCompare(b);
     });
 

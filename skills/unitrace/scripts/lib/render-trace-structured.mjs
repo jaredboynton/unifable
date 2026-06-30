@@ -40,19 +40,6 @@ function hydratePassage(repo, passage, index) {
   return `\n${ref}${rationale}\n${fence}${s}:${e}:${rel}\n${code}\n${fence}`;
 }
 
-import { extractTraceCitations } from "./trace-citations.mjs";
-
-export function countRenderedCitations(markdown) {
-  const scored = extractTraceCitations(markdown || "");
-  return {
-    lineStart: scored.byKind.lineStartFence,
-    refs: scored.byKind.refLabel,
-    inline: scored.byKind.inlineFence,
-    pathFirst: scored.byKind.pathFirst,
-    total: scored.uniqueCitations,
-  };
-}
-
 export function renderTraceStructured(repo, data) {
   const out = [];
   const summary = String(data.opening_summary || "").trim();

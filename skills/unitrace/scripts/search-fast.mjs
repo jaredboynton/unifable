@@ -192,7 +192,7 @@ export function classifyHits(hits, terms) {
 // dominate. Returns files ordered best-first, each carrying its hits (ordered by
 // rarity-weighted term coverage then def) so the caller hydrates the most
 // distinctive matches into AST-node spans first.
-export function scoreCandidates({ files, docFreq }) {
+export function scoreCandidates({ files, docFreq, queryTerms = [] }) {
   const nFiles = files.size || 1;
   // Rarity weight: rare terms (low document frequency) carry more signal than
   // terms that hit nearly every file. Adds a small base so a single common term
@@ -203,6 +203,14 @@ export function scoreCandidates({ files, docFreq }) {
     const defCap = Math.min(f.def, 6);
     const overflow = f.def > 12 ? -4 : 0;
     let score = defCap * 4 + Math.min(f.ref, 3) + (f.terms.size - 1) * 6 + overflow;
+    const pathLower = f.file.toLowerCase();
+    const pathHits = [...new Set(queryTerms.map((t) => t.toLowerCase()).filter((t) => t.length >= 4 && pathLower.includes(t)))];
+    score += Math.min(pathHits.length, 3) * 8;
+    const components = pathLower.split(/[^a-z0-9]+/).filter(Boolean);
+    const componentSet = new Set(components);
+    const exactHits = [...new Set(queryTerms.map((t) => t.toLowerCase()).filter((t) => t.length >= 4 && componentSet.has(t)))];
+    score += Math.min(exactHits.length, 2) * 10;
+    if (components.length && queryTerms.some((t) => String(t).toLowerCase() === components[0])) score += 10;
     if (CENTRAL_RE.test(f.file)) score += 5;
     if (GENERATOR_RE.test(f.file)) score -= 4;
     if (TEST_RE.test(f.file)) score -= 6;
@@ -249,9 +257,11 @@ export async function retrieveCandidates(repoRoot, query, {
   // can never evict real code on a code query, while a doc-answer query still
   // gets its files hydrated. The two lanes are then merged best-first.
   const hits = await runCombinedRg(repoRoot, terms, grepCap);
-  const scoredFiles = scoreCandidates(classifyHits(hits, terms));
-  const codeFiles = scoredFiles.filter((f) => f.cls === "code").slice(0, maxFiles);
-  const docFiles = scoredFiles.filter((f) => f.cls === "doc").slice(0, maxDocFiles);
+  const scoredFiles = scoreCandidates({ ...classifyHits(hits, terms), queryTerms: terms });
+  const scoredSet = new Set(scoredFiles.map((f) => f.file));
+  const preferredFiles = scoredFiles.filter((f) => !(/\.js$/i.test(f.file) && scoredSet.has(f.file.replace(/\.js$/i, ".ts"))));
+  const codeFiles = preferredFiles.filter((f) => f.cls === "code").slice(0, maxFiles);
+  const docFiles = preferredFiles.filter((f) => f.cls === "doc").slice(0, maxDocFiles);
   const ranked = [...codeFiles, ...docFiles].sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
 
   // Hydrate each ranked file once (bounded by the code+doc file budgets above).

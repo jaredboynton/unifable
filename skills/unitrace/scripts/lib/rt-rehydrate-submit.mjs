@@ -51,25 +51,60 @@ export function orderReadCacheEntries(readCache, seedPaths = []) {
   });
 }
 
+function splitExcerptSegments(excerpt) {
+  return String(excerpt || "")
+    .split("\n---\n")
+    .map((seg) => seg.split("\n").filter(Boolean))
+    .filter((seg) => seg.length);
+}
+
+export function buildReadIndexEntries(orderedEntries, { maxFiles = 12 } = {}) {
+  const entries = [];
+  const slice = orderedEntries.slice(0, maxFiles);
+  for (const [path, excerpt] of slice) {
+    const segments = splitExcerptSegments(excerpt);
+    let pushed = false;
+    for (const segLines of segments) {
+      const segText = segLines.join("\n");
+      const span = spanFromExcerpt(segText);
+      entries.push({
+        path,
+        excerpt: segText,
+        start_line: span?.start_line ?? null,
+        end_line: span?.end_line ?? null,
+      });
+      pushed = true;
+    }
+    if (!pushed) {
+      entries.push({ path, excerpt: String(excerpt || ""), start_line: null, end_line: null });
+    }
+  }
+  return entries;
+}
+
 export function buildReadIndex(orderedEntries, { maxFiles = 12, previewLines = 3 } = {}) {
+  const previewExcerpt = (excerpt) => (
+    String(excerpt || "")
+      .split("\n")
+      .filter(Boolean)
+      .slice(0, previewLines)
+      .map((l) => `  ${l}`)
+      .join("\n")
+  );
+
   const lines = [
     "READ INDEX (cite excerpt_index in citation_spans; host rehydrates verbatim):",
     "",
   ];
-  const slice = orderedEntries.slice(0, maxFiles);
-  for (let i = 0; i < slice.length; i++) {
-    const [path, excerpt] = slice[i];
-    const span = spanFromExcerpt(excerpt);
-    const range = span ? `lines ${span.start_line}-${span.end_line}` : "line range unknown";
-    const preview = String(excerpt || "")
-      .split("\n")
-      .slice(0, previewLines)
-      .map((l) => `  ${l}`)
-      .join("\n");
+  const entries = buildReadIndexEntries(orderedEntries, { maxFiles });
+  for (let i = 0; i < entries.length; i++) {
+    const { path, excerpt, start_line, end_line } = entries[i];
+    const range = start_line && end_line ? `lines ${start_line}-${end_line}` : "line range unknown";
+    const preview = previewExcerpt(excerpt);
     lines.push(`[${i}] ${path} (${range})`, preview, "");
   }
-  if (orderedEntries.length > slice.length) {
-    lines.push(`... (${orderedEntries.length - slice.length} more files read, omitted from index)`, "");
+  if (orderedEntries.length > maxFiles) {
+    lines.push(`... (${orderedEntries.length - maxFiles} more files read, omitted from index)`, "");
   }
   return lines.join("\n");
 }
@@ -90,16 +125,40 @@ export function rehydratePointerSubmit({
     if (!cite || typeof cite !== "object") continue;
     const idx = cite.excerpt_index;
     if (!Number.isInteger(idx) || idx < 0 || idx >= orderedPaths.length) continue;
-    const rel = safeRelPath(workspace, orderedPaths[idx]);
+    const entry = orderedPaths[idx];
+    const rel = safeRelPath(workspace, typeof entry === "string" ? entry : entry?.path);
     if (!rel || !filesRead.has(rel)) continue;
-    const key = `${rel}:${cite.start_line}-${cite.end_line}`;
+    const entryStart = typeof entry === "object" ? entry?.start_line : null;
+    const entryEnd = typeof entry === "object" ? entry?.end_line : null;
+    let boundedStart = Number.isInteger(entryStart) ? Math.max(cite.start_line, entryStart) : cite.start_line;
+    let boundedEnd = Number.isInteger(entryEnd) ? Math.min(cite.end_line, entryEnd) : cite.end_line;
+    const citedSpan = Math.max(1, boundedEnd - boundedStart + 1);
+    const entrySpan = Number.isInteger(entryStart) && Number.isInteger(entryEnd)
+      ? Math.max(1, entryEnd - entryStart + 1)
+      : null;
+    if (entrySpan && entrySpan <= 30) {
+      boundedStart = entryStart;
+      boundedEnd = entryEnd;
+    } else if (entrySpan && citedSpan < 4 && entrySpan <= 40) {
+      boundedStart = entryStart;
+      boundedEnd = entryEnd;
+    }
+    const key = `${rel}:${boundedStart}-${boundedEnd}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    const clamped = clampSpan(workspace, rel, cite.start_line, cite.end_line);
+    const clamped = clampSpan(workspace, rel, boundedStart, Math.max(boundedStart, boundedEnd));
+    let finalStart = clamped.start_line;
+    let finalEnd = clamped.end_line;
+    if (Number.isInteger(entryStart)) finalStart = Math.max(finalStart, entryStart);
+    if (Number.isInteger(entryEnd)) finalEnd = Math.min(finalEnd, entryEnd);
+    if (finalEnd < finalStart) {
+      finalStart = boundedStart;
+      finalEnd = Math.max(boundedStart, boundedEnd);
+    }
     passages.push({
       file_path: rel,
-      start_line: clamped.start_line,
-      end_line: clamped.end_line,
+      start_line: finalStart,
+      end_line: finalEnd,
       rationale: String(cite.rationale || `${rel.split("/").pop()} cited span`),
     });
     if (passages.length >= 5) break;

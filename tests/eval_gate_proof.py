@@ -261,8 +261,8 @@ def scenario_specs() -> list[Scenario]:
         ("BL3", "bash-whitelist echo allowed pre-spec", ALLOW, EV, "STANDARD", lambda cwd: bash(cwd, "echo hi", "BL3")),
         (
             "BL4",
-            "bash-whitelist pytest blocked pre-spec",
-            BLOCK,
+            "bash-whitelist pytest -q allowed pre-spec",
+            ALLOW,
             EV,
             "STANDARD",
             lambda cwd: bash(cwd, "pytest tests/ -q", "BL4"),

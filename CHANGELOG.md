@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.22.4 - 2026-06-30
+
+- Fix `test_research_bash_guidance.py` test that asserted on stale
+  `bash_allowed_summary()` copy. Updated to match current allowlist:
+  added `find (read-only)`, `sed -n`, and `pytest -q`.
+- Update `eval_gate_proof.py` scenario BL4: `pytest -q` is now allowed
+  in pre-spec research phase, reflecting the targeted pytest verification
+  policy change.
+
+Verification:
+
+- `just test-all` (1522 passed, 9 subtests; 40/40 gate scenarios; 14/14 robustness checks)
+
 ## 1.22.3 - 2026-06-29
 
 - Stop narrating internal breaker state to the model. The provisional-lift

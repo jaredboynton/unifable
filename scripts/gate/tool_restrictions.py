@@ -19,11 +19,34 @@ except ImportError:  # pragma: no cover
 INSPECTION_TOOLS = ("Read", "Grep", "Glob", "WebSearch", "WebFetch", "NotebookRead")
 WRITE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit", "apply_patch")
 DELEGATION_TOOLS = ("Task", "Agent")
-SHELL_TOOLS = ("Bash", "REPL", "exec_command")
+SHELL_TOOLS = ("Bash", "REPL", "exec_command", "Shell")
+MCP_TOOL_MATCHER = r"mcp__.*"
+MCP_MUTATION_TOOLS_LABEL = (
+    "MCP mutation tools (mcp__* except read/get/fetch/content/search/file/view/lookup/list/query unless payload is write-like)"
+)
 
 PRETOOL_GATED_TOOLS = SHELL_TOOLS + DELEGATION_TOOLS + WRITE_TOOLS
 GROUNDEDNESS_BLOCKED_TOOLS = WRITE_TOOLS + SHELL_TOOLS
 RELEASE_TOOLS = INSPECTION_TOOLS + ("view_image",)
+
+_MCP_WRITE_RE = re.compile(
+    r"(?i)(write|create|update|delete|patch|apply|remove|insert|put|post|send|upload|modify|mutate|replace|move|upsert)"
+)
+_MCP_READ_RE = re.compile(r"(?i)(read|get|fetch|content|search|file|view|lookup|list|query)")
+_MCP_WRITE_INPUT_KEYS = frozenset(
+    {
+        "content",
+        "contents",
+        "patch",
+        "diff",
+        "old_string",
+        "new_string",
+        "replacement",
+        "data",
+        "bytes",
+    }
+)
+_MCP_SQL_MUTATION_RE = re.compile(r"(?is)^\s*(?:insert|update|delete|drop|alter|create|truncate|merge|replace|grant|revoke)\b")
 
 _FOOTER_TITLE = "Actions restricted to:"
 
@@ -60,11 +83,61 @@ def shell_tools_csv() -> str:
 
 
 def groundedness_blocked_tools_csv() -> str:
-    return tool_csv(GROUNDEDNESS_BLOCKED_TOOLS)
+    return tool_csv(GROUNDEDNESS_BLOCKED_TOOLS) + f", {MCP_MUTATION_TOOLS_LABEL}"
 
 
 def pretool_matcher_regex() -> str:
-    return "^(" + "|".join(re.escape(tool) for tool in PRETOOL_GATED_TOOLS) + ")$"
+    exact = "|".join(re.escape(tool) for tool in PRETOOL_GATED_TOOLS)
+    return f"^({exact}|{MCP_TOOL_MATCHER})$"
+
+
+def is_mcp_tool_name(tool_name: str) -> bool:
+    return str(tool_name or "").startswith("mcp__")
+
+
+def is_mcp_read_like_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    if not is_mcp_tool_name(name):
+        return False
+    if _MCP_WRITE_RE.search(name):
+        return False
+    return bool(_MCP_READ_RE.search(name))
+
+
+def is_mcp_mutation_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    return is_mcp_tool_name(name) and not is_mcp_read_like_tool(name)
+
+
+def mcp_input_forces_mutation(tool_input) -> bool:
+    """Conservative structural override for read-like MCP names carrying write payloads."""
+
+    def walk(value) -> bool:
+        if isinstance(value, dict):
+            lowered = {str(k).lower(): v for k, v in value.items()}
+            if lowered.get("destructivehint") is True or lowered.get("destructive") is True:
+                return True
+            if any(key in lowered for key in _MCP_WRITE_INPUT_KEYS):
+                return True
+            query = lowered.get("query")
+            if isinstance(query, str) and _MCP_SQL_MUTATION_RE.search(query):
+                return True
+            return any(walk(v) for v in lowered.values())
+        if isinstance(value, list):
+            return any(walk(item) for item in value)
+        return False
+
+    return walk(tool_input)
+
+
+def is_pretool_gated_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    return name in PRETOOL_GATED_TOOLS or is_mcp_tool_name(name)
+
+
+def is_groundedness_blocked_tool(tool_name: str) -> bool:
+    name = str(tool_name or "")
+    return name in GROUNDEDNESS_BLOCKED_TOOLS or is_mcp_mutation_tool(name)
 
 
 def bash_research_summary() -> str:

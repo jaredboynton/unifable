@@ -91,6 +91,10 @@ from tool_restrictions import (
 )
 from tool_restrictions import (
     groundedness_block_message,
+    is_mcp_mutation_tool,
+    is_mcp_read_like_tool,
+    is_mcp_tool_name,
+    mcp_input_forces_mutation,
 )
 
 # ---------------------------------------------------------------------------
@@ -105,6 +109,7 @@ _PROTECTED_CLI = (
     "(restate / add-task / set-primary / add-frontier); "
     "never hand-edit the JSON."
 )
+_PRETOOL_BLOCKED_KEY = "_unifable_pretool_blocked"
 
 
 def _protected_path_message(path: str, *, shell: bool = False) -> str:
@@ -213,7 +218,12 @@ def _block(
     # message is therefore always shown (no notify-redundancy suppression), since
     # the notify no longer renders on this path to duplicate it.
     _ = breaker_notify
+    input_data[_PRETOOL_BLOCKED_KEY] = True
     return emit_pretool_block(input_data, kind=kind, detail=detail, full_message=msg)
+
+
+def _pretool_blocked(input_data: dict) -> bool:
+    return bool(input_data.get(_PRETOOL_BLOCKED_KEY))
 
 
 def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: bool) -> list[str]:
@@ -444,7 +454,7 @@ def _enforce_spec(
 
     if grade == "HEAVY":
         rc = _enforce_heavy_writes(input_data, spec, cwd, write_target)
-        if rc != 0:
+        if _pretool_blocked(input_data) or rc != 0:
             return rc
 
     return 0
@@ -761,6 +771,8 @@ def _is_gated_tool(tool_name: str) -> bool:
     """True when tool_name is one the PreToolUse hook gates (writes, delegation, or
     a shell tool). The director scope only restricts among these; everything else
     (reads, web, empty/unknown) is never scope-blocked."""
+    if is_mcp_tool_name(tool_name):
+        return is_mcp_mutation_tool(tool_name)
     if tool_name in WRITE_TOOLS or tool_name in DELEGATION_TOOLS:
         return True
     try:
@@ -768,6 +780,18 @@ def _is_gated_tool(tool_name: str) -> bool:
     except ImportError:  # pragma: no cover
         from scripts.gate.parse_tool_result import is_shell_tool
     return bool(is_shell_tool(tool_name))
+
+
+def _mcp_targets(tool_input) -> list[str]:
+    """Best-effort path extraction for MCP mutation payloads."""
+    try:
+        from parse_tool_result import _paths_from_mapping
+    except ImportError:  # pragma: no cover
+        from scripts.gate.parse_tool_result import _paths_from_mapping
+
+    if isinstance(tool_input, dict):
+        return [p for p in _paths_from_mapping(tool_input) if p]
+    return []
 
 
 def _spec_validated(input_data: dict, cwd: str) -> bool:
@@ -802,8 +826,8 @@ def _enforce_tool_scope(input_data: dict, tool_name: str, breaker_notify: str) -
         from tool_scope import in_scope, scope_from_state
 
         # Only enforce scope for tools this hook actually gates (writes, delegation,
-        # shell). An empty or unknown tool (e.g. malformed/empty stdin) must never be
-        # scope-blocked -- reads/web stay free via the grounding floor anyway.
+        # shell, MCP mutations). An empty/unknown tool or read-like MCP tool must
+        # never be scope-blocked -- reads/web stay free via the grounding floor.
         if not _is_gated_tool(tool_name):
             return None
         # Evidence-gathering shell never gets scope-blocked: a content-revealing
@@ -864,8 +888,8 @@ def main() -> int:
     #     The director judge persisted a tool scope on its last debounced call.
     #     Enforce it here with a pure predicate: an out-of-scope mutation/bash/
     #     delegation tool is blocked with the director's directive as the reason.
-    #     Reads/web never reach this hook (matcher), and the grounding floor in
-    #     tool_scope.in_scope keeps them reachable regardless. Fail-open on any error.
+    #     Native reads/web never reach this hook (matcher); read-like MCP tools may
+    #     reach it but stay on the grounding floor. Fail-open on any error.
     scope_block = _enforce_tool_scope(input_data, tool_name, breaker_notify)
     if scope_block is not None:
         return scope_block
@@ -891,8 +915,41 @@ def main() -> int:
         rc = _enforce_spec(
             input_data, cwd, write_target=target, breaker_notify=breaker_notify
         )
-        if rc == 0:
+        if rc == 0 and not _pretool_blocked(input_data):
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
+        if _pretool_blocked(input_data):
+            return rc
+        if _evidence_lift_allows(input_data, tool_name, cwd, paths=targets):
+            return _allow_notify(input_data, breaker_notify, hygiene_headlines)
+        return rc
+
+    # --- MCP tools: reads stay free; write-like / unknown MCP tools are mutation-gated ---
+    if is_mcp_tool_name(tool_name):
+        is_mutating_mcp = is_mcp_mutation_tool(tool_name) or mcp_input_forces_mutation(tool_input)
+        if not is_mutating_mcp:
+            return _emit_allow(breaker_notify)
+
+        hygiene_headlines = _run_spec_hygiene(input_data, cwd)
+        targets = _mcp_targets(tool_input)
+        target = targets[0] if targets else None
+
+        protected_hit = next((t for t in targets if _is_protected(t, cwd)), None)
+        if protected_hit:
+            return _block(
+                input_data,
+                kind="protected",
+                detail="mcp",
+                message=_protected_path_message(protected_hit),
+                breaker_notify=breaker_notify,
+            )
+
+        rc = _enforce_spec(
+            input_data, cwd, write_target=target, breaker_notify=breaker_notify
+        )
+        if rc == 0 and not _pretool_blocked(input_data):
+            return _allow_notify(input_data, breaker_notify, hygiene_headlines)
+        if _pretool_blocked(input_data):
+            return rc
         if _evidence_lift_allows(input_data, tool_name, cwd, paths=targets):
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return rc
@@ -937,7 +994,7 @@ def main() -> int:
         rc = _enforce_bash(
             input_data, tool_input, cwd, tool_name=tool_name, breaker_notify=breaker_notify
         )
-        if rc == 0:
+        if rc == 0 and not _pretool_blocked(input_data):
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return rc
 
@@ -945,7 +1002,7 @@ def main() -> int:
     if tool_name in DELEGATION_TOOLS:
         hygiene_headlines = _run_spec_hygiene(input_data, cwd)
         rc = _enforce_delegation(input_data, tool_name, cwd, breaker_notify=breaker_notify)
-        if rc == 0:
+        if rc == 0 and not _pretool_blocked(input_data):
             return _allow_notify(input_data, breaker_notify, hygiene_headlines)
         return rc
 

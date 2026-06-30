@@ -1,35 +1,16 @@
 #!/usr/bin/env bash
-# unifusion.sh — the single Unifusion entrypoint. Auto-detects every available panelist CLI, builds a
-# best-effort shared session-context brief, assembles ONE canonical prompt, and fans the whole panel out
-# in parallel and blind. Opus (via `claude`) is always a panelist; every external CLI that is installed joins
-# too. The caller does only two things after this returns: JUDGE the answers and SAVE provenance.
+# unifusion.sh — run one Droid root orchestrator that launches frontier-research architect droids in
+# parallel, synthesizes their findings, and writes a manifest plus final artifacts.
 #
 # Usage:
 #   unifusion.sh <question_file> [run_dir]
 #
-# - <question_file> : the user's question, VERBATIM (write it under /tmp before calling; do not put
-#                     question.txt in the project directory; do not pre-digest it).
-# - [run_dir]       : optional dir to hold this run's prompt/outputs; a fresh mktemp dir is used if omitted.
-#
-# What it does (folds in the old detect_panel + preflight + context + per-CLI launch steps):
-#   1. Detects panelist CLIs: claude (Opus), codex (GPT-5.5), agy (Gemini), kimi (Kimi), glm-acp-agent (GLM).
-#   2. Builds a FACTUAL session-context brief (summarize_session.sh, best-effort; skipped silently if it
-#      can't be built). The identical brief is shared by every panelist — the panel's one allowed prior.
-#   3. Assembles the canonical panelist prompt ([SESSION CONTEXT]? + [INSTRUCTIONS] + verbatim [TASK])
-#      into <run_dir>/panel_prompt.md. This same file is what every panelist receives.
-#   4. Fans out ALL available panelists as background jobs into <run_dir>/<label>_out.md, in parallel and
-#      blind. Opus always runs; with NO external CLI present a SECOND Opus runs (the two-cold-Opus
-#      opus4.8-4.8 fallback). A failing/missing panelist drops only itself; the run never aborts.
-#   5. Waits for all, then prints a manifest the caller greps: RUN_DIR=, PANEL_PROMPT=, SLUG=, CONTEXT=,
-#      and one `PANELIST <label> <ok|dropped:reason> <out_path>` line per panelist, plus a rough estimate.
-#
-# This script never judges and never writes final provenance — Opus (the orchestrator) is the sole judge
-# and must stay a separate process from the claude-launched Opus panelist. Always exits 0 (degradation is
-# per-panelist, never fatal).
-#
-# Env knobs (advanced; sensible defaults): UNIFUSION_TIMEOUT (per-panelist seconds, default 600),
-# UNIFUSION_OPUS_MODEL (claude model, default opus), KIMI_MODEL, GLM_MODEL, AGY_MODEL,
-# UNIFUSION_CONTEXT_PROVIDER + GEMINI_API_KEY/GOOGLE_API_KEY (enable the session brief).
+# Flow:
+#   1. Build a factual shared context brief when available.
+#   2. Assemble one canonical panel prompt with that brief plus the verbatim task.
+#   3. Launch a single `droid exec` root run that uses Task to fan out architect droids in parallel,
+#      then synthesizes their reports in the root session.
+#   4. Persist analysis/final artifacts and write a provenance record.
 
 set -uo pipefail
 
@@ -45,6 +26,14 @@ if [ ! -s "$question_file" ]; then
   echo "[unifusion] question file is missing or empty: $question_file" >&2
   exit 2
 fi
+if ! have droid; then
+  echo "[unifusion] droid CLI not installed — cannot run Droid-native Unifusion." >&2
+  exit 127
+fi
+if ! have python3; then
+  echo "[unifusion] python3 not installed — cannot parse droid JSON output." >&2
+  exit 127
+fi
 
 run_dir="${2:-}"
 if [ -z "$run_dir" ]; then
@@ -57,13 +46,48 @@ case "$run_dir" in
   *) run_dir="$(cd "$run_dir" && pwd -P)" ;;
 esac
 
-have claude && claude_ok=true
-have codex && codex_ok=true
-have agy   && agy_ok=true
-have_kimi  && kimi_ok=true
-have glm-acp-agent && glm_ok=true
+cwd="$(pwd -P)"
+review_session="${UNIFUSION_REVIEW_SESSION:-$(basename "$run_dir")}"
+uid="${UNIFUSION_UID:-$(date +%Y%m%d_%H%M%S)_$$}"
+review_root="${HOME}/.factory/reviews/${review_session}/${uid}"
+mkdir -p "$review_root"
 
-# ---- 2. best-effort shared session-context brief --------------------------------------------------
+droid_model="${UNIFUSION_DROID_MODEL:-custom:Opus-4.8-Bedrock}"
+droid_reasoning="${UNIFUSION_DROID_REASONING_EFFORT:-high}"
+droid_timeout="${UNIFUSION_DROID_TIMEOUT:-1800}"
+
+label_for_droid() {
+  case "$1" in
+    architect) echo "gpt5.5" ;;
+    architect-opus) echo "opus4.8" ;;
+    architect-glm) echo "glm5.2" ;;
+    architect-kimi) echo "kimi2.7" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+slug_for_droid() {
+  case "$1" in
+    architect) echo "gpt5.5" ;;
+    architect-opus) echo "opus4.8" ;;
+    architect-glm) echo "glm5.2" ;;
+    architect-kimi) echo "kimi2.7" ;;
+    *) echo "$1" ;;
+  esac
+}
+
+report_path_for_droid() {
+  printf '%s/%s.md\n' "$review_root" "$1"
+}
+
+droid_names=()
+if [ -n "${UNIFUSION_DROIDS:-}" ]; then
+  IFS=',' read -r -a droid_names <<<"${UNIFUSION_DROIDS}"
+else
+  droid_names=(architect architect-opus architect-glm architect-kimi)
+fi
+
+# ---- best-effort shared session-context brief ----------------------------------------------------
 context_file="$run_dir/context.md"
 context_state="none"
 if bash "$SCRIPT_DIR/summarize_session.sh" "$context_file" >"$run_dir/context.log" 2>&1 && [ -s "$context_file" ]; then
@@ -72,110 +96,233 @@ else
   rm -f "$context_file"
 fi
 
-# ---- 3. assemble the one canonical panelist prompt -----------------------------------------------
+# ---- canonical panel prompt ----------------------------------------------------------------------
 panel_prompt="$run_dir/panel_prompt.md"
 {
   if [ "$context_state" != "none" ]; then
-    echo "[SESSION CONTEXT — shared background, same for every panelist; factual only]"
+    echo "[SESSION CONTEXT — shared factual background, same for every architect; not a proposed approach]"
     cat "$context_file"
     echo
   fi
-  cat <<'INSTR'
-[INSTRUCTIONS]
-You are one of several independent experts answering the same question in parallel. You will not see the
-others' answers. Research with web search and your local bash/tools, then return a complete, self-contained
-answer in the user's language.
+  cat <<'EOF'
+[TASK]
+Find the strongest current technical approach for the user's request below. Optimize for literal best-known
+practice backed by current evidence, not habit or average convention. Use local repo evidence when relevant,
+and external primary sources such as official docs, flagship GitHub repositories, papers, benchmarks, release
+notes, and maintainer guidance.
 
-Web search:
-- Search queries should be filtered to the past 60 days unless no good results are found.
-- Prefer Exa MCP tools over native web search when Exa is available.
-
-Ground every claim in evidence you actually gathered this run:
-- For any claim about this codebase or local system, cite the concrete file path and line, or the command
-  and its output, that you actually read or ran. Run the code or read the file; never assert from memory.
-- For any claim from the web, cite the source URL you actually opened, and prefer primary or official
-  sources over second-hand summaries.
-- Label anything you could not verify as unverified.
-
-Use current information:
-- Verify the latest stable version of any library, framework, tool, or API on the web this run; never rely
-  on a recalled version number.
-- Check the current official documentation for any API you reference, and say when behavior is
-  version-specific.
-- Prefer actively maintained repositories and recent, still-relevant papers; note the release or
-  publication date of sources you lean on, and flag anything deprecated or superseded as of today.
-
-[TASK — answer this, verbatim]
-INSTR
+[USER REQUEST — verbatim]
+EOF
   cat "$question_file"
-} > "$panel_prompt"
+} >"$panel_prompt"
 
-# ---- 4. fan out, in parallel and blind -----------------------------------------------------------
-labels=(); slugtokens=(); pids=(); outs=()
+analysis_path="$run_dir/analysis.md"
+final_path="$run_dir/final.md"
+droid_prompt="$run_dir/droid_prompt.md"
+droid_result="$run_dir/droid_result.json"
+droid_log="$run_dir/droid.log"
 
-launch() {
-  # launch <label> <slug_token> <out_basename> <runner> [args...]
-  local label="$1" token="$2" outbase="$3"; shift 3
-  local out="$run_dir/$outbase"
-  "$@" "$panel_prompt" "$out" >"$run_dir/${label}.log" 2>&1 &
-  pids+=("$!"); labels+=("$label"); slugtokens+=("$token"); outs+=("$out")
-}
+{
+  cat <<EOF
+You are Unifusion's root orchestrator running inside one Droid exec session.
 
-# Opus is always a panelist.
-launch opus-A opus4.8 claude_out.md bash "$SCRIPT_DIR/run_claude.sh"
+Goal:
+Run a frontier-research architecture panel on the task in \`$panel_prompt\`, synthesize the results in the
+root session, and return the final answer plus a structured panel analysis.
 
-ext=0
-$codex_ok && { launch gpt5.5         gpt5.5         codex_out.md  bash "$SCRIPT_DIR/run_codex.sh"  ; ext=$((ext+1)); }
-$agy_ok   && { launch gemini3.5flash gemini3.5flash gemini_out.md bash "$SCRIPT_DIR/run_gemini.sh" ; ext=$((ext+1)); }
-$kimi_ok  && { launch kimi2.7        kimi2.7        kimi_out.md   bash "$SCRIPT_DIR/run_kimi.sh"   ; ext=$((ext+1)); }
-$glm_ok   && { launch glm5.2         glm5.2         glm_out.md    bash "$SCRIPT_DIR/run_glm.sh"   ; ext=$((ext+1)); }
+Working context:
+- Repo cwd: $cwd
+- Panel prompt file: $panel_prompt
+- Shared factual session context file: $context_state
+- Review session: $review_session
+- Review UID: $uid
+- Review root: $review_root
+- Final answer path (written by the shell after you return): $final_path
 
-# No external CLI at all -> run a SECOND cold Opus (the opus4.8-4.8 fallback).
-if [ "$ext" -eq 0 ]; then
-  launch opus-B opus4.8 claude_out_b.md bash "$SCRIPT_DIR/run_claude.sh"
+Rules:
+- Read \`$panel_prompt\` first.
+- Do not answer from memory when evidence is available.
+- Do not edit repo files, settings, hooks, droid configs, or credentials.
+- The only files that may be created or edited are the architect report files under \`$review_root\`.
+- Use Task tool calls in the same assistant message when launching the architect droids so they run in
+  parallel.
+- If one or more architect droids fail or do not produce a report file, continue with the remaining reports
+  and explicitly note the dropped panelists in the final answer.
+
+Architect droids to launch:
+EOF
+  for droid_name in "${droid_names[@]}"; do
+    printf -- "- %s -> %s\n" "$droid_name" "$(report_path_for_droid "$droid_name")"
+  done
+  cat <<EOF
+
+For each architect droid, use a Task prompt with this shape:
+- Goal: determine the strongest current approach for the task in \`$panel_prompt\`
+- Context: repo cwd \`$cwd\`, report path, reviewer-name, session, UID
+- Constraints: use repo evidence plus primary external sources; optimize for best current approach; do not
+  modify repo files; write only the report file
+- Questions: what is the best approach, why it beats alternatives, and what concrete implementation guidance
+  follows for this repo/task
+- Expected output: write the report and return only the absolute report path
+
+After the architect Task calls finish:
+1. Verify which report files exist.
+2. Read every existing architect report file.
+3. Synthesize them yourself in the root session.
+4. Return exactly this shape and nothing else:
+
+[FINAL]
+<user-facing final answer in markdown>
+[/FINAL]
+
+[ANALYSIS]
+<structured panel analysis in markdown>
+[/ANALYSIS]
+
+The FINAL section must:
+- Lead with the single recommended approach.
+- Explain briefly why it is strongest.
+- Give concrete implementation guidance the outer orchestrator can follow.
+- Name major caveats, open risks, and any dropped panelists.
+
+The ANALYSIS section must include:
+- Participating panelists
+- Consensus findings
+- Single-panelist or disputed findings
+- Rejected alternatives
+- Remaining risks or unknowns
+
+Avoid step narration, path dumps, and tool chatter outside those markers.
+EOF
+} >"$droid_prompt"
+
+words="$(wc -w <"$question_file" | tr -d ' ')"
+in_tokens=$((words * 4 / 3))
+
+_run_with_timeout "$droid_timeout" droid exec \
+  --model "$droid_model" \
+  --reasoning-effort "$droid_reasoning" \
+  --auto high \
+  --cwd "$cwd" \
+  --enabled-tools Read,LS,Grep,Glob,FetchUrl,Create,Edit,ApplyPatch,Task \
+  --output-format json \
+  -f "$droid_prompt" \
+  >"$droid_result" 2>"$droid_log"
+status=$?
+
+if [ "$status" -eq 124 ]; then
+  echo "[unifusion] droid exec timed out after ${droid_timeout}s; tail of log:" >&2
+  tail -20 "$droid_log" >&2
+  exit 124
+fi
+if [ "$status" -ne 0 ]; then
+  echo "[unifusion] droid exec exited $status; tail of log:" >&2
+  tail -20 "$droid_log" >&2
+  exit 1
 fi
 
-# ---- 5. wait, collect, report --------------------------------------------------------------------
-statuses=()
-for i in "${!pids[@]}"; do
-  wait "${pids[$i]}"; statuses+=("$?")
-done
+python3 - "$droid_result" "$final_path" "$analysis_path" <<'PY'
+import json
+import pathlib
+import re
+import sys
 
-reason_for() {
-  case "$1" in
-    0)   echo "ok" ;;
-    124) echo "dropped:timeout" ;;
-    127) echo "dropped:cli-missing" ;;
-    2)   echo "dropped:bad-prompt" ;;
-    *)   echo "dropped:exit-$1" ;;
-  esac
-}
+result_path = pathlib.Path(sys.argv[1])
+final_path = pathlib.Path(sys.argv[2])
+analysis_path = pathlib.Path(sys.argv[3])
+payload = json.loads(result_path.read_text())
+result = payload.get("result") or ""
 
-# Slug = the tokens of panelists that actually returned a usable answer (driver-first opus4.8).
-run_tokens=()
-ok_count=0
-for i in "${!labels[@]}"; do
-  if [ "${statuses[$i]}" -eq 0 ] && [ -s "${outs[$i]}" ]; then
-    run_tokens+=("${slugtokens[$i]}"); ok_count=$((ok_count+1))
+def extract(name: str) -> str:
+    m = re.search(rf"\[{name}\]\s*(.*?)\s*\[/{name}\]", result, re.S)
+    return (m.group(1).strip() + "\n") if m else ""
+
+final = extract("FINAL")
+analysis = extract("ANALYSIS")
+
+if not final:
+    final = result.rstrip() + ("\n" if result else "")
+if not analysis:
+    analysis = result.rstrip() + ("\n" if result else "")
+
+final_path.write_text(final)
+analysis_path.write_text(analysis)
+PY
+
+if ! _has_content "$final_path"; then
+  echo "[unifusion] empty final answer from droid exec." >&2
+  exit 1
+fi
+if ! _has_content "$analysis_path"; then
+  echo "[unifusion] empty analysis from droid exec." >&2
+  exit 1
+fi
+
+droid_session_id="$(python3 - "$droid_result" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1]))
+print(payload.get("session_id", ""))
+PY
+)"
+
+ok_labels=()
+missing_labels=()
+label_specs=()
+for droid_name in "${droid_names[@]}"; do
+  label="$(label_for_droid "$droid_name")"
+  report_path="$(report_path_for_droid "$droid_name")"
+  if [ -s "$report_path" ]; then
+    ok_labels+=("$label")
+    label_specs+=("${label}=${report_path}")
+  else
+    missing_labels+=("$label")
   fi
 done
-if [ "${#run_tokens[@]}" -eq 0 ]; then
-  slug="opus4.8"   # nothing returned; record the intended driver
-else
-  slug="$(IFS=-; echo "${run_tokens[*]}")"
+
+slug="droidexec"
+if [ "${#ok_labels[@]}" -gt 0 ]; then
+  slug="droidexec-$(IFS=-; echo "${ok_labels[*]}")"
 fi
 
-words="$(wc -w < "$question_file" | tr -d ' ')"
-in_tokens=$(( words * 4 / 3 ))
+panel_note=""
+if [ "${#missing_labels[@]}" -gt 0 ]; then
+  panel_note="dropped: $(IFS=', '; echo "${missing_labels[*]}")"
+fi
+
+estimate="~${words} words (~${in_tokens} input tokens) sent to one Droid root orchestrator, which fanned out ${#droid_names[@]} architect droids in parallel and synthesized their reports; overall timeout ${droid_timeout}s."
+
+provenance_path=""
+if [ "${UNIFUSION_SAVE_RUN:-1}" = "1" ]; then
+  save_env=()
+  [ -n "$panel_note" ] && save_env+=(UNIFUSION_PANEL_NOTE="$panel_note")
+  [ "$context_state" != "none" ] && save_env+=(UNIFUSION_CONTEXT_FILE="$context_file")
+  save_env+=(UNIFUSION_ESTIMATE="$estimate")
+  provenance_path="$(env "${save_env[@]}" bash "$SCRIPT_DIR/save_run.sh" "$slug" "$question_file" "$analysis_path" "$final_path" "${label_specs[@]}")"
+fi
 
 echo "RUN_DIR=$run_dir"
 echo "PANEL_PROMPT=$panel_prompt"
+echo "DROID_PROMPT=$droid_prompt"
 echo "CONTEXT=$context_state"
+echo "REVIEW_SESSION=$review_session"
+echo "UID=$uid"
 echo "SLUG=$slug"
-echo "ESTIMATE=~${words} words (~${in_tokens} input tokens) sent to each of ${#labels[@]} panelists; per-panelist timeout ${UNIFUSION_TIMEOUT:-600}s; real cost is several x input."
-echo "panel ($ok_count/${#labels[@]} returned):"
-for i in "${!labels[@]}"; do
-  printf 'PANELIST %s %s %s\n' "${labels[$i]}" "$(reason_for "${statuses[$i]}")" "${outs[$i]}"
+echo "ANALYSIS=$analysis_path"
+echo "FINAL=$final_path"
+echo "DROID_SESSION_ID=$droid_session_id"
+[ -n "$provenance_path" ] && echo "PROVENANCE=$provenance_path"
+echo "ESTIMATE=$estimate"
+echo "panel (${#ok_labels[@]}/${#droid_names[@]} returned):"
+for droid_name in "${droid_names[@]}"; do
+  label="$(label_for_droid "$droid_name")"
+  report_path="$(report_path_for_droid "$droid_name")"
+  if [ -s "$report_path" ]; then
+    printf 'PANELIST %s ok %s\n' "$label" "$report_path"
+  else
+    printf 'PANELIST %s dropped:missing %s\n' "$label" "$report_path"
+  fi
 done
 
 exit 0

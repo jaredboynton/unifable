@@ -4,9 +4,10 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   NAV_SCHEMA,
-  dedupNavProposals,
-  hydrateFromPaths,
   buildNavIndex,
+  dedupNavProposals,
+  focusRootsFor,
+  hydrateFromPaths,
 } from "../lib/rt-explore-nav.mjs";
 
 const FIXTURE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/search-mini-repo");
@@ -57,6 +58,22 @@ test("hydrateFromPaths reads real files via htools and tracks them, rejects esca
   assert.ok(tracked[0].content.length > 0);
 });
 
+test("hydrateFromPaths filters archive reads unless explicitly allowed", () => {
+  const tracked = [];
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  const added = hydrateFromPaths(
+    repoRoot,
+    [
+      { path: "skills/unitrace/scripts/archive/cursor-acp-trace.mjs" },
+      { path: "skills/unitrace/scripts/unitrace.sh" },
+    ],
+    (rel, content) => tracked.push({ rel, content }),
+    { focusRoots: ["skills/unitrace/scripts"], archiveOk: false, wireOk: false },
+  );
+  assert.equal(added, 1);
+  assert.equal(tracked[0].rel, "skills/unitrace/scripts/unitrace.sh");
+});
+
 test("buildNavIndex renders a READ INDEX with seed ordering", () => {
   const readCache = new Map([
     ["b.rs", "1|fn beta() {}\n2|  body"],
@@ -66,4 +83,14 @@ test("buildNavIndex renders a READ INDEX with seed ordering", () => {
   assert.match(idx, /READ INDEX/);
   // seedPaths ranks a.rs first even though b.rs inserted first.
   assert.ok(idx.indexOf("a.rs") < idx.indexOf("b.rs"));
+});
+
+test("focusRootsFor widens generated src seeds to the src root", () => {
+  const roots = focusRootsFor("scope enforcement", [
+    "gateway/src/generated/scope-matrix.ts",
+    "crates/kepler-server/src/middleware/audit.rs",
+  ]);
+  assert.ok(Array.isArray(roots));
+  assert.ok(roots.includes("gateway/src"));
+  assert.ok(roots.includes("crates/kepler-server/src"));
 });

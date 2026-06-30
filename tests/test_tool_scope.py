@@ -5,8 +5,8 @@ The director judge persists a tool scope into breaker state; this module decides
 with NO judge call, whether an imminent tool is in scope. It must:
   - fail open (empty/malformed scope allows everything),
   - honor an explicit deny-list and an explicit allow-list,
-  - never brick the grounding floor (Read/Grep/Glob/WebSearch/WebFetch) so the
-    agent can always ground a claim and escape a bad scope,
+  - never brick the grounding floor (Read/Grep/Glob/WebSearch/WebFetch/read-like
+    MCP) so the agent can always ground a claim and escape a bad scope,
   - surface the director's directive as the block reason.
 """
 
@@ -53,11 +53,24 @@ def test_allow_list_is_exclusive() -> None:
     assert blocked is False
 
 
+def test_apply_patch_is_edit_scope_alias() -> None:
+    ok, _ = tool_scope.in_scope("apply_patch", {"allow": ["Edit"]})
+    assert ok is True
+    blocked, reason = tool_scope.in_scope(
+        "apply_patch", {"deny": ["Edit"], "directive": "Read first."}
+    )
+    assert blocked is False
+    assert reason == "Read first."
+
+
 def test_grounding_floor_never_blocked() -> None:
     # Even if the scope explicitly denies reads or allow-lists only Edit, the
     # grounding tools stay reachable so the agent can never be bricked.
-    for scope in ({"deny": ["Read", "Grep"]}, {"allow": ["Edit"]}):
-        for tool in ("Read", "Grep", "Glob", "WebSearch", "WebFetch"):
+    for scope in (
+        {"deny": ["Read", "Grep", "mcp__exa__web_search_exa"]},
+        {"allow": ["Edit"]},
+    ):
+        for tool in ("Read", "Grep", "Glob", "WebSearch", "WebFetch", "mcp__exa__web_search_exa"):
             ok, _ = tool_scope.in_scope(tool, scope)
             assert ok is True, f"{tool} must stay reachable under {scope}"
 
@@ -107,6 +120,20 @@ def test_pretool_enforces_persisted_scope(tmp_path, monkeypatch) -> None:
     assert pre_tool_use._enforce_tool_scope(input_data, "Write", "") is None
     # Grounding floor stays reachable even if scope is restrictive.
     assert pre_tool_use._enforce_tool_scope(input_data, "Read", "") is None
+    assert pre_tool_use._enforce_tool_scope(input_data, "mcp__exa__web_search_exa", "") is None
+
+
+def test_pretool_scope_blocks_mcp_mutations_but_not_mcp_reads(tmp_path, monkeypatch) -> None:
+    """MCP mutation tools are scope-gated; read-like MCP tools stay usable for grounding."""
+    breaker_state, pre_tool_use = _reload_pre_tool_use(tmp_path, monkeypatch)
+
+    input_data = {"session_id": "mcp-scope", "cwd": str(tmp_path)}
+    state = breaker_state.default_breaker()
+    state["breaker_tool_scope"] = {"allow": ["Edit"], "directive": "Edit after research is done."}
+    breaker_state.save_breaker(input_data, state)
+
+    assert pre_tool_use._enforce_tool_scope(input_data, "mcp__exa__web_search_exa", "") is None
+    assert pre_tool_use._enforce_tool_scope(input_data, "mcp__github__create_issue", "") == 2
 
 
 def test_pretool_no_scope_is_noop(tmp_path, monkeypatch) -> None:

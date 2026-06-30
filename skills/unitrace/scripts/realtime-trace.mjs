@@ -39,6 +39,7 @@ import {
 } from "./lib/rt-session-utils.mjs";
 import { RtAgentSession } from "./lib/rt-agent-session.mjs";
 import {
+  buildReadIndexEntries,
   buildReadIndex,
   orderReadCacheEntries,
   rehydratePointerSubmit,
@@ -65,6 +66,8 @@ const UNITRACE_SYSTEM = [
   "",
   "Use the explore_exec tool only. Write JavaScript that calls tools.grep, tools.read, tools.batch_read, tools.list_dir, and tools.shell.",
   "Batch independent work with Promise.all inside one explore_exec call — e.g. grep for entry symbols and read 40-line spans on 4-8 paths in parallel.",
+  "For implementation or control-flow questions, prefer source files over AGENTS/README/docs unless the question is explicitly about docs, policy, or config.",
+  "Unless the question explicitly asks about wire/plaintext mode or UNITRACE_WIRE_FORMAT, follow the default structured trace path rather than optional wire-format branches.",
   "",
   "Workflow:",
   "1. Orient from REPO MAP paths in the user message.",
@@ -92,6 +95,14 @@ const SUBMIT_SYSTEM = [
   "- Be concise: opening_summary <= 120 words; each section body <= 45 words.",
   "- At most 5 code_passages; each span <= 40 lines.",
   "- Ground every claim in the explore tool log and read excerpts provided.",
+  "- For implementation / end-to-end questions, prefer source files over AGENTS/README/docs for evidence; use docs only when the question is about policy, usage, or config.",
+  "- For pipeline or end-to-end questions, name the real scripts/functions/modules in order instead of generic stage labels.",
+  "- For implementation questions, every flow step should name at least one concrete script or function from the evidence when one is available.",
+  "- When a lookup/enforcement/helper function definition is available in the read index, cite that definition rather than nearby imports, interfaces, or constants.",
+  "- When the same handler has distinct credential or request branches (for example JWT vs API key), cover each material branch instead of only the first one you saw.",
+  "- Prefer citations around the function or branch that implements the behavior, not top-of-file constants or overview comments, unless those are the answer.",
+  "- If the question names a script/module, include that file plus the direct load-bearing callees that make the answer true.",
+  "- Unless the question explicitly asks about wire/plaintext mode or UNITRACE_WIRE_FORMAT, describe the default structured trace path, not optional wire-format branches.",
   "- Every code_passage.file_path MUST be one of the schema enum values for files read during explore.",
   "- Never use repo-map, grep-only, list_dir-only, or explore_exec-only paths in code_passages.",
   "- When the question contrasts tools, modes, or code paths, comparison_tables MUST be non-empty.",
@@ -206,6 +217,28 @@ function clampExcerptHead(text, max) {
   const head = s.slice(0, max);
   const nl = head.lastIndexOf("\n");
   return nl >= 0 ? head.slice(0, nl) : head;
+}
+
+function extractAnchorSymbols(orderedEntries, { max = 10 } = {}) {
+  const patterns = [
+    /^\d+\|\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/gm,
+    /^\d+\|\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/gm,
+    /^\d+\|\s*(?:export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)/gm,
+  ];
+  const out = [];
+  const seen = new Set();
+  for (const [filePath, excerpt] of orderedEntries) {
+    for (const re of patterns) {
+      for (const match of String(excerpt || "").matchAll(re)) {
+        const name = match[1];
+        if (!name || seen.has(name)) continue;
+        seen.add(name);
+        out.push({ name, filePath });
+        if (out.length >= max) return out;
+      }
+    }
+  }
+  return out;
 }
 
 // Per-file read cache that keeps two layers: "pinned" excerpts (grep-hit
@@ -601,7 +634,11 @@ function buildSubmitPacket({
 }) {
   const readFiles = [...filesRead].sort();
   const orderedEntries = orderReadCacheEntries(readCache, seedPaths);
-  const orderedPaths = orderedEntries.map(([p]) => p);
+  const readIndexEntries = buildReadIndexEntries(orderedEntries, {
+    maxFiles: SUBMIT_EXCERPT_FILES + 4,
+  });
+  const orderedPaths = readIndexEntries;
+  const anchorSymbols = extractAnchorSymbols(orderedEntries);
   const usePointerIndex = pointerIndex && hostPassages && !wire;
   const submitMap = UNITRACE_RT_MAP_COMPACT_SUBMIT && mapBlock
     ? compactMapBlock(mapBlock)
@@ -623,6 +660,22 @@ function buildSubmitPacket({
     readFiles.join("\n") || "(none)",
     "",
   );
+  if (seedPaths.length) {
+    parts.push(
+      "HIGH PRIORITY FILES (seeded because they are likely load-bearing for this question):",
+      seedPaths.join("\n"),
+      "Prefer these and their direct callees over tangential helpers/docs unless the evidence clearly points elsewhere.",
+      "",
+    );
+  }
+  if (anchorSymbols.length) {
+    parts.push(
+      "LIKELY ANCHOR SYMBOLS (prefer these exact script/function names in the answer when relevant):",
+      ...anchorSymbols.map(({ name, filePath }) => `- ${name} — ${filePath}`),
+      "If one of these symbols directly answers the question, prefer citing its definition excerpt instead of nearby imports/constants/comments.",
+      "",
+    );
+  }
   if (!usePointerIndex) {
     parts.push(
       "CODE_PASSAGES FILE_PATH ENUM:",
@@ -633,11 +686,11 @@ function buildSubmitPacket({
       "",
     );
   }
-  parts.push(
-    "TOOL LOG:",
-    toolLog.filter((l) => !l.startsWith("phase ")).slice(-8).join("\n") || "(none)",
-    "",
-  );
+    parts.push(
+      "TOOL LOG:",
+      toolLog.filter((l) => !l.startsWith("phase ")).slice(-8).join("\n") || "(none)",
+      "",
+    );
   if (usePointerIndex) {
     parts.push(buildReadIndex(orderedEntries, { maxFiles: SUBMIT_EXCERPT_FILES + 4, previewLines: READ_INDEX_PREVIEW_LINES }), "");
   } else {

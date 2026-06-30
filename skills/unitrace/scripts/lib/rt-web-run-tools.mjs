@@ -562,13 +562,3 @@ export async function dispatchWebRunToolBatch(calls, ctx, { authPathOverride } =
     }),
   );
 }
-
-export function shouldStopWebRun(ctx, {
-  stopSearches = Number(process.env.UNISEARCH_WS_STOP_SEARCHES) || 1,
-  minUrls = Number(process.env.UNISEARCH_WS_STOP_URLS) || 3,
-} = {}) {
-  const searches = ctx.searchCount || 0;
-  const urls = ctx.fetchLog?.length || 0;
-  if (searches >= stopSearches && urls >= minUrls) return true;
-  return searches >= stopSearches;
-}

@@ -17,10 +17,6 @@ def detect_host(input_data: dict[str, Any] | None = None) -> HostKind:
     if forced in ("codex", "claude"):
         return forced  # type: ignore[return-value]
 
-    data = input_data if isinstance(input_data, dict) else {}
-    if data.get("turn_id"):
-        return "codex"
-
     for var in ("PLUGIN_ROOT", "CLAUDE_PLUGIN_ROOT", "UNIFABLE_PLUGIN_ROOT"):
         raw = os.environ.get(var, "").strip()
         if "/.codex/" in raw:
@@ -28,8 +24,13 @@ def detect_host(input_data: dict[str, Any] | None = None) -> HostKind:
         if "/.claude/" in raw:
             return "claude"
 
+    if os.environ.get("CODEX_THREAD_ID"):
+        return "codex"
     if os.environ.get("CLAUDE_CODE_SESSION_ID"):
         return "claude"
+    data = input_data if isinstance(input_data, dict) else {}
+    if data.get("turn_id"):
+        return "codex"
     return "unknown"
 
 

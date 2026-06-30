@@ -16,7 +16,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "^(Bash|REPL|exec_command|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch)$",
+        "matcher": "^(Bash|REPL|exec_command|Shell|Task|Agent|Edit|Write|MultiEdit|NotebookEdit|apply_patch|mcp__.*)$",
         "hooks": [
           { "type": "command", "command": "\"${HOME}/.local/bin/unifable-hook\" pre_tool_use.py", "statusMessage": "pre-edit/bash/delegation spec gate", "timeout": 10 }
         ]

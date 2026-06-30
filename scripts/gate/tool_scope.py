@@ -16,11 +16,11 @@ Scope shape (all keys optional):
 Invariants (fail-safe by construction):
   - Empty / missing / malformed scope allows everything (fail-open). A director
     bug or an unreachable judge must never restrict the agent.
-  - The GROUNDING FLOOR (Read/Grep/Glob/WebSearch/WebFetch/NotebookRead) is NEVER
-    blocked, regardless of scope. The agent can always ground a claim and read its
-    way out of a bad scope -- mirrors the groundedness breaker's "reads always
-    free" invariant, so a scope can steer mutations but can never brick the
-    session.
+  - The GROUNDING FLOOR (Read/Grep/Glob/WebSearch/WebFetch/NotebookRead and
+    read-like MCP tools) is NEVER blocked, regardless of scope. The agent can
+    always ground a claim and read its way out of a bad scope -- mirrors the
+    groundedness breaker's "reads always free" invariant, so a scope can steer
+    mutations but can never brick the session.
 
 Host-agnostic: no imports from hooks/ or install/.
 """
@@ -30,13 +30,16 @@ from __future__ import annotations
 from typing import Any
 
 try:
-    from tool_restrictions import INSPECTION_TOOLS
+    from tool_restrictions import INSPECTION_TOOLS, is_mcp_read_like_tool
 except ImportError:  # pragma: no cover
-    from scripts.gate.tool_restrictions import INSPECTION_TOOLS
+    from scripts.gate.tool_restrictions import INSPECTION_TOOLS, is_mcp_read_like_tool
 
 # Read-only tools that stay reachable under any scope so the agent can always
 # ground a claim. Kept in sync with the hook restriction-copy module.
 GROUNDING_FLOOR = frozenset(INSPECTION_TOOLS)
+TOOL_ALIASES: dict[str, frozenset[str]] = {
+    "apply_patch": frozenset({"apply_patch", "Edit", "Write"}),
+}
 
 _DEFAULT_BLOCK_REASON = (
     "That tool is out of scope for the current step. "
@@ -54,6 +57,10 @@ def _str_list(value: Any) -> list[str] | None:
             return None
         out.append(item)
     return out
+
+
+def _tool_names(tool: str) -> frozenset[str]:
+    return TOOL_ALIASES.get(tool, frozenset({tool}))
 
 
 def scope_from_state(state: Any) -> dict[str, Any]:
@@ -80,7 +87,7 @@ def in_scope(tool_name: str, scope: Any) -> tuple[bool, str]:
     """
     tool = str(tool_name or "")
     # Grounding floor: never blocked.
-    if tool in GROUNDING_FLOOR:
+    if tool in GROUNDING_FLOOR or is_mcp_read_like_tool(tool):
         return True, ""
     if not isinstance(scope, dict) or not scope:
         return True, ""
@@ -89,12 +96,13 @@ def in_scope(tool_name: str, scope: Any) -> tuple[bool, str]:
     reason = directive or _DEFAULT_BLOCK_REASON
 
     deny = _str_list(scope.get("deny"))
-    if deny and tool in deny:
+    names = _tool_names(tool)
+    if deny and any(name in deny for name in names):
         return False, reason
 
     allow = _str_list(scope.get("allow"))
     if allow:  # non-empty allow-list is exclusive
-        if tool not in allow:
+        if not any(name in allow for name in names):
             return False, reason
 
     return True, ""

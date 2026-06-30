@@ -34,6 +34,7 @@ import gate_prompt_effort  # noqa: E402
 import grade_override  # noqa: E402
 import heavy_workflow  # noqa: E402
 import hook_output  # noqa: E402
+import judge_transport  # noqa: E402
 import loop_release  # noqa: E402
 import pretool_block  # noqa: E402
 import spec as spec_mod  # noqa: E402
@@ -508,7 +509,8 @@ def _transport(system: str, user: str, schema: dict[str, Any], schema_name: str)
 
 def _capture_call(name: str, source: str, fn: Callable[[], Any]) -> list[JudgePrompt]:
     captured: list[JudgePrompt] = []
-    original = codex_judge.ask_structured
+    original_codex = codex_judge.ask_structured
+    original_transport = judge_transport.ask_structured
 
     def fake(system: str, user: str, schema: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
         schema_name = str(kwargs.get("schema_name") or "result")
@@ -526,10 +528,12 @@ def _capture_call(name: str, source: str, fn: Callable[[], Any]) -> list[JudgePr
         return _fake_response(schema_name, schema, user)
 
     codex_judge.ask_structured = fake  # type: ignore[assignment]
+    judge_transport.ask_structured = fake  # type: ignore[assignment]
     try:
         fn()
     finally:
-        codex_judge.ask_structured = original  # type: ignore[assignment]
+        codex_judge.ask_structured = original_codex  # type: ignore[assignment]
+        judge_transport.ask_structured = original_transport  # type: ignore[assignment]
     return captured
 
 

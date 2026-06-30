@@ -7,20 +7,14 @@
 //
 // Public surface is preserved so nav-loop.mjs / scorer.mjs / search-fast.mjs
 // change minimally: daemonAsk, daemonAskBatch, warmDaemonPool, daemonEnabled,
-// daemonPoolSize, scorerModel.
+// scorerModel.
 
 import { rtinferAsk, rtinferEnabled, rtinferToolRound, scorerModel as _scorerModel } from "./rtinfer-client.mjs";
 
 export { scorerModel } from "./rtinfer-client.mjs";
 
-const POOL_SIZE = Math.max(1, parseInt(process.env.UNITRACE_SEARCH_DAEMON_POOL || "4", 10));
-
 export function daemonEnabled() {
   return process.env.UNITRACE_SEARCH_DAEMON !== "0" && rtinferEnabled();
-}
-
-export function daemonPoolSize() {
-  return POOL_SIZE;
 }
 
 // Warm-up is a no-op: rtinferd owns the warm pool. Kept for call-site compat.

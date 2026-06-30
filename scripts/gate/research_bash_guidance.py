@@ -193,8 +193,8 @@ def explore_trace_compact_item() -> str:
 def bash_allowed_summary() -> str:
     """Compact allowlist for PreToolUse block messages and breaker copy."""
     parts = [
-        "cd, ls, glob, rg, grep, echo (sink pipes only), ast-grep/sg, cat/nl (file reads only), "
-        "head, tail, wc, sort, uniq, jq, "
+        "cd, ls, glob, rg, grep, find (read-only), echo (sink pipes only), ast-grep/sg, "
+        "cat/nl/sed -n (file reads only), head, tail, wc, sort, uniq, jq, pytest -q, "
         "read-only git, git add/commit/push (no --force), read-only python/python3 -c",
     ]
     explore = explore_trace_compact_item()
@@ -210,9 +210,11 @@ def allowed_research_bash_detail() -> str:
     explore = explore_trace_list_item()
     explore_clause = explore if explore else ""
     return (
-        "cd, ls, glob, rg, grep/egrep/fgrep, echo (read-only pipeline sinks only), "
+        "cd, ls, glob, rg, grep/egrep/fgrep, find (read-only predicates/actions only), "
+        "echo (read-only pipeline sinks only), "
         "ast-grep/sg (scan/run/test; no --update/--rewrite), "
-        "read-only file inspection (cat/nl file reads only, head, tail, wc, sort, uniq, jq), "
+        "read-only file inspection (cat/nl file reads only, sed -n print ranges, head, tail, wc, sort, uniq, jq), "
+        "targeted pytest verification (`python -m pytest -q` / paths), "
         "read-only python/python3 -c inspection (no writes, process spawn, or network), "
         "read-only git (status, log, diff, show, rev-parse, describe, branch, remote, "
         "tag -l, stash list, blame, shortlog, reflog show, merge-base, name-rev, "

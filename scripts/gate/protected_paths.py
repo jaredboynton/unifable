@@ -41,7 +41,10 @@ def _is_protected(target: str | Path, cwd: str | Path) -> bool:
     state) stays protected as before.
     """
     try:
-        resolved = Path(target).expanduser().resolve()
+        raw = Path(target).expanduser()
+        if not raw.is_absolute():
+            raw = Path(cwd) / raw
+        resolved = raw.resolve()
     except (ValueError, OSError):
         return False
     for root in (_unifable_dir(cwd), data_root() / "specs"):
@@ -130,10 +133,33 @@ def _write_targets(tool_name: str, tool_input) -> list[str]:
 
 _BASH_EXTRA_MUTATE_RE = re.compile(
     r"(?i)(?:>>?|"  # output redirect
+    r"\bdd\b|"
+    r"\binstall\b|"
     r"\btee\b|"  # tee writes its file args
-    r"\bsed\b[^|;&]*\s-[A-Za-z]*i|"  # sed -i / -Ei in-place
-    r"\bperl\b[^|;&]*\s-[A-Za-z]*i)"  # perl -i in-place
+    r"\bsed\b[^|;&]*(?:\s-[A-Za-z]*i|\s--in-place(?:=|\s|$))|"  # sed -i / --in-place
+    r"\bperl\b[^|;&]*(?:\s-[A-Za-z]*i|\s--in-place(?:=|\s|$)))"  # perl -i / --in-place
 )
+
+_ATTACHED_REDIRECT_TARGET_RE = re.compile(r"^&?\d*(?:>>?|<<?)(?!&)(.+)$")
+
+
+def _bash_path_candidate(token: str) -> str | None:
+    """Normalize shell tokens that combine a redirect operator and path."""
+    text = str(token or "").strip()
+    if not text:
+        return None
+    match = _ATTACHED_REDIRECT_TARGET_RE.match(text)
+    if match:
+        text = match.group(1).strip()
+    if text.startswith("of="):
+        text = text[3:].strip()
+    elif text.startswith("--target-directory="):
+        text = text.split("=", 1)[1].strip()
+    elif text.startswith("--target="):
+        text = text.split("=", 1)[1].strip()
+    if text in {">", ">>", "<", "<<", "2>", "2>>", "2>&1", ">&2"}:
+        return None
+    return text or None
 
 
 def _bash_protected_write(command: str, cwd: str | Path) -> str | None:
@@ -171,6 +197,7 @@ def _bash_protected_write(command: str, cwd: str | Path) -> str | None:
         # apply_patch heredocs embed their target paths in the command body.
         candidates = list(tokens) + _apply_patch_targets({"command": command})
         for token in candidates:
+            token = _bash_path_candidate(token)
             if not token:
                 continue
             if _is_protected(token, cwd):

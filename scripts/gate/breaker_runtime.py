@@ -31,7 +31,7 @@ try:
         record_adjudicated_claim,
         render_events,
     )
-    from tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS
+    from tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS, is_groundedness_blocked_tool
     from tool_restrictions import RELEASE_TOOLS as _RELEASE_TOOLS
     from transcript_locate import locate_transcript as _locate_transcript
     from transcript_tail import (
@@ -55,7 +55,7 @@ except ImportError:  # pragma: no cover
         record_adjudicated_claim,
         render_events,
     )
-    from scripts.gate.tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS
+    from scripts.gate.tool_restrictions import GROUNDEDNESS_BLOCKED_TOOLS, is_groundedness_blocked_tool
     from scripts.gate.tool_restrictions import RELEASE_TOOLS as _RELEASE_TOOLS
     from scripts.gate.transcript_locate import locate_transcript as _locate_transcript
     from scripts.gate.transcript_tail import (
@@ -158,7 +158,7 @@ def max_blocks() -> int:
 
 
 def is_mutation_tool(tool_name: str) -> bool:
-    return tool_name in MUTATION_TOOLS
+    return is_groundedness_blocked_tool(str(tool_name or ""))
 
 
 def is_release_tool(tool_name: str, input_data: dict | None = None) -> bool:

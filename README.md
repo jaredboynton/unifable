@@ -52,10 +52,10 @@ unifable runs **two models at once**, and that is the core of the design:
 us-east-1 / us-east-2 / us-west-2, converse-stream + reasoning off. Not integrated. See
 `probes/bench_bedrock_ttft.py` for TTFT numbers.
 
-The two are **symbiotic**, not sequential. The judge fires on **every tool call** and keeps
-evidence state updated in the background, then renders verdicts at the gates:
+The two are **symbiotic**, not sequential. The judge fires at hook-delivered gates and keeps
+evidence state updated from host-delivered tool results, then renders verdicts at the gates:
 
-- **Background, every tool call** — PostToolUse matches `.*` (`hooks/hooks.json`,
+- **Background, host-delivered tool results** — PostToolUse matches `.*` (`hooks/hooks.json`,
   `hooks/gate_post_tool.py`): each tool result is parsed for real activity (files read, URLs
   fetched, commands run, verification outcomes) and written to a per-session ledger. Citations the
   spec needs sync automatically from this activity (`scripts/gate/citations.py`) — the worker does
@@ -82,8 +82,8 @@ over `scripts/gate/codex_judge.py`.
 flowchart TB
   P([user prompt]) --> UPS
   UPS["UserPromptSubmit<br/>grade the task: quick / normal / deep"] --> PTU
-  PTU["PreToolUse — every tool<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
-  POST["PostToolUse — every tool<br/>sync ledger + citations in the background<br/>advisory hint; suggest approaches on a deep task"] --> STOP
+  PTU["PreToolUse — gated tools<br/>arm / disarm the groundedness breaker<br/>block mutations on an unproven claim"] --> POST
+  POST["PostToolUse — host-delivered tool results<br/>sync ledger + citations in the background<br/>advisory hint; suggest approaches on a deep task"] --> STOP
   STOP["Stop — completion gate<br/>validate EVERY requirement (judge_task / judge_tasks)<br/>reconcile captured evidence (judge_reconcile_spec)<br/>completion handoff judge (completion_handoff_decision)"]
   UPS -.-> CJ
   PTU -.-> CJ
@@ -98,15 +98,15 @@ What happens at each stage:
    fix, a normal task, or a deep task (`judge_grade_classify`, `scripts/gate/grade_override.py`) —
    which sets how strict the evidence gate is for the turn. Fail-open to a normal task on any judge or
    transport error.
-2. **Before each tool call — PreToolUse.** The per-tool judge is the stepwise *director*: on every
-   tool call (debounced to one judge call per 3s) it emits a minimal next-step directive and a tool
-   scope, both persisted to breaker state. The directive is surfaced to the model (when it changes)
+2. **Before each gated tool call — PreToolUse.** The per-tool judge is the stepwise *director*: on
+   shell, delegation, write, and MCP tool calls (debounced to one judge call per 3s) it emits a
+   minimal next-step directive and a tool scope, both persisted to breaker state. The directive is surfaced to the model (when it changes)
    and the scope is enforced deterministically by `scripts/gate/tool_scope.py` while the spec is
    unvalidated. The same judge still arms the groundedness breaker on an unproven, load-bearing,
-   confident claim and blocks the edit or delegation until it is grounded; reads, web, and whitelisted
+   confident claim and blocks mutation tools until it is grounded; reads, web, and whitelisted
    research Bash stay free (`scripts/gate/groundedness.py`).
-3. **After every tool — PostToolUse.** Real activity (files read, URLs fetched, commands run,
-   failures) is parsed into the per-session ledger and the spec's citations sync automatically; a
+3. **After each host-delivered tool result — PostToolUse.** Real activity (files read, URLs fetched,
+   commands run, failures) is parsed into the per-session ledger and the spec's citations sync automatically; a
    repeated failure spends one judge call for an advisory `judge_hint`, and a deep task that has not
    yet laid out enough candidate approaches triggers `judge_discover_frontiers`.
 4. **On Stop — completion gate.** `auto_validate_spec` (`scripts/gate/spec.py`) runs each open
@@ -147,8 +147,8 @@ a deterministic hook on the host's critical path, not a skill the worker may cho
 | Hook | Script | Role |
 |---|---|---|
 | UserPromptSubmit | `gate_prompt.py` (+ `pack_router.py`, `gate_prompt_effort.py`) | Single entrypoint per prompt: route task signal to a pack, classify task mode (quick / normal / deep), and inject the effort-gated playbook — merged into one `additionalContext` |
-| PreToolUse | `pre_tool_use.py` (+ `bash_classify.py`, `groundedness.py`) | **Evidence gate** + **groundedness breaker** + protected-path guard: block edits, delegation, and non-whitelisted research Bash until the spec validates, and block mutations on an unproven confident claim |
-| PostToolUse | `gate_post_tool.py` | Observe evidence on **every** tool call (read paths, fetched URLs, ran commands, real failures) into the ledger; surface an advisory judge hint on a repeating failure |
+| PreToolUse | `pre_tool_use.py` (+ `bash_classify.py`, `groundedness.py`) | **Evidence gate** + **groundedness breaker** + protected-path guard: block edits, delegation, MCP mutations, and non-whitelisted research Bash until the spec validates, and block mutations on an unproven confident claim |
+| PostToolUse | `gate_post_tool.py` | Observe evidence on host-delivered tool results (read paths, fetched URLs, ran commands, real failures) into the ledger; surface an advisory judge hint on a repeating failure |
 | PostToolUse (edits) | `test_after_edit.py` | Debounced test runner after a file change (`UNIFABLE_TEST_AFTER_EDIT=1`) |
 | Stop | `gate_stop.py` (120s) | Completion gate: require the evidence spec; judge active goals; completion handoff judge for deferred work; advisory judge hint when stuck behind the completion breaker; **passthrough** (`{}`) when all criteria pass |
 

@@ -36,3 +36,19 @@ test("mergeProseWithPassages attaches code_passages and manifest", () => {
   assert.equal(merged.code_passages.length, 1);
   assert.deepEqual(merged.grounding_manifest.files_read, ["scripts/unitrace.sh"]);
 });
+
+test("pickCodePassages prefers source files over docs for implementation questions", () => {
+  const filesRead = new Set(["README.md", "scripts/unitrace.sh"]);
+  const readCache = new Map([
+    ["README.md", "1|# Overview\n2|Trace docs\n"],
+    ["scripts/unitrace.sh", "1|#!/usr/bin/env bash\n2|exec trace-rt.sh\n"],
+  ]);
+  const passages = pickCodePassages({
+    workspace: WORKSPACE,
+    filesRead,
+    readCache,
+    question: "How does unitrace.sh hand off to trace-rt.sh?",
+    maxPassages: 2,
+  });
+  assert.equal(passages[0].file_path, "scripts/unitrace.sh");
+});

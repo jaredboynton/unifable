@@ -14,18 +14,138 @@
 // failed, so the caller can fall back to the full-model explore loop.
 
 import { retrieveCandidates } from "../search-fast.mjs";
+import { codeSymbolIdents } from "../search-seed.mjs";
 import { buildReadIndex, orderReadCacheEntries } from "./rt-rehydrate-submit.mjs";
 import { toolReadRange, confine } from "./htools.mjs";
 import { normalizeReadPath } from "./trace-schema.mjs";
 import { daemonAskBatch } from "./daemon-client.mjs";
+import { namedPathsFromQuestion, seedExploreReads } from "./rt-map-seed.mjs";
 
 const STRIP_PREAMBLE = process.env.UNITRACE_RT_STRIP_COMMENTS !== "0";
+const DOC_PATH_RE = /(^|\/)(README|AGENTS|CLAUDE|CHANGELOG)(\.[^/]+)?$|\.mdx?$|\.txt$|\.rst$|\.adoc$|\.json$|\.jsonl$|\.ndjson$|\.ya?ml$|\.toml$|\.ini$|\.cfg$|\.conf$|\.env(\.[^/]+)?$|\.properties$|\.csv$|\.tsv$|\.xml$|\.html?$/i;
+const SOURCE_PATH_RE = /\.(sh|mjs|cjs|js|ts|tsx|jsx|py|rb|rs|go|java|kt|swift|php|c|cc|cpp|h|hpp)$/i;
 
 function envInt(name, fallback) {
   const v = process.env[name];
   if (v == null || v === "") return fallback;
   const n = Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : fallback;
+}
+
+function numberExcerpt(startLine, content) {
+  const base = Number.isFinite(startLine) ? Math.max(1, Math.trunc(startLine)) : 1;
+  return String(content || "")
+    .split("\n")
+    .map((line, idx) => `${base + idx}|${line}`)
+    .join("\n");
+}
+
+function readCandidateWindow(workspace, candidate) {
+  const start = Math.max(1, (candidate.startLine || 1) - 2);
+  const end = Math.max(start, candidate.endLine || candidate.startLine || start) + 12;
+  const read = toolReadRange(workspace, candidate.path, {
+    start_line: start,
+    end_line: end,
+    stripPreamble: STRIP_PREAMBLE,
+  });
+  if (read.ok && read.content) return read.content;
+  return numberExcerpt(candidate.startLine || 1, candidate.content || "");
+}
+
+function excerptCovers(readCache, rel, startLine, endLine) {
+  const excerpt = readCache?.get(rel);
+  if (!excerpt) return false;
+  const targetStart = Number.isFinite(startLine) ? Math.trunc(startLine) : null;
+  const targetEnd = Number.isFinite(endLine) ? Math.trunc(endLine) : targetStart;
+  if (!targetStart || !targetEnd) return false;
+  for (const segment of String(excerpt).split("\n---\n")) {
+    const lines = segment.split("\n").filter(Boolean);
+    let min = Infinity;
+    let max = 0;
+    for (const line of lines) {
+      const m = line.match(/^(\d+)\|/);
+      if (!m) continue;
+      const n = Number(m[1]);
+      min = Math.min(min, n);
+      max = Math.max(max, n);
+    }
+    if (Number.isFinite(min) && max >= min && targetStart >= min && targetEnd <= max) return true;
+  }
+  return false;
+}
+
+function isDocPath(p) {
+  return DOC_PATH_RE.test(String(p || ""));
+}
+
+function isSourcePath(p) {
+  return SOURCE_PATH_RE.test(String(p || ""));
+}
+
+function prefersSource(question) {
+  const named = namedPathsFromQuestion(question);
+  if (named.some((p) => isDocPath(p) && !isSourcePath(p))) return false;
+  if (named.some((p) => isSourcePath(p))) return true;
+  if (codeSymbolIdents(question).length) return true;
+  return /\b(how|trace|flow|phase|pipeline|call|entry(?:point)?|render|submit|explore|function|script|module|implementation|implement|orchestr|worker|handler)\b/i.test(String(question || ""));
+}
+
+function allowArchive(question) {
+  return /\b(archive|cursor|acp|gemini|grok|legacy|retired)\b/i.test(String(question || ""));
+}
+
+function allowWire(question) {
+  return /\bwire\b/i.test(String(question || ""));
+}
+
+function allowTests(question) {
+  return /\b(test|tests|fixture|benchmark|bench)\b/i.test(String(question || ""));
+}
+
+function dirnameOf(rel) {
+  const s = String(rel || "").replace(/\/+$/, "");
+  const idx = s.lastIndexOf("/");
+  return idx >= 0 ? s.slice(0, idx) : "";
+}
+
+export function focusRootsFor(question, seedPaths = []) {
+  const named = namedPathsFromQuestion(question);
+  const roots = new Set();
+  for (const rel of [...seedPaths, ...named]) {
+    const s = String(rel || "");
+    if (!s.includes("/")) continue;
+    if (s.includes("/scripts/")) {
+      const prefix = s.slice(0, s.indexOf("/scripts/") + "/scripts".length);
+      roots.add(prefix);
+      const dir = dirnameOf(s);
+      if (dir && dir !== prefix) roots.add(dir);
+      continue;
+    }
+    if (s.includes("/src/")) {
+      const prefix = s.slice(0, s.indexOf("/src/") + "/src".length);
+      roots.add(prefix);
+      const dir = dirnameOf(s);
+      if (dir && dir !== prefix) roots.add(dir);
+      continue;
+    }
+    roots.add(dirnameOf(s));
+  }
+  return [...roots].filter(Boolean);
+}
+
+function candidatePassesFocus(rel, focusRoots, archiveOk, wireOk, testsOk) {
+  if (!archiveOk && /(^|\/)archive\//.test(rel)) return false;
+  if (!wireOk && /(^|\/)(explore-hydrate\.sh|rehydrate-explore-wire\.mjs)$/.test(rel)) return false;
+  if (!testsOk && /(^|\/)(tests?|fixtures?)\/|(^|\/)test-[^/]+/.test(rel)) return false;
+  if (!focusRoots.length) return true;
+  return focusRoots.some((root) => rel === root || rel.startsWith(`${root}/`));
+}
+
+function focusCandidates(candidates, focusRoots, archiveOk, wireOk, testsOk) {
+  const ranked = (candidates || []).filter((c) => c && typeof c.path === "string");
+  const focused = ranked.filter((c) => candidatePassesFocus(c.path, focusRoots, archiveOk, wireOk, testsOk));
+  if (focused.length) return focused;
+  return ranked.filter((c) => candidatePassesFocus(c.path, [], archiveOk, wireOk, testsOk));
 }
 
 // Distinct framings so K navigators diversify WHAT they probe instead of all
@@ -75,6 +195,8 @@ const NAV_INSTRUCTIONS = [
   "You are one of several parallel codebase navigators operating in read-only mode.",
   "You are given a QUESTION, a FACET to focus on, and a READ INDEX of code already retrieved.",
   "Your job: decide what ELSE must be read to answer the QUESTION from your facet, then return it via the navigate tool.",
+  "For implementation or control-flow questions, prefer real source files over AGENTS/README/docs unless the question is explicitly about docs, policy, or config.",
+  "Unless the question explicitly asks about wire/plaintext mode or UNITRACE_WIRE_FORMAT, avoid optional wire-format branches and focus on the default structured path.",
   "Return grep_terms (symbols/identifiers to locate more code) and/or read_paths (specific files + line ranges to read).",
   "Only propose paths you actually see in the READ INDEX or that are clearly named in the question; never invent paths.",
   "Prefer definitions and load-bearing implementation over call sites and tests unless your facet is about them.",
@@ -132,30 +254,35 @@ export function dedupNavProposals(results) {
 
 // Hydrate a query's worth of grep terms into the readCache via the proven
 // search-fast retriever (one combined rg -> classify -> score -> AST hydrate).
-async function hydrateFromTerms(workspace, terms, onRead, { maxSpans }) {
+async function hydrateFromTerms(workspace, terms, onRead, { maxSpans, preferSourceOnly = false, focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, readCache = null }) {
   const query = terms.join(" ").trim();
   if (!query) return 0;
   let result;
   try {
-    result = await retrieveCandidates(workspace, query, { maxSpans });
+    result = await retrieveCandidates(workspace, query, {
+      maxSpans,
+      ...(preferSourceOnly ? { maxDocFiles: 0 } : {}),
+    });
   } catch {
     return 0;
   }
   let added = 0;
-  for (const c of result.candidates || []) {
+  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk)) {
     const rel = normalizeReadPath(workspace, c.path);
     if (!rel) continue;
-    onRead(rel, c.content || "");
+    if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
+    onRead(rel, readCandidateWindow(workspace, c));
     added += 1;
   }
   return added;
 }
 
 // Read explicit path[+range] requests directly via htools (read-only, confined).
-export function hydrateFromPaths(workspace, readPaths, onRead) {
+export function hydrateFromPaths(workspace, readPaths, onRead, { focusRoots = [], archiveOk = false, wireOk = false, testsOk = false } = {}) {
   let added = 0;
   for (const entry of readPaths || []) {
     if (!entry || typeof entry.path !== "string") continue;
+    if (!candidatePassesFocus(entry.path, focusRoots, archiveOk, wireOk, testsOk)) continue;
     const abs = confine(workspace, entry.path);
     if (!abs) continue;
     const args = { stripPreamble: STRIP_PREAMBLE };
@@ -175,19 +302,23 @@ export function hydrateFromPaths(workspace, readPaths, onRead) {
 
 // Seed the readCache with the host retriever (search-fast) so navigators start
 // from real, ranked, hydrated code instead of a blank slate.
-async function hostSeed(workspace, question, onRead, { maxSpans }) {
+async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnly = false, focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, readCache = null }) {
   const seeded = [];
   let result;
   try {
-    result = await retrieveCandidates(workspace, question, { maxSpans });
+    result = await retrieveCandidates(workspace, question, {
+      maxSpans,
+      ...(preferSourceOnly ? { maxDocFiles: 0 } : {}),
+    });
   } catch {
     return seeded;
   }
-  for (const c of result.candidates || []) {
+  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk)) {
     const rel = normalizeReadPath(workspace, c.path);
     if (!rel) continue;
+    if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
     // Pin seed windows so later, less-relevant reads cannot truncate them.
-    onRead(rel, c.content || "", { pin: true });
+    onRead(rel, readCandidateWindow(workspace, c), { pin: true });
     if (!seeded.includes(rel)) seeded.push(rel);
   }
   return seeded;
@@ -214,7 +345,29 @@ export async function runExploreNav({
   debug = false,
 } = {}) {
   const t0 = Date.now();
-  const seedPaths = await hostSeed(workspace, question, onRead, { maxSpans: seedSpans });
+  const preferSourceOnly = prefersSource(question);
+  const archiveOk = allowArchive(question);
+  const wireOk = allowWire(question);
+  const testsOk = allowTests(question);
+  const explicitSeeds = seedExploreReads({
+    workspace,
+    question,
+    mapBlock,
+    filesRead,
+    readCache,
+    onRead,
+  });
+  const focusRoots = focusRootsFor(question, explicitSeeds);
+  const hostSeeds = await hostSeed(workspace, question, onRead, {
+    maxSpans: seedSpans,
+    preferSourceOnly,
+    focusRoots,
+    archiveOk,
+    wireOk,
+    testsOk,
+    readCache,
+  });
+  const seedPaths = [...new Set([...explicitSeeds, ...hostSeeds])];
   if (debug) process.stderr.write(`[nav] seed_ms=${Date.now() - t0} seeded=${seedPaths.length}\n`);
 
   let toolTurnCount = 0;
@@ -244,8 +397,16 @@ export async function runExploreNav({
     maxBatch = Math.max(maxBatch, validCount);
 
     const before = filesRead.size;
-    const fromPaths = hydrateFromPaths(workspace, dedupPaths, onRead);
-    const fromTerms = await hydrateFromTerms(workspace, dedupTerms, onRead, { maxSpans: roundSpans });
+    const fromPaths = hydrateFromPaths(workspace, dedupPaths, onRead, { focusRoots, archiveOk, wireOk, testsOk });
+    const fromTerms = await hydrateFromTerms(workspace, dedupTerms, onRead, {
+      maxSpans: roundSpans,
+      preferSourceOnly,
+      focusRoots,
+      archiveOk,
+      wireOk,
+      testsOk,
+      readCache,
+    });
     toolTurnCount += dedupTerms.length ? 1 : 0;
     toolTurnCount += fromPaths;
     if (debug) {

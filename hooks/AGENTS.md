@@ -18,8 +18,8 @@ These rules apply to Claude/Codex hook entrypoints and hook wiring.
 
 | Mechanism | Type | Skippable? |
 |---|---|---|
-| Evidence gate (`pre_tool_use.py` + `scripts/gate/spec.py`) | PreToolUse | No — blocks edits/delegation/non-whitelisted research Bash until the spec validates |
-| Groundedness breaker (`scripts/gate/groundedness.py`, wired in `pre_tool_use.py`) | PreToolUse | No — blocks mutation tools on an unproven confident claim |
+| Evidence gate (`pre_tool_use.py` + `scripts/gate/spec.py`) | PreToolUse | No — blocks edits/delegation/MCP mutations/non-whitelisted research Bash until the spec validates |
+| Groundedness breaker (`scripts/gate/groundedness.py`, wired in `pre_tool_use.py`) | PreToolUse | No — blocks mutation tools, including MCP mutations, on an unproven confident claim |
 | Completion gate (`gate_stop.py`) | Stop | No — blocks finishing without the evidence spec |
 
 Optional grounding commands and verifier subagents are intentionally NOT shipped;
@@ -47,10 +47,13 @@ use these three for load-bearing behavior.
   guidance at runtime. Ships only when the plugin is enabled; the install
   scripts strip stale blocks. Fail-open throughout: a janitor bug never blocks a
   session or changes the `hookSpecificOutput` payload.
-- `pre_tool_use.py` — PreToolUse entrypoint: evidence gate + protected paths + the
-  groundedness breaker, which doubles as the stepwise director (per-tool directive +
-  tool scope, enforced via `scripts/gate/tool_scope.py`). Fail-open on malformed
-  input by design.
+- `pre_tool_use.py` — PreToolUse entrypoint for shell, delegation, write, and
+  `mcp__*` tools: evidence gate + protected paths + the groundedness breaker,
+  which doubles as the stepwise director (per-tool directive + tool scope,
+  enforced via `scripts/gate/tool_scope.py`). Fail-open on malformed input by design.
+  Codex `apply_patch` PreToolUse blocks are treated as best-effort pre-write
+  protection because Codex versions have shipped enforcement gaps there; the Stop
+  gate remains the load-bearing completion backstop.
 - `gate_post_tool.py` — PostToolUse: logs real activity (read_paths, fetched_urls,
   ran_commands) and verification results into the ledger; the breaker's release gate
   and citation checks read this log.

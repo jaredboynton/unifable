@@ -35,7 +35,7 @@
 #   UNITRACE_RT_PARALLEL_TOOL_CALLS enable parallel explore_exec calls in explore (default: 1)
 #   UNITRACE_RT_EXEC_TIMEOUT_MS   per explore_exec wall clock ms (default: 25000)
 #   UNITRACE_RT_SUBMIT_FRESH_CONTEXT  delete explore items before submit (default: 1; reconnect to force)
-#   UNITRACE_RT_SUBMIT_TRANSPORT  rt | cerebras | wire-rt (default: rt)
+#   UNITRACE_RT_SUBMIT_TRANSPORT  rt | wire-rt (default: rt)
 #   UNITRACE_RT_UNITRACE_REASONING_EFFORT  explore phase reasoning (default: none, omit + steer)
 #   UNITRACE_RT_SUBMIT_REASONING_EFFORT  submit phase reasoning (default: low)
 #   UNITRACE_RT_REASONING_EFFORT  optional override for both phases

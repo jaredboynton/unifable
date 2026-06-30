@@ -126,10 +126,12 @@ def _state():
     return default_breaker()
 
 
-def test_mutation_set_is_exactly_writes_edits_bash():
-    for t in ("Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "Bash", "REPL", "exec_command"):
+def test_mutation_set_is_writes_edits_bash_and_mcp_mutations():
+    for t in ("Write", "Edit", "MultiEdit", "NotebookEdit", "apply_patch", "Bash", "REPL", "exec_command", "Shell"):
         assert gb.is_mutation_tool(t), t
-    for t in ("WebSearch", "Read", "WebFetch", "Grep", "Glob", "Task", "TodoWrite"):
+    for t in ("mcp__memory__create_entities", "mcp__foo__deleteThing", "mcp__github__createIssue"):
+        assert gb.is_mutation_tool(t), t
+    for t in ("WebSearch", "Read", "WebFetch", "Grep", "Glob", "Task", "TodoWrite", "mcp__github__search_repositories", "mcp__filesystem__read_file"):
         assert not gb.is_mutation_tool(t), t
 
 

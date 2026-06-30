@@ -1,0 +1,101 @@
+{
+  "tasks": [
+    {
+      "id": "unifable-quick-handoff",
+      "repo": "~/__devlocal/unifable",
+      "depth": "quick",
+      "question": "How does unitrace.sh hand off to the realtime tracer?",
+      "expected_paths": [
+        "skills/unitrace/scripts/unitrace.sh",
+        "skills/unitrace/scripts/trace-rt.sh"
+      ]
+    },
+    {
+      "id": "unifable-medium-nav-submit",
+      "repo": "~/__devlocal/unifable",
+      "depth": "medium",
+      "question": "How does the nav explore path seed files and then build the submit packet for a final trace?",
+      "expected_paths": [
+        "skills/unitrace/scripts/lib/rt-map-seed.mjs",
+        "skills/unitrace/scripts/lib/rt-explore-nav.mjs",
+        "skills/unitrace/scripts/realtime-trace.mjs"
+      ]
+    },
+    {
+      "id": "unifable-deep-render-trace",
+      "repo": "~/__devlocal/unifable",
+      "depth": "deep",
+      "question": "How does trace-rt turn a question into a final rendered trace, including explore, pointer rehydrate, and markdown rendering?",
+      "expected_paths": [
+        "skills/unitrace/scripts/trace-rt.sh",
+        "skills/unitrace/scripts/realtime-trace.mjs",
+        "skills/unitrace/scripts/lib/rt-rehydrate-submit.mjs",
+        "skills/unitrace/scripts/lib/render-trace-structured.mjs"
+      ]
+    },
+    {
+      "id": "kepler-quick-scope-enforcement",
+      "repo": "~/__devlocal/kepler",
+      "depth": "quick",
+      "question": "How are gateway route scope requirements looked up and enforced for incoming requests?",
+      "expected_paths": [
+        "gateway/src/index.ts",
+        "gateway/src/generated/scope-matrix.ts"
+      ]
+    },
+    {
+      "id": "kepler-medium-rate-limiter",
+      "repo": "~/__devlocal/kepler",
+      "depth": "medium",
+      "question": "How does the gateway rate limiter work end to end, from route handling to limit headers or fallback behavior?",
+      "expected_paths": [
+        "gateway/src/index.ts",
+        "gateway/src/rate_limiter.ts",
+        "gateway/AGENTS.md"
+      ]
+    },
+    {
+      "id": "kepler-deep-service-token-flow",
+      "repo": "~/__devlocal/kepler",
+      "depth": "deep",
+      "question": "Trace the service-token and scope/identity flow from the public gateway entry through token validation and backend forwarding.",
+      "expected_paths": [
+        "gateway/src/index.ts",
+        "gateway/src/generated/scope-matrix.ts",
+        "functions/api/[[path]].js"
+      ]
+    },
+    {
+      "id": "postman-quick-channel-env",
+      "repo": "~/__devlocal/postman-cli",
+      "depth": "quick",
+      "question": "How does POSTMAN_CHANNEL change the CLI runtime environment selection?",
+      "expected_paths": [
+        "lib/config/cli-environment.js",
+        "docs/SERVICE_ACCOUNT_LOGIN.md"
+      ]
+    },
+    {
+      "id": "postman-medium-installers",
+      "repo": "~/__devlocal/postman-cli",
+      "depth": "medium",
+      "question": "How are installer scripts generated from templates and then published after installer changes?",
+      "expected_paths": [
+        "installers/scripts/generate.js",
+        "docs/installers.md",
+        ".github/workflows/publish-installers.yml"
+      ]
+    },
+    {
+      "id": "postman-deep-release-flow",
+      "repo": "~/__devlocal/postman-cli",
+      "depth": "deep",
+      "question": "How does the release flow move from beta/canary/stage to production and npm publication across the repo docs and workflows?",
+      "expected_paths": [
+        "README.md",
+        "docs/release-workflow.md",
+        "docs/NPM_RELEASE_PROCESS.md"
+      ]
+    }
+  ]
+}

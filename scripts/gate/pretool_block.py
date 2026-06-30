@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import json
 import os
 import re
 import sys
@@ -26,9 +27,11 @@ from dataclasses import dataclass
 from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
+    from hook_output import detect_host
     from ledger import ledger_path, load_ledger, save_ledger
     from tool_restrictions import bash_research_summary, inspection_tools_csv
 except ImportError:  # pragma: no cover
+    from scripts.gate.hook_output import detect_host
     from scripts.gate.ledger import ledger_path, load_ledger, save_ledger
     from scripts.gate.tool_restrictions import bash_research_summary, inspection_tools_csv
 
@@ -364,6 +367,25 @@ def consume_gate_cleared_notify(
         return ""
 
 
+def _emit_claude_pretool_deny(reason: str) -> int:
+    """Claude Code's native PreToolUse block contract is stdout JSON + exit 0."""
+    text = str(reason or "").strip() or "Blocked by unifable pre-tool gate."
+    sys.stdout.write(
+        json.dumps(
+            {
+                "hookSpecificOutput": {
+                    "hookEventName": "PreToolUse",
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": text,
+                }
+            },
+            ensure_ascii=True,
+        )
+        + "\n"
+    )
+    return 0
+
+
 def emit_pretool_block(
     input_data: dict[str, Any],
     *,
@@ -371,9 +393,15 @@ def emit_pretool_block(
     detail: str,
     full_message: str,
 ) -> int:
-    """Block the tool (exit 2). Print full_message only on first emission per epoch+signature."""
+    """Block the tool.
+
+    Codex and unknown hosts keep the historic exit-2/stderr contract. Claude Code
+    gets its documented structured PreToolUse deny JSON so the decision is
+    explicit even when permission prompts are bypassed.
+    """
     message = str(full_message or "").strip()
     try:
+        out = ""
         sig = block_signature(kind, detail)
         with _pretool_lock(input_data):
             ledger = load_ledger(input_data)
@@ -396,20 +424,26 @@ def emit_pretool_block(
             save_ledger(input_data, ledger)
         if message and count == 1:
             out = compact_pretool_output(message, footer_sent=footer_sent)
-            if out:
-                print(f"{GATE_PREFIX}{out}", file=sys.stderr)
-                _mark_footer_flags(input_data, out)
         elif message and not str(input_data.get("turn_id") or "").strip():
             headline = pretool_headline_only(message)
             if headline:
-                print(
-                    f"{GATE_PREFIX}{headline} "
+                out = (
+                    f"{headline} "
                     "(repeat -- same block as the earlier instruction this session; "
-                    "see it for the next step.)",
-                    file=sys.stderr,
+                    "see it for the next step.)"
                 )
+        if detect_host(input_data) == "claude":
+            reason = out or pretool_headline_only(message) or "Blocked by unifable pre-tool gate."
+            if out:
+                _mark_footer_flags(input_data, out)
+            return _emit_claude_pretool_deny(reason)
+        if out:
+            print(f"{GATE_PREFIX}{out}", file=sys.stderr)
+            _mark_footer_flags(input_data, out)
         return 2
     except Exception:
+        if detect_host(input_data) == "claude":
+            return _emit_claude_pretool_deny(message)
         if message:
             print(f"{GATE_PREFIX}{message}", file=sys.stderr)
         return 2

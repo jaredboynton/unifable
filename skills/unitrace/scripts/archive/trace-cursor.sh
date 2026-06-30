@@ -31,10 +31,21 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=explore-hydrate.sh
-. "$SCRIPT_DIR/explore-hydrate.sh"
-# shellcheck source=hermetic-home.sh
-. "$SCRIPT_DIR/hermetic-home.sh"
+SHARED_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+shared_file() {
+  local rel="$1"
+  if [ -e "$SCRIPT_DIR/$rel" ]; then
+    printf '%s/%s\n' "$SCRIPT_DIR" "$rel"
+  else
+    printf '%s/%s\n' "$SHARED_DIR" "$rel"
+  fi
+}
+
+# shellcheck source=../explore-hydrate.sh
+. "$(shared_file explore-hydrate.sh)"
+# shellcheck source=../hermetic-home.sh
+. "$(shared_file hermetic-home.sh)"
 explore_apply_hermetic_default
 
 if [ "${UNITRACE_INSIDE_TRACE_DAEMON:-}" = "1" ]; then
@@ -69,7 +80,7 @@ done
 
 if [ -n "${CURSOR_CONVERSATION_ID:-}" ]; then
   printf 'explore: trace-cursor.sh routed to search.sh (cursor-agent session)\n' >&2
-  exec "$SCRIPT_DIR/search.sh" --root "$(pwd)" "$@"
+  exec "$(shared_file search.sh)" --root "$(pwd)" "$@"
 fi
 
 abs_path() {
@@ -307,7 +318,7 @@ EOF
 MAP_BLOCK=""
 if [ "${UNITRACE_MAP_MODE:-tandem}" != "none" ] && command -v node >/dev/null 2>&1; then
   MAP_OUT="$(mktemp "${TMPDIR:-/tmp}/explore-trace-map.XXXXXX")"
-  if node "$SCRIPT_DIR/map.mjs" --root "$WORKSPACE" --mode "${UNITRACE_MAP_MODE:-tandem}" "$QUESTION" > "$MAP_OUT" 2>/dev/null && [ -s "$MAP_OUT" ]; then
+  if node "$(shared_file map.mjs)" --root "$WORKSPACE" --mode "${UNITRACE_MAP_MODE:-tandem}" "$QUESTION" > "$MAP_OUT" 2>/dev/null && [ -s "$MAP_OUT" ]; then
     MAP_BLOCK="$(cat "$MAP_OUT")"
   fi
   rm -f "$MAP_OUT"
@@ -326,7 +337,7 @@ QUESTION: ${QUESTION}"
 if [ "${UNITRACE_WIRE_FORMAT:-0}" = "1" ] && command -v node >/dev/null 2>&1; then
   PROMPT="${PROMPT}
 
-$(node "$SCRIPT_DIR/lib/explore-output-prompt.mjs" --trace)"
+$(node "$(shared_file lib/explore-output-prompt.mjs)" --trace)"
 fi
 
 printf '%s' "$PROMPT" > "$PROMPT_FILE"
@@ -389,7 +400,7 @@ if [ "$cursor_status" -ne 0 ]; then
 fi
 
 if [ "$cursor_status" -eq 0 ] && [ "$parse_status" -eq 0 ] && [ -s "$TMP_OUT" ]; then
-  if explore_hydrate_trace_output "$WORKSPACE" "$TMP_OUT" "$TMP_OUT.hydrated" "$SCRIPT_DIR" ""; then
+  if explore_hydrate_trace_output "$WORKSPACE" "$TMP_OUT" "$TMP_OUT.hydrated" "$SHARED_DIR" ""; then
     mv -f "$TMP_OUT.hydrated" "$TMP_OUT"
   else
     rm -f "$TMP_OUT.hydrated"
