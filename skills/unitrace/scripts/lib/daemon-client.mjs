@@ -41,6 +41,7 @@ async function rtinferTry(req, model) {
     schemaName: req.schemaName,
     model,
     reasoningEffort: req.reasoningEffort,
+    steer: req.steer,
   });
   if (!obj) return null;
   return req.withUsage ? { object: obj, usage: {} } : obj;

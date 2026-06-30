@@ -449,6 +449,7 @@ export async function askStructured(conn, {
   onSend,
   onRecv,
   reasoningEffort,
+  steer,
 }) {
   const tool = {
     type: "function",
@@ -478,7 +479,7 @@ export async function askStructured(conn, {
     item: {
       type: "message",
       role: "user",
-      content: [{ type: "input_text", text: withReasoningSteer(user, reasoningEffort) }],
+      content: [{ type: "input_text", text: withReasoningSteer(user, steer ?? reasoningEffort) }],
     },
   };
   conn.send(userItem);

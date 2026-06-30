@@ -122,7 +122,7 @@ function steerMessages(messages, reasoningEffort) {
 // One structured realtime ask via the shared daemon. Returns the parsed object
 // on success, or null to signal fail-open fallback. Applies reasoning steer to
 // match the per-session code path byte-for-byte.
-export async function rtinferAsk({ system, user, schema, schemaName, schema_name, model, reasoningEffort }) {
+export async function rtinferAsk({ system, user, schema, schemaName, schema_name, model, reasoningEffort, steer }) {
   if (!rtinferEnabled()) return null;
   const base = await discover();
   if (!base) return null;
@@ -130,7 +130,7 @@ export async function rtinferAsk({ system, user, schema, schemaName, schema_name
     contract: RTINFER_CONTRACT,
     tier: "realtime_structured",
     system,
-    user: withReasoningSteer(user, reasoningEffort),
+    user: withReasoningSteer(user, steer ?? reasoningEffort),
     schema,
     schema_name: schema_name || schemaName || "result",
   };

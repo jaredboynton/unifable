@@ -162,10 +162,21 @@ const UNITRACE_RT_UNITRACE_REASONING_EFFORT =
   process.env.UNITRACE_RT_UNITRACE_REASONING_EFFORT
   || process.env.UNITRACE_RT_REASONING_EFFORT
   || DEFAULT_UNITRACE_REASONING_EFFORT;
+// Trace submit omits the reasoning field by default (still steered): on the hard
+// A/B set this closed coverage gaps that low-effort left thin (rate-limiter
+// fail-open fallback, JWKS sourcing) at neutral latency. Override via env.
 const UNITRACE_RT_SUBMIT_REASONING_EFFORT =
   process.env.UNITRACE_RT_SUBMIT_REASONING_EFFORT
   || process.env.UNITRACE_RT_REASONING_EFFORT
-  || DEFAULT_SUBMIT_REASONING_EFFORT;
+  || "omit";
+// Steer ("Respond quickly, do not reason.") is auto-derived from the submit
+// effort (low => steered). Override here: unset = effort-based (current default),
+// 0 = no steer (let the synth model reason for a fuller narrative), 1 = force on.
+function submitSteer() {
+  const v = process.env.UNITRACE_RT_SUBMIT_STEER;
+  if (v == null || v === "") return undefined;
+  return !(v === "0" || v.toLowerCase() === "false" || v === "no");
+}
 const UNITRACE_RT_UNITRACE_TOOL_REQUIRED = envBool("UNITRACE_RT_UNITRACE_TOOL_REQUIRED", true);
 const UNITRACE_RT_MAP_COMPACT_SUBMIT = envBool("UNITRACE_RT_MAP_COMPACT_SUBMIT", true);
 
@@ -800,6 +811,7 @@ async function runSubmitPhase(conn, {
         onSend,
         onRecv,
         reasoningEffort: UNITRACE_RT_SUBMIT_REASONING_EFFORT,
+        steer: submitSteer(),
       });
     } catch (e) {
       if (attempt < (reask ? 1 : 0)) {
@@ -876,6 +888,7 @@ async function runDaemonPointerSubmit({
         schema,
         schemaName: SUBMIT_POINTER_SCHEMA_NAME,
         reasoningEffort: UNITRACE_RT_SUBMIT_REASONING_EFFORT,
+        steer: submitSteer(),
       },
       { model: UNITRACE_RT_SYNTH_MODEL },
     );

@@ -36,6 +36,134 @@ function clampSpan(workspace, rel, start, end) {
   return { start_line: s, end_line: e };
 }
 
+function excerptLines(excerpt) {
+  const out = [];
+  for (const line of String(excerpt || "").split("\n")) {
+    const m = line.match(/^(\d+)\|(.*)$/);
+    if (!m) continue;
+    out.push({ n: Number(m[1]), text: m[2] || "" });
+  }
+  return out;
+}
+
+function textTerms(...texts) {
+  const out = new Set();
+  for (const text of texts) {
+    for (const m of String(text || "").toLowerCase().matchAll(/[a-z][a-z0-9_-]{3,}/g)) {
+      for (const part of m[0].split(/[-_]/)) {
+        if (part.length < 4) continue;
+        out.add(part);
+        out.add(part.replace(/(?:ing|ed|es|s)$/, ""));
+      }
+    }
+  }
+  return [...out].filter((t) => t.length >= 3);
+}
+
+function pathTerms(rel) {
+  return textTerms(String(rel || "").split("/").pop()?.replace(/\.[^.]+$/, "") || "");
+}
+
+function lineMatchScore(textValue, terms) {
+  const text = String(textValue || "").toLowerCase();
+  let score = 0;
+  for (const term of terms) if (term && text.includes(term)) score += 2;
+  if (/\b(function|class|def|const|let|var|interface|type|enum|struct|fn)\b/.test(text)) score += 1;
+  return score;
+}
+
+function termsForPathQuestion(rel, question, role) {
+  return [...new Set([...textTerms(question, role), ...pathTerms(rel)])];
+}
+
+function spanScoreFromExcerpt({ rel, excerpt, startLine, endLine, question, role }) {
+  const terms = termsForPathQuestion(rel, question, role);
+  let score = 0;
+  for (const line of excerptLines(excerpt)) {
+    if (line.n < startLine || line.n > endLine) continue;
+    score = Math.max(score, lineMatchScore(line.text, terms));
+  }
+  return score;
+}
+
+function bestSpanFromExcerpt({ workspace, rel, excerpt, question, role }) {
+  const lines = excerptLines(excerpt);
+  if (!lines.length) return spanFromExcerpt(excerpt);
+  const terms = termsForPathQuestion(rel, question, role);
+  let best = null;
+  for (const line of lines) {
+    const score = lineMatchScore(line.text, terms);
+    if (!best || score > best.score) best = { ...line, score };
+  }
+  const center = best?.n || lines[0].n;
+  return { ...clampSpan(workspace, rel, Math.max(1, center - 8), center + 24), score: best?.score || 0 };
+}
+
+function pointerKeyFileSpecs(pointer, workspace, filesRead, readCache) {
+  const out = [];
+  const seen = new Set();
+  for (const entry of pointer?.key_files || []) {
+    if (!entry || typeof entry !== "object") continue;
+    const rel = safeRelPath(workspace, entry.path);
+    if (!rel || seen.has(rel) || !filesRead.has(rel) || !readCache.has(rel)) continue;
+    seen.add(rel);
+    out.push({ rel, role: String(entry.role || "") });
+  }
+  return out;
+}
+
+function ensureKeyFileCoverage({ passages, pointer, workspace, filesRead, readCache, question, seen }) {
+  const out = [...passages];
+  const specs = pointerKeyFileSpecs(pointer, workspace, filesRead, readCache);
+  if (!specs.length) return out;
+  const desired = new Set(specs.map((s) => s.rel));
+  const have = new Set(out.map((p) => p.file_path));
+  for (const spec of specs) {
+    const excerpt = readCache.get(spec.rel);
+    const span = bestSpanFromExcerpt({
+      workspace,
+      rel: spec.rel,
+      excerpt,
+      question,
+      role: spec.role,
+    });
+    if (!span) continue;
+    const next = {
+      file_path: spec.rel,
+      start_line: span.start_line,
+      end_line: span.end_line,
+      rationale: spec.role || `${spec.rel.split("/").pop()} key file coverage`,
+    };
+    const key = `${next.file_path}:${next.start_line}-${next.end_line}`;
+    if (seen.has(key)) continue;
+    const existingIdx = out.findIndex((p) => p.file_path === spec.rel);
+    if (existingIdx >= 0) {
+      const current = out[existingIdx];
+      const currentScore = spanScoreFromExcerpt({
+        rel: spec.rel,
+        excerpt,
+        startLine: current.start_line,
+        endLine: current.end_line,
+        question,
+        role: spec.role,
+      });
+      if ((span.score || 0) > currentScore + 3) {
+        seen.add(key);
+        out.splice(existingIdx, 1, next);
+      }
+      continue;
+    }
+    while (out.length >= 5) {
+      const replaceIdx = out.findIndex((p) => !desired.has(p.file_path));
+      out.splice(replaceIdx >= 0 ? replaceIdx : out.length - 1, 1);
+    }
+    seen.add(key);
+    out.push(next);
+    have.add(spec.rel);
+  }
+  return out;
+}
+
 export function orderReadCacheEntries(readCache, seedPaths = []) {
   // Rank by seed insertion order (grep-hit definition seeds come first), not
   // alphabetically — otherwise an alphabetically-early but less-relevant seed can
@@ -172,10 +300,26 @@ export function rehydratePointerSubmit({
       seedPaths,
       question,
     });
-    return mergeProseWithPassages(pointer, fallback, filesRead, toolTurns);
+    return mergeProseWithPassages(pointer, ensureKeyFileCoverage({
+      passages: fallback,
+      pointer,
+      workspace,
+      filesRead,
+      readCache,
+      question,
+      seen,
+    }), filesRead, toolTurns);
   }
 
   const out = { ...pointer };
   delete out.citation_spans;
-  return mergeProseWithPassages(out, passages, filesRead, toolTurns);
+  return mergeProseWithPassages(out, ensureKeyFileCoverage({
+    passages,
+    pointer,
+    workspace,
+    filesRead,
+    readCache,
+    question,
+    seen,
+  }), filesRead, toolTurns);
 }

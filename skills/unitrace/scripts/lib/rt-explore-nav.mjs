@@ -13,6 +13,8 @@
 // Fail-open: returns null when the daemon path is unavailable or every navigator
 // failed, so the caller can fall back to the full-model explore loop.
 
+import { existsSync } from "node:fs";
+import { posix as pathPosix } from "node:path";
 import { retrieveCandidates } from "../search-fast.mjs";
 import { codeSymbolIdents } from "../search-seed.mjs";
 import { buildReadIndex, orderReadCacheEntries } from "./rt-rehydrate-submit.mjs";
@@ -24,6 +26,7 @@ import { namedPathsFromQuestion, seedExploreReads } from "./rt-map-seed.mjs";
 const STRIP_PREAMBLE = process.env.UNITRACE_RT_STRIP_COMMENTS !== "0";
 const DOC_PATH_RE = /(^|\/)(README|AGENTS|CLAUDE|CHANGELOG)(\.[^/]+)?$|\.mdx?$|\.txt$|\.rst$|\.adoc$|\.json$|\.jsonl$|\.ndjson$|\.ya?ml$|\.toml$|\.ini$|\.cfg$|\.conf$|\.env(\.[^/]+)?$|\.properties$|\.csv$|\.tsv$|\.xml$|\.html?$/i;
 const SOURCE_PATH_RE = /\.(sh|mjs|cjs|js|ts|tsx|jsx|py|rb|rs|go|java|kt|swift|php|c|cc|cpp|h|hpp)$/i;
+const DEP_EXTS = ["", ".ts", ".tsx", ".mjs", ".js", ".cjs", ".py", ".sh", "/index.ts", "/index.js", "/index.mjs"];
 
 function envInt(name, fallback) {
   const v = process.env[name];
@@ -203,6 +206,15 @@ function prefersSource(question) {
     return false;
   }
   return /\b(how|trace|flow|phase|pipeline|call|entry(?:point)?|render|submit|explore|function|script|module|implementation|implement|orchestr|worker|handler)\b/i.test(String(question || ""));
+}
+
+// Prose questions about documented behavior (limit headers, fallback semantics,
+// end-to-end behavior) are often answered in an AGENTS.md/README the source code
+// only partially shows. These should NOT run source-only retrieval (maxDocFiles:0),
+// or the load-bearing doc is suppressed even when the retriever ranks it highly.
+// Narrow on purpose: only behavior/header/fallback framings, not every doc word.
+export function admitsDocs(question) {
+  return /\b(fallback|headers?|behaviou?rs?|end[- ]to[- ]end|convention|policy|documented)\b/i.test(String(question || ""));
 }
 
 function allowArchive(question) {
@@ -415,9 +427,103 @@ export function hydrateFromPaths(workspace, readPaths, onRead, { focusRoots = []
   return added;
 }
 
+// Terms from the question used to rank which imports are worth following: the
+// load-bearing dependency usually shares a word with the question ("render",
+// "rehydrate", "scope"). Symbols are case-folded; prose words are split on
+// separators so "markdown rendering" matches a render-*.mjs path.
+function followTerms(question) {
+  const terms = new Set();
+  for (const m of String(question || "").toLowerCase().matchAll(/[a-z][a-z0-9]{3,}/g)) {
+    const w = m[0];
+    terms.add(w);
+    terms.add(w.replace(/(?:ing|ed|es|s)$/, ""));
+  }
+  for (const ident of codeSymbolIdents(question)) {
+    for (const part of ident.toLowerCase().split(/[_-]/)) if (part.length >= 4) terms.add(part);
+  }
+  return [...terms].filter((t) => t.length >= 4);
+}
+
+function localRefCandidates(base) {
+  if (/\.[A-Za-z0-9]+$/.test(base)) return [base];
+  return DEP_EXTS.map((ext) => `${base}${ext}`);
+}
+
+// Resolve a raw import/require/source specifier seen inside `currentRel` to a
+// real repo-relative source path, or null. Local refs only (relative, $SCRIPT_DIR,
+// or repo-rooted source paths); bare package names and escapes are rejected.
+function resolveLocalRef(workspace, currentRel, rawSpec) {
+  let spec = String(rawSpec || "").trim();
+  if (!spec || spec.startsWith("#")) return null;
+  if (spec.startsWith("$SCRIPT_DIR/")) spec = `./${spec.slice("$SCRIPT_DIR/".length)}`;
+  let base = null;
+  if (spec.startsWith(".")) {
+    base = pathPosix.normalize(pathPosix.join(dirnameOf(currentRel), spec));
+  } else if (spec.includes("/") && SOURCE_PATH_RE.test(spec)) {
+    base = pathPosix.normalize(spec.replace(/^\.\//, ""));
+  }
+  if (!base || base.startsWith("../") || base.includes("/../")) return null;
+  for (const candidate of localRefCandidates(base)) {
+    const abs = confine(workspace, candidate);
+    if (!abs || !existsSync(abs)) continue;
+    return normalizeReadPath(workspace, candidate);
+  }
+  return null;
+}
+
+function followScore(rel, terms) {
+  const p = String(rel || "").toLowerCase();
+  let score = isSourcePath(p) ? 2 : 0;
+  for (const term of terms) if (p.includes(term)) score += 3;
+  return score;
+}
+
+// One-hop call-graph follow: from a small set of high-confidence source anchors
+// (named/required seeds + host-retriever top), parse local imports/requires/source
+// lines and surface the import-reachable load-bearing files the lexical retriever
+// misses (e.g. realtime-trace.mjs -> render-trace-structured.mjs + rt-rehydrate-submit.mjs).
+// Disciplined on purpose: anchors only (not every read file), one hop, focus-gated,
+// ranked by question-term overlap, tightly capped. Returns the relative paths added.
+export function importFollowSeeds({ workspace, question, anchors, focusRoots, archiveOk, wireOk, testsOk, onRead, readCache, maxReads = envInt("UNITRACE_RT_IMPORT_FOLLOW_MAX", 5) }) {
+  if (process.env.UNITRACE_RT_IMPORT_FOLLOW === "0") return [];
+  const sourceAnchors = (anchors || []).filter((rel) => isSourcePath(rel));
+  if (!sourceAnchors.length) return [];
+  const followRoots = focusRoots.length ? focusRoots : focusRootsFor(question, sourceAnchors);
+  const terms = followTerms(question);
+  const importRe = /\bfrom\s+["']([^"']+)["']/g;
+  const requireRe = /\brequire\(\s*["']([^"']+)["']\s*\)/g;
+  const sourceRe = /(?:^|\n)\s*(?:source|\.)\s+["']?(\$SCRIPT_DIR\/[^"'\s]+|\.\/[^"'\s]+)/g;
+  const refs = new Map();
+  let order = 0;
+  for (const anchorRel of sourceAnchors) {
+    const header = toolReadRange(workspace, anchorRel, { start_line: 1, end_line: 160, stripPreamble: false });
+    if (!header.ok || !header.content) continue;
+    const text = header.content;
+    for (const re of [importRe, requireRe, sourceRe]) {
+      for (const m of text.matchAll(re)) {
+        const rel = resolveLocalRef(workspace, anchorRel, m[1]);
+        if (!rel || rel === anchorRel || refs.has(rel)) continue;
+        if (sourceAnchors.includes(rel) || (readCache && readCache.has(rel))) continue;
+        if (!candidatePassesFocus(rel, followRoots, archiveOk, wireOk, testsOk)) continue;
+        refs.set(rel, { rel, score: followScore(rel, terms), order: order++ });
+      }
+    }
+  }
+  const ranked = [...refs.values()].sort((a, b) => (b.score - a.score) || (a.order - b.order));
+  const added = [];
+  for (const { rel } of ranked) {
+    if (added.length >= maxReads) break;
+    const read = toolReadRange(workspace, rel, { start_line: 1, end_line: 200, stripPreamble: STRIP_PREAMBLE });
+    if (!read.ok || !read.content) continue;
+    onRead(rel, read.content, { pin: true });
+    added.push(rel);
+  }
+  return added;
+}
+
 // Seed the readCache with the host retriever (search-fast) so navigators start
 // from real, ranked, hydrated code instead of a blank slate.
-async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnly = false, focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, readCache = null }) {
+async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnly = false, focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, readCache = null, topDoc = false }) {
   const seeded = [];
   let result;
   try {
@@ -428,13 +534,30 @@ async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnl
   } catch {
     return seeded;
   }
-  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk, question)) {
+  const candidates = result.candidates || [];
+  for (const c of focusCandidates(candidates, focusRoots, archiveOk, wireOk, testsOk, question)) {
     const rel = normalizeReadPath(workspace, c.path);
     if (!rel) continue;
     if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
     // Pin seed windows so later, less-relevant reads cannot truncate them.
     onRead(rel, readCandidateWindow(workspace, c), { pin: true });
     if (!seeded.includes(rel)) seeded.push(rel);
+  }
+  // Behavior/header/fallback questions are often answered in a module-root
+  // AGENTS.md/README that the source-focus root (e.g. gateway/src) excludes even
+  // though the retriever ranks it highly. Seed the single top doc candidate,
+  // focus-bypassed but still archive/test/wire-gated, so it is not lost.
+  if (topDoc) {
+    for (const c of candidates) {
+      if (c.cls !== "doc") continue;
+      const rel = normalizeReadPath(workspace, c.path);
+      if (!rel || seeded.includes(rel)) continue;
+      if (!candidatePassesFocus(rel, [], archiveOk, wireOk, testsOk)) continue;
+      if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
+      onRead(rel, readCandidateWindow(workspace, c), { pin: true });
+      seeded.push(rel);
+      break;
+    }
   }
   return seeded;
 }
@@ -460,7 +583,7 @@ export async function runExploreNav({
   debug = false,
 } = {}) {
   const t0 = Date.now();
-  const preferSourceOnly = prefersSource(question);
+  const preferSourceOnly = prefersSource(question) && !admitsDocs(question);
   const archiveOk = allowArchive(question);
   const wireOk = allowWire(question);
   const testsOk = allowTests(question);
@@ -481,6 +604,7 @@ export async function runExploreNav({
     wireOk,
     testsOk,
     readCache,
+    topDoc: admitsDocs(question),
   });
   const seedPaths = [...new Set([...explicitSeeds, ...hostSeeds])];
   usageFollowupReads({
@@ -496,7 +620,21 @@ export async function runExploreNav({
     maxSymbols: 6,
     maxReads: 6,
   });
-  if (debug) process.stderr.write(`[nav] seed_ms=${Date.now() - t0} seeded=${seedPaths.length}\n`);
+  // One-hop call-graph follow from the high-confidence anchors so import-reachable
+  // load-bearing files (which the lexical retriever often misses) are seeded.
+  const followed = importFollowSeeds({
+    workspace,
+    question,
+    anchors: seedPaths,
+    focusRoots,
+    archiveOk,
+    wireOk,
+    testsOk,
+    onRead,
+    readCache,
+  });
+  for (const rel of followed) if (!seedPaths.includes(rel)) seedPaths.push(rel);
+  if (debug) process.stderr.write(`[nav] seed_ms=${Date.now() - t0} seeded=${seedPaths.length} followed=${followed.length}\n`);
 
   let toolTurnCount = 0;
   let navTurns = 0;

@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 import test from "node:test";
 import {
   NAV_SCHEMA,
+  admitsDocs,
   buildNavIndex,
   dedupNavProposals,
   extractUsageSymbols,
   focusRootsFor,
   hydrateFromPaths,
+  importFollowSeeds,
 } from "../lib/rt-explore-nav.mjs";
 
 const FIXTURE = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/search-mini-repo");
@@ -103,4 +105,62 @@ test("extractUsageSymbols derives function symbols from seeded excerpts", () => 
   ]);
   const out = extractUsageSymbols(readCache, ["a.js", "b.js"], { max: 4 });
   assert.deepEqual(out.map((s) => s.symbol), ["buildSubmitPacket", "seedExploreReads"]);
+});
+
+test("admitsDocs opens the doc lane only for behavior/header/fallback framings", () => {
+  assert.equal(admitsDocs("How does the rate limiter work, from route handling to limit headers or fallback behavior?"), true);
+  assert.equal(admitsDocs("Trace the end-to-end request forwarding"), true);
+  assert.equal(admitsDocs("How does unitrace.sh hand off to the realtime tracer?"), false);
+  assert.equal(admitsDocs("Where is buildSubmitPacket defined?"), false);
+});
+
+test("importFollowSeeds follows imports from a source anchor to load-bearing files", () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  const anchor = "skills/unitrace/scripts/realtime-trace.mjs";
+  const added = [];
+  const followed = importFollowSeeds({
+    workspace: repoRoot,
+    question: "How does trace-rt rehydrate pointers and render the final markdown trace?",
+    anchors: [anchor],
+    focusRoots: focusRootsFor("How does trace-rt rehydrate pointers and render markdown?", [anchor]),
+    archiveOk: false,
+    wireOk: false,
+    testsOk: false,
+    onRead: (rel) => { if (!added.includes(rel)) added.push(rel); },
+    readCache: new Map(),
+  });
+  // realtime-trace.mjs imports both rt-rehydrate-submit.mjs and render-trace-structured.mjs.
+  assert.ok(followed.includes("skills/unitrace/scripts/lib/rt-rehydrate-submit.mjs"));
+  assert.ok(followed.includes("skills/unitrace/scripts/lib/render-trace-structured.mjs"));
+  // Reads are tracked and confined to the focus root.
+  assert.ok(added.every((rel) => rel.startsWith("skills/unitrace/scripts/")));
+});
+
+test("importFollowSeeds is a no-op for doc-only anchors and respects the disable flag", () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  const docOnly = importFollowSeeds({
+    workspace: repoRoot,
+    question: "release flow",
+    anchors: ["skills/unitrace/AGENTS.md"],
+    focusRoots: [],
+    archiveOk: false, wireOk: false, testsOk: false,
+    onRead: () => {},
+    readCache: new Map(),
+  });
+  assert.deepEqual(docOnly, []);
+  process.env.UNITRACE_RT_IMPORT_FOLLOW = "0";
+  try {
+    const disabled = importFollowSeeds({
+      workspace: repoRoot,
+      question: "render markdown",
+      anchors: ["skills/unitrace/scripts/realtime-trace.mjs"],
+      focusRoots: ["skills/unitrace/scripts"],
+      archiveOk: false, wireOk: false, testsOk: false,
+      onRead: () => {},
+      readCache: new Map(),
+    });
+    assert.deepEqual(disabled, []);
+  } finally {
+    delete process.env.UNITRACE_RT_IMPORT_FOLLOW;
+  }
 });

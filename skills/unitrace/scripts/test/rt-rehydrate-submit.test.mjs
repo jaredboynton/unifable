@@ -155,3 +155,35 @@ test("rehydratePointerSubmit widens tiny citations to the full excerpt window", 
   assert.equal(merged.code_passages[0].start_line, 10);
   assert.equal(merged.code_passages[0].end_line, 12);
 });
+
+test("rehydratePointerSubmit keeps model-named key files represented when read", () => {
+  const repoRoot = path.resolve(WORKSPACE, "../../..");
+  const filesRead = new Set(["alpha.js", "beta.js"]);
+  const readCache = new Map([
+    ["alpha.js", "10|export function alphaEntry() {}\n11|alphaEntry();\n"],
+    ["beta.js", "20|export function renderBetaMarkdown() {\n21|  return 'md';\n22|}\n"],
+  ]);
+  const merged = rehydratePointerSubmit({
+    pointer: {
+      opening_summary: "summary",
+      flow_steps: ["alpha", "beta"],
+      sections: [],
+      key_files: [
+        { path: "alpha.js", role: "entry point" },
+        { path: "beta.js", role: "renders markdown output" },
+      ],
+      citation_spans: [{ excerpt_index: 0, start_line: 10, end_line: 11, rationale: "entry" }],
+    },
+    orderedPaths: [
+      { path: "alpha.js", start_line: 10, end_line: 11 },
+      { path: "beta.js", start_line: 20, end_line: 22 },
+    ],
+    workspace: repoRoot,
+    filesRead,
+    readCache,
+    toolTurns: 1,
+    question: "How does alpha render markdown?",
+  });
+  assert.ok(merged.code_passages.some((p) => p.file_path === "alpha.js"));
+  assert.ok(merged.code_passages.some((p) => p.file_path === "beta.js"));
+});
