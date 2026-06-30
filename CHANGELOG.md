@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.21.7 - 2026-06-30
+
+- Let the judge borrow the shared cse-tools rtinfer daemon when present. New
+  stdlib-only `scripts/gate/rtinfer_client.py` discovers an always-on
+  `rtinfer/1` inference endpoint (`$CSE_RTINFER_URL` -> `http://127.0.0.1:8787`
+  -> `~/.cse-rtinfer/endpoint.json`, each gated on `GET /v1/infer/health`
+  returning `{contract:"rtinfer/1", ready:true}`) and runs one structured ask
+  over its `realtime_structured` tier. `judge_transport.ask_structured` now
+  tries this borrow path first, then the existing per-session UDS daemon, then a
+  direct `codex_judge.ask_structured` -- so one warm pool can serve both repos
+  with no second auth path. Opt-in and OFF by default behind
+  `UNIFABLE_JUDGE_RTINFER=1`: the per-session judge stays byte-identical and
+  every protected fallback test is deterministic regardless of whether a
+  cse-toold happens to be running on the host. Fails open exactly like the rest
+  of the gate (any unreachability/timeout/non-OK envelope returns `(None, None)`
+  to signal fallback). Verification: `tests/test_rtinfer_client.py` (discovery,
+  ready-gating, ok/non-ok envelope parsing) and the unchanged
+  `tests/test_judge_transport_fallback.py`.
+
 ## 1.21.6 - 2026-06-29
 
 - Centralize Realtime reasoning steer across all skill-path prompts. The

@@ -98,6 +98,20 @@ def ask_structured(
         )
 
     if _daemon_enabled() and not _judge_offline():
+        # Preferred: the shared always-on cse-tools rtinfer daemon, when present
+        # on this host. One warm pool serves both repos; no second auth path.
+        # Fails open (returns (None, None)) so we fall through to the per-session
+        # UDS daemon and then a direct call.
+        try:
+            from rtinfer_client import ask_structured as _rt_ask
+
+            obj, usage = _rt_ask(system, user, schema, schema_name=schema_name, model=model)
+            if isinstance(obj, dict):
+                _record(input_data, usage)
+                return obj
+        except Exception:
+            pass  # fall through to the per-session daemon
+
         try:
             from judge_client import DEFAULT_MODEL, daemon_ask
 
