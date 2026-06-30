@@ -19,8 +19,17 @@ function baseTraceProperties({ allowedPaths = [], maxPassages = 5, slim = false 
   }
 
   return {
-    opening_summary: { type: "string" },
-    flow_steps: { type: "array", items: { type: "string" } },
+    opening_summary: {
+      type: "string",
+      description: "Direct 3-5 sentence answer to the question: what the system does end to end and the specific mechanism that makes it work. Lead with the answer, not background.",
+    },
+    flow_steps: {
+      type: "array",
+      items: {
+        type: "string",
+        description: "One ordered pipeline step naming a concrete script/function/module and what it does, so the steps read as a real call path (not a generic stage label).",
+      },
+    },
     comparison_tables: {
       type: "array",
       items: {
@@ -41,8 +50,8 @@ function baseTraceProperties({ allowedPaths = [], maxPassages = 5, slim = false 
         additionalProperties: false,
         required: ["heading", "body"],
         properties: {
-          heading: { type: "string" },
-          body: { type: "string" },
+          heading: { type: "string", description: "The component or mechanism this section explains (a real script/module/function)." },
+          body: { type: "string", description: "How this component works and why it matters to the answer — mechanism, control/data flow, key decision — grounded in the cited lines." },
         },
       },
     },
@@ -54,7 +63,7 @@ function baseTraceProperties({ allowedPaths = [], maxPassages = 5, slim = false 
         required: ["path", "role"],
         properties: {
           path: { type: "string" },
-          role: { type: "string" },
+          role: { type: "string", description: "What this file specifically contributes to the answer (not a generic one-liner)." },
         },
       },
     },
@@ -170,7 +179,7 @@ export function tracePointerSchema({
         excerpt_index: indexSchema,
         start_line: { type: "integer", minimum: 1 },
         end_line: { type: "integer", minimum: 1 },
-        rationale: { type: "string" },
+        rationale: { type: "string", description: "What this span proves about the answer (the behavior it implements), not a restatement of the file name." },
       },
     },
   };

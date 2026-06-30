@@ -92,7 +92,10 @@ const SUBMIT_SYSTEM = [
   "You MUST call submit_trace exactly once with a complete JSON object matching the schema.",
   "",
   "Rules:",
-  "- Be concise: opening_summary <= 120 words; each section body <= 45 words.",
+  "- Write for an engineer who must understand and modify this code. Be complete first, concise second.",
+  "- opening_summary: 3-5 sentences answering the question directly — what happens end to end and the specific mechanism that makes it work. Lead with the answer, not background. (<= 160 words.)",
+  "- Each section body: explain how the component works AND why it matters to the answer — the mechanism, the control/data flow, the key decision — grounded in the cited lines. 2-4 sentences; no padding, but do not truncate the explanation to a single clause. (<= 90 words.)",
+  "- Trace the full path end to end: entry -> each transformation -> terminal effect. Do not stop at the first file.",
   "- At most 5 code_passages; each span <= 40 lines.",
   "- Ground every claim in the explore tool log and read excerpts provided; if a cross-file header/return/forwarding/fail-open claim lacks a span, say coverage is thin instead of asserting it.",
   "- For implementation / end-to-end questions, prefer source files over AGENTS/README/docs for evidence; use docs only when the question is about policy, usage, or config.",
@@ -107,7 +110,7 @@ const SUBMIT_SYSTEM = [
   "- Never use repo-map, grep-only, list_dir-only, or explore_exec-only paths in code_passages.",
   "- When the question contrasts tools, modes, or code paths, comparison_tables MUST be non-empty.",
   "- Include one section per major script/module (not every file read).",
-  "- flow_steps: 4-8 short pipeline strings.",
+  "- flow_steps: 4-8 ordered steps; each names the concrete script/function/module and what it does, so the steps read as a real call path, not generic stage labels.",
   "- Use empty string or empty arrays only for truly unused optional fields.",
 ].join("\n");
 

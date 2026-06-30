@@ -1,0 +1,507 @@
+{
+  "generatedAt": "2026-06-30T16:25:41.873Z",
+  "judgeSignature": "12a4eaed8bae8933",
+  "note": "Frozen cursor-agent trace outputs. trace-vs-cursor.mjs never invokes the cursor agent; it loads these samples, reuses each frozen judge score when judgeSignature matches the bench's current judge, and re-judges the stored markdown only if the judge changed. Regenerate with build-cursor-baseline.mjs when new cursor runs are captured.",
+  "perTask": 7,
+  "minComposite": 40,
+  "sources": [
+    "/tmp/trace-vs-cursor-*/raw.json"
+  ],
+  "tasks": {
+    "kepler-deep-service-token-flow": {
+      "depth": "deep",
+      "poolSize": 23,
+      "samples": [
+        {
+          "file": "kepler-deep-service-token-flow/01.md",
+          "wallMs": 38236,
+          "frozenJudge": 4,
+          "sourceComposite": 57,
+          "contentHash": "0e1d0b3505704316"
+        },
+        {
+          "file": "kepler-deep-service-token-flow/02.md",
+          "wallMs": 34686,
+          "frozenJudge": 6,
+          "sourceComposite": 60,
+          "contentHash": "a2423b9a5f31a83d"
+        },
+        {
+          "file": "kepler-deep-service-token-flow/03.md",
+          "wallMs": 53188,
+          "frozenJudge": 5,
+          "sourceComposite": 60,
+          "contentHash": "66e7a9589258036e"
+        },
+        {
+          "file": "kepler-deep-service-token-flow/04.md",
+          "wallMs": 30190,
+          "frozenJudge": 6,
+          "sourceComposite": 61,
+          "contentHash": "1f27930f07f28f9c"
+        },
+        {
+          "file": "kepler-deep-service-token-flow/05.md",
+          "wallMs": 48011,
+          "frozenJudge": 5,
+          "sourceComposite": 62,
+          "contentHash": "52d2a46ffefcc0e2"
+        },
+        {
+          "file": "kepler-deep-service-token-flow/06.md",
+          "wallMs": 38321,
+          "frozenJudge": 6,
+          "sourceComposite": 63,
+          "contentHash": "da5b0eb88155f34d"
+        },
+        {
+          "file": "kepler-deep-service-token-flow/07.md",
+          "wallMs": 44385,
+          "frozenJudge": 6,
+          "sourceComposite": 64,
+          "contentHash": "ffaab53968ff1dfc"
+        }
+      ]
+    },
+    "kepler-medium-rate-limiter": {
+      "depth": "medium",
+      "poolSize": 26,
+      "samples": [
+        {
+          "file": "kepler-medium-rate-limiter/01.md",
+          "wallMs": 31702,
+          "frozenJudge": 8,
+          "sourceComposite": 72,
+          "contentHash": "c370ea9430456561"
+        },
+        {
+          "file": "kepler-medium-rate-limiter/02.md",
+          "wallMs": 31434,
+          "frozenJudge": 8,
+          "sourceComposite": 73,
+          "contentHash": "8300143fe63b05ca"
+        },
+        {
+          "file": "kepler-medium-rate-limiter/03.md",
+          "wallMs": 26569,
+          "frozenJudge": 8,
+          "sourceComposite": 74,
+          "contentHash": "9e66f00fbd17f918"
+        },
+        {
+          "file": "kepler-medium-rate-limiter/04.md",
+          "wallMs": 36821,
+          "frozenJudge": 8,
+          "sourceComposite": 74,
+          "contentHash": "ce96bd006cc4098c"
+        },
+        {
+          "file": "kepler-medium-rate-limiter/05.md",
+          "wallMs": 39598,
+          "frozenJudge": 8,
+          "sourceComposite": 74,
+          "contentHash": "a19dddf220ee03d9"
+        },
+        {
+          "file": "kepler-medium-rate-limiter/06.md",
+          "wallMs": 39283,
+          "frozenJudge": 8,
+          "sourceComposite": 75,
+          "contentHash": "ac830bdd139228ae"
+        },
+        {
+          "file": "kepler-medium-rate-limiter/07.md",
+          "wallMs": 36879,
+          "frozenJudge": 9,
+          "sourceComposite": 77,
+          "contentHash": "b51e941baf849e81"
+        }
+      ]
+    },
+    "kepler-quick-scope-enforcement": {
+      "depth": "quick",
+      "poolSize": 19,
+      "samples": [
+        {
+          "file": "kepler-quick-scope-enforcement/01.md",
+          "wallMs": 69360,
+          "frozenJudge": 9,
+          "sourceComposite": 81,
+          "contentHash": "61662065cb6f225c"
+        },
+        {
+          "file": "kepler-quick-scope-enforcement/02.md",
+          "wallMs": 48426,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "01a02f83370b8650"
+        },
+        {
+          "file": "kepler-quick-scope-enforcement/03.md",
+          "wallMs": 37151,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "74ea1f5cb7dcf212"
+        },
+        {
+          "file": "kepler-quick-scope-enforcement/04.md",
+          "wallMs": 42234,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "249d330f5166875d"
+        },
+        {
+          "file": "kepler-quick-scope-enforcement/05.md",
+          "wallMs": 29230,
+          "frozenJudge": 9,
+          "sourceComposite": 83,
+          "contentHash": "3500dbed37d43645"
+        },
+        {
+          "file": "kepler-quick-scope-enforcement/06.md",
+          "wallMs": 44812,
+          "frozenJudge": 9,
+          "sourceComposite": 83,
+          "contentHash": "f1fae6a92d9e44b6"
+        },
+        {
+          "file": "kepler-quick-scope-enforcement/07.md",
+          "wallMs": 82591,
+          "frozenJudge": 9,
+          "sourceComposite": 83,
+          "contentHash": "a1bcebbd3fab84be"
+        }
+      ]
+    },
+    "postman-deep-release-flow": {
+      "depth": "deep",
+      "poolSize": 8,
+      "samples": [
+        {
+          "file": "postman-deep-release-flow/01.md",
+          "wallMs": 33368,
+          "frozenJudge": 7,
+          "sourceComposite": 61,
+          "contentHash": "2c118b58fc64b6d6"
+        },
+        {
+          "file": "postman-deep-release-flow/02.md",
+          "wallMs": 27529,
+          "frozenJudge": 7,
+          "sourceComposite": 67,
+          "contentHash": "d6813878a53afb07"
+        },
+        {
+          "file": "postman-deep-release-flow/03.md",
+          "wallMs": 57083,
+          "frozenJudge": 7,
+          "sourceComposite": 68,
+          "contentHash": "8422574743ff314c"
+        },
+        {
+          "file": "postman-deep-release-flow/04.md",
+          "wallMs": 27488,
+          "frozenJudge": 8,
+          "sourceComposite": 65,
+          "contentHash": "6bc398ce3efe5cbe"
+        },
+        {
+          "file": "postman-deep-release-flow/05.md",
+          "wallMs": 38115,
+          "frozenJudge": 8,
+          "sourceComposite": 69,
+          "contentHash": "7423999bc1680d92"
+        },
+        {
+          "file": "postman-deep-release-flow/06.md",
+          "wallMs": 34022,
+          "frozenJudge": 8,
+          "sourceComposite": 65,
+          "contentHash": "641f5138bb2f9c59"
+        },
+        {
+          "file": "postman-deep-release-flow/07.md",
+          "wallMs": 41534,
+          "frozenJudge": 8,
+          "sourceComposite": 71,
+          "contentHash": "360f4e1cca4efe3b"
+        }
+      ]
+    },
+    "postman-medium-installers": {
+      "depth": "medium",
+      "poolSize": 10,
+      "samples": [
+        {
+          "file": "postman-medium-installers/01.md",
+          "wallMs": 36014,
+          "frozenJudge": 8,
+          "sourceComposite": 77,
+          "contentHash": "a026c9c129c9eb50"
+        },
+        {
+          "file": "postman-medium-installers/02.md",
+          "wallMs": 27119,
+          "frozenJudge": 9,
+          "sourceComposite": 81,
+          "contentHash": "66f07aa1bfcb2590"
+        },
+        {
+          "file": "postman-medium-installers/03.md",
+          "wallMs": 30182,
+          "frozenJudge": 9,
+          "sourceComposite": 81,
+          "contentHash": "06c4430aea8bb917"
+        },
+        {
+          "file": "postman-medium-installers/04.md",
+          "wallMs": 27892,
+          "frozenJudge": 9,
+          "sourceComposite": 83,
+          "contentHash": "146c2e729c2f1949"
+        },
+        {
+          "file": "postman-medium-installers/05.md",
+          "wallMs": 30695,
+          "frozenJudge": 9,
+          "sourceComposite": 83,
+          "contentHash": "7d0bcbdf25560686"
+        },
+        {
+          "file": "postman-medium-installers/06.md",
+          "wallMs": 26687,
+          "frozenJudge": 9,
+          "sourceComposite": 83,
+          "contentHash": "39366cbb2e9a0ff2"
+        },
+        {
+          "file": "postman-medium-installers/07.md",
+          "wallMs": 34092,
+          "frozenJudge": 9,
+          "sourceComposite": 85,
+          "contentHash": "eeb916cf7d1c4b6c"
+        }
+      ]
+    },
+    "postman-quick-channel-env": {
+      "depth": "quick",
+      "poolSize": 9,
+      "samples": [
+        {
+          "file": "postman-quick-channel-env/01.md",
+          "wallMs": 59547,
+          "frozenJudge": 7,
+          "sourceComposite": 65,
+          "contentHash": "616666c1ddf17fde"
+        },
+        {
+          "file": "postman-quick-channel-env/02.md",
+          "wallMs": 44837,
+          "frozenJudge": 8,
+          "sourceComposite": 67,
+          "contentHash": "4a6619095fd96b9c"
+        },
+        {
+          "file": "postman-quick-channel-env/03.md",
+          "wallMs": 30252,
+          "frozenJudge": 8,
+          "sourceComposite": 69,
+          "contentHash": "1822aedee08ed1c4"
+        },
+        {
+          "file": "postman-quick-channel-env/04.md",
+          "wallMs": 42737,
+          "frozenJudge": 8,
+          "sourceComposite": 69,
+          "contentHash": "b10b3d9c09e9bd82"
+        },
+        {
+          "file": "postman-quick-channel-env/05.md",
+          "wallMs": 31423,
+          "frozenJudge": 8,
+          "sourceComposite": 72,
+          "contentHash": "f48ef9c34cfea59e"
+        },
+        {
+          "file": "postman-quick-channel-env/06.md",
+          "wallMs": 34243,
+          "frozenJudge": 8,
+          "sourceComposite": 72,
+          "contentHash": "03db51ed82845c75"
+        },
+        {
+          "file": "postman-quick-channel-env/07.md",
+          "wallMs": 40120,
+          "frozenJudge": 9,
+          "sourceComposite": 78,
+          "contentHash": "eece77b87524a1ff"
+        }
+      ]
+    },
+    "unifable-deep-render-trace": {
+      "depth": "deep",
+      "poolSize": 37,
+      "samples": [
+        {
+          "file": "unifable-deep-render-trace/01.md",
+          "wallMs": 38236,
+          "frozenJudge": 9,
+          "sourceComposite": 81,
+          "contentHash": "3a0b1f08b13cd702"
+        },
+        {
+          "file": "unifable-deep-render-trace/02.md",
+          "wallMs": 47703,
+          "frozenJudge": 8,
+          "sourceComposite": 81,
+          "contentHash": "cce16c4d8a5cdf20"
+        },
+        {
+          "file": "unifable-deep-render-trace/03.md",
+          "wallMs": 32281,
+          "frozenJudge": 8,
+          "sourceComposite": 81,
+          "contentHash": "699fc37414a6ac8d"
+        },
+        {
+          "file": "unifable-deep-render-trace/04.md",
+          "wallMs": 29572,
+          "frozenJudge": 8,
+          "sourceComposite": 81,
+          "contentHash": "407c2bf34768f3e9"
+        },
+        {
+          "file": "unifable-deep-render-trace/05.md",
+          "wallMs": 31428,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "8a23cff6a8f8ae4b"
+        },
+        {
+          "file": "unifable-deep-render-trace/06.md",
+          "wallMs": 41742,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "180099a7ba7c4f12"
+        },
+        {
+          "file": "unifable-deep-render-trace/07.md",
+          "wallMs": 26138,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "1b3c43e7439bed87"
+        }
+      ]
+    },
+    "unifable-medium-nav-submit": {
+      "depth": "medium",
+      "poolSize": 14,
+      "samples": [
+        {
+          "file": "unifable-medium-nav-submit/01.md",
+          "wallMs": 33226,
+          "frozenJudge": 7,
+          "sourceComposite": 71,
+          "contentHash": "da3a40ec26244762"
+        },
+        {
+          "file": "unifable-medium-nav-submit/02.md",
+          "wallMs": 29418,
+          "frozenJudge": 9,
+          "sourceComposite": 77,
+          "contentHash": "24e3bccea5ffc178"
+        },
+        {
+          "file": "unifable-medium-nav-submit/03.md",
+          "wallMs": 28364,
+          "frozenJudge": 9,
+          "sourceComposite": 77,
+          "contentHash": "98ad990d30456fb6"
+        },
+        {
+          "file": "unifable-medium-nav-submit/04.md",
+          "wallMs": 31170,
+          "frozenJudge": 8,
+          "sourceComposite": 77,
+          "contentHash": "3f419b90089aff9b"
+        },
+        {
+          "file": "unifable-medium-nav-submit/05.md",
+          "wallMs": 33222,
+          "frozenJudge": 8,
+          "sourceComposite": 77,
+          "contentHash": "2fd2a75eeea029d6"
+        },
+        {
+          "file": "unifable-medium-nav-submit/06.md",
+          "wallMs": 29737,
+          "frozenJudge": 9,
+          "sourceComposite": 81,
+          "contentHash": "7e7cc67d695798b1"
+        },
+        {
+          "file": "unifable-medium-nav-submit/07.md",
+          "wallMs": 40851,
+          "frozenJudge": 8,
+          "sourceComposite": 82,
+          "contentHash": "386ce43cc3fc7877"
+        }
+      ]
+    },
+    "unifable-quick-handoff": {
+      "depth": "quick",
+      "poolSize": 8,
+      "samples": [
+        {
+          "file": "unifable-quick-handoff/01.md",
+          "wallMs": 25850,
+          "frozenJudge": 9,
+          "sourceComposite": 79,
+          "contentHash": "d0ef628156739103"
+        },
+        {
+          "file": "unifable-quick-handoff/02.md",
+          "wallMs": 37303,
+          "frozenJudge": 9,
+          "sourceComposite": 82,
+          "contentHash": "81135e2ee440543a"
+        },
+        {
+          "file": "unifable-quick-handoff/03.md",
+          "wallMs": 22295,
+          "frozenJudge": 8,
+          "sourceComposite": 73,
+          "contentHash": "ed8b73e556b7f520"
+        },
+        {
+          "file": "unifable-quick-handoff/04.md",
+          "wallMs": 28297,
+          "frozenJudge": 9,
+          "sourceComposite": 84,
+          "contentHash": "47d419940c091a8a"
+        },
+        {
+          "file": "unifable-quick-handoff/05.md",
+          "wallMs": 50119,
+          "frozenJudge": 8,
+          "sourceComposite": 73,
+          "contentHash": "9751d2eb7c664329"
+        },
+        {
+          "file": "unifable-quick-handoff/06.md",
+          "wallMs": 37736,
+          "frozenJudge": 8,
+          "sourceComposite": 74,
+          "contentHash": "41292a1f4c756423"
+        },
+        {
+          "file": "unifable-quick-handoff/07.md",
+          "wallMs": 39590,
+          "frozenJudge": 8,
+          "sourceComposite": 75,
+          "contentHash": "ebae655801c0a062"
+        }
+      ]
+    }
+  }
+}

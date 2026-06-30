@@ -1,8 +1,16 @@
 #!/usr/bin/env node
-// trace-vs-cursor.mjs — live benchmark for unitrace.sh vs archive/trace-cursor.sh
+// trace-vs-cursor.mjs — benchmark unitrace.sh against a FROZEN cursor baseline
 // across quick/medium/deep trace tasks on medium/large local repos.
+//
+// The cursor agent is never invoked: cursor's outputs are captured once into
+// cursor-baseline/ (build-cursor-baseline.mjs) and loaded from there. Each frozen
+// sample carries its measured wall time and the judge score it earned; the bench
+// reuses that score while the judge is unchanged (judgeSignature match) and
+// re-judges the stored markdown only if the judge changes, so both arms always
+// face the same judge. Only unitrace runs live, repeated per --repeats.
 
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -13,7 +21,9 @@ import { daemonAsk, warmDaemonPool } from "../lib/daemon-client.mjs";
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SCRIPTS_DIR = path.resolve(HERE, "..");
 const UNITRACE_SH = path.join(SCRIPTS_DIR, "unitrace.sh");
-const CURSOR_SH = path.join(SCRIPTS_DIR, "archive", "trace-cursor.sh");
+// The cursor agent is never invoked. Its outputs are frozen under cursor-baseline/
+// (see build-cursor-baseline.mjs); the bench loads those instead of running cursor.
+const CURSOR_BASELINE_DIR = path.join(HERE, "cursor-baseline");
 const DEFAULT_TASKS = path.join(HERE, "trace-repo-matrix.json");
 const RESULTS_ROOT = path.join(HERE, "results");
 const JUDGE_NAMESPACE = "trace-vs-cursor-judge";
@@ -38,6 +48,25 @@ const JUDGE_SYSTEM = [
   "Penalize shallow summaries, doc-only answers to implementation questions, generic prose, or citations that do not support the answer.",
   "Return only the integer score and one short reason.",
 ].join("\n");
+
+// A stable fingerprint of the judge (model + system prompt + schema). Frozen
+// cursor judge scores are reused only while this matches; if the judge changes,
+// the bench re-judges the stored cursor text so both arms face the same judge.
+export function judgeSignature() {
+  const material = JSON.stringify({ model: JUDGE_MODEL, system: JUDGE_SYSTEM, schema: JUDGE_SCHEMA });
+  return createHash("sha256").update(material).digest("hex").slice(0, 16);
+}
+
+// Load the frozen cursor baseline (markdown samples + measured wall time + the
+// judge score each earned at run time). Returns null when no baseline exists.
+function loadCursorBaseline() {
+  const manifestPath = path.join(CURSOR_BASELINE_DIR, "manifest.json");
+  if (!existsSync(manifestPath)) return null;
+  let doc;
+  try { doc = JSON.parse(readFileSync(manifestPath, "utf8")); } catch { return null; }
+  const judgeMatches = doc.judgeSignature === judgeSignature();
+  return { doc, judgeMatches };
+}
 
 function expandHome(p) {
   return p && p.startsWith("~") ? path.join(os.homedir(), p.slice(1)) : p;
@@ -197,6 +226,54 @@ function compositeScore(metrics, judgeScore) {
   return Math.round(judgePart * 0.55 + metrics.qualityIndex * 0.30 + metrics.coverage.ratio * 100 * 0.15);
 }
 
+// Build cursor records for one task from the frozen baseline — no agent run.
+// Each stored sample becomes a record: quality metrics are recomputed from the
+// stored markdown (deterministic), the judge score is the frozen one when the
+// judge is unchanged and otherwise re-judged, and wall time is the measured
+// value captured when the cursor run was real. Returns [] when no baseline
+// covers this task.
+async function cursorRecordsFromBaseline(task, baseline) {
+  const entry = baseline?.doc?.tasks?.[task.id];
+  if (!entry || !Array.isArray(entry.samples) || !entry.samples.length) return [];
+  const records = [];
+  for (const [i, sample] of entry.samples.entries()) {
+    const mdPath = path.join(CURSOR_BASELINE_DIR, sample.file);
+    if (!existsSync(mdPath)) continue;
+    const outMd = readFileSync(mdPath, "utf8");
+    const metrics = qualityMetrics(outMd, null, task.expected_paths);
+    let judged;
+    if (baseline.judgeMatches && Number.isFinite(sample.frozenJudge)) {
+      judged = { score: sample.frozenJudge, reason: "frozen baseline judge (judge unchanged)" };
+    } else {
+      judged = await judgeTrace(task, outMd);
+    }
+    const composite = compositeScore(metrics, judged.score);
+    records.push({
+      arm: "cursor",
+      taskId: task.id,
+      repo: task.repo,
+      depth: task.depth,
+      question: task.question,
+      expectedPaths: task.expected_paths,
+      repeat: i,
+      code: 0,
+      wallMs: Number.isFinite(sample.wallMs) ? sample.wallMs : NaN,
+      runDir: mdPath,
+      judgeScore: judged.score,
+      judgeReason: judged.reason,
+      coverageRatio: metrics.coverage.ratio,
+      coverageHits: metrics.coverage.hits,
+      qualityIndex: metrics.qualityIndex,
+      uniqueCitations: metrics.citations.uniqueCitations,
+      uniquePaths: metrics.citations.uniquePaths,
+      completeness: metrics.sections.completeness,
+      composite,
+      fromBaseline: true,
+    });
+  }
+  return records;
+}
+
 function parseRunId(text) {
   const match = String(text || "").match(/UNITRACE_RUN_ID=([A-Za-z0-9._-]+)/);
   return match ? match[1] : null;
@@ -324,40 +401,48 @@ async function main() {
 
   warmDaemonPool(JUDGE_NAMESPACE, undefined, { model: JUDGE_MODEL }).catch(() => {});
 
+  const baseline = loadCursorBaseline();
+  const missingCursor = [];
+
   const records = [];
   for (const task of tasks) {
+    // unitrace arm: live, repeated per --repeats.
     for (let repeat = 0; repeat < args.repeats; repeat += 1) {
-      for (const arm of [
-        { name: "unitrace", script: UNITRACE_SH },
-        { name: "cursor", script: CURSOR_SH },
-      ]) {
-        process.stderr.write(`run ${arm.name} ${task.id} rep=${repeat}\n`);
-        const run = await runTrace(arm.script, task, { arm: arm.name, repeat, runsDir });
-        const metrics = qualityMetrics(run.outMd, run.structuredJsonPath, task.expected_paths);
-        const judged = await judgeTrace(task, run.outMd);
-        const composite = compositeScore(metrics, judged.score);
-        records.push({
-          arm: arm.name,
-          taskId: task.id,
-          repo: task.repo,
-          depth: task.depth,
-          question: task.question,
-          expectedPaths: task.expected_paths,
-          repeat,
-          code: run.code,
-          wallMs: run.wallMs,
-          runDir: run.runDir,
-          judgeScore: judged.score,
-          judgeReason: judged.reason,
-          coverageRatio: metrics.coverage.ratio,
-          coverageHits: metrics.coverage.hits,
-          qualityIndex: metrics.qualityIndex,
-          uniqueCitations: metrics.citations.uniqueCitations,
-          uniquePaths: metrics.citations.uniquePaths,
-          completeness: metrics.sections.completeness,
-          composite,
-        });
-      }
+      process.stderr.write(`run unitrace ${task.id} rep=${repeat}\n`);
+      const run = await runTrace(UNITRACE_SH, task, { arm: "unitrace", repeat, runsDir });
+      const metrics = qualityMetrics(run.outMd, run.structuredJsonPath, task.expected_paths);
+      const judged = await judgeTrace(task, run.outMd);
+      const composite = compositeScore(metrics, judged.score);
+      records.push({
+        arm: "unitrace",
+        taskId: task.id,
+        repo: task.repo,
+        depth: task.depth,
+        question: task.question,
+        expectedPaths: task.expected_paths,
+        repeat,
+        code: run.code,
+        wallMs: run.wallMs,
+        runDir: run.runDir,
+        judgeScore: judged.score,
+        judgeReason: judged.reason,
+        coverageRatio: metrics.coverage.ratio,
+        coverageHits: metrics.coverage.hits,
+        qualityIndex: metrics.qualityIndex,
+        uniqueCitations: metrics.citations.uniqueCitations,
+        uniquePaths: metrics.citations.uniquePaths,
+        completeness: metrics.sections.completeness,
+        composite,
+      });
+    }
+    // cursor arm: frozen baseline, never an agent run, not multiplied by repeats.
+    const cursorRecords = await cursorRecordsFromBaseline(task, baseline);
+    if (cursorRecords.length) {
+      process.stderr.write(`cursor ${task.id} from baseline (${cursorRecords.length} samples${baseline.judgeMatches ? ", frozen judge" : ", re-judged"})\n`);
+      records.push(...cursorRecords);
+    } else {
+      missingCursor.push(task.id);
+      process.stderr.write(`cursor ${task.id} SKIPPED (no baseline)\n`);
     }
   }
 
@@ -414,8 +499,19 @@ async function main() {
   if (args.repeats < 3) {
     verdict.notes.push(`low-sample run (repeats=${args.repeats}); use --repeats 3 for a gating verdict`);
   }
+  // Cursor provenance: cursor is never run live — it is the frozen baseline.
+  if (baseline) {
+    verdict.notes.push(
+      `cursor = frozen baseline (generated ${baseline.doc.generatedAt}); ${baseline.judgeMatches ? "judge unchanged, frozen scores reused" : "judge changed, stored cursor text re-judged"}`,
+    );
+  } else {
+    verdict.notes.push("no cursor baseline found (cursor-baseline/manifest.json missing); cursor arm empty — run build-cursor-baseline.mjs");
+  }
+  if (missingCursor.length) {
+    verdict.notes.push(`no cursor baseline for ${missingCursor.length} task(s): ${missingCursor.join(", ")} — unitrace-only on those`);
+  }
 
-  const raw = { meta: args, tasks, records, overall, depthSummary, perTask, verdict };
+  const raw = { meta: args, tasks, records, overall, depthSummary, perTask, verdict, cursorBaseline: baseline ? { generatedAt: baseline.doc.generatedAt, judgeMatches: baseline.judgeMatches, judgeSignature: baseline.doc.judgeSignature } : null };
   writeFileSync(path.join(args.outDir, "raw.json"), JSON.stringify(raw, null, 2));
 
   const md = [];
@@ -471,7 +567,10 @@ async function main() {
   if (!verdict.pass) process.exitCode = 1;
 }
 
-main().catch((err) => {
-  process.stderr.write(`trace-vs-cursor fatal: ${err?.stack || err}\n`);
-  process.exit(1);
-});
+const isMain = process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main().catch((err) => {
+    process.stderr.write(`trace-vs-cursor fatal: ${err?.stack || err}\n`);
+    process.exit(1);
+  });
+}
