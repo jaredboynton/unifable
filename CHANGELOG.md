@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.22.1 - 2026-06-30
+
+- Fix a completion-gate deadlock that trapped sessions doing trivial git workflow
+  (e.g. "create work branches off main so we can commit without affecting main
+  until validated"). Four compounding defects, all fixed:
+  - The research-phase shell allowlist allowed `git branch <name>` (create ref)
+    but blocked every standard command to move onto it (`git checkout`, `git
+    switch`), while pre-allowing the genuinely history-mutating `git commit`/push.
+    Non-destructive branch switching is now research-phase-safe: `git checkout
+    [-b|-B] <branch> [start-point]`, `git switch [-c|-C] <branch> [start-point]`,
+    and a bare `git checkout|switch <branch>` to an existing local branch are
+    allowed; pathspec checkout (`--`, `.`-prefixed, `dir/file.ext`), `--detach`,
+    `--force`, `--ours`/`--theirs`, `--merge`, `--patch`, and `--discard-changes`
+    stay blocked. (`scripts/gate/bash_classify.py`)
+  - The evidence spec demanded a fetched `prior_art` URL to run local git
+    plumbing. Pure git-workflow goals (branch creation, "off main", work/feature
+    branch) now waive `prior_art`; pure-workflow tasks (no substantive code edit,
+    no external research) waive BOTH `repo_context` and `prior_art` -- there is
+    no code passage to cite and no approach to research. HEAVY is never waived.
+    (`scripts/gate/spec_validation.py`)
+  - A completion-gate task check that requires an action the research-phase
+    allowlist blocks is a gate self-contradiction that can loop forever waiting
+    for an async loop-release judge that may never fire. A deterministic detector
+    (`scripts/gate/check_satisfiability.py`) now flags it at Stop with a
+    judge-independent notice and the allowed alternative (e.g. `git show-ref
+    --verify refs/heads/<name>`), so the agent escapes instead of looping.
+  - Opt-in stricter commit/push gate: `UNIFABLE_STRICT_COMMIT_GATE=1` (env,
+    default off) gates `git commit`/`git push` behind a validated spec, for
+    holdout measurement before any default flip.
+
+- Fix pre-existing `tests/test_rtinfer_client.py` flakiness on dev hosts with the
+  shared rtinferd running: the "fails open without daemon" test now forces
+  no-daemon conditions hermetically instead of depending on host daemon state.
+
+- Audit ledger sync: `scripts/audit_waits.py` and `docs/testing-optimization.md`
+  updated for the daemon-refactor file removals and the new satisfiability module.
+
+Verification:
+
+- `just test-all` (1463 passed, 9 subtests)
+- `python3 -m pytest tests/test_bash_classify.py tests/test_spec_gate.py tests/test_check_satisfiability.py tests/test_rtinfer_client.py -q`
+
 ## 1.21.8 - 2026-06-30
 
 - Fix intermittent pytest-xdist worker crashes on macOS under concurrent load.

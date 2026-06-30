@@ -28,7 +28,11 @@ def test_canonical_client_loadable():
 
 def test_ask_structured_fails_open_without_daemon(monkeypatch):
     # When no daemon is reachable, ask_structured returns (None, None).
-    # This is the documented fail-open contract.
+    # This is the documented fail-open contract. Force it hermetically: with the
+    # canonical client absent (_mod is None) the shim returns (None, None) without
+    # touching the network, so the test does not depend on whether a shared
+    # rtinferd happens to be running on the dev host.
+    monkeypatch.setattr(rt, "_mod", None)
     obj, usage = rt.ask_structured("S", "U", {"type": "object"})
     assert obj is None
     assert usage is None
