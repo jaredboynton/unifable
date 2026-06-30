@@ -339,7 +339,7 @@ export function phraseDefSeeds({
   workspace,
   question,
   onRead,
-  max = envInt("UNITRACE_RT_PHRASE_SEED_MAX", 3),
+  max = envInt("UNITRACE_RT_PHRASE_SEED_MAX", 4),
   before = envInt("UNITRACE_RT_GREP_SEED_BEFORE", 12),
   after = envInt("UNITRACE_RT_GREP_SEED_AFTER", 28),
 }) {
@@ -361,9 +361,18 @@ export function phraseDefSeeds({
   }
   if (!variants.size) return [];
 
-  // file -> { hits:Set<variant>, line:number }
-  const byFile = new Map();
+  // Each matched DEFINITION is its own seed anchor (`${rel}#${line}`), not one
+  // earliest-line window per file. A compound question ("seed files AND build the
+  // submit packet") names two targets that often live in the same file at distant
+  // lines; collapsing to the file minimum hydrated only the first and left the
+  // terminal target's body uncited. Track every match line and let ranking decide.
+  const FN_KIND_RE = /\b(?:function|class|def|interface|type|enum)\b/;
+  const byAnchor = new Map();
   for (const v of variants) {
+    const defRe = new RegExp(
+      `\\b(?:function|class|const|let|var|export|async|def|interface|type|enum)\\s+[A-Za-z0-9_]*${v}\\b`,
+      "i",
+    );
     let g;
     try {
       g = toolGrep(workspace, {
@@ -377,36 +386,77 @@ export function phraseDefSeeds({
       const rel = normalizeReadPath(workspace, file) || resolveCandidate(workspace, file);
       if (!rel || !isSeedableSource(rel)) continue;
       if (/(^|\/)(tests?|archive|bench|fixtures|node_modules)\//.test(rel)) continue;
-      const m0 = (fm.matches || [])[0];
-      if (!m0) continue;
-      const entry = byFile.get(rel) || { hits: new Set(), line: m0.lineNumber };
-      entry.hits.add(v);
-      if (m0.lineNumber < entry.line) entry.line = m0.lineNumber;
-      byFile.set(rel, entry);
+      for (const m of fm.matches || []) {
+        if (!m?.lineNumber) continue;
+        // toolGrep enriches matches with AST-context blocks whose lineNumber is the
+        // ENCLOSING node start, not a real definition (a `let seedPaths` inside a
+        // function would anchor on the function head). Keep only true match lines:
+        // skip `[ast ...]` blocks and re-validate the line against the def pattern.
+        const firstLine = String(m.content || "").split("\n")[0];
+        if (firstLine.startsWith("[ast")) continue;
+        if (!defRe.test(firstLine)) continue;
+        const key = `${rel}#${m.lineNumber}`;
+        const entry = byAnchor.get(key) || { rel, line: m.lineNumber, variants: new Set(), fn: false };
+        entry.variants.add(v);
+        if (FN_KIND_RE.test(firstLine)) entry.fn = true;
+        byAnchor.set(key, entry);
+      }
     }
   }
-  if (!byFile.size) return [];
+  if (!byAnchor.size) return [];
 
-  // Rank: distinct phrase-definitions on a file weigh double; question content
-  // words appearing in the path break ties toward the on-topic module (e.g.
-  // realtime-TRACE.mjs over websearch-lib.mjs for a "...final trace" question).
-  const scored = [...byFile.entries()].map(([rel, e]) => {
-    const low = rel.toLowerCase();
+  // Rank anchors: a definition matched by multiple distinct phrase-variants is the
+  // strongest signal (both "submitPacket" and "buildSubmit" point at
+  // buildSubmitPacket); question content words in the path break ties toward the
+  // on-topic module (realtime-TRACE.mjs over websearch-lib.mjs for "...final trace").
+  // Variant-hit count is the direct "this definition is what the question names"
+  // signal; path-name overlap is only a capped tiebreaker (otherwise a file named
+  // after the question words, e.g. rt-explore-nav.mjs, outranks the file that
+  // actually holds the terminal target, e.g. realtime-trace.mjs:buildSubmitPacket).
+  const lowWords = new Set(words);
+  const scored = [...byAnchor.values()].map((e) => {
+    const low = e.rel.toLowerCase();
     let pathOverlap = 0;
-    for (const w of new Set(words)) if (low.includes(w)) pathOverlap += 1;
-    return { rel, line: e.line, score: e.hits.size * 2 + pathOverlap };
+    for (const w of lowWords) if (low.includes(w)) pathOverlap += 1;
+    // A real callable/type definition (function buildSubmitPacket) outranks a
+    // variable declaration (let seedPaths) for a "build the X" question, even when
+    // the variable's line number is lower.
+    const fnBonus = e.fn ? 2 : 0;
+    return { rel: e.rel, line: e.line, score: e.variants.size * 2 + Math.min(pathOverlap, 2) + fnBonus };
   });
-  scored.sort((x, y) => y.score - x.score || x.rel.localeCompare(y.rel));
+  scored.sort((x, y) => y.score - x.score || x.rel.localeCompare(y.rel) || x.line - y.line);
 
-  const added = [];
+  // Round-robin: every file with a named target contributes its BEST anchor before
+  // any file gets a second window, so a compound question's distinct targets (often
+  // in different files) each land a definition body. Runner-up anchors fill leftover
+  // budget. Windows are capped per file and de-overlapped.
+  const bestPerFile = new Map();
   for (const s of scored) {
-    if (added.length >= max) break;
+    const cur = bestPerFile.get(s.rel);
+    if (!cur || s.score > cur.score) bestPerFile.set(s.rel, s);
+  }
+  const firstPass = [...bestPerFile.values()].sort(
+    (x, y) => y.score - x.score || x.rel.localeCompare(y.rel),
+  );
+  const order = [...firstPass, ...scored.filter((s) => bestPerFile.get(s.rel) !== s)];
+
+  const perFileMax = envInt("UNITRACE_RT_PHRASE_SEED_PER_FILE", 2);
+  const added = [];
+  const addedPaths = new Set();
+  const seededWindows = [];
+  const perFile = new Map();
+  for (const s of order) {
+    if (seededWindows.length >= max) break;
+    if ((perFile.get(s.rel) || 0) >= perFileMax) continue;
     const start = Math.max(1, s.line - before);
     const end = s.line + after;
+    if (seededWindows.some((w) => w.rel === s.rel && start <= w.end && end >= w.start)) continue;
     const r = toolReadRange(workspace, s.rel, { start_line: start, end_line: end, stripPreamble: STRIP_PREAMBLE });
     if (!r.ok) continue;
     if (onRead) onRead(s.rel, r.content || "", { pin: true });
-    added.push(s.rel);
+    seededWindows.push({ rel: s.rel, start, end });
+    perFile.set(s.rel, (perFile.get(s.rel) || 0) + 1);
+    if (!addedPaths.has(s.rel)) { addedPaths.add(s.rel); added.push(s.rel); }
   }
   return added;
 }

@@ -108,6 +108,34 @@ test("phraseDefSeeds bridges a prose bigram to its camelCase definition", () => 
   }
 });
 
+test("phraseDefSeeds seeds the function body over a lower-line variable declaration", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unitrace-phrase-fn-"));
+  try {
+    fs.mkdirSync(path.join(dir, "lib"), { recursive: true });
+    // One file holds two phrase targets: an incidental `let seedPaths` early, and
+    // the load-bearing `function buildSubmitPacket` much later. The old min-line
+    // collapse seeded the variable and missed the function body.
+    const head = "// header\n".repeat(20);
+    const body =
+      head +
+      "let seedPaths = [];\n" +
+      "x".replace("x", "").padEnd(60, "\n") +
+      "export function buildSubmitPacket(args) {\n  const out = { ...args };\n  return out;\n}\n";
+    fs.writeFileSync(path.join(dir, "lib", "core.mjs"), body);
+    const windows = [];
+    const out = phraseDefSeeds({
+      workspace: dir,
+      question: "How does the nav path seed files and then build the submit packet?",
+      onRead: (rel, content) => windows.push({ rel, content: String(content || "") }),
+    });
+    assert.ok(out.includes("lib/core.mjs"), `expected core.mjs seeded, got ${out.join(",")}`);
+    const seededBody = windows.some((w) => w.content.includes("buildSubmitPacket"));
+    assert.ok(seededBody, "the function definition body must be in a seeded window");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("phraseDefSeeds abstains when no bigram resolves to a definition", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unitrace-phrase-none-"));
   try {
