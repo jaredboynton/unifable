@@ -859,3 +859,13 @@ Verification:
 - `git diff --check`
 - `python3 -m py_compile hooks/gate_prompt.py hooks/gate_prompt_effort.py hooks/gate_stop.py scripts/gate/context_block.py scripts/gate/pretool_block.py scripts/gate/heavy_workflow.py scripts/gate/spec_judge.py scripts/gate/breaker_prompts.py scripts/gate/loop_release.py scripts/gate/completion_handoff.py scripts/generate_docs.py`
 - `just test-all`
+
+## 1.22.0 - 2026-06-30
+
+- Update rtinfer discovery for standalone rtinferd daemon. Drop the
+  `http://127.0.0.1:8787` (cse-toold cockpit) candidate from both
+  `scripts/gate/rtinfer_client.py` and
+  `skills/unitrace/scripts/lib/rtinfer-client.mjs`. The `/v1/infer` endpoint
+  has moved to the standalone rtinferd daemon (repo: rtinfer), which
+  advertises via `~/.cse-rtinfer/endpoint.json`. New discovery order:
+  `$CSE_RTINFER_URL` -> `~/.cse-rtinfer/endpoint.json`.
