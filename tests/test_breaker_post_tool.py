@@ -192,7 +192,11 @@ def test_release_worker_stays_armed_when_judge_says_no():
         assert breaker_release_lane.drain_pending_release(payload).strip()
 
 
-def test_release_worker_emits_provisional_lift():
+def test_release_worker_records_provisional_lift_silently():
+    # The provisional lift is recorded in breaker state (for tool_scope
+    # enforcement + the LIFT event log) but produces NO model-facing notify:
+    # the lift is an internal mechanism, and tool_scope + block directives
+    # guide the model. The release lane therefore enqueues "" for a lift.
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         sess = "PT4"
         _armed_breaker(dd, sess, cwd)
@@ -210,9 +214,11 @@ def test_release_worker_emits_provisional_lift():
             "tool_response": {"content": "baseline scores"},
         }
         msg = _run_release(payload, judge)
-        assert msg.strip()
+        assert msg == ""
         state = load_breaker({"session_id": sess, "cwd": cwd})
         assert state["breaker_provisional"] is True
+        assert state["breaker_lift_scope"] == "Edit config only."
+        assert state["breaker_lift_reason"] == "Pursuing baseline verification."
         assert any(e.get("kind") == "LIFT" for e in state["events"])
 
 

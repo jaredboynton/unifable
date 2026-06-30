@@ -72,7 +72,6 @@ from pretool_block import (
     format_bash_research_block,
     format_delegation_block,
     format_spec_missing_block,
-    is_redundant_with_notify,
     normalize_bash_detail,
 )
 from protected_paths import (
@@ -199,8 +198,6 @@ def _block(
     breaker_notify: str = "",
 ) -> int:
     msg = str(message or "").strip()
-    if is_redundant_with_notify(msg, breaker_notify):
-        msg = ""
     try:
         from plan_mode import append_plan_mode_note, pretool_should_append_plan_note
 
@@ -209,10 +206,14 @@ def _block(
             msg = append_plan_mode_note(msg, plan)
     except Exception:
         pass
-    rc = emit_pretool_block(input_data, kind=kind, detail=detail, full_message=msg)
-    if breaker_notify and breaker_notify.strip():
-        print(breaker_notify.strip(), file=sys.stderr)
-    return rc
+    # The block `message` is the single channel for block guidance on stderr.
+    # `breaker_notify` is intentionally NOT double-printed here: it would leak
+    # standing breaker state (lift/disarm/verify prose) onto the block path and
+    # duplicate the block message on the same channel in the same turn. The block
+    # message is therefore always shown (no notify-redundancy suppression), since
+    # the notify no longer renders on this path to duplicate it.
+    _ = breaker_notify
+    return emit_pretool_block(input_data, kind=kind, detail=detail, full_message=msg)
 
 
 def _citation_reasons(spec: dict, input_data: dict, cwd: str, require_commands: bool) -> list[str]:

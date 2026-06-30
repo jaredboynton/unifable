@@ -389,8 +389,13 @@ async function runWebsearch({
     return { text, wire, toolLog: ["replay submit_websearch_pointer"] };
   }
 
-  const session = new RtAgentSession({ model, authPath, framesPath });
-  await session.connect();
+  let session = null;
+  const ensureSession = async () => {
+    if (session) return session;
+    session = new RtAgentSession({ model, authPath, framesPath });
+    await session.connect();
+    return session;
+  };
   const deadlineMs = Date.now() + timeoutSec * 1000;
 
   try {
@@ -455,8 +460,9 @@ async function runWebsearch({
       });
     }
     if (wire == null) {
+      const liveSession = await ensureSession();
       if (backend === "alpha") {
-        await session.reconnectFresh("post-host-search-idle");
+        await liveSession.reconnectFresh("post-host-search-idle");
       }
       const submitSession = {
         type: "session.update",
@@ -468,8 +474,8 @@ async function runWebsearch({
           ...realtimeReasoningConfig(SUBMIT_REASONING),
         },
       };
-      session.prewarm(submitSession);
-      wire = await runPointerSubmitPhase(session.connection, {
+      liveSession.prewarm(submitSession);
+      wire = await runPointerSubmitPhase(liveSession.connection, {
         submitPacket,
         fetchLog: ctx.fetchLog,
         deadlineMs,
@@ -486,7 +492,7 @@ async function runWebsearch({
     const text = hydrate ? rehydrateWebsearchWire(wire) : wire;
     return { text, wire, toolLog: [] };
   } finally {
-    session.close();
+    if (session) session.close();
   }
 }
 

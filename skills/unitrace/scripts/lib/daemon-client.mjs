@@ -9,7 +9,7 @@
 // change minimally: daemonAsk, daemonAskBatch, warmDaemonPool, daemonEnabled,
 // daemonPoolSize, scorerModel.
 
-import { rtinferAsk, rtinferEnabled, scorerModel as _scorerModel } from "./rtinfer-client.mjs";
+import { rtinferAsk, rtinferEnabled, rtinferToolRound, scorerModel as _scorerModel } from "./rtinfer-client.mjs";
 
 export { scorerModel } from "./rtinfer-client.mjs";
 
@@ -35,7 +35,7 @@ function daemonDebugOn() {
 }
 function emitServed(namespace, rtinfer) {
   if (!daemonDebugOn()) return;
-  try { process.stderr.write(`[daemon] ns=${namespace} served rtinfer=${rtinfer} uds=0\n`); } catch { /* ignore */ }
+  try { process.stderr.write(`[daemon] ns=${namespace} served rtinfer=${rtinfer} direct=0\n`); } catch { /* ignore */ }
 }
 
 async function rtinferTry(req, model) {
@@ -73,4 +73,21 @@ export async function daemonAskBatch(namespace, requests, { model = _scorerModel
   }));
   emitServed(namespace, rtN);
   return results;
+}
+
+// Run one chat-style tool round via the shared rtinferd daemon. Returns
+// `{ content, tool_calls }`, or null to signal fail-open fallback.
+export async function daemonToolRound(namespace, req, { model = _scorerModel() } = {}) {
+  if (!daemonEnabled()) return null;
+  const rt = await rtinferToolRound({
+    system: req.system,
+    messages: req.messages,
+    tools: req.tools,
+    toolChoice: req.toolChoice,
+    parallelToolCalls: req.parallelToolCalls,
+    model,
+    reasoningEffort: req.reasoningEffort,
+  });
+  emitServed(namespace, rt != null ? 1 : 0);
+  return rt;
 }

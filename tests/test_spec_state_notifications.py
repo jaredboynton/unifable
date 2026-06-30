@@ -215,17 +215,15 @@ def test_scaffold_fresh_create_reports_no_changes(tmp_path):
 
 
 def test_breaker_status_context_armed_and_open(monkeypatch):
+    # PostToolUse no longer narrates standing breaker state (the PreToolUse
+    # one-shot notify is the single source). Both armed and disarmed/provisional
+    # states must yield "" so no breaker line reaches PostToolUse additionalContext.
     monkeypatch.setattr(
         breaker_state,
         "load_breaker",
         lambda inp: {"breaker_armed": True, "breaker_claim": "the build passes"},
     )
-    # Structural, not exact-wording (tests/AGENTS.md): keep the routing prefix,
-    # name the claim, and carry an actionable next step (even with no steering).
-    armed = gate_post_tool._breaker_status_context({})
-    assert armed.startswith("breaker: ARMED")
-    assert "the build passes" in armed
-    assert "To disarm:" in armed
+    assert gate_post_tool._breaker_status_context({}) == ""
 
     monkeypatch.setattr(
         breaker_state,

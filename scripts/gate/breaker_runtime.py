@@ -330,10 +330,13 @@ def _user_goal_block(input_data: dict, active_task: str) -> str:
 
 
 def _provisional_lift_message(reason: str, scope: str) -> str:
-    return (
-        f"Temporary lift: {reason} "
-        f"Allowed scope: {scope}. Mutation tools stay available inside that scope."
-    )
+    # `reason` is an internal audit field (logged via the LIFT event) and is NOT
+    # shown to the model. Only the terse scope reaches the agent.
+    _ = reason
+    scope_text = str(scope or "").strip()
+    if scope_text:
+        return f"Provisional lift granted. Scope: {scope_text}."
+    return "Provisional lift granted."
 
 
 def _disarm_message() -> str:
@@ -431,7 +434,12 @@ def _stale_arm_message(claim: str) -> str:
 
 
 def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bool, str]:
-    """Record release outcome on `state`. Returns (fully_disarmed, lift_notify_message)."""
+    """Record release outcome on `state`. Returns (fully_disarmed, lift_notify_message).
+
+    The provisional lift is recorded in state (for tool_scope enforcement and the
+    LIFT event log) but produces NO model-facing notify: the lift is an internal
+    mechanism, and tool_scope enforcement + block directives guide the model. The
+    return value is therefore "" for a lift; only disarm/needed still notify."""
     if verdict.grounded:
         append_event(state, "DISARM", claim=claim, grounded=True)
         record_adjudicated_claim(state, claim)
@@ -439,7 +447,6 @@ def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bo
         clear_director(state)
         return True, ""
     if verdict.provisional and verdict.lift_reason and verdict.lift_scope:
-        notify = _provisional_lift_message(verdict.lift_reason, verdict.lift_scope)
         append_event(
             state,
             "LIFT",
@@ -447,8 +454,8 @@ def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bo
             reason=verdict.lift_reason,
             scope=verdict.lift_scope,
         )
-        lift_provisional(state, claim, verdict.lift_reason, verdict.lift_scope, notify)
-        return False, notify
+        lift_provisional(state, claim, verdict.lift_reason, verdict.lift_scope, "")
+        return False, ""
     if verdict.needed:
         append_event(state, "NEEDED", claim=claim, needed=verdict.needed)
         state["breaker_steering"] = verdict.needed

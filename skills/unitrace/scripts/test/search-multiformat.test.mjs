@@ -11,6 +11,7 @@ import {
   retrieveCandidates,
   runFastPath,
 } from "../search-fast.mjs";
+import { verdict } from "../bench/search-multiformat-ab.mjs";
 
 // AST install is network/slow; the line-window fallback covers code here.
 process.env.UNITRACE_AST_SKIP_INSTALL = "1";
@@ -153,4 +154,52 @@ test("runFastPath null-fallback: nothing clears the floor -> null by default, []
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
+});
+
+function summary(overrides) {
+  return {
+    name: "rtinfer",
+    total: 10,
+    posTotal: 8,
+    negTotal: 2,
+    errors: 0,
+    found: 8,
+    top1: 8,
+    leaks: 0,
+    fallback: 0,
+    findRate: 100,
+    top1Rate: 100,
+    fallbackRate: 0,
+    errorRate: 0,
+    servedRtinfer: 10,
+    servedDirect: 0,
+    servedRate: 100,
+    p50: 900,
+    p95: 1200,
+    negP50: 800,
+    negP95: 900,
+    rows: [],
+    ...overrides,
+  };
+}
+
+test("rtinfer-only verdict gates directly against labeled objective thresholds", () => {
+  const ok = verdict([summary({})], { corpus: "multiformat" });
+  assert.equal(ok.pass, true);
+
+  const bad = verdict([summary({ top1Rate: 40 })], { corpus: "multiformat" });
+  assert.equal(bad.pass, false);
+  assert.match(bad.reasons.join("\n"), /top1-rate 40% < objective 90%/);
+});
+
+test("rtinfer-absent is a bounded fail-open smoke, not a full quality parity bench", () => {
+  const v = verdict([
+    summary({ name: "agentic-fallback", findRate: 100, top1Rate: 100, p95: 1200, servedRtinfer: 0, servedRate: 0 }),
+    summary({ name: "rtinfer-absent", findRate: 0, top1Rate: 0, p95: 1300, servedRtinfer: 0, servedRate: 0 }),
+  ], { corpus: "multiformat" });
+  assert.equal(v.pass, true);
+
+  const served = verdict([summary({ name: "rtinfer-absent", servedRtinfer: 1, servedRate: 100 })], { corpus: "multiformat" });
+  assert.equal(served.pass, false);
+  assert.match(served.reasons.join("\n"), /served 1 via rtinfer/);
 });

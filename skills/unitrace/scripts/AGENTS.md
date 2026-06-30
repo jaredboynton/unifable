@@ -45,17 +45,17 @@ files.
 ## Warm Daemon Pool (search, websearch, trace)
 
 - Search, websearch, and trace all reuse the shared warm-socket daemon pool via
-  `lib/daemon-client.mjs` (process pool, default 4 slots; see `scripts/gate/
-  realtime_daemon.py`). The daemon is one-shot per request and never on the
-  correctness path: every helper fails open (returns null) so the caller falls
-  back to a live-session turn and then the agentic loop.
-- Pool size 4 and per-socket in-flight 128 are MEASURED, not folklore
+  `lib/daemon-client.mjs` and the always-on `rtinferd` loopback daemon. The
+  daemon is never on the correctness path: every helper fails open (returns
+  null) so the caller falls back to the direct session path only when the
+  shared daemon is unavailable or returns an invalid result.
+- Warm-session pool size 4 and per-socket in-flight 128 are MEASURED, not folklore
   (`docs/benchmarks/realtime-concurrency.md`): a 4-socket pool beat 8 and 16 on a
   16-wide fan-out (both models), and there is no account concurrent-session cap
   (32/32 sockets connected). Re-run `probes/bench_realtime_concurrency.py`
   before changing either cap; do not re-confirm what that doc already records.
 - Warm the pool concurrently with other startup work (`warmDaemonPool`); the
-  first cold call pays a one-time daemon spawn (~7-8s) that is not
+  first cold call pays one-time daemon discovery / warm-socket setup that is not
   representative of warm latency.
 - `gpt-realtime-mini` is the latency tier (parallel scoring/navigation, ~2x TPS,
   no reasoning option); reserve full `gpt-realtime-2` for synthesis/submit where
@@ -66,8 +66,9 @@ files.
 - Default explore mode is `nav` (`UNITRACE_RT_UNITRACE_MODE`): host seeds with the
   search-fast retriever, then fans out 8 parallel `gpt-realtime-mini` navigators
   (`lib/rt-explore-nav.mjs`) that propose grep terms / read paths; the host
-  hydrates and coalesces. `agentic` (legacy `explore_exec` loop) is the override
-  and the automatic fail-open; `hybrid` adds a one-turn agentic top-up.
+  hydrates and coalesces. `agentic` now runs through `rtinferd` first and falls
+  back to the live session only when the daemon path misses; `hybrid` adds a
+  one-turn agentic top-up.
 - Submit synthesizes over the daemon pool (`runDaemonPointerSubmit`, full
   `gpt-realtime-2`, reasoning `low`) and reuses the pointer rehydrate +
   validate + reask path; a miss/invalid result falls back to the live-session

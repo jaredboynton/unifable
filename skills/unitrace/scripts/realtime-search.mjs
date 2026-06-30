@@ -15,6 +15,7 @@
 import { realtimeReasoningConfig, withReasoningSteer } from "./lib/realtime_client.mjs";
 import { RtAgentSession } from "./lib/rt-agent-session.mjs";
 import { waitForResponse } from "./lib/rt-session-utils.mjs";
+import { daemonToolRound, daemonEnabled, warmDaemonPool } from "./lib/daemon-client.mjs";
 
 function debugLog(enabled, ...parts) {
   if (!enabled) return;
@@ -122,6 +123,24 @@ export function createRealtimeSearchCaller({
   const rtToolsAll = toRtTools(toolSpecs);
   const rtToolsFinish = rtToolsAll.filter((t) => t.name === finishToolName);
   const instructions = `${systemPrompt}${RT_SEARCH_ADDENDUM}`;
+  const namespace = "search-agentic";
+
+  async function daemonRound(messages, { finishOnly }) {
+    if (!daemonEnabled()) return null;
+    const response = await daemonToolRound(namespace, {
+      system: instructions,
+      messages,
+      tools: finishOnly ? rtToolsFinish : rtToolsAll,
+      toolChoice: "required",
+      parallelToolCalls: !finishOnly,
+      reasoningEffort,
+    }, { model });
+    if (!response) return null;
+    return {
+      content: response.content || null,
+      tool_calls: Array.isArray(response.tool_calls) ? response.tool_calls : [],
+    };
+  }
 
   // Reuse the shared hot-socket session helper (prewarm, frame logging on send,
   // resilient reconnect) like the trace/websearch engines do.
@@ -196,10 +215,7 @@ export function createRealtimeSearchCaller({
   callModel.warm = () => {
     if (!warmPromise) {
       warmPromise = (async () => {
-        await session.connect();
-        connected = true;
-        sentCount = 0;
-        session.prewarm(sessionUpdate(false));
+        warmDaemonPool(namespace, undefined, { model }).catch(() => {});
       })().catch((err) => {
         warmPromise = null;
         throw err;
@@ -210,7 +226,13 @@ export function createRealtimeSearchCaller({
 
   async function callModel(messages, meta = {}) {
     const finishOnly = Boolean(meta.finishOnly);
+    const daemon = await daemonRound(messages, { finishOnly });
+    if (daemon) return daemon;
     if (!connected) {
+      await session.connect();
+      connected = true;
+      sentCount = 0;
+      session.prewarm(sessionUpdate(false));
       await callModel.warm();
     }
     try {

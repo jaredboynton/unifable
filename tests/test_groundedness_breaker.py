@@ -942,7 +942,11 @@ def test_provisional_lift_allows_edit_without_full_ground(monkeypatch):
     assert state["breaker_provisional"] is True
     assert state["breaker_armed"] is False
     assert state["breaker_block_count"] == 0
-    assert notify.strip()
+    # The provisional lift is internal: it is recorded in state (for tool_scope
+    # enforcement + the LIFT event log) but produces NO model-facing notify.
+    # tool_scope enforcement + block directives guide the model, not lift prose.
+    assert notify == ""
+    assert state["breaker_lift_scope"] == "Edit prompt-adaptation config only."
     assert any(e.get("kind") == "LIFT" for e in state["events"])
 
 

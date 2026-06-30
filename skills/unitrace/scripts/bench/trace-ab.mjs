@@ -103,16 +103,16 @@ function parsePhases(errLog) {
   return out;
 }
 
-// Tally `[daemon] ns=... served rtinfer=N uds=M` markers (emitted under
+// Tally `[daemon] ns=... served rtinfer=N direct=M` markers (emitted under
 // UNITRACE_DAEMON_DEBUG=1) so the borrow proof can show the borrow ACTUALLY
-// served vs silently fell through to the per-session UDS pool.
+// served vs silently fell through to the direct-session fallback.
 function parseServed(errLog) {
-  let rtinfer = 0, uds = 0;
-  for (const m of String(errLog || "").matchAll(/\[daemon\] ns=\S+ served rtinfer=(\d+) uds=(\d+)/g)) {
+  let rtinfer = 0, direct = 0;
+  for (const m of String(errLog || "").matchAll(/\[daemon\] ns=\S+ served rtinfer=(\d+) direct=(\d+)/g)) {
     rtinfer += parseInt(m[1], 10);
-    uds += parseInt(m[2], 10);
+    direct += parseInt(m[2], 10);
   }
-  return { rtinfer, uds };
+  return { rtinfer, direct };
 }
 
 function runTrace({ question, env, repo, runsDir, runId }) {
@@ -207,7 +207,7 @@ async function main() {
           submitMs: res.phases.submit_ms ?? null,
           connectMs: res.phases.connect_ms ?? null,
           filesRead: res.phases.files_read ?? null,
-          servedRtinfer: res.served.rtinfer, servedUds: res.served.uds,
+          servedRtinfer: res.served.rtinfer, servedDirect: res.served.direct,
           score: q.score, reason: q.reason,
         };
         records.push(rec);
@@ -230,9 +230,9 @@ async function main() {
     const fails = recs.filter((r) => r.code !== 0).length;
     const qps = Number.isFinite(medScore) && medWall > 0 ? medScore / (medWall / 1000) : NaN;
     const rt = recs.reduce((a, r) => a + (r.servedRtinfer || 0), 0);
-    const uds = recs.reduce((a, r) => a + (r.servedUds || 0), 0);
-    const servedRate = rt + uds ? Math.round((100 * rt) / (rt + uds)) : 0;
-    return { variant, runs: recs.length, fails, medWallMs: medWall, medExploreMs: medExplore, medSubmitMs: medSubmit, medScore, qualityPerSec: qps, servedRtinfer: rt, servedUds: uds, servedRate };
+    const direct = recs.reduce((a, r) => a + (r.servedDirect || 0), 0);
+    const servedRate = rt + direct ? Math.round((100 * rt) / (rt + direct)) : 0;
+    return { variant, runs: recs.length, fails, medWallMs: medWall, medExploreMs: medExplore, medSubmitMs: medSubmit, medScore, qualityPerSec: qps, servedRtinfer: rt, servedDirect: direct, servedRate };
   }).sort((a, b) => (b.qualityPerSec || -1) - (a.qualityPerSec || -1));
 
   // Borrow verdict: when both borrow-off and borrow-on ran, prove parity. The

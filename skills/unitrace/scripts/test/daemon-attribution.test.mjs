@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import test from "node:test";
 
-import { daemonAsk, daemonAskBatch } from "../lib/daemon-client.mjs";
+import { daemonAsk, daemonAskBatch, daemonToolRound } from "../lib/daemon-client.mjs";
 import { _invalidate, _setCandidatesForTest } from "../lib/rtinfer-client.mjs";
 
 function startServer() {
@@ -55,7 +55,7 @@ test("daemonAskBatch emits a served tally attributing rtinfer per namespace", as
     ];
     const out = await daemonAskBatch("bench-ns", reqs);
     assert.equal(out.length, 2);
-    assert.match(cap.read(), /\[daemon\] ns=bench-ns served rtinfer=2 uds=0/);
+    assert.match(cap.read(), /\[daemon\] ns=bench-ns served rtinfer=2 direct=0/);
   } finally {
     cap.restore();
     srv.close();
@@ -70,7 +70,7 @@ test("daemonAsk emits a single-request served tally", async () => {
     setup(base, { debug: true });
     const obj = await daemonAsk("solo-ns", { system: "s", user: "u", schema: { type: "object" } });
     assert.deepEqual(obj, { score: 5 });
-    assert.match(cap.read(), /\[daemon\] ns=solo-ns served rtinfer=1 uds=0/);
+    assert.match(cap.read(), /\[daemon\] ns=solo-ns served rtinfer=1 direct=0/);
   } finally {
     cap.restore();
     srv.close();
@@ -85,6 +85,26 @@ test("debug off -> no tally on stderr", async () => {
     setup(base, { debug: false });
     await daemonAskBatch("quiet-ns", [{ system: "s", user: "u", schema: { type: "object" } }]);
     assert.doesNotMatch(cap.read(), /\[daemon\] ns=quiet-ns served/);
+  } finally {
+    cap.restore();
+    srv.close();
+    teardown();
+  }
+});
+
+test("daemonToolRound emits a single-request served tally", async () => {
+  const { srv, base } = await startServer();
+  const cap = captureStderr();
+  try {
+    setup(base, { debug: true });
+    const obj = await daemonToolRound("tool-ns", {
+      system: "s",
+      messages: [{ role: "user", content: "u" }],
+      tools: [{ type: "function", function: { name: "finish", parameters: { type: "object" } } }],
+      toolChoice: "required",
+    });
+    assert.equal(obj != null, true);
+    assert.match(cap.read(), /\[daemon\] ns=tool-ns served rtinfer=1 direct=0/);
   } finally {
     cap.restore();
     srv.close();

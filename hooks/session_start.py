@@ -177,6 +177,20 @@ def main() -> int:
     except Exception:
         payload = {}
 
+    # Record that the standing first-action frame fired, so the first-prompt
+    # scaffold onboarding (gate_prompt.py) does not re-emit the "unifable restate"
+    # instruction. Fail-open: a marker-write bug never blocks session start.
+    if payload:
+        try:
+            import ledger as _ledger
+
+            def _mark_frame(led):
+                led["session_frame_notified"] = True
+
+            _ledger.update_ledger(input_data, _mark_frame)
+        except Exception:
+            pass
+
     sys.stdout.write(json.dumps(payload, ensure_ascii=True) + "\n")
     return 0
 

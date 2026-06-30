@@ -44,6 +44,7 @@ import {
   rehydratePointerSubmit,
 } from "./lib/rt-rehydrate-submit.mjs";
 import { daemonAsk, daemonEnabled, warmDaemonPool } from "./lib/daemon-client.mjs";
+import { createRtinferToolCaller } from "./lib/rtinfer-tool-caller.mjs";
 import { runExploreNav } from "./lib/rt-explore-nav.mjs";
 
 const WIRE_SUBMIT_SCHEMA = {
@@ -237,7 +238,7 @@ function makeReadTracker(workspace, filesRead, readCache) {
   };
 }
 
-async function runExplorePhase(session, {
+async function runExplorePhaseSession(session, {
   prompt, question, mapBlock, workspace, deadlineMs, maxTurns, framesPath, filesRead, readCache, toolLog, toolResults,
 }) {
   const conn = session.connection;
@@ -407,15 +408,144 @@ async function runExplorePhase(session, {
   return { toolTurnCount, exploreTurns, maxBatch, seedPaths, exploreItemIds };
 }
 
+async function runExplorePhaseDaemon(model, {
+  prompt, question, mapBlock, workspace, deadlineMs, maxTurns, framesPath, filesRead, readCache, toolLog, toolResults,
+}) {
+  const callModel = createRtinferToolCaller({
+    systemPrompt: UNITRACE_SYSTEM,
+    toolSpecs: buildExploreToolSchemas(),
+    finishToolName: "explore_exec",
+    model,
+    reasoningEffort: UNITRACE_RT_UNITRACE_REASONING_EFFORT,
+    namespace: `${UNITRACE_RT_NAMESPACE}-agentic`,
+    schemaName: "trace_explore_turn",
+    addendum: [
+      "You are operating through rtinferd rather than a live WebSocket session.",
+      "Return explore_exec tool calls only. When enough files have been read, return zero tool calls.",
+      "Batch independent work with Promise.all inside one explore_exec call when possible.",
+    ].join("\n"),
+    debug: Boolean(framesPath),
+  });
+
+  try {
+    const exploreItemIds = new Set();
+    const messages = [{ role: "user", content: withReasoningSteer(prompt) }];
+    let seedPaths = [];
+    const onRead = makeReadTracker(workspace, filesRead, readCache);
+    if (UNITRACE_RT_MAP_SEED) {
+      seedPaths = seedExploreReads({
+        workspace,
+        question: question || extractQuestion(prompt),
+        mapBlock,
+        filesRead,
+        readCache,
+        onRead,
+      });
+      if (seedPaths.length) {
+        toolLog.push(`seed reads: ${seedPaths.join(", ")}`);
+        messages.push({
+          role: "user",
+          content: withReasoningSteer(
+            `SEED READS (already in FILES READ; do not rediscover): ${seedPaths.join(", ")}. Use explore_exec for remaining load-bearing paths only.`,
+            UNITRACE_RT_UNITRACE_REASONING_EFFORT,
+          ),
+        });
+      }
+    }
+
+    let nudgeCount = 0;
+    let toolTurnCount = 0;
+    let exploreTurns = 0;
+    let maxBatch = 0;
+
+    for (let turn = 0; turn < maxTurns; turn += 1) {
+      if (Date.now() >= deadlineMs) throw new RealtimeError("explore phase timed out");
+      if (filesRead.size >= UNITRACE_MAX_READS) break;
+
+      const response = await callModel(messages);
+      if (response == null) return null;
+      const functionCalls = extractFunctionCalls({
+        output: (response.tool_calls || []).map((call) => ({
+          type: "function_call",
+          call_id: call.id,
+          name: call.function?.name,
+          arguments: call.function?.arguments,
+        })),
+      });
+      const turnText = response.content || "";
+      const q = question || extractQuestion(prompt);
+      const stopNow = () => shouldStopExplore({
+        filesRead,
+        question: q,
+        workspace,
+        toolTurnCount,
+        minReads: UNITRACE_MIN_READS,
+        stopReads: UNITRACE_RT_STOP_READS,
+        stopToolCalls: UNITRACE_RT_STOP_TOOL_CALLS,
+      });
+
+      if (!functionCalls.length) {
+        if (stopNow()) break;
+        if (filesRead.size >= UNITRACE_MIN_READS) break;
+        if (turnText && nudgeCount < 1) {
+          nudgeCount += 1;
+          messages.push({ role: "assistant", content: turnText });
+          messages.push({
+            role: "user",
+            content: withReasoningSteer(
+              "Call explore_exec once more for any missing load-bearing files, then stop.",
+              UNITRACE_RT_UNITRACE_REASONING_EFFORT,
+            ),
+          });
+          continue;
+        }
+        break;
+      }
+
+      messages.push({
+        role: "assistant",
+        content: turnText || "",
+        tool_calls: response.tool_calls || [],
+      });
+
+      exploreTurns += 1;
+      maxBatch = Math.max(maxBatch, functionCalls.length);
+      toolTurnCount += functionCalls.length;
+
+      const dispatched = await dispatchToolBatch(functionCalls, workspace, { deadlineMs, onRead });
+      for (const { call, args, result } of dispatched) {
+        const summary = `${call.name} ${JSON.stringify(args).slice(0, 80)} -> ok=${result.ok}`;
+        toolLog.push(summary);
+        toolResults.push({ tool: call.name, args, result: truncateText(JSON.stringify(result), 1500) });
+        messages.push({
+          role: "tool",
+          tool_call_id: call.call_id,
+          content: JSON.stringify(result),
+        });
+      }
+
+      if (filesRead.size >= UNITRACE_MAX_READS || stopNow()) break;
+    }
+
+    return { toolTurnCount, exploreTurns, maxBatch, seedPaths, exploreItemIds };
+  } finally {
+    callModel.close();
+  }
+}
+
 // Explore-phase dispatcher (A/B). agentic = full-model explore_exec loop
 // (runExplorePhase, legacy default). nav = host-driven micro-agent (mini
 // navigators + host hydration, no live-session tool loop). hybrid = nav primary,
 // with one agentic turn appended when nav coverage is thin. Fail-open: nav/hybrid
 // fall back to the agentic loop whenever the daemon path is unavailable.
-async function dispatchExplore(session, args) {
+async function dispatchExplore({ model, ensureSession, ...args }) {
   const mode = UNITRACE_RT_UNITRACE_MODE;
   if (mode !== "nav" && mode !== "hybrid") {
-    return runExplorePhase(session, args);
+    if (UNITRACE_RT_DAEMON) {
+      const daemonStats = await runExplorePhaseDaemon(model, args);
+      if (daemonStats) return daemonStats;
+    }
+    return runExplorePhaseSession(await ensureSession(), args);
   }
 
   const { workspace, question, mapBlock, filesRead, readCache, toolLog, framesPath } = args;
@@ -434,14 +564,24 @@ async function dispatchExplore(session, args) {
 
   if (!navStats) {
     toolLog.push("phase explore_mode=nav_failopen->agentic");
-    return runExplorePhase(session, args);
+    if (UNITRACE_RT_DAEMON) {
+      const daemonStats = await runExplorePhaseDaemon(model, args);
+      if (daemonStats) return daemonStats;
+    }
+    return runExplorePhaseSession(await ensureSession(), args);
   }
   if (navStats.seedPaths.length) toolLog.push(`seed reads: ${navStats.seedPaths.join(", ")}`);
   toolLog.push(`phase explore_mode=${mode} nav_turns=${navStats.exploreTurns} files_read=${filesRead.size}`);
 
   if (mode === "hybrid" && filesRead.size < UNITRACE_MIN_READS) {
     toolLog.push(`phase explore_hybrid_topup files_read=${filesRead.size} < ${UNITRACE_MIN_READS}`);
-    const topUp = await runExplorePhase(session, { ...args, maxTurns: 1 });
+    let topUp = null;
+    if (UNITRACE_RT_DAEMON) {
+      topUp = await runExplorePhaseDaemon(model, { ...args, maxTurns: 1 });
+    }
+    if (!topUp) {
+      topUp = await runExplorePhaseSession(await ensureSession(), { ...args, maxTurns: 1 });
+    }
     return {
       toolTurnCount: navStats.toolTurnCount + topUp.toolTurnCount,
       exploreTurns: navStats.exploreTurns + topUp.exploreTurns,
@@ -785,18 +925,25 @@ async function runStructuredTrace({
       warmDaemonPool(UNITRACE_RT_NAMESPACE, undefined, { model: UNITRACE_RT_NAV_MODEL }).catch(() => {});
     }
   }
-  const session = new RtAgentSession({ model, authPath, framesPath });
-  const connectStart = Date.now();
-  await session.connect();
-  const connectMs = Date.now() - connectStart;
-  // Handshake cost is ~2% of wall (benchmarked); kept as a phase metric so future
-  // tuning stays measurement-driven. The trace is generation-bound, not transport-bound.
-  toolLog.push(`phase connect_ms=${connectMs}`);
+  let session = null;
+  const ensureSession = async () => {
+    if (session) return session;
+    session = new RtAgentSession({ model, authPath, framesPath });
+    const connectStart = Date.now();
+    await session.connect();
+    const connectMs = Date.now() - connectStart;
+    // Handshake cost is ~2% of wall (benchmarked); kept as a phase metric so future
+    // tuning stays measurement-driven. The trace is generation-bound, not transport-bound.
+    toolLog.push(`phase connect_ms=${connectMs}`);
+    return session;
+  };
   const deadlineMs = Date.now() + timeoutSec * 1000;
 
   try {
     const exploreStart = Date.now();
-    const exploreStats = await dispatchExplore(session, {
+    const exploreStats = await dispatchExplore({
+      model,
+      ensureSession,
       prompt: explorePrompt,
       question: q,
       mapBlock,
@@ -816,7 +963,7 @@ async function runStructuredTrace({
     );
 
     const transport = submitTransport();
-    if (UNITRACE_RT_SUBMIT_FRESH_CONTEXT && transport === "rt") {
+    if (UNITRACE_RT_SUBMIT_FRESH_CONTEXT && transport === "rt" && session) {
       await session.pruneItems(exploreStats.exploreItemIds);
     }
 
@@ -847,7 +994,8 @@ async function runStructuredTrace({
         hostPassages: false,
         pointerIndex: false,
       });
-      const wireText = await runWireSubmitPhase(session.connection, {
+      const wireSession = await ensureSession();
+      const wireText = await runWireSubmitPhase(wireSession.connection, {
         submitPacket: wirePacket,
         workspace,
         deadlineMs,
@@ -882,7 +1030,8 @@ async function runStructuredTrace({
       }
     }
 
-    structured = await runSubmitPhase(session.connection, {
+    const submitSession = await ensureSession();
+    structured = await runSubmitPhase(submitSession.connection, {
       submitPacket,
       orderedPaths,
       workspace,
@@ -903,7 +1052,7 @@ async function runStructuredTrace({
     flushFrames(framesPath);
     return { text: markdown, toolLog, structured };
   } finally {
-    session.close();
+    if (session) session.close();
   }
 }
 
@@ -926,7 +1075,7 @@ async function runWireStructuredTrace({
     const exploreStart = Date.now();
     const q = question || extractQuestion(explorePrompt);
     const mapBlock = mapBlockArg || extractMapBlock(explorePrompt);
-    const exploreStats = await runExplorePhase(session, {
+    const exploreStats = await runExplorePhaseSession(session, {
       prompt: explorePrompt,
       question: q,
       mapBlock,

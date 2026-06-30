@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import os
 import sys
-import textwrap
 from collections.abc import Callable
 from pathlib import Path
 
@@ -104,49 +103,13 @@ def _repeated_failure_hint(input_data: dict, ledger: dict, cwd: str, count: int)
         return ""
 
 
-def _clip(text: object, width: int = 160) -> str:
-    """Whitespace-normalize and word-boundary clip. Never cuts mid-word: uses
-    textwrap.shorten so an over-long value ends on a whole word + ' ...'."""
-    norm = " ".join(str(text or "").split())
-    if not norm:
-        return ""
-    return textwrap.shorten(norm, width=width, placeholder=" ...")
-
-
 def _breaker_status_context(input_data: dict) -> str:
-    """Standing groundedness-breaker status (gap 6).
-
-    Empty unless the breaker is armed or provisionally lifted, so the line only
-    appears while the breaker is actually constraining the session. Every emitted
-    line states WHY the breaker is in this state and the EXACT next step to clear
-    it, reusing the actionable steering/directive the breaker already stored (the
-    same text the PreToolUse block path surfaces). Keeps the literal
-    'breaker: ARMED' / 'breaker: PROVISIONAL' prefixes so posttool_notify routing
-    and dedup are unchanged. Fails open."""
-    try:
-        from breaker_state import load_breaker
-
-        breaker = load_breaker(input_data)
-        if breaker.get("breaker_armed"):
-            claim = _clip(breaker.get("breaker_claim"))
-            nextstep = _clip(breaker.get("breaker_steering")) or _clip(breaker.get("breaker_directive"))
-            head = f"breaker: ARMED on '{claim}'" if claim else "breaker: ARMED"
-            todo = nextstep or "read/fetch/run the evidence that proves the claim, then retry the edit"
-            return (
-                f"{head}. Mutation tools and Bash stay blocked until this load-bearing "
-                f"claim is grounded. To disarm: {todo}"
-            )
-        if breaker.get("breaker_provisional"):
-            scope = _clip(breaker.get("breaker_lift_scope"))
-            reason = _clip(breaker.get("breaker_lift_reason"))
-            base = f"breaker: PROVISIONAL lift ({scope})" if scope else "breaker: PROVISIONAL lift"
-            why = f": {reason}" if reason else ""
-            return (
-                f"{base} -- mutation tools are allowed within this scope while you ground "
-                f"the claim{why}. The monitor re-arms on drift outside scope."
-            )
-    except Exception:
-        return ""
+    """Deprecated: PostToolUse no longer narrates standing breaker state to the
+    model. The PreToolUse one-shot lift/block notify is the single source of
+    breaker guidance (it arrives at a moment the model can act on it; PostToolUse
+    does not gate). Kept as a stub returning "" so existing callers/importers do
+    not break. Fails open."""
+    _ = input_data
     return ""
 
 
@@ -485,7 +448,6 @@ def main() -> int:
     )
 
     spec_context, guidance_map = _spec_context(input_data, tool_name, cwd)
-    breaker_status_context = _breaker_status_context(input_data)
     test_context = _test_after_edit_context(input_data)
 
     if repeat:
@@ -498,8 +460,6 @@ def main() -> int:
             parts.append("Hint: " + hint_text)
         if spec_context:
             parts.append(spec_context)
-        if breaker_status_context:
-            parts.append(breaker_status_context)
         if test_context:
             parts.append(test_context)
         _emit_context(input_data, parts, guidance_map=guidance_map, failure_sig=_sig)
@@ -514,8 +474,6 @@ def main() -> int:
             parts.append(spec_context)
         if discovery_context:
             parts.append(discovery_context)
-        if breaker_status_context:
-            parts.append(breaker_status_context)
         if breaker_context:
             parts.append(breaker_context)
         if test_context:

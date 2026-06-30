@@ -27,25 +27,29 @@ retrieval and inflate find-rate.
 
 ## Verdict contract (mechanical, auditable)
 
-The borrow is PREFERRED, never required: every arm is fail-open. The gate proves
-the borrow does not REGRESS quality or latency, and that it ACTUALLY served (not
-a silent fall-through to the UDS pool). Thresholds live in a `THRESHOLDS` const
-at the top of each harness:
+The borrow is PREFERRED, never required: every arm is fail-open. The search gate
+proves rtinfer directly against labeled gold and proves that it ACTUALLY served
+(not a silent fall-through). The old UDS/per-session pool is retired;
+`agentic-fallback` is diagnostic only and is not part of the default search
+proof. Thresholds live in a `THRESHOLDS` const at the top of each harness:
 
-- `served-rate >= 90%` on any borrow-on arm. Below that, no `cse-toold` was
+- `served-rate >= 90%` on any borrow-on arm. Below that, no `rtinferd` was
   reached and the run is marked INVALID (not PASS). Attribution comes from the
-  `[daemon] ns=<ns> served rtinfer=N uds=M` stderr marker emitted under
+  `[daemon] ns=<ns> served rtinfer=N direct=M` stderr marker emitted under
   `UNITRACE_DAEMON_DEBUG=1` (or `UNITRACE_SEARCH_DEBUG=1`).
-- find-rate(rtinfer) >= find-rate(uds); top1-rate(rtinfer) >= top1-rate(uds).
-- p95(rtinfer) <= p95(uds) + 10% (search); med wall +10% (trace) / +15% (enhance).
+- Search: find-rate/top1-rate/p95 are judged against objective corpus thresholds
+  because the retired fallback is not a valid transport control. If
+  `agentic-fallback` is explicitly included, it is an extra diagnostic
+  comparison.
+- Trace/enhance: med wall +10% (trace) / +15% (enhance).
 - error-rate == 0 on every arm. Secret leaks are reported as a non-blocking
   WARNING, never a gate failure: search intentionally surfaces lexically-matched
   files (that retrieval policy is owned by `search-fast.mjs`, not this borrow
-  gate). A borrow arm leaking MORE than the `uds` control is still called out in
-  the warnings so a true borrow-induced regression stays visible.
-- fail-open arm `rtinfer-absent` (borrow on, endpoint pinned dead) must match the
-  `uds` control within 5 points and serve 0 via rtinfer (proves no hang / no
-  probe storm when `cse-toold` is gone).
+  gate). A borrow arm leaking MORE than the `agentic-fallback` control is still
+  called out in the warnings so a true borrow-induced regression stays visible.
+- Search fail-open arm `rtinfer-absent` (borrow on, endpoint pinned dead) is a
+  small smoke, not a full-corpus quality bench: it must serve 0 via rtinfer, have
+  no errors, and stay under the fail-open p95 budget.
 
 ## Multiformat config sweep
 
@@ -70,14 +74,15 @@ OVERALL: PASS on a host with a live `cse-toold`. Steps, in order:
    multiformat winner in `CHANGELOG.md`. Bump version via `just version`.
 3. REMOVE + LOCK. After the soak release with no regressions:
    - delete `UNITRACE_DAEMON_RTINFER` (+ the legacy `UNITRACE_SEARCH_RTINFER`
-     alias); make `rtinferTry` always-attempt (still fail-open to UDS).
+     alias); make `rtinferTry` always-attempt (still fail-open to the direct
+     session fallback).
    - hardcode the swept multiformat winner as fixed defaults in `search-fast.mjs`
      and drop the override reads it replaced (`UNITRACE_SEARCH_FAST_NULL_FALLBACK`,
      `UNITRACE_SEARCH_FAST_MAX_DOC_FILES`, and `UNITRACE_SEARCH_SCORE_MIN` if a
      fixed value wins).
    - KEEP: `CSE_RTINFER_URL` (discovery override), the presence-hint gate, the
-     contract major-match, and the UDS + agentic fallback. "Remove the option"
-     means remove the OPT-OUT, never the fallback.
+     contract major-match, and the agentic fallback. "Remove the option" means
+     remove the OPT-OUT, never the fallback.
    - update `test/rtinfer-client.test.mjs` (drop the flag enable/disable cases ->
      assert always-attempt + fail-open) and `test/search-multiformat.test.mjs`
      (drop the null-fallback-off case -> assert the locked behavior).
@@ -89,6 +94,4 @@ OVERALL: PASS on a host with a live `cse-toold`. Steps, in order:
 - No emojis anywhere (output, code, comments, results).
 - New variants: add to the `VARIANTS`/`ARMS` map; the harness runs whatever
   `--variants`/`--callers` lists.
-- Stale-socket hygiene before a matrix: `rm -f ~/.unifable/searchd/*.sock
-  ~/.unifable/searchd/*.lock` (the aggregator does this for you).
 </coding_guidelines>

@@ -6,7 +6,7 @@
 //
 // For each caller it runs the same prompt set twice (borrow-off vs borrow-on),
 // judges output quality 0-10 via the warm daemon (gpt-realtime-2), and parses
-// the `[daemon] ns=... served rtinfer=N uds=M` attribution so a borrow-on arm
+// the `[daemon] ns=... served rtinfer=N direct=M` attribution so a borrow-on arm
 // that never actually reached rtinfer is flagged invalid rather than passing.
 //
 // Parity bar (not "better", just "no worse"): median quality within 0.5 and
@@ -71,12 +71,12 @@ function median(nums) {
 }
 
 function parseServed(stderr) {
-  let rtinfer = 0, uds = 0;
-  for (const m of String(stderr || "").matchAll(/\[daemon\] ns=\S+ served rtinfer=(\d+) uds=(\d+)/g)) {
+  let rtinfer = 0, direct = 0;
+  for (const m of String(stderr || "").matchAll(/\[daemon\] ns=\S+ served rtinfer=(\d+) direct=(\d+)/g)) {
     rtinfer += parseInt(m[1], 10);
-    uds += parseInt(m[2], 10);
+    direct += parseInt(m[2], 10);
   }
-  return { rtinfer, uds };
+  return { rtinfer, direct };
 }
 
 function spawnTracked(...args) {
@@ -182,11 +182,11 @@ function summarize(records) {
   }
   return [...byArm.entries()].map(([arm, recs]) => {
     const rt = recs.reduce((a, r) => a + r.served.rtinfer, 0);
-    const uds = recs.reduce((a, r) => a + r.served.uds, 0);
+    const direct = recs.reduce((a, r) => a + r.served.direct, 0);
     return {
       arm, runs: recs.length, fails: recs.filter((r) => !r.ok).length,
       medScore: median(recs.map((r) => r.score)), medWallMs: median(recs.map((r) => r.ms)),
-      servedRtinfer: rt, servedUds: uds, servedRate: rt + uds ? Math.round((100 * rt) / (rt + uds)) : 0,
+      servedRtinfer: rt, servedDirect: direct, servedRate: rt + direct ? Math.round((100 * rt) / (rt + direct)) : 0,
     };
   });
 }

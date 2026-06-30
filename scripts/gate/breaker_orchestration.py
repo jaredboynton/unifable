@@ -290,12 +290,10 @@ def evaluate_pre_tool(
             if claim and segment.strip() and not coalesce:
                 state["breaker_judge_call_at"] = now
                 release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
-                disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+                disarmed, _lift_msg = _apply_release(state, claim, release_verdict)
                 if disarmed:
                     provisional = False
                     state["breaker_pending_notify"] = _disarm_message()
-                elif lift_msg:
-                    state["breaker_pending_notify"] = lift_msg
             if state.get("breaker_provisional") and is_mutation_tool(tool):
                 scope = str(state.get("breaker_lift_scope") or "")
                 if claim and scope and not coalesce:
@@ -364,11 +362,9 @@ def evaluate_pre_tool(
                     segment = judge_transcript(input_data, events)
                     user_goal = _user_goal_block(input_data, active_task)
                     release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
-                    disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+                    disarmed, _lift_msg = _apply_release(state, claim, release_verdict)
                     if disarmed:
                         state["breaker_pending_notify"] = _disarm_message()
-                    elif lift_msg:
-                        state["breaker_pending_notify"] = lift_msg
                     elif release_verdict.needed:
                         state["breaker_pending_notify"] = _needed_message(release_verdict.needed)
     except Exception:
@@ -465,11 +461,9 @@ def evaluate_post_tool_release(
         segment = judge_transcript(input_data, events, fresh_tool=fresh_tool)
         user_goal = _user_goal_block(input_data, active_task)
         release_verdict = disarm_judge(claim, segment, user_goal=user_goal, judge=judge)
-        disarmed, lift_msg = _apply_release(state, claim, release_verdict)
+        disarmed, _lift_msg = _apply_release(state, claim, release_verdict)
         if disarmed:
             return True, "", _disarm_message()
-        if lift_msg:
-            return False, "", lift_msg
         if release_verdict.needed:
             return False, release_verdict.needed, _needed_message(release_verdict.needed)
     except Exception:

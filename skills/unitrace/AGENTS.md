@@ -29,7 +29,7 @@ view is `scripts/gate/transcript_tail.py` (Python port of patchpress tool format
 
 ## Code search transport
 
-`search.sh` -> `search-rt.mjs` drives gpt-realtime-2 (Codex OAuth Realtime WS) with an agentic ripgrep loop (`search-lib.mjs`). Speed defaults:
+`search.sh` -> `search-rt.mjs` drives gpt-realtime-2 through `rtinferd` first, with a direct Realtime fallback only when the shared daemon path is unavailable or explicitly opted out. The agentic ripgrep loop still lives in `search-lib.mjs`. Speed defaults:
 
 - **Socket warm overlaps map generation:** `search-rt.mjs` calls `callModel.warm()` before `generateMapText` so the ~330ms connect+prewarm leaves the turn-1 critical path.
 - **`tool_choice: "required"` every turn:** `finish` is always in the toolset, so required is always satisfiable; it prevents plain-text non-answers that cost a nudge round-trip.
@@ -53,11 +53,11 @@ Tuning: `UNITRACE_SEARCH_FAST=0` (disable), `UNITRACE_SEARCH_FAST_MAX_FILES` (12
 
 ## Warm daemon pool (shared with judge)
 
-Scoring runs against a pool of always-warm Realtime sockets so no call pays connect/prewarm. `scripts/gate/realtime_daemon.py` (generalized from the judge daemon) holds persistent gpt-realtime sockets; `lib/daemon-client.mjs` is the node IPC client.
+Scoring and agentic turns run against the shared loopback daemon `rtinferd` so no normal call pays connect/prewarm. `lib/daemon-client.mjs` is the node borrow client.
 
-- **Process pool, not thread pool.** One Realtime session serializes responses and the Python GIL serializes a thread pool, so the client spawns N single-worker daemon processes (default `POOL_SIZE`=4) on sockets `searchd/<key>-<slot>.sock`. `daemonAskBatch` spreads requests `i % POOL` across slots. **Pool size is MEASURED, not folklore** (`docs/benchmarks/realtime-concurrency.md`, 2026-06-25): on a 16-wide fan-out a 4-socket pool beat 8 and 16 on BOTH models (gpt-realtime-2 1539/1725/2731ms; mini 984/1561/2617ms) -- more sockets only adds connect contention. There is **no** account concurrent-session cap (the old "~8 ceiling" claim is false: 32/32 sockets connected cleanly); the small-pool win is latency, not a session limit. One socket can still carry ~128 in-flight OOB responses for throughput (the judge path); the pool optimizes latency. Re-run `probes/bench_realtime_concurrency.py` before changing the cap.
-- **Event-driven, eager-warm, fail-open.** Workers wake on a socketpair self-pipe (no polling), warm all sockets at startup, idle-shutdown, and reconnect + refresh tokens on drop. Daemon unavailable -> client returns null -> fast path falls back to the in-process warm call, then the agentic loop. At pool=1 the daemon is byte-identical to the judge.
-- **Scorer model knob.** `UNITRACE_SEARCH_SCORER_MODEL` (default `gpt-realtime-2`). `gpt-realtime-mini` is opt-in: 2x TPS, 32k context, function calling, but **rejects the `reasoning` option** ("Unsupported option for this model") so `_realtime_reasoning_config` omits `reasoning` for mini (and for effort `none`/`off`). Sockets are namespaced by model; the client spawns the daemon with `UNIFABLE_JUDGE_MODEL=<scorer>`. mini scores ~2.3x faster (N=8 0.63s vs 1.42s) at comparable quality.
+- **Shared warm-session pool.** One Realtime session serializes responses, so `rtinferd` keeps a small warm ring per model and fans concurrent asks across those sockets. **Pool size is MEASURED, not folklore** (`docs/benchmarks/realtime-concurrency.md`, 2026-06-25): on a 16-wide fan-out a 4-socket pool beat 8 and 16 on BOTH models (gpt-realtime-2 1539/1725/2731ms; mini 984/1561/2617ms) -- more sockets only adds connect contention. There is **no** account concurrent-session cap (the old "~8 ceiling" claim is false: 32/32 sockets connected cleanly); the small-pool win is latency, not a session limit. One socket can still carry ~128 in-flight OOB responses for throughput (the judge path); the pool optimizes latency. Re-run `probes/bench_realtime_concurrency.py` before changing the cap.
+- **Always-on, fail-open.** `rtinferd` keeps the warm pool alive across callers, reconnects + refreshes tokens on drop, and is discovered through loopback health. Daemon unavailable -> client returns null -> fast path falls back to the direct-session agentic fallback.
+- **Scorer model knob.** `UNITRACE_SEARCH_SCORER_MODEL` (default `gpt-realtime-2`). `gpt-realtime-mini` is opt-in: 2x TPS, 32k context, function calling, but **rejects the `reasoning` option** ("Unsupported option for this model") so `_realtime_reasoning_config` omits `reasoning` for mini (and for effort `none`/`off`). The warm pool is namespaced by model inside `rtinferd`. mini scores ~2.3x faster (N=8 0.63s vs 1.42s) at comparable quality.
 
 ## Realtime model throughput (WSS, measured)
 
@@ -88,7 +88,7 @@ Superseded trace variants (`trace-gemini.sh` Gemini CLI, `trace-gk.sh` Grok, `tr
 
 **gpt-realtime-2** (OpenAI Realtime WebSocket) is the target model/API for deep codebase trace in this skill. Default entry: `unitrace.sh` → `trace-rt.sh` / `realtime-trace.mjs`.
 
-- Explore phase: default mode `nav` (host-driven micro-agent, omit + steer on user turns), with `agentic` (legacy `explore_exec` Realtime loop, same explore defaults) as the override and the automatic fail-open.
+- Explore phase: default mode `nav` (host-driven micro-agent, omit + steer on user turns), with `agentic` running through `rtinferd` first and falling back to the live session only when the daemon path misses.
 - Submit phase: Realtime structured output (`askStructured` / function call JSON) with host pointer rehydration, synthesized over the warm daemon pool by default; default reasoning effort `low` on both daemon and session fallback paths.
 - **Do not** add Codex Responses HTTP (`chatgpt.com/backend-api/codex/responses`) or other Responses-API submit paths here — they are out of scope and were removed after bench showed no win over Realtime submit.
 

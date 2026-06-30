@@ -8,8 +8,8 @@ handshake-free judging; on ANY daemon failure, unreachability, or timeout it fal
 back to a direct ``codex_judge.ask_structured``. Token usage from either path is
 recorded to the session ledger (``judge_usage.record_usage``) for cache measurement.
 
-Outside hooks (CLI, tests, subagents) no session is bound, so this is exactly a
-direct ``codex_judge.ask_structured`` call -- fully backward compatible.
+Outside hooks (CLI, tests, subagents) no session is bound, the shared daemon is
+still preferred when available; usage simply is not recorded to a session ledger.
 """
 
 from __future__ import annotations
@@ -89,13 +89,6 @@ def ask_structured(
     direct_model_kwargs: dict[str, Any] = {} if model is None else {"model": model}
 
     input_data = _SESSION.get()
-
-    if input_data is None:
-        # No bound session (CLI / tests / subagents): exactly a direct call, with
-        # the original signature -- no usage sink, nothing to record against.
-        return codex_judge.ask_structured(
-            system, user, schema, schema_name=schema_name, **direct_model_kwargs, **kwargs
-        )
 
     if _daemon_enabled() and not _judge_offline():
         # Preferred: the shared always-on rtinferd daemon, when present on this

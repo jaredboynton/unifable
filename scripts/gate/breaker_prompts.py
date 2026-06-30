@@ -327,17 +327,19 @@ _DISARM_SCHEMA: dict[str, Any] = {
         "lift_reason": {
             "type": "string",
             "description": (
-                "When provisional_release=1, 1-2 sentences for the model explaining why the breaker "
-                "opened temporarily. Empty otherwise."
+                "When provisional_release=1, an internal audit note for the breaker log "
+                "explaining why the breaker opened temporarily. NOT shown to the agent. "
+                "Empty otherwise."
             ),
         },
         "lift_scope": {
             "type": "string",
             "description": (
-                "When provisional_release=1, what work is allowed while lifted. Must cover the minimal "
-                "implementation steps toward USER GOAL that apply the knowledge being verified (scripts, "
-                "one-off checks, temp files) -- not 'read-only only' when the user goal requires "
-                "execution. Empty otherwise."
+                "When provisional_release=1, a terse one-line label naming the work allowed "
+                "while lifted (the minimal implementation steps toward USER GOAL that apply "
+                "the knowledge being verified: scripts, one-off checks, temp files -- not "
+                "'read-only only' when the user goal requires execution). This is the only "
+                "lift field shown to the agent; keep it short and imperative. Empty otherwise."
             ),
         },
     },
@@ -460,7 +462,9 @@ _DISARM_SYSTEM = (
     "searching GitHub/community prior-art RE, running empirical probes, capturing API responses, "
     "retracting outcome claims, making the minimal config edit needed to run a user-requested "
     "check) rather than asserting future outcomes as settled. If so, set provisional_release=1 "
-    "with lift_reason (why you opened temporarily) and lift_scope (allowed work toward USER GOAL). "
+    "with lift_reason (internal audit note for the breaker log; NOT shown to the agent) and "
+    "lift_scope (a terse one-line label of the allowed work toward USER GOAL -- this is the only "
+    "lift field the agent sees, so keep it short and imperative). "
     "lift_scope must cover minimal scripts/checks needed to apply verified knowledge toward the "
     "user goal, not read-only-only when execution is required. Do NOT repeat "
     "the same needed if the model already did those reads -- lift instead; if an empirical run "

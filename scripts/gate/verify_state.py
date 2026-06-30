@@ -126,12 +126,9 @@ def reset_completion_stall(ledger: dict[str, Any]) -> None:
 def completion_runaway_warning(incomplete_count: int) -> str:
     """Loud escalation emitted when the completion breaker releases on a runaway."""
     return (
-        "Completion breaker RELEASED after "
-        f"{COMPLETION_MAX_STALLED_BLOCKS} consecutive stops with no net progress "
-        f"({incomplete_count} requirement(s) still unvalidated). The judge was "
-        "adding requirements at least as fast as they validate (a runaway). "
-        "Surfacing for human review instead of trapping the session -- inspect "
-        "the spec and evidence if these requirements are not real."
+        f"Completion gate released for human review: {incomplete_count} "
+        f"requirement(s) still unvalidated after {COMPLETION_MAX_STALLED_BLOCKS} "
+        "stalled stops. Inspect the spec and evidence."
     )
 
 

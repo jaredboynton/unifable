@@ -45,8 +45,13 @@ def _format_scaffold_onboarding(
     heavy_scaffold: bool,
     plan_mode: dict,
     skip_cli_tutorial: bool = False,
+    session_frame_fired: bool = False,
 ) -> str:
-    """Full spec CLI tutorial — emit only on first scaffold create."""
+    """Full spec CLI tutorial — emit only on first scaffold create.
+
+    When the SessionStart frame already fired (session_frame_fired), the
+    "unifable restate" first-action instruction is NOT repeated here -- the
+    scaffold onboarding starts at add-task instead. (Redundancy-1.)"""
     profile_note = (
         " Operational profile: no repo path:line or external URL required before edits."
         if evidence_profile == "operational"
@@ -59,13 +64,23 @@ def _format_scaffold_onboarding(
         task_guidance = plan_mode_spec_task_guidance(plan_mode)
     except Exception:
         pass
+    if session_frame_fired:
+        next_block = (
+            "Next:\n"
+            "1. unifable add-task --title '<requirement>' --check '<runnable check>'"
+            f"{task_guidance}\n\n"
+        )
+    else:
+        next_block = (
+            "Next:\n"
+            "1. unifable restate '<goal in your own words>'\n"
+            "2. unifable add-task --title '<requirement>' --check '<runnable check>'"
+            f"{task_guidance}\n\n"
+        )
     block = (
         f"\n\nEvidence spec created at {path}.{profile_note}\n"
         "Do not edit spec JSON.\n\n"
-        "Next:\n"
-        "1. unifable restate '<goal in your own words>'\n"
-        "2. unifable add-task --title '<requirement>' --check '<runnable check>'"
-        f"{task_guidance}\n\n"
+        f"{next_block}"
     )
     if heavy_scaffold:
         block += (
@@ -144,6 +159,7 @@ def _append_scaffold_context(
             heavy_scaffold=heavy_scaffold,
             plan_mode=plan_mode if isinstance(plan_mode, dict) else {},
             skip_cli_tutorial=bool(ledger.get("inject_heavy_brief")),
+            session_frame_fired=bool(ledger.get("session_frame_notified")),
         )
 
         def _mark_scaffold(_led):

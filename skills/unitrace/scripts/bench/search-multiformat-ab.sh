@@ -5,15 +5,15 @@
 # Usage:
 #   search-multiformat-ab.sh [--corpus multiformat|unifable|<dir>] \
 #       [--queries FILE] [--repo DIR] [--variants a,b] [--repeats N] \
-#       [--concurrency N] [--debug]
+#       [--concurrency N] [--warmup N] [--query-limit N] [--debug]
 #
-# Defaults: corpus=multiformat, variants=uds,rtinfer, repeats=3, concurrency=1.
+# Defaults: corpus=multiformat, variants=rtinfer, repeats=3, concurrency=1.
 # Results land in scripts/bench/results/<ts>/{raw.json,summary.md}; the script
 # exits nonzero on a FAIL verdict so it can gate a default flip.
 #
 # Needs Codex auth (codex login) and a reachable daemon or rtinfer endpoint.
 # A `rtinfer` arm with served-rate < 90% means no cse-toold was reached; the
-# verdict marks the run invalid rather than passing on a silent UDS fallthrough.
+# verdict marks the run invalid rather than passing on a silent fallthrough.
 #
 # Tip: clear stale search daemon sockets before a fresh matrix:
 #   rm -f ~/.unifable/searchd/*.sock ~/.unifable/searchd/*.lock

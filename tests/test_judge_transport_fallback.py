@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""judge_transport fail-open seam: with no session bound or the daemon disabled,
-it is exactly a direct codex_judge.ask_structured call, and token usage from the
-direct path is still recorded to the session ledger.
+"""judge_transport fail-open seam: prefer rtinferd whenever available, and
+record direct-path token usage against the session ledger on fallback.
 """
 
 from __future__ import annotations
@@ -15,21 +14,19 @@ import codex_judge  # noqa: E402
 import judge_transport as jt  # noqa: E402
 
 
-def test_no_session_is_direct(monkeypatch):
-    seen = {}
-
-    def fake(system, user, schema, *, schema_name="result", on_usage=None, **kw):
-        seen["system"] = system
-        return {"verdict": 1}
-
-    monkeypatch.setattr(codex_judge, "ask_structured", fake)
+def test_no_session_prefers_daemon(monkeypatch):
+    monkeypatch.setenv("UNIFABLE_JUDGE_DAEMON", "1")
+    monkeypatch.delenv("UNIFABLE_JUDGE_OFFLINE", raising=False)
+    monkeypatch.setattr(
+        "rtinfer_client.ask_structured",
+        lambda system, user, schema, **kw: ({"verdict": 1}, {"total_tokens": 1}),
+    )
     jt.bind_session(None)
     try:
         out = jt.ask_structured("S", "U", {"type": "object"}, schema_name="x")
     finally:
         jt.bind_session(None)
     assert out == {"verdict": 1}
-    assert seen["system"] == "S"
 
 
 def test_daemon_disabled_falls_back_and_records_usage(monkeypatch):

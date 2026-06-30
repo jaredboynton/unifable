@@ -113,6 +113,10 @@ DEFAULT_LEDGER: dict[str, Any] = {
     # UserPromptSubmit scaffold onboarding (gate_prompt.py): full CLI tutorial once.
     "prompt_scaffold_notified": False,
     "citation_footer_notified": False,
+    # SessionStart frame (session_start.py): records that the standing
+    # "unifable restate" first-action frame already fired, so the first-prompt
+    # scaffold onboarding does not re-emit the restate instruction (Redundancy-1).
+    "session_frame_notified": False,
     # UserPromptSubmit router pack dedup (pack_router.py).
     "router_matched_tags": [],
     "router_fired_tags": [],

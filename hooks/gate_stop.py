@@ -81,8 +81,7 @@ def _completion_stop_hint(input_data: dict, spec: dict, incomplete: list[str]) -
         signal = (
             f"The completion breaker has re-blocked Stop {count} times; "
             f"{len(incomplete)} requirement(s) still not validated "
-            f"({', '.join(incomplete)}). The agent may be looping on "
-            "The agent may be looping without converging."
+            f"({', '.join(incomplete)}). The agent may be looping without converging."
         )
         return judge_hint(spec, signal=signal, recent=recent)
     except Exception:
@@ -812,11 +811,16 @@ def main() -> int:
             return 0
 
     warning = warning_after_max_blocks(ledger)
-    verify_note = _advance_auto_verify(input_data)
-    release_note = _advance_release(input_data)
-    parts = [p for p in (warning, verify_note, release_note) if p and str(p).strip()]
-    if parts:
-        emit_json({"systemMessage": "\n".join(parts)})
+    # _advance_release and _advance_auto_verify must still run (they persist
+    # breaker state: drain the release lane, run the release judge, poll
+    # auto-verify, disarm). But their returned notes are internal breaker state
+    # the model cannot act on at end of turn, so they are NOT surfaced in the
+    # model-facing systemMessage. Only the genuine missing-verification nudge
+    # (warning_after_max_blocks) reaches the model on the allow-stop path.
+    _advance_release(input_data)
+    _advance_auto_verify(input_data)
+    if warning and str(warning).strip():
+        emit_json({"systemMessage": str(warning).strip()})
     else:
         emit_json({})
     return 0

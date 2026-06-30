@@ -384,31 +384,35 @@ def apply_loop_release_verdict(
 
 
 def format_loop_lift_context(ledger: dict[str, Any]) -> str:
-    """Model-facing loop-lift notice. Permanent retractions use normal spec headlines only."""
+    """Model-facing loop-lift notice. Permanent retractions use normal spec headlines only.
+
+    `loop_lift_reason` is an internal audit note (the loop judge prompt marks it
+    NOT shown to the agent), so only the scope + remaining count surface here."""
     kind = str(ledger.get("loop_lift_kind") or "")
     if not kind:
         return ""
     if kind == "permanent":
         return ""
-    reason = str(ledger.get("loop_lift_reason") or "").strip()
     if kind == "provisional":
         remaining = int(ledger.get("loop_lift_stops_remaining") or 0)
         scope = str(ledger.get("loop_lift_scope") or "").strip()
+        scope_line = f" Stay within scope: {scope}." if scope else ""
         return (
-            "Completion loop lift (provisional):\n"
-            f"{reason}\n"
-            f"Stop lifts remaining: {remaining}. Stay within scope: {scope}"
+            "Completion loop lift (provisional) active.\n"
+            f"Stop lifts remaining: {remaining}.{scope_line}"
         )
     return ""
 
 
 def provisional_allow_message(ledger: dict[str, Any]) -> str:
-    """Message when provisional lift consumes one Stop pass."""
+    """Message when provisional lift consumes one Stop pass.
+
+    `loop_lift_reason` is an internal audit note (NOT shown to the agent); only
+    scope + remaining count reach the model."""
     remaining = int(ledger.get("loop_lift_stops_remaining") or 0)
     scope = str(ledger.get("loop_lift_scope") or "").strip()
-    reason = str(ledger.get("loop_lift_reason") or "").strip()
+    scope_line = f" Stay within scope: {scope}." if scope else ""
     return (
-        "Completion breaker: provisional Stop lift active. "
-        f"{reason} Stay within scope: {scope}. "
-        f"Lifts remaining after this stop: {remaining}."
+        "Completion breaker: provisional Stop lift active."
+        f"{scope_line} Lifts remaining after this stop: {remaining}."
     )

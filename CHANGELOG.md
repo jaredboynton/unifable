@@ -1,5 +1,65 @@
 # Changelog
 
+## 1.22.3 - 2026-06-29
+
+- Stop narrating internal breaker state to the model. The provisional-lift
+  message and the standing PostToolUse breaker line were verbose, redundant,
+  and arrived too late to steer the tool decision they described. The lift is
+  now an internal mechanism enforced by `tool_scope` + block directives; the
+  model never sees lift prose. Six related fixes:
+  - `lift_reason` is no longer model-facing. The release judge prompt now marks
+    it an internal audit note (NOT shown to the agent); only a terse one-line
+    `lift_scope` label is retained for the event log. (`scripts/gate/breaker_prompts.py`)
+  - The provisional lift produces no model-facing notify. `_apply_release`
+    records the lift in state (for `tool_scope` enforcement + the LIFT event)
+    and returns `""`, so neither the in-band `breaker_notify` nor the background
+    release drain carries lift prose. (`scripts/gate/breaker_runtime.py`,
+    `scripts/gate/breaker_orchestration.py`)
+  - PostToolUse no longer emits the standing `breaker: ARMED` /
+    `breaker: PROVISIONAL lift` line; `_breaker_status_context` is a `""` stub.
+    The PreToolUse one-shot notify is the single source of breaker guidance.
+    (`hooks/gate_post_tool.py`)
+  - PreToolUse `_block` no longer double-prints `breaker_notify` to stderr; the
+    block `message` is the single channel. The `is_redundant_with_notify`
+    suppression (which would emit empty blocks once the notify stopped printing)
+    is removed. (`hooks/pre_tool_use.py`)
+  - Stop-hook cleanup: the allow-stop tail emits `{}` unless
+    `warning_after_max_blocks` is non-empty (it still calls the
+    state-persisting `_advance_release`/`_advance_auto_verify` for side
+    effects); `provisional_allow_message`/`format_loop_lift_context` drop the
+    internal `loop_lift_reason`; `completion_runaway_warning` is trimmed to a
+    one-line human-review nudge; fixed a duplicated clause in
+    `_completion_stop_hint`'s signal. (`hooks/gate_stop.py`,
+    `scripts/gate/loop_release.py`, `scripts/gate/verify_state.py`)
+  - De-duplicate the `unifable restate` first-action instruction: SessionStart
+    now sets `session_frame_notified`, and the first-prompt scaffold onboarding
+    drops the restate line (starts at `add-task`) when that frame already fired.
+    (`hooks/session_start.py`, `hooks/gate_prompt.py`, `scripts/gate/ledger.py`)
+
+- unitrace bench harness: the rtinfer borrow-proof gate runs the rtinfer gold
+  proof (plus a small dead-endpoint fail-open smoke) on both corpora instead of
+  a uds-vs-rtinfer A/B; `search-multiformat-ab` gains `--warmup`/`--query-limit`
+  and concurrency defaults. New `rtinfer-tool-caller.mjs` helper for tool-loop
+  serialization. (`skills/unitrace/scripts/bench/`, `skills/unitrace/scripts/lib/`)
+
+- unitrace daemon cutover cleanup: agentic search/trace stay on the rtinferd
+  daemon bridge by default, trace/websearch no longer eagerly open a direct
+  Realtime session before they know they need the fallback path, and the bench
+  docs/scripts drop the remaining live `searchd`/`uds` cleanup language in
+  favor of `direct` fallback terminology. Added daemon tool-round coverage in
+  the unitrace rtinfer client tests. (`skills/unitrace/scripts/realtime-*`,
+  `skills/unitrace/scripts/lib/`, `skills/unitrace/scripts/bench/`)
+
+Verification:
+
+- `just test-all` (1481 passed, 9 subtests)
+- `just generated-docs` (regenerated `docs/generated/judgeprompts.md`)
+- `ruff check`: zero new errors vs baseline (5 pre-existing C901, 1 pre-existing F841)
+- `bash skills/unitrace/scripts/test-search.sh`
+- `bash skills/unitrace/scripts/test-trace-rt.sh`
+- `node --test skills/unitrace/scripts/test/daemon-attribution.test.mjs`
+- `node --test skills/unitrace/scripts/test/rtinfer-client.test.mjs`
+
 ## 1.22.2 - 2026-06-29
 
 - Finish the explore-to-unitrace rename in model-facing gate copy. The groundedness

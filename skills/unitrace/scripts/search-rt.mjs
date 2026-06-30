@@ -7,9 +7,10 @@
 //   search.sh "<natural-language query>"   (preferred; handles preflight)
 //
 // Spawns the model-agnostic runSearch loop (search-lib.mjs) with gpt-realtime-2
-// as the brain over a Codex OAuth Realtime WebSocket, and local ripgrep (rg) as
-// the tool executor. On finish, reads authoritative bytes from disk and prints
-// verbatim code-reference blocks in startLine:endLine:path format.
+// as the brain over rtinferd by default, with a direct Realtime WebSocket
+// fallback only when the daemon path is unavailable or explicitly opted out. On
+// finish, reads authoritative bytes from disk and prints verbatim code-reference
+// blocks in startLine:endLine:path format.
 //
 // Zero npm dependencies. Requires Bun or Node 18+ and rg on PATH, plus Codex auth.
 //
@@ -35,6 +36,7 @@ import {
   TOOL_SPECS,
 } from "./search-lib.mjs";
 import { createRealtimeSearchCaller } from "./realtime-search.mjs";
+import { createRtinferToolCaller } from "./lib/rtinfer-tool-caller.mjs";
 import { generateMapText } from "./map.mjs";
 import { seedSearchHits } from "./search-seed.mjs";
 import { fastEnabled, runFastPath } from "./search-fast.mjs";
@@ -95,7 +97,7 @@ if (fastEnabled()) {
   }
 }
 
-const callModel = createRealtimeSearchCaller({
+const fallbackCaller = createRealtimeSearchCaller({
   model: MODEL,
   authPath: AUTH_PATH,
   systemPrompt: SYSTEM_PROMPT,
@@ -103,6 +105,22 @@ const callModel = createRealtimeSearchCaller({
   reasoningEffort: REASONING_EFFORT,
   timeoutMs: TIMEOUT_MS,
   debug: DEBUG,
+});
+
+const callModel = createRtinferToolCaller({
+  systemPrompt: SYSTEM_PROMPT,
+  toolSpecs: TOOL_SPECS,
+  model: MODEL,
+  reasoningEffort: REASONING_EFFORT,
+  namespace: "search-agentic",
+  schemaName: "search_tool_turn",
+  addendum: [
+    "You are operating through a structured daemon bridge.",
+    "Return tool calls only; do not narrate steps.",
+    "Prefer aggressive batching and converge in 2-3 turns.",
+  ].join("\n"),
+  debug: DEBUG,
+  fallback: fallbackCaller,
 });
 
 // Overlap the ~330ms socket connect+prewarm with map generation so it leaves
