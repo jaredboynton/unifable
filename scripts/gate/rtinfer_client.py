@@ -1,28 +1,26 @@
 #!/usr/bin/env python3
-"""Shared rtinfer/1 HTTP client -- discover and use the always-on realtime daemon.
+"""Shared rtinfer/1 HTTP client -- discover and use the always-on rtinferd daemon.
 
-The cse-tools daemon (`cse-toold`) exposes a loopback `/v1/infer` endpoint serving
-warm realtime + responses model pools. When that daemon is present on this
-machine, unifable's judge can borrow it instead of spawning its own per-session
-WebSocket daemon: same models, one warm pool, no second auth path. Neither repo
-imports the other; discovery is purely by loopback URL + a shared well-known file.
+The standalone rtinferd daemon (repo: rtinfer) exposes a loopback `/v1/infer`
+endpoint serving warm realtime + responses model pools. It advertises itself via
+``~/.cse-rtinfer/endpoint.json``. When rtinferd is present on this machine,
+unifable's judge can borrow it instead of spawning its own per-session WebSocket
+daemon: same models, one warm pool, no second auth path.
 
 This is a *preferred* path, never a required one. It fails open exactly like the
 rest of the gate: any unreachability, timeout, or non-OK envelope returns
 ``(None, None)`` so ``judge_transport`` falls through to the existing per-session
-daemon and then a direct ``codex_judge.ask_structured``. If unifable is installed
-on a host with no cse-toold, nothing here ever fires.
+daemon and then a direct ``codex_judge.ask_structured``.
 
-Discovery order (matches the cse-sweep client, scripts/lib/daemon-client.mjs):
+Discovery order:
   1. $CSE_RTINFER_URL              explicit override / tests
-  2. http://127.0.0.1:8787         cse-toold cockpit default
-  3. ~/.cse-rtinfer/endpoint.json  {contract:"rtinfer/1", base_url:...}
+  2. ~/.cse-rtinfer/endpoint.json  {contract:"rtinfer/1", base_url:...}
 
 LOCKSTEP CONTRACT: the rtinfer/1 wire shape lives in THREE clients that must be
-edited together when cse-toold bumps the contract:
+edited together when the contract bumps:
   - this file (unifable judge path)
   - skills/unitrace/scripts/lib/rtinfer-client.mjs (unifable search/daemon path)
-  - cse-tools .../cse-sweep/scripts/lib/daemon-client.mjs
+  - rtinfer clients/js/rtinfer-client.mjs + clients/python/rtinfer_client.py
 The health gate accepts any rtinfer/1.x (major-1 match), so a minor bump does not
 dark-fail; a true rtinfer/2 cleanly falls open.
 
@@ -49,7 +47,6 @@ from typing import Any
 
 CONTRACT = "rtinfer/1"
 _CONTRACT_MAJOR = 1
-_COCKPIT_DEFAULT = "http://127.0.0.1:8787"
 _WELL_KNOWN = Path.home() / ".cse-rtinfer" / "endpoint.json"
 
 
@@ -102,12 +99,11 @@ def _candidates() -> list[str]:
     override = os.environ.get("CSE_RTINFER_URL")
     if override:
         out.append(override.strip())
-    # Strict mode: trust ONLY the explicit override, no cockpit/well-known
-    # fallback (mirrors rtinfer-client.mjs CSE_RTINFER_STRICT_URL). Default off
-    # keeps the documented discovery order.
+    # Strict mode: trust ONLY the explicit override, no well-known fallback
+    # (mirrors rtinfer-client.mjs CSE_RTINFER_STRICT_URL). Default off keeps
+    # the documented discovery order.
     if override and _env_bool("CSE_RTINFER_STRICT_URL"):
         return out
-    out.append(_COCKPIT_DEFAULT)
     try:
         data = json.loads(_WELL_KNOWN.read_text("utf-8"))
         if isinstance(data, dict) and _contract_major_ok(data.get("contract")) and data.get("base_url"):

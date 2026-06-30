@@ -24,12 +24,11 @@
 // timeout, or non-OK envelope, so daemon-client.mjs falls through to the
 // per-session UDS pool and then the agentic loop. On a host with no cse-toold,
 // nothing here ever opens a socket (discovery is gated on a presence hint so a
-// bare host never even probes the cockpit default).
+// bare host never even probes the network).
 //
 // Discovery order (matches rtinfer_client.py):
 //   1. $CSE_RTINFER_URL              explicit override / tests
-//   2. http://127.0.0.1:8787         cse-toold cockpit default
-//   3. ~/.cse-rtinfer/endpoint.json  {contract:"rtinfer/1", base_url:...}
+//   2. ~/.cse-rtinfer/endpoint.json  {contract:"rtinfer/1", base_url:...}
 //
 // Stdlib only: node:http + node:fs.
 
@@ -41,7 +40,6 @@ import { withReasoningSteer } from "./realtime_client.mjs";
 
 const CONTRACT = "rtinfer/1";
 const CONTRACT_MAJOR = 1;
-const COCKPIT_DEFAULT = "http://127.0.0.1:8787";
 
 // Persistent keep-alive agent so back-to-back scoring calls reuse one warm TCP
 // connection to the loopback daemon instead of paying connect + slow-start on
@@ -108,10 +106,9 @@ export function rtinferEnabled() {
   return truthy.includes(legacy);
 }
 
-// Cheap presence hint so a host with no cse-tools never pays a network probe:
+// Cheap presence hint so a host with no rtinferd never pays a network probe:
 // only discover when an explicit URL is set or the well-known file exists
-// (cse-toold writes it while running). The cockpit default is then tried as a
-// candidate, but only when one of these hints is already present.
+// (rtinferd writes it while running).
 function discoveryHintPresent() {
   if ((process.env.CSE_RTINFER_URL || "").trim()) return true;
   try { return fs.statSync(wellKnownPath()).isFile(); } catch { return false; }
@@ -121,12 +118,10 @@ function candidates() {
   const out = [];
   const override = (process.env.CSE_RTINFER_URL || "").trim();
   if (override) out.push(override);
-  // Strict mode: trust ONLY the explicit override, no cockpit/well-known
-  // fallback. Lets an operator pin one endpoint (and lets the borrow bench's
-  // fail-open arm point at a dead port without silently borrowing the live
-  // cockpit on 8787). Default off keeps the documented discovery order.
+  // Strict mode: trust ONLY the explicit override, no well-known fallback.
+  // Lets an operator pin one endpoint (and lets the borrow bench's fail-open
+  // arm point at a dead port). Default off keeps the documented discovery order.
   if (override && envBool("CSE_RTINFER_STRICT_URL")) return out;
-  out.push(COCKPIT_DEFAULT);
   try {
     const data = JSON.parse(fs.readFileSync(wellKnownPath(), "utf8"));
     if (data && contractMajorOk(data.contract) && data.base_url) out.push(String(data.base_url).trim());
@@ -135,7 +130,7 @@ function candidates() {
 }
 
 // Test seam: override the candidate list (mirrors rtinfer_client.py's
-// _candidates monkeypatch) so tests do not depend on a live cockpit on the host.
+// _candidates monkeypatch) so tests do not depend on a live daemon on the host.
 let _candidatesFn = candidates;
 export function _setCandidatesForTest(fn) {
   _candidatesFn = typeof fn === "function" ? fn : candidates;
