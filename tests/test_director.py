@@ -116,6 +116,12 @@ def test_arm_judge_prompt_does_not_own_restriction_copy() -> None:
         assert text.strip()
 
 
+def test_resolve_query_schema_names_unitrace_not_explore_skill() -> None:
+    desc = gb._JUDGE_SCHEMA["properties"]["resolve_query"]["description"]
+    assert "unitrace search" in desc
+    assert "explore search" not in desc
+
+
 def test_arm_judge_without_out_is_backward_compatible() -> None:
     dj = DirectorJudge(verdict=0)
     result = gb.arm_judge("a non-empty segment", judge=dj)

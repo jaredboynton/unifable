@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.22.2 - 2026-06-29
+
+- Finish the explore-to-unitrace rename in model-facing gate copy. The groundedness
+  judge `resolve_query` schema and breaker self-resolution transcript still said
+  "explore search"; they now say "unitrace search" (`scripts/gate/breaker_prompts.py`,
+  `scripts/gate/breaker_judges.py`). SessionStart guidance already read "use
+  unitrace for code tracing"; added a regression guard (`tests/test_context_block_thin.py`,
+  `tests/test_director.py`). Regenerated `docs/generated/judgeprompts.md`.
+
+Verification:
+
+- `python3 -m py_compile scripts/gate/breaker_prompts.py scripts/gate/breaker_judges.py scripts/gate/verify_lane.py`
+- `just generated-docs`
+- `uv run --no-project --with-requirements requirements-dev.txt python -m pytest tests/test_context_block_thin.py tests/test_director.py tests/test_groundedness_self_resolve.py -q`
+
 ## 1.22.1 - 2026-06-30
 
 - Fix a completion-gate deadlock that trapped sessions doing trivial git workflow

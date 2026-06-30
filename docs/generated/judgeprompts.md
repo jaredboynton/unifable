@@ -1913,7 +1913,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
       "type": "integer"
     },
     "resolve_query": {
-      "description": "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a single literal substring `verify` can express): a natural-language search whose results would settle it -- enumeration/absence claims ('are there other live files referencing X'), completeness over a TRUNCATED tool output, 'is Y still used anywhere'. The breaker runs it READ-ONLY via explore search and DE-ESCALATES (does NOT arm) if the gathered evidence grounds the claim, so you need not arm and force the model to re-read what you could check here. Empty when verdict=0, when `verify` already covers it, or when the claim is not settleable by searching this repo (external/API facts, judgement, runtime behavior).",
+      "description": "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a single literal substring `verify` can express): a natural-language search whose results would settle it -- enumeration/absence claims ('are there other live files referencing X'), completeness over a TRUNCATED tool output, 'is Y still used anywhere'. The breaker runs it READ-ONLY via unitrace search and DE-ESCALATES (does NOT arm) if the gathered evidence grounds the claim, so you need not arm and force the model to re-read what you could check here. Empty when verdict=0, when `verify` already covers it, or when the claim is not settleable by searching this repo (external/API facts, judgement, runtime behavior).",
       "type": "string"
     },
     "steering": {
@@ -2108,7 +2108,7 @@ You are a strict groundedness monitor watching an autonomous coding agent's rece
                 "type": "integer"
               },
               "resolve_query": {
-                "description": "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a single literal substring `verify` can express): a natural-language search whose results would settle it -- enumeration/absence claims ('are there other live files referencing X'), completeness over a TRUNCATED tool output, 'is Y still used anywhere'. The breaker runs it READ-ONLY via explore search and DE-ESCALATES (does NOT arm) if the gathered evidence grounds the claim, so you need not arm and force the model to re-read what you could check here. Empty when verdict=0, when `verify` already covers it, or when the claim is not settleable by searching this repo (external/API facts, judgement, runtime behavior).",
+                "description": "When verdict=1 AND the claim is checkable by FINDING/READING repo evidence (not a single literal substring `verify` can express): a natural-language search whose results would settle it -- enumeration/absence claims ('are there other live files referencing X'), completeness over a TRUNCATED tool output, 'is Y still used anywhere'. The breaker runs it READ-ONLY via unitrace search and DE-ESCALATES (does NOT arm) if the gathered evidence grounds the claim, so you need not arm and force the model to re-read what you could check here. Empty when verdict=0, when `verify` already covers it, or when the claim is not settleable by searching this repo (external/API facts, judgement, runtime behavior).",
                 "type": "string"
               },
               "steering": {

@@ -215,7 +215,7 @@ def _self_resolve_via_search(
     *,
     user_goal: str = "",
 ) -> bool:
-    """Read-only self-resolution: gather repo evidence via explore search and ask the
+    """Read-only self-resolution: gather repo evidence via unitrace search and ask the
     release judge whether the flagged claim is now grounded. Returns True to
     DE-ESCALATE (do not arm). Fail-open: disabled, empty query, no search results,
     or any error returns False so the arm verdict stands -- this can only REMOVE a
@@ -229,7 +229,7 @@ def _self_resolve_via_search(
         snippets = run_explore_search(q, cwd)
         if not snippets:
             return False
-        enriched = f"{segment}\n\n[breaker self-resolution] read-only explore search for '{q}' returned:\n{snippets}"
+        enriched = f"{segment}\n\n[breaker self-resolution] read-only unitrace search for '{q}' returned:\n{snippets}"
         verdict = disarm_judge(claim, enriched, user_goal=user_goal)
         return bool(getattr(verdict, "grounded", False))
     except Exception:
@@ -439,7 +439,7 @@ def arm_judge(
         if verify_claim_predicate(obj.get("verify"), cwd) == "confirmed":
             return 0, "", ""
         # Read-only self-resolution: if the judge named a search that would settle the
-        # claim, run it (explore search.sh, read-only) and de-escalate if the gathered
+        # claim, run it (unitrace search.sh, read-only) and de-escalate if the gathered
         # evidence grounds it -- instead of arming and forcing the model to re-read what
         # the breaker could check here. De-escalate-only; disabled/empty/timeout/error
         # leaves the arm verdict intact, so it can never add a block.

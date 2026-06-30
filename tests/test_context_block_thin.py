@@ -77,6 +77,12 @@ def test_no_emoji_in_frame() -> None:
         assert ord(ch) < 0x1F000 or ch and ord(ch) > 0x1FAFF, f"unexpected emoji: {ch!r}"
 
 
+def test_frame_names_unitrace_not_explore_skill() -> None:
+    ctx = context_block.build_session_context()
+    assert "use unitrace for code tracing" in ctx
+    assert "use explore" not in ctx.lower()
+
+
 if __name__ == "__main__":
     import pytest
 

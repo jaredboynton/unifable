@@ -3,7 +3,7 @@
 
 When the breaker arms on a load-bearing claim that can only be grounded by RUNNING
 repo-sanctioned verification (test suites, builds, release/publication checks) -- the
-read-only self-resolve lanes (verify predicate / explore search / single read-only
+read-only self-resolve lanes (verify predicate / unitrace search / single read-only
 command) cannot cover those -- the judge decomposes the claim into atomic
 {subclaim, command} tasks. This module:
 
