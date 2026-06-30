@@ -315,6 +315,102 @@ export function grepHitSeeds({
   return added;
 }
 
+// Generic question scaffolding that should not form a code-symbol bigram.
+const PHRASE_STOP = new Set(
+  ("how does do the and then for from into that this with what when where which who "
+    + "why are was were will would can could should out over under via per a an of to in on "
+    + "it its is be by you your our final using use uses used build builds get gets make "
+    + "than them they not but also each any all one two get").split(/\s+/),
+);
+
+// Bridge prose -> definition. Prose questions often name a behavior as multi-word
+// English ("submit packet", "nav explore path") that maps to a camelCase
+// definition (buildSubmitPacket, runExploreNav) the lexical retriever misses:
+// the domain words are ubiquitous in a self-referential repo, so IDF down-weights
+// the load-bearing files to nothing and they never enter the candidate list.
+// Form camelCase variants from adjacent content-word bigrams, grep DEFINITION
+// lines only, rank a file by how many distinct question phrases point a definition
+// at it plus question/path term overlap, then seed the top few definition windows.
+// Deliberately distinct from the removed prose-NOUN pass: bigram concatenations
+// (specific, >= 7 chars), definition-gated (never bare content), ranked, and
+// tightly capped, so generic single nouns can't drag in unrelated files. Returns
+// the relative paths seeded. Kill-switch: UNITRACE_RT_PHRASE_SEED=0.
+export function phraseDefSeeds({
+  workspace,
+  question,
+  onRead,
+  max = envInt("UNITRACE_RT_PHRASE_SEED_MAX", 3),
+  before = envInt("UNITRACE_RT_GREP_SEED_BEFORE", 12),
+  after = envInt("UNITRACE_RT_GREP_SEED_AFTER", 28),
+}) {
+  if (process.env.UNITRACE_RT_PHRASE_SEED === "0") return [];
+  const words = String(question || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !PHRASE_STOP.has(w));
+  if (words.length < 2) return [];
+  const cap = (s) => s[0].toUpperCase() + s.slice(1);
+  const variants = new Set();
+  for (let i = 0; i < words.length - 1; i++) {
+    const a = words[i];
+    const b = words[i + 1];
+    for (const v of [a + cap(b), b + cap(a)]) {
+      if (v.length >= 7) variants.add(v);
+    }
+  }
+  if (!variants.size) return [];
+
+  // file -> { hits:Set<variant>, line:number }
+  const byFile = new Map();
+  for (const v of variants) {
+    let g;
+    try {
+      g = toolGrep(workspace, {
+        pattern: `\\b(?:function|class|const|let|var|export|async|def|interface|type|enum)\\s+[A-Za-z0-9_]*${v}`,
+        caseInsensitive: true,
+      });
+    } catch { continue; }
+    if (!g?.ok || !g.fileMatches?.length) continue;
+    for (const fm of g.fileMatches) {
+      const file = String(fm.file || "").replace(/^\.\//, "");
+      const rel = normalizeReadPath(workspace, file) || resolveCandidate(workspace, file);
+      if (!rel || !isSeedableSource(rel)) continue;
+      if (/(^|\/)(tests?|archive|bench|fixtures|node_modules)\//.test(rel)) continue;
+      const m0 = (fm.matches || [])[0];
+      if (!m0) continue;
+      const entry = byFile.get(rel) || { hits: new Set(), line: m0.lineNumber };
+      entry.hits.add(v);
+      if (m0.lineNumber < entry.line) entry.line = m0.lineNumber;
+      byFile.set(rel, entry);
+    }
+  }
+  if (!byFile.size) return [];
+
+  // Rank: distinct phrase-definitions on a file weigh double; question content
+  // words appearing in the path break ties toward the on-topic module (e.g.
+  // realtime-TRACE.mjs over websearch-lib.mjs for a "...final trace" question).
+  const scored = [...byFile.entries()].map(([rel, e]) => {
+    const low = rel.toLowerCase();
+    let pathOverlap = 0;
+    for (const w of new Set(words)) if (low.includes(w)) pathOverlap += 1;
+    return { rel, line: e.line, score: e.hits.size * 2 + pathOverlap };
+  });
+  scored.sort((x, y) => y.score - x.score || x.rel.localeCompare(y.rel));
+
+  const added = [];
+  for (const s of scored) {
+    if (added.length >= max) break;
+    const start = Math.max(1, s.line - before);
+    const end = s.line + after;
+    const r = toolReadRange(workspace, s.rel, { start_line: start, end_line: end, stripPreamble: STRIP_PREAMBLE });
+    if (!r.ok) continue;
+    if (onRead) onRead(s.rel, r.content || "", { pin: true });
+    added.push(s.rel);
+  }
+  return added;
+}
+
 export function seedExploreReads({
   workspace,
   question,
@@ -341,6 +437,13 @@ export function seedExploreReads({
   const grepAdded = grepHitSeeds({ workspace, question, onRead });
   for (const rel of grepAdded) record(rel);
   max += grepAdded.length;
+
+  // Prose -> definition bridge for questions that name behaviors in English
+  // rather than code symbols (where grepHitSeeds is a no-op). Own budget; only
+  // contributes load-bearing files the lexical retriever down-weighted away.
+  const phraseAdded = phraseDefSeeds({ workspace, question, onRead }).filter((rel) => !seen.has(rel));
+  for (const rel of phraseAdded) record(rel);
+  max += phraseAdded.length;
 
   if (seedFromMap) {
     for (const rel of requiredSeedPaths(question, workspace)) {

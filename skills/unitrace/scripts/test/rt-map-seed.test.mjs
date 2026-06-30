@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   deriveSeedPaths,
   extractMapPaths,
+  phraseDefSeeds,
   requiredSeedPaths,
   shouldStopExplore,
 } from "../lib/rt-map-seed.mjs";
@@ -73,6 +74,61 @@ test("deriveSeedPaths prefers ts twin over js when both exist", () => {
     const paths = deriveSeedPaths("How does gateway access enforcement work?", map, dir, { max: 4 });
     assert.ok(!paths.includes("gateway/src/generated/access-matrix.js"));
     assert.ok(paths.includes("gateway/src/generated/access-matrix.ts"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("phraseDefSeeds bridges a prose bigram to its camelCase definition", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unitrace-phrase-seed-"));
+  try {
+    fs.mkdirSync(path.join(dir, "lib"), { recursive: true });
+    // The load-bearing file: defines buildSubmitPacket. The question never names
+    // it as a symbol, only as the prose phrase "submit packet".
+    fs.writeFileSync(
+      path.join(dir, "lib", "trace-core.mjs"),
+      "export function buildSubmitPacket(args) {\n  return { ...args };\n}\n",
+    );
+    // A lexical look-alike that must NOT be seeded: different word, no def match.
+    fs.writeFileSync(
+      path.join(dir, "lib", "unrelated.mjs"),
+      "// submit packet mentioned in a comment but no definition here\n",
+    );
+    const added = [];
+    const out = phraseDefSeeds({
+      workspace: dir,
+      question: "How does the pipeline build the submit packet for a trace?",
+      onRead: (rel) => added.push(rel),
+    });
+    assert.ok(out.includes("lib/trace-core.mjs"), `expected trace-core seeded, got ${out.join(",")}`);
+    assert.ok(!out.includes("lib/unrelated.mjs"), "comment-only file must not be seeded");
+    assert.deepEqual(out, added);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("phraseDefSeeds abstains when no bigram resolves to a definition", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unitrace-phrase-none-"));
+  try {
+    fs.mkdirSync(path.join(dir, "lib"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "lib", "x.mjs"), "export const x = 1;\n");
+    const out = phraseDefSeeds({
+      workspace: dir,
+      question: "How does the widget frobnicate the doohickey?",
+      onRead: () => {},
+    });
+    assert.deepEqual(out, []);
+    // Kill-switch respected.
+    process.env.UNITRACE_RT_PHRASE_SEED = "0";
+    try {
+      assert.deepEqual(
+        phraseDefSeeds({ workspace: dir, question: "build the submit packet", onRead: () => {} }),
+        [],
+      );
+    } finally {
+      delete process.env.UNITRACE_RT_PHRASE_SEED;
+    }
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
