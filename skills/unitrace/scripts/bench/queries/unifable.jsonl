@@ -5,8 +5,8 @@
 {"query": "pack routing manifest inline discipline router", "gold": "scripts/gate/pack_router.py", "class": "code"}
 {"query": "alive registry process host", "gold": "scripts/gate/process_host.py", "class": "code"}
 {"query": "maintain a stable runtime under dot unifable decoupled from the plugin cache", "gold": "scripts/gate/runtime_sync.py", "class": "code"}
-{"query": "warm socket realtime daemon process pool", "gold": "scripts/gate/realtime_daemon.py", "class": "code"}
-{"query": "daemon version stamped self exit on runtime flip", "gold": "scripts/gate/realtime_daemon.py", "class": "code"}
+{"query": "warm daemon pool shim batch scoring fan out", "gold": "skills/unitrace/scripts/lib/daemon-client.mjs", "class": "code"}
+{"query": "rtinfer daemon discovery health gating fail open", "gold": "skills/unitrace/scripts/lib/rtinfer-client.mjs", "class": "code"}
 {"query": "bump the plugin version across all manifests", "gold": "scripts/bump_version.py", "class": "code"}
 {"query": "evidence gate design document", "gold": "docs/evidence-gate-design.md", "class": "doc"}
 {"query": "prime directive enforced behavior ships as a hook not a skill", "gold": "AGENTS.md", "class": "doc"}

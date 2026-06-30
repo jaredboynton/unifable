@@ -48,6 +48,16 @@ const GREP_EXCLUDES = [
   "__pycache__", ".venv", "venv", "dist", "build", "out", "target", ".next", ".nuxt",
   ".cache", ".turbo", "generated", "*.min.js", "*.min.css", "*.map", "*.generated.*",
 ];
+// Caller-supplied extra rg exclude globs (comma/space separated). Lets a harness
+// keep its own labeled query/answer files out of the searched root when that root
+// IS the repo (the real-repo bench corpus), so the queries file -- which contains
+// every query string + gold path verbatim -- cannot pollute retrieval. Empty by
+// default; never changes product search behavior unless a caller sets it.
+function extraGrepExcludes() {
+  const raw = process.env.UNITRACE_SEARCH_FAST_EXCLUDE;
+  if (!raw) return [];
+  return raw.split(/[,\s]+/).map((s) => s.trim()).filter(Boolean);
+}
 // Secret-bearing file globs excluded at the rg layer so they are never even read
 // off disk (defense in depth on top of SECRET_RE classification).
 const SECRET_GLOBS = ["*.pem", "*.key", "*.p12", "*.pfx", "*.credentials", "id_rsa*", "id_ed25519*"];
@@ -117,6 +127,7 @@ function runCombinedRg(repoRoot, terms, cap) {
     // stay out; .git is excluded below.
     "--hidden",
     ...GREP_EXCLUDES.flatMap((e) => ["-g", `!${e}`]),
+    ...extraGrepExcludes().flatMap((e) => ["-g", `!${e}`]),
     ...SECRET_GLOBS.flatMap((e) => ["-g", `!${e}`]),
     ...terms.flatMap((t) => ["-e", t]),
     ".",
@@ -141,8 +152,13 @@ function runCombinedRg(repoRoot, terms, cap) {
   });
 }
 
-const CENTRAL_RE = /(^|\/)(src|lib|pkg|internal|hooks|app|core|routes|middleware|handlers?|controllers?|services?)\//;
+const CENTRAL_RE = /(^|\/)(src|lib|pkg|internal|hooks|app|core|routes|middleware|handlers?|controllers?|services?|scripts)\//;
 const GENERATOR_RE = /(^|\/)(generate|generated|portal|vendor|examples?)\/|generate\.|\.min\./;
+// Test/spec files match implementation terms heavily (they import and exercise
+// the code under test) but are almost never the answer to "where is X
+// implemented". De-prioritize them so the real implementation is not evicted
+// from the candidate budget by its own test suite.
+const TEST_RE = /(^|\/)(tests?|__tests__|spec|specs)\/|(^|\/)(test_|tests_)|[._-](test|spec)\.[a-z]+$|_test\.[a-z]+$/i;
 
 // Classify combined-rg hits into per-file stats for FILE-LEVEL ranking. "def"
 // means the line declares a name containing one of the terms (DECL keyword +
@@ -189,6 +205,7 @@ export function scoreCandidates({ files, docFreq }) {
     let score = defCap * 4 + Math.min(f.ref, 3) + (f.terms.size - 1) * 6 + overflow;
     if (CENTRAL_RE.test(f.file)) score += 5;
     if (GENERATOR_RE.test(f.file)) score -= 4;
+    if (TEST_RE.test(f.file)) score -= 6;
     const hitWeight = (h) => h.matched.reduce((s, t) => s + rarity(t), 0) + (h.isDef ? 2 : 0);
     const hits = [...f.hits].sort((a, b) => hitWeight(b) - hitWeight(a) || a.line - b.line);
     scored.push({ file: f.file, cls: f.cls, score, hits, defCount: f.def, refCount: f.ref, termCount: f.terms.size });
@@ -457,16 +474,21 @@ export async function runFastPath(repoRoot, query, { debug = false, daemon = nul
     // A1: host coalesce, no final model turn. Group surviving spans BY FILE and
     // merge their ranges (path:a-b,c-d), so a file whose answer spans multiple
     // AST nodes is returned with every relevant range. Files are ordered by best
-    // span score and capped to FINISH_MAX.
-    const byFile = new Map(); // path -> { best, ranges:[[s,e]] }
+    // span score, then by best retrieval score (rarity-weighted lexical signal),
+    // then path. Carrying the retrieval score into the tiebreak is load-bearing:
+    // a no-reasoning scorer clusters many spans at the same integer, and breaking
+    // those ties alphabetically buries the gold file under lexically-earlier
+    // files that happen to tie -- the dominant real-repo top1 failure.
+    const byFile = new Map(); // path -> { best, bestRetr, ranges:[[s,e]] }
     for (const { c, score } of survivors) {
       let f = byFile.get(c.path);
-      if (!f) { f = { best: score, ranges: [] }; byFile.set(c.path, f); }
+      if (!f) { f = { best: score, bestRetr: c.score, ranges: [] }; byFile.set(c.path, f); }
       f.best = Math.max(f.best, score);
+      f.bestRetr = Math.max(f.bestRetr, c.score);
       f.ranges.push([c.startLine, c.endLine]);
     }
     const ordered = [...byFile.entries()]
-      .sort((a, b) => b[1].best - a[1].best || a[0].localeCompare(b[0]))
+      .sort((a, b) => b[1].best - a[1].best || b[1].bestRetr - a[1].bestRetr || a[0].localeCompare(b[0]))
       .slice(0, finishMax);
     const lines = ordered.map(([p, f]) => {
       const ranges = f.ranges.sort((a, b) => a[0] - b[0]).map(([s, e]) => `${s}-${e}`).join(",");

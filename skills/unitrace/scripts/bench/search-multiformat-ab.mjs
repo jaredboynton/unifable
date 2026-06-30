@@ -85,7 +85,7 @@ const OBJECTIVE_THRESHOLDS = {
 function parseArgs(argv) {
   const out = {
     corpus: "multiformat", queries: null, repo: null,
-    variants: ["rtinfer"], repeats: 3, concurrency: 1, warmup: 1, queryLimit: 0,
+    variants: ["rtinfer"], repeats: 3, concurrency: 4, warmup: 1, queryLimit: 0,
     minFindRate: null, minTop1Rate: null, maxP95Ms: null, failOpenMaxP95Ms: null,
     debug: false,
   };
@@ -198,8 +198,8 @@ async function evalQuery(q, root, overlay) {
   };
 }
 
-async function runVariant(name, queries, root, repeats, concurrency, warmup) {
-  const overlay = VARIANTS[name] || {};
+async function runVariant(name, queries, root, repeats, concurrency, warmup, extraEnv = {}) {
+  const overlay = { ...extraEnv, ...(VARIANTS[name] || {}) };
   // Warm up a bounded sentinel set. A full warmup pass doubles live bench cost and
   // does not prove anything extra now that rtinfer owns the warm pool.
   const warmQueries = queries.slice(0, Math.min(warmup, queries.length));
@@ -348,11 +348,24 @@ async function main() {
   if (!queries.length) { process.stderr.write("error: no queries loaded\n"); process.exit(1); }
   const negCount = queries.filter((q) => q.gold == null).length;
 
+  // If the labeled queries file lives INSIDE the searched root (the real-repo
+  // corpus: root IS the repo), exclude its directory from retrieval. That file
+  // contains every query string + gold path verbatim, so leaving it in-tree lets
+  // it win as a top lexical candidate and displace the true gold (inflated find,
+  // collapsed top1). Bench-only: product search never sets this.
+  const extraEnv = {};
+  const relQueries = path.relative(root, queriesFile);
+  if (relQueries && !relQueries.startsWith("..") && !path.isAbsolute(relQueries)) {
+    const queriesDir = path.dirname(relQueries);
+    extraEnv.UNITRACE_SEARCH_FAST_EXCLUDE = queriesDir && queriesDir !== "." ? queriesDir : relQueries;
+    process.stderr.write(`[bench] queries file is in-tree; excluding '${extraEnv.UNITRACE_SEARCH_FAST_EXCLUDE}' from retrieval\n`);
+  }
+
   const summaries = [];
   for (const name of args.variants) {
     if (!(name in VARIANTS)) { process.stderr.write(`skip unknown variant: ${name}\n`); continue; }
     process.stderr.write(`[bench] variant=${name} queries=${queries.length} repeats=${args.repeats} concurrency=${args.concurrency} warmup=${args.warmup}\n`);
-    summaries.push(await runVariant(name, queries, root, args.repeats, args.concurrency, args.warmup));
+    summaries.push(await runVariant(name, queries, root, args.repeats, args.concurrency, args.warmup, extraEnv));
   }
 
   const v = verdict(summaries, args);

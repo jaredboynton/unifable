@@ -156,6 +156,75 @@ test("runFastPath null-fallback: nothing clears the floor -> null by default, []
   }
 });
 
+test("runFastPath A1 tiebreak: equal model scores fall back to retrieval score, not path order", async () => {
+  // Two files tie at the same model score. The alphabetically-LATER file
+  // (zeta.py) carries the stronger retrieval signal (more distinct rare terms),
+  // so it must rank #1 -- proving the tiebreak uses the retrieval score, not
+  // a[0].localeCompare(b[0]) which would wrongly put alpha.py first.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uni-tiebreak-"));
+  try {
+    // alpha.py: single matching term -> lower retrieval score.
+    fs.writeFileSync(path.join(dir, "alpha.py"), "def widget():\n    return 1\n");
+    // zeta.py: two distinct matching terms -> higher retrieval score.
+    fs.writeFileSync(path.join(dir, "zeta.py"), "def widget_sprocket():\n    return sprocket\n");
+    const daemon = {
+      warmDaemonPool: async () => {},
+      daemonAsk: async () => null,
+      // Score BOTH survivors identically so the model score cannot break the tie.
+      daemonAskBatch: async (_ns, requests) => requests.map(() => ({ score: 8 })),
+    };
+    const files = await runFastPath(dir, "widget sprocket", { daemon });
+    assert.ok(Array.isArray(files) && files.length > 0, "expected a finish list");
+    assert.ok(files[0].path.endsWith("zeta.py"), `expected zeta.py first by retrieval score, got ${files[0].path}`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("UNITRACE_SEARCH_FAST_EXCLUDE keeps a directory out of retrieval", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uni-exclude-"));
+  try {
+    fs.mkdirSync(path.join(dir, "bench", "queries"), { recursive: true });
+    // The contaminant: a file naming the query verbatim, lexically strong.
+    fs.writeFileSync(path.join(dir, "bench", "queries", "set.jsonl"), '{"query":"frobnicate option enabled","gold":"core.py"}\n');
+    fs.writeFileSync(path.join(dir, "core.py"), "def frobnicate():\n    return 1\n");
+    const prev = process.env.UNITRACE_SEARCH_FAST_EXCLUDE;
+    process.env.UNITRACE_SEARCH_FAST_EXCLUDE = "bench";
+    try {
+      const { candidates } = await retrieveCandidates(dir, "frobnicate option");
+      assert.ok(!candidates.some((c) => c.path.includes("bench/")), "excluded dir must not yield candidates");
+      assert.ok(candidates.some((c) => c.path.endsWith("core.py")), "real file should still be a candidate");
+    } finally {
+      if (prev === undefined) delete process.env.UNITRACE_SEARCH_FAST_EXCLUDE;
+      else process.env.UNITRACE_SEARCH_FAST_EXCLUDE = prev;
+    }
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("retrieval de-prioritizes test files so the implementation is not evicted by its own suite", async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uni-testdeprio-"));
+  try {
+    fs.mkdirSync(path.join(dir, "scripts"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "tests"), { recursive: true });
+    // The implementation: the definition of the searched symbol.
+    fs.writeFileSync(path.join(dir, "scripts", "widget.py"), "def widget_handler():\n    return widget_handler\n");
+    // The test file: exercises the symbol via many calls (refs), as real suites do.
+    fs.writeFileSync(
+      path.join(dir, "tests", "test_widget.py"),
+      "def test_widget():\n" + Array.from({ length: 12 }, () => "    assert widget_handler()\n").join(""),
+    );
+    const { candidates } = await retrieveCandidates(dir, "widget handler");
+    const implIdx = candidates.findIndex((c) => c.path.endsWith("scripts/widget.py"));
+    const testIdx = candidates.findIndex((c) => c.path.includes("test_widget.py"));
+    assert.ok(implIdx >= 0, "implementation must be retrieved");
+    assert.ok(implIdx < testIdx || testIdx < 0, `implementation (idx ${implIdx}) should rank above its test (idx ${testIdx})`);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 function summary(overrides) {
   return {
     name: "rtinfer",
