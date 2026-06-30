@@ -376,6 +376,90 @@ def test_normal_code_still_requires_prior_art():
     assert any("prior_art" in r for r in reasons)
 
 
+def test_git_workflow_waives_prior_art():
+    """Fix B: pure branch-creation/workflow goals waive prior_art at STANDARD."""
+    spec = _standard_spec_with_evidence()
+    spec["restated_goal"] = (
+        "Read the access-token-migration spec, then create a work branch off main "
+        "in each affected repo so work can be committed without affecting main until validated."
+    )
+    spec["tasks"] = [
+        {"id": "T1", "title": "Create work branch off main", "check": "git show-ref --verify refs/heads/work", "status": "pending"}
+    ]
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert ok, reasons
+    assert not any("prior_art" in r for r in reasons)
+
+
+def test_pure_workflow_waives_repo_context_and_prior_art():
+    """Fix D: a pure git-workflow task (branch creation, no code edit) waives BOTH
+    repo_context and prior_art -- there is no code passage to cite and no approach
+    to research. The deadlock that forced fetching git-scm.com to run `git branch`
+    must not recur."""
+    from spec import is_pure_workflow_task
+
+    spec = {
+        "restated_goal": (
+            "Create work branches off main in each affected repo so we can commit "
+            "off main until all is validated."
+        ),
+        "tasks": [
+            {"id": "T1", "title": "Work branch ref exists off main", "check": "git show-ref --verify refs/heads/work", "status": "pending"}
+        ],
+    }
+    assert is_pure_workflow_task(spec)
+    spec.pop("repo_context", None)
+    spec.pop("prior_art", None)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert ok, reasons
+    assert not any("repo_context" in r for r in reasons)
+    assert not any("prior_art" in r for r in reasons)
+
+
+def test_pure_workflow_not_triggered_by_in_repo_work():
+    """Fix D: a goal that mentions branch creation AND in-repo tests is NOT pure
+    workflow -- repo_context is still required (only prior_art is waived)."""
+    from spec import is_pure_workflow_task
+
+    spec = _standard_spec_with_evidence()
+    spec["restated_goal"] = (
+        "Create a work branch off main, then refactor the token provider in this repo."
+    )
+    spec.pop("prior_art", None)
+    spec.pop("repo_context", None)
+    assert not is_pure_workflow_task(spec)
+    ok, reasons = validate_spec(spec, "STANDARD", require_evidence=True)
+    assert not ok
+    assert any("repo_context" in r for r in reasons)
+    # prior_art is still waived (in-repo-work waiver), just repo_context required.
+    assert not any("prior_art" in r for r in reasons)
+
+
+def test_pure_workflow_external_research_overrides():
+    """Fix D: external-research signal overrides the pure-workflow waiver."""
+    from spec import is_pure_workflow_task
+
+    spec = {
+        "restated_goal": "Create a work branch off main, then migrate to a third-party API.",
+        "tasks": [
+            {"id": "T1", "title": "branch off main", "check": "git show-ref --verify refs/heads/work", "status": "pending"}
+        ],
+    }
+    assert not is_pure_workflow_task(spec)
+
+
+def test_pure_workflow_heavy_still_requires_evidence():
+    """Fix D: HEAVY is never pure-workflow -- architectural exploration always
+    requires prior_art and repo_context."""
+    spec = _heavy_spec_with_approaches()
+    spec["restated_goal"] = "Create work branches off main for the new architecture."
+    spec.pop("prior_art", None)
+    spec.pop("repo_context", None)
+    ok, reasons = validate_spec(spec, "HEAVY", require_evidence=True)
+    assert not ok
+
+
 def test_format_spec_validation_block_prior_art_actionable():
     """Missing prior_art should tell the model to fetch, not expose spec paths."""
     _, reasons = validate_spec(

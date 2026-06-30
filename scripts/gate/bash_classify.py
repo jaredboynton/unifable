@@ -5,9 +5,16 @@ Whitelist by design: default BLOCK. Until a STANDARD+ task has a valid evidence
 spec, Bash may run only `cd`, `ls`, `glob`, `rg`, `grep`/`egrep`/`fgrep`, `echo` (read-only pipeline sinks only),
 `ast-grep`/`sg`, read-only file inspection
 (`head`, `tail`, `wc`, `sort`, `uniq`), read-only `git` subcommands, git
-workflow commands (`status`, `add`, `commit`, `push` without `--force`), a file
-whose basename is `unitrace.sh` or `unisearch.sh` when the unitrace skill is
-installed (guidance shows resolved paths), the cse-sweep skill's read-only
+workflow commands (`status`, `add`, `commit`, `push` without `--force`), and
+NON-DESTRUCTIVE branch switching (`git checkout [-b|-B] <branch> [start-point]`,
+`git switch [-c|-C] <branch> [start-point]`, or a bare `git checkout|switch
+<branch>` to an existing local branch) so creating and moving onto a work branch
+off main is research-phase-safe prep. Pathspec checkout (`--`, `.`-prefixed,
+`dir/file.ext`), `--detach`, `--force`, `--ours`/`--theirs`, `--merge`,
+`--patch`, and `--discard-changes` stay blocked. `UNIFABLE_STRICT_COMMIT_GATE=1`
+(env, default off) additionally gates `git commit`/`git push` behind the spec.
+Also allowed: a file whose basename is `unitrace.sh` or `unisearch.sh` when the unitrace skill
+is installed (guidance shows resolved paths), the cse-sweep skill's read-only
 evidence entrypoint `sweep.sh`, or a file whose basename is one of
 the user-facing unifusion skill scripts (panel research). Once a valid spec
 exists, pre_tool_use.py skips this classifier and unlocks the normal action phase.
@@ -15,6 +22,7 @@ exists, pre_tool_use.py skips this classifier and unlocks the normal action phas
 
 from __future__ import annotations
 
+import os
 import re
 import shlex
 
@@ -185,6 +193,36 @@ _BLOCKED_GIT_SUBCMDS = frozenset(
         "update-ref",
         "worktree",
     }
+)
+# checkout/switch are in _BLOCKED_GIT_SUBCMDS so that a bare or destructive form
+# (pathspec checkout, --detach, --force, --ours/--theirs, --merge) stays blocked,
+# but the non-destructive BRANCH-SWITCH shape is carved out as research prep in
+# _validate_git_branch_switch. See _validate_git_readonly for the dispatch.
+_GIT_NAV_SUBCMDS = frozenset({"checkout", "switch"})
+_GIT_NAV_NEW_BRANCH_FLAGS = {
+    "checkout": frozenset({"-b", "-B"}),
+    "switch": frozenset({"-c", "-C"}),
+}
+# Flags that make a branch switch destructive / lossy -> always blocked pre-spec.
+_GIT_NAV_DESTRUCTIVE_FLAGS = frozenset(
+    {
+        "--detach",
+        "--force",
+        "-f",
+        "--ours",
+        "--theirs",
+        "--merge",
+        "-m",
+        "--patch",
+        "-p",
+        "--discard-changes",
+        "--orphan",
+    }
+)
+# Harmless flags allowed on a branch-switch command (quiet/progress/track). The
+# allowlist is intentionally small; any other flag on checkout/switch blocks.
+_GIT_NAV_SAFE_FLAGS = frozenset(
+    {"-q", "--quiet", "--progress", "--no-progress", "--track", "--no-track", "-t", "--no-guess"}
 )
 # Global git options that take a value and must be skipped before the subcommand.
 _GIT_GLOBAL_OPTS_WITH_VALUE = frozenset(
@@ -461,6 +499,101 @@ def _git_subcommand(rest: list[str]) -> str:
     return ""
 
 
+def _args_after_subcommand(rest: list[str]) -> list[str]:
+    """Return the arg tokens after the git subcommand (global opts skipped)."""
+    i = 0
+    while i < len(rest):
+        tok = rest[i]
+        if tok in _GIT_GLOBAL_OPTS_WITH_VALUE:
+            i += 2
+            continue
+        if tok.startswith("-") or tok in _GIT_GLOBAL_OPTS:
+            i += 1
+            continue
+        return rest[i + 1 :]
+    return []
+
+
+def _strict_commit_gate_active() -> bool:
+    """Opt-in (env-gated, default OFF) stricter commit/push gate.
+
+    When enabled, `git commit`/`git push` require a validated evidence spec like
+    other substantive mutations, instead of being pre-allowed in the research phase.
+    Shipped off by default so navigation/branch prep (Fix A) stays unblocked and the
+    existing workflow regression suite is unaffected; measure behind the holdout
+    (UNIFABLE_HOLDOUT=1) before flipping the default."""
+    return os.environ.get("UNIFABLE_STRICT_COMMIT_GATE", "").strip() in ("1", "true", "TRUE", "yes")
+
+
+def _looks_like_pathspec(tok: str) -> bool:
+    """Conservative heuristic: is this token a pathspec rather than a branch name?
+
+    Branch names may contain `/` (feature/x) or `.` (v1.2) but rarely both in the
+    shape of `dir/file.ext`. Reject anything that starts with `.` or `/`, contains
+    `..`, or carries both a directory separator and a dot (the file-path shape)."""
+    if not tok:
+        return True
+    if tok.startswith(".") or tok.startswith("/"):
+        return True
+    if ".." in tok:
+        return True
+    if "/" in tok and "." in tok:
+        return True
+    return False
+
+
+def _validate_git_branch_switch(sub: str, rest: list[str]) -> tuple[bool, str]:
+    """Allow non-destructive branch switching (checkout/switch) as research prep.
+
+    Permitted shapes:
+      - `git checkout [-b|-B] <new> [start-point]` and `git switch [-c|-C] <new> [start-point]`
+        (create-and-switch to a new branch off HEAD; purely additive).
+      - `git checkout <branch>` / `git switch <branch>` to an existing local branch
+        (git itself refuses to switch when it would overwrite uncommitted changes, so
+        a bare branch switch is non-destructive).
+
+    Blocked shapes (still require a validated spec):
+      - any pathspec: `--`, `.`-prefixed, `./`, `dir/file.ext`
+      - `--detach`, `--force`/`-f`, `--ours`, `--theirs`, `--merge`/`-m`, `--patch`/`-p`,
+        `--discard-changes`, `--orphan`
+      - any unknown flag on checkout/switch
+      - multiple positionals without a new-branch flag
+    """
+    args = _args_after_subcommand(rest)
+    if not args:
+        return False, f"git {sub} with no branch is not allowed before the evidence spec is validated"
+    new_flags = _GIT_NAV_NEW_BRANCH_FLAGS.get(sub, frozenset())
+    positionals: list[str] = []
+    has_new_flag = False
+    for tok in args:
+        if tok in new_flags:
+            has_new_flag = True
+            continue
+        if tok == "--":
+            return False, f"git {sub} with a pathspec is not allowed before the evidence spec is validated"
+        if tok in _GIT_NAV_DESTRUCTIVE_FLAGS:
+            return False, f"git {sub} {tok} is destructive and not allowed before the evidence spec is validated"
+        if tok.startswith("-"):
+            if tok in _GIT_NAV_SAFE_FLAGS:
+                continue
+            return False, f"git {sub} flag {tok} is not in the branch-switch allowlist"
+        positionals.append(tok)
+    if not positionals:
+        return False, f"git {sub} needs a branch name before the evidence spec is validated"
+    branch = positionals[0]
+    if _looks_like_pathspec(branch):
+        return False, f"git {sub} target {branch!r} looks like a pathspec; use a branch name (pathspec checkout is gated)"
+    # A start-point (second positional) is only valid for the new-branch forms.
+    if len(positionals) > 1 and not has_new_flag:
+        return False, (
+            f"git {sub} with multiple positionals is not allowed before the evidence spec is validated "
+            f"(use {sub} -b/-c <new> [start-point] for a new branch)"
+        )
+    if len(positionals) > 2:
+        return False, f"git {sub} with too many positionals is not allowed before the evidence spec is validated"
+    return True, ""
+
+
 def _validate_ast_grep_readonly(rest: list[str]) -> tuple[bool, str]:
     """Allow ast-grep scan/run/test; block in-place rewrite flags."""
     for tok in rest:
@@ -474,10 +607,20 @@ def _validate_git_readonly(rest: list[str]) -> tuple[bool, str]:
     sub = _git_subcommand(rest)
     if not sub:
         return False, "git with no subcommand is not allowed before the evidence spec is validated"
+    # Non-destructive branch switching (checkout/switch) is research prep: create a
+    # work branch and move onto it without touching the repo's substantive content.
+    # Destructive shapes (pathspec checkout, --detach, --force, --ours/--theirs,
+    # --merge, --patch, --discard-changes) still block here.
+    if sub in _GIT_NAV_SUBCMDS:
+        return _validate_git_branch_switch(sub, rest)
     if sub in _BLOCKED_GIT_SUBCMDS:
         return False, f"git {sub} is not allowed before the evidence spec is validated (read-only git only)"
     if sub not in _ALLOWED_GIT_SUBCMDS:
         return False, f"git {sub} is not in the read-only git research whitelist"
+    # Opt-in strict commit/push gate (Fix E): when enabled, commit/push require a
+    # validated spec like other substantive mutations. Default OFF.
+    if sub in ("commit", "push") and _strict_commit_gate_active():
+        return False, f"git {sub} is gated by UNIFABLE_STRICT_COMMIT_GATE; validate the evidence spec first"
     if sub == "branch":
         for tok in rest:
             if tok in ("-d", "-D", "-m", "-M", "--delete", "--move", "--rename"):

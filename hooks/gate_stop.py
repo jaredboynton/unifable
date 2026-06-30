@@ -645,6 +645,20 @@ def main() -> int:
                             f"Completion gate blocked: {len(incomplete)} unresolved task(s) "
                             f"({', '.join(incomplete)})."
                         )
+                        # Deterministic self-contradiction guard (Fix C): if an
+                        # incomplete task's check requires an action the research-phase
+                        # allowlist blocks, the gate can never be satisfied -- append a
+                        # judge-independent notice with the allowed alternative so the
+                        # agent escapes instead of looping on an async judge that may
+                        # never fire. Fail-open (empty string on any error).
+                        try:
+                            from check_satisfiability import detect_self_contradiction
+
+                            contradiction = detect_self_contradiction(spec, incomplete)
+                            if contradiction:
+                                ev_reason = f"{ev_reason}\n\n{contradiction}"
+                        except Exception:
+                            pass
                         if not str(validate_ctx or "").strip():
                             try:
                                 from model_notify import format_blocking_task_hints, task_ids_from_headlines

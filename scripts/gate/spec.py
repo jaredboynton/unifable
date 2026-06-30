@@ -184,8 +184,10 @@ try:  # bare import when scripts/gate is on sys.path (hooks + tests); package im
     )
     from spec_validation import (  # noqa: F401
         _EXTERNAL_RESEARCH_RE,
+        _GIT_WORKFLOW_RE,
         _IN_REPO_WORK_RE,
         _REPO_MAINTENANCE_RE,
+        is_pure_workflow_task,
         repo_maintenance_waives_prior_art,
         validate_spec,
     )
@@ -350,8 +352,10 @@ except ImportError:  # pragma: no cover
     )
     from scripts.gate.spec_validation import (  # noqa: F401
         _EXTERNAL_RESEARCH_RE,
+        _GIT_WORKFLOW_RE,
         _IN_REPO_WORK_RE,
         _REPO_MAINTENANCE_RE,
+        is_pure_workflow_task,
         repo_maintenance_waives_prior_art,
         validate_spec,
     )

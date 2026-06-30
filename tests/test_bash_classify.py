@@ -108,6 +108,22 @@ ALLOWED = [
     "git add .",
     "git commit -m 'wip'",
     "git push origin main",
+    # Non-destructive branch switching is research-phase-safe prep (Fix A):
+    # create+switch a new branch, or switch to an existing local branch. Git
+    # refuses to switch when it would overwrite uncommitted changes.
+    "git checkout -b access-token-migration",
+    "git checkout -B work",
+    "git checkout access-token-migration",
+    "git checkout main",
+    "git checkout -b work main",
+    "git checkout -b work origin/main",
+    "git switch -c access-token-migration",
+    "git switch -C work",
+    "git switch access-token-migration",
+    "git switch main",
+    "git switch -c work main",
+    "git -C /repo checkout -b work",
+    "git -C /repo switch work",
     "git ls-remote origin",
     "git ls-files --stage",
     "git for-each-ref --format='%(refname)' refs/heads",
@@ -173,12 +189,33 @@ BLOCKED = [
     "npm test",
     "git push --force",
     "git reflog expire --expire=now --all",
+    # Destructive branch-switch shapes stay blocked (Fix A): pathspec checkout,
+    # --detach, --force, --ours/--theirs, --merge, --patch, --discard-changes,
+    # path-like targets, and unknown flags.
+    "git checkout -- src/app.py",
+    "git checkout .",
+    "git checkout --detach",
+    "git checkout --force work",
+    "git checkout --ours src/app.py",
+    "git checkout --theirs src/app.py",
+    "git checkout --merge work",
+    "git checkout -m work",
+    "git checkout --patch work",
+    "git checkout -p work",
+    "git checkout --discard-changes",
+    "git checkout src/app.py",
+    "git checkout --orphan work",
+    "git switch --detach",
+    "git switch --force work",
+    "git switch --discard-changes work",
+    "git switch --merge work",
+    "git switch src/app.py",
+    "git checkout --weird-flag work",
     "ast-grep run -p 'x' -r 'y' -U",
     "sg run -p 'x' -r 'y' --update",
     "echo hi | tee out.txt",
     "echo hi | rg foo",
     "echo hi | sg run -p 'x' -l py",
-    "git checkout main",
     "curl https://example.com",
     "rm -rf build",
     "bash other.sh",
@@ -268,3 +305,54 @@ def test_spec_cli_only_allows_append_only_research_commands(cmd, expected):
     allowed, reason = is_allowed_research_bash(cmd)
     assert allowed is False
     assert expected in reason
+
+
+def test_branch_switch_allowed_new_and_existing():
+    """Fix A: non-destructive branch create+switch and existing-branch switch are
+    research-phase-safe prep and must be allowed."""
+    for cmd in (
+        "git checkout -b work",
+        "git switch -c work",
+        "git checkout main",
+        "git switch main",
+        "git -C /repo checkout -b work",
+    ):
+        allowed, reason = is_allowed_research_bash(cmd)
+        assert allowed, f"expected ALLOW but blocked ({reason}): {cmd!r}"
+
+
+def test_branch_switch_pathspec_and_destructive_blocked():
+    """Fix A: pathspec checkout and destructive flags stay blocked."""
+    for cmd in (
+        "git checkout -- src/app.py",
+        "git checkout .",
+        "git checkout --detach",
+        "git checkout --force work",
+        "git checkout --ours src/app.py",
+        "git checkout -m work",
+        "git checkout src/app.py",
+        "git switch --detach",
+        "git switch --discard-changes work",
+        "git switch src/app.py",
+    ):
+        allowed, _ = is_allowed_research_bash(cmd)
+        assert not allowed, f"expected BLOCK but allowed: {cmd!r}"
+
+
+def test_strict_commit_gate_off_by_default(monkeypatch):
+    """Fix E: commit/push are pre-allowed when UNIFABLE_STRICT_COMMIT_GATE is unset."""
+    monkeypatch.delenv("UNIFABLE_STRICT_COMMIT_GATE", raising=False)
+    assert is_allowed_research_bash("git commit -m wip")[0]
+    assert is_allowed_research_bash("git push origin main")[0]
+
+
+def test_strict_commit_gate_on_blocks_commit_and_push(monkeypatch):
+    """Fix E: with UNIFABLE_STRICT_COMMIT_GATE=1, commit/push require a validated spec."""
+    monkeypatch.setenv("UNIFABLE_STRICT_COMMIT_GATE", "1")
+    assert not is_allowed_research_bash("git commit -m wip")[0]
+    assert not is_allowed_research_bash("git push origin main")[0]
+    # Read-only git and non-destructive branch switch stay allowed under the strict gate.
+    assert is_allowed_research_bash("git status --short")[0]
+    assert is_allowed_research_bash("git checkout -b work")[0]
+    # push --force stays blocked regardless.
+    assert not is_allowed_research_bash("git push --force")[0]

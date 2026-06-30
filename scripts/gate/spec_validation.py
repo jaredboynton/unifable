@@ -71,13 +71,30 @@ _EXTERNAL_RESEARCH_RE = re.compile(
 )
 
 
+_GIT_WORKFLOW_RE = re.compile(
+    r"\b("
+    r"create\s+(?:a\s+)?(?:git\s+)?(?:work\s+|feature\s+|topic\s+)?branch(?:es)?|"
+    r"make\s+(?:all\s+the\s+)?branches|"
+    r"branch(?:es)?\s+off(?:\s+of|\s+main|\s+master)?|"
+    r"off\s+(?:of\s+)?(?:main|master)(?:\s+until|\s+so|\s+without)?|"
+    r"work\s+branch|feature\s+branch|topic\s+branch|"
+    r"checkout\s+-b|switch\s+-c|"
+    r"commit\s+off\s+(?:of\s+)?(?:main|master)|"
+    r"git\s+branch|"
+    r"switch\s+(?:to\s+)?(?:a\s+)?(?:work|feature|new)\s+branch"
+    r")\b",
+    re.I,
+)
+
+
 def repo_maintenance_waives_prior_art(spec: dict[str, Any]) -> bool:
     """True when prior_art is not required for bounded in-repo work.
 
-    Covers repo maintenance (version bump, manifest sync) and engineering that
+    Covers repo maintenance (version bump, manifest sync), engineering that
     follows existing in-repo patterns (regression tests, test additions, harness
-    self-tests). External-research signals in the goal or tasks override the waiver.
-    """
+    self-tests), and pure git-workflow/navigation (branch creation, switching to a
+    work branch off main). External-research signals in the goal or tasks override
+    the waiver. HEAVY always requires prior_art (callers gate on grade)."""
     if not isinstance(spec, dict):
         return False
     chunks: list[str] = [str(spec.get("restated_goal") or "")]
@@ -89,7 +106,39 @@ def repo_maintenance_waives_prior_art(spec: dict[str, Any]) -> bool:
     combined = "\n".join(chunks)
     if _EXTERNAL_RESEARCH_RE.search(combined):
         return False
-    return bool(_REPO_MAINTENANCE_RE.search(combined) or _IN_REPO_WORK_RE.search(combined))
+    return bool(
+        _REPO_MAINTENANCE_RE.search(combined)
+        or _IN_REPO_WORK_RE.search(combined)
+        or _GIT_WORKFLOW_RE.search(combined)
+    )
+
+
+def is_pure_workflow_task(spec: dict[str, Any]) -> bool:
+    """True when the goal/tasks are pure repo workflow/navigation with no substantive
+    code edit and no external research -- e.g. "create work branches off main so we
+    can commit without affecting main until validated."
+
+    Such tasks waive BOTH repo_context and prior_art: there is no code passage to
+    cite and no approach to research. Branch creation/switching is git plumbing, not
+    an evidence-grounded code decision. External-research signals override, and any
+    in-repo-work or maintenance signal means repo_context is still required (only
+    prior_art is waived, via repo_maintenance_waives_prior_art). HEAVY is excluded by
+    the caller. Fail-closed: False on any doubt."""
+    if not isinstance(spec, dict):
+        return False
+    chunks: list[str] = [str(spec.get("restated_goal") or "")]
+    for task in spec.get("tasks") or []:
+        if not isinstance(task, dict):
+            continue
+        chunks.append(str(task.get("title") or ""))
+        chunks.append(str(task.get("check") or ""))
+    combined = "\n".join(chunks)
+    if _EXTERNAL_RESEARCH_RE.search(combined):
+        return False
+    # Substantive in-repo work or maintenance still needs repo_context; not pure workflow.
+    if _REPO_MAINTENANCE_RE.search(combined) or _IN_REPO_WORK_RE.search(combined):
+        return False
+    return bool(_GIT_WORKFLOW_RE.search(combined))
 
 
 def validate_spec(
@@ -196,13 +245,18 @@ def validate_spec(
     # Evidence gate: citation fields become required at STANDARD+ for code-profile
     # tasks (LIGHT is exempt because LIGHT waives the spec entirely upstream).
     # Operational profile waives repo_context and prior_art; task checks carry evidence.
+    # Pure-workflow tasks (branch creation/navigation, no substantive code edit) also
+    # waive repo_context AND prior_art: git plumbing has no code passage to cite and no
+    # approach to research (Fix D). HEAVY is never pure-workflow (architectural
+    # exploration always requires prior_art).
     if require_evidence and grade in ("STANDARD", "HEAVY") and profile == "code":
+        pure_workflow = grade != "HEAVY" and is_pure_workflow_task(spec)
         repo_context = repo_context_of(spec)  # accepts legacy `must_read` alias
-        if not repo_context:
+        if not pure_workflow and not repo_context:
             reasons.append(
                 "evidence gate: 'repo_context' is required (list, >=1 {cite: 'path:line', why: 'why this passage is relevant'})."
             )
-        else:
+        elif not pure_workflow:
             for idx, item in enumerate(repo_context):
                 cite, why = repo_context_parts(item)
                 if not is_path_line(cite):
@@ -226,9 +280,11 @@ def validate_spec(
                     )
 
         # prior_art — required from STANDARD up unless bounded in-repo work at STANDARD
-        # (maintenance, regression tests, existing-pattern edits) where repo_context suffices.
-        # HEAVY always requires prior_art for architectural exploration.
-        waive_prior_art = grade != "HEAVY" and repo_maintenance_waives_prior_art(spec)
+        # (maintenance, regression tests, existing-pattern edits, pure git workflow)
+        # where repo_context suffices. HEAVY always requires prior_art for architectural exploration.
+        waive_prior_art = grade != "HEAVY" and (
+            repo_maintenance_waives_prior_art(spec) or pure_workflow
+        )
         if not waive_prior_art:
             prior_art = spec.get("prior_art")
             if not isinstance(prior_art, list) or not prior_art:
