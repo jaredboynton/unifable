@@ -7,6 +7,7 @@ import {
   validateTraceObject,
   applyGroundingManifest,
   safeRelPath,
+  MAX_CODE_PASSAGES,
 } from "../lib/trace-schema.mjs";
 import { renderTraceStructured } from "../lib/render-trace-structured.mjs";
 
@@ -45,7 +46,7 @@ test("traceProviderSchema can constrain code passage paths to files read", () =>
   });
   const filePathSchema = schema.properties.code_passages.items.properties.file_path;
   assert.equal(schema.properties.code_passages.minItems, 1);
-  assert.equal(schema.properties.code_passages.maxItems, 5);
+  assert.equal(schema.properties.code_passages.maxItems, MAX_CODE_PASSAGES);
   assert.deepEqual(filePathSchema.enum, [READ_FILE, "scripts/grok-trace.mjs"]);
 });
 

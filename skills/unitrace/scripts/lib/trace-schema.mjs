@@ -3,6 +3,11 @@ import { readFileSync, existsSync } from "node:fs";
 import { join, normalize, isAbsolute } from "node:path";
 
 export const MAX_SPAN = 400;
+// Citation/key-file cap. Raised 5->8: at 5 the cap was binding on every
+// medium/deep trace (each maxed exactly 5 citations) while cursor cited 6-9,
+// so it was a pure throttle on grounded coverage. Small-file slim runs stay
+// tighter (few files = little to cite).
+export const MAX_CODE_PASSAGES = 8;
 export const SUBMIT_SCHEMA_NAME = "submit_trace";
 export const SUBMIT_PROSE_SCHEMA_NAME = "submit_trace_prose";
 export const SUBMIT_POINTER_SCHEMA_NAME = "submit_trace_pointer";
@@ -104,7 +109,7 @@ export function traceProviderSchema({
   const allowedPaths = [...new Set(
     allowedCodePassagePaths.filter((p) => typeof p === "string" && p.trim().length > 0)
   )].sort();
-  const maxPassages = slim && filesReadCount <= 4 ? 3 : 5;
+  const maxPassages = slim && filesReadCount <= 4 ? 3 : MAX_CODE_PASSAGES;
   const required = [
     "opening_summary",
     "flow_steps",
@@ -148,7 +153,7 @@ export function tracePointerSchema({
   question = "",
   slim = false,
   orderedPaths = [],
-  maxCitations = 5,
+  maxCitations = MAX_CODE_PASSAGES,
 } = {}) {
   const required = [
     "opening_summary",

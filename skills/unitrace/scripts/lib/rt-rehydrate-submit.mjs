@@ -2,7 +2,7 @@
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { expandLineRange } from "../ast-context.mjs";
-import { MAX_SPAN, safeRelPath } from "./trace-schema.mjs";
+import { MAX_CODE_PASSAGES, MAX_SPAN, safeRelPath } from "./trace-schema.mjs";
 import { mergeProseWithPassages, pickCodePassages } from "./rt-pick-passages.mjs";
 
 function spanFromExcerpt(excerpt) {
@@ -153,7 +153,7 @@ function ensureKeyFileCoverage({ passages, pointer, workspace, filesRead, readCa
       }
       continue;
     }
-    while (out.length >= 5) {
+    while (out.length >= MAX_CODE_PASSAGES) {
       const replaceIdx = out.findIndex((p) => !desired.has(p.file_path));
       out.splice(replaceIdx >= 0 ? replaceIdx : out.length - 1, 1);
     }
@@ -289,7 +289,7 @@ export function rehydratePointerSubmit({
       end_line: finalEnd,
       rationale: String(cite.rationale || `${rel.split("/").pop()} cited span`),
     });
-    if (passages.length >= 5) break;
+    if (passages.length >= MAX_CODE_PASSAGES) break;
   }
 
   if (!passages.length) {

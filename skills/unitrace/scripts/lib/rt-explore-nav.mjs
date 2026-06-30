@@ -167,6 +167,124 @@ function usageFollowupReads({ workspace, question, readCache, seedPaths, onRead,
   return added;
 }
 
+// Identifiers that look like a call (`foo(`) but are language/runtime builtins or
+// control keywords, never a project symbol worth chasing to a definition.
+const CALL_STOPWORDS = new Set([
+  "if", "for", "while", "switch", "catch", "return", "function", "await", "typeof",
+  "instanceof", "delete", "void", "yield", "throw", "new", "super", "this", "require",
+  "import", "export", "async", "const", "let", "var", "class", "case", "default",
+  "console", "Promise", "Array", "Object", "String", "Number", "Boolean", "JSON",
+  "Math", "Set", "Map", "Date", "RegExp", "Error", "Symbol", "BigInt", "parseInt",
+  "parseFloat", "isNaN", "isFinite", "map", "filter", "forEach", "reduce", "find",
+  "some", "every", "push", "pop", "shift", "join", "split", "slice", "splice", "test",
+  "match", "matchAll", "replace", "includes", "indexOf", "then", "sort", "concat",
+  "keys", "values", "entries", "assign", "stringify", "parse", "trim", "toString",
+  "startsWith", "endsWith", "padStart", "padEnd", "from", "of", "all", "race", "resolve",
+  "reject", "add", "has", "get", "delete", "length",
+]);
+
+// Symbols that are CALLED/referenced in the read excerpts but whose DEFINITION
+// body is NOT present in the read cache — the "named but never read" functions
+// (e.g. getRequiredScopes) the submit model is forced to hedge on — plus any code
+// symbols named directly in the question. Ranked: question symbols first, then
+// referenced-undefined by reference frequency.
+function referencedUndefinedSymbols(readCache, question, { max = 6 } = {}) {
+  const defined = new Set();
+  const refCounts = new Map();
+  const defDeclRe = /^\d+\|\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?(?:function\*?|class)\s+([A-Za-z_]\w*)/gm;
+  const defAssignRe = /^\d+\|\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_]\w*)\s*=/gm;
+  const defPyRe = /^\d+\|\s*(?:async\s+)?def\s+([A-Za-z_]\w*)/gm;
+  const callRe = /(?:^|[^.\w$])([A-Za-z_]\w{3,})\s*\(/g;
+  const methodRe = /\.([A-Za-z_]\w{3,})\s*\(/g;
+  for (const excerpt of readCache.values()) {
+    const text = String(excerpt || "");
+    for (const re of [defDeclRe, defAssignRe, defPyRe]) {
+      for (const m of text.matchAll(re)) defined.add(m[1]);
+    }
+    for (const re of [callRe, methodRe]) {
+      for (const m of text.matchAll(re)) {
+        const sym = m[1];
+        if (CALL_STOPWORDS.has(sym)) continue;
+        refCounts.set(sym, (refCounts.get(sym) || 0) + 1);
+      }
+    }
+  }
+  const out = [];
+  const seen = new Set();
+  for (const sym of codeSymbolIdents(question)) {
+    if (seen.has(sym) || defined.has(sym)) continue;
+    seen.add(sym);
+    out.push(sym);
+  }
+  for (const [sym, n] of [...refCounts.entries()].sort((a, b) => b[1] - a[1])) {
+    if (out.length >= max) break;
+    if (seen.has(sym) || defined.has(sym) || sym.length < 4) continue;
+    void n;
+    seen.add(sym);
+    out.push(sym);
+  }
+  return out.slice(0, max);
+}
+
+function defLineScore(content, symbol) {
+  let score = 0;
+  if (new RegExp(`\\b(function|class|def)\\s+${symbol}\\b`).test(String(content))) score += 3;
+  if (/\bexport\b/.test(String(content))) score += 1;
+  return score;
+}
+
+// Depth pass (one hop, host-driven, no model round-trip): after breadth seeding +
+// nav, chase the DEFINITION body of load-bearing symbols the reads reference but
+// never defined, so submit can cite the real implementation instead of hedging
+// ("getRequiredScopes ... implementation not shown in excerpts"). This is the
+// disciplined version of a code-mode "follow the symbol to its definition" turn:
+// grep each candidate's definition across the focus roots, read the enclosing
+// window, pin it. Tightly capped, focus-gated, fail-open. Returns paths added.
+export function definitionFollowReads({
+  workspace, question, readCache, onRead, focusRoots, archiveOk, wireOk, testsOk,
+  maxSymbols = envInt("UNITRACE_RT_DEFFOLLOW_SYMBOLS", 6),
+  maxReads = envInt("UNITRACE_RT_DEFFOLLOW_MAX", 6),
+  before = envInt("UNITRACE_RT_DEFFOLLOW_BEFORE", 12),
+  after = envInt("UNITRACE_RT_DEFFOLLOW_AFTER", 30),
+} = {}) {
+  if (process.env.UNITRACE_RT_DEFFOLLOW === "0") return [];
+  const symbols = referencedUndefinedSymbols(readCache, question, { max: maxSymbols });
+  const added = [];
+  for (const sym of symbols) {
+    if (added.length >= maxReads) break;
+    let grep;
+    try {
+      grep = toolGrep(workspace, { pattern: sym });
+    } catch {
+      continue;
+    }
+    if (!grep?.ok) continue;
+    let choice = null;
+    for (const fm of grep.fileMatches || []) {
+      const rel = normalizeReadPath(workspace, String(fm.file || "").replace(/^\.\//, ""));
+      if (!rel || !isSourcePath(rel)) continue;
+      if (!candidatePassesFocus(rel, focusRoots, archiveOk, wireOk, testsOk)) continue;
+      for (const match of fm.matches || []) {
+        if (!looksLikeDefinitionLine(match.content, sym)) continue;
+        if (excerptCovers(readCache, rel, match.lineNumber, match.lineNumber)) continue;
+        const score = defLineScore(match.content, sym);
+        if (score < 1) continue;
+        if (!choice || score > choice.score) choice = { rel, lineNumber: match.lineNumber, score };
+      }
+    }
+    if (!choice) continue;
+    const read = toolReadRange(workspace, choice.rel, {
+      start_line: Math.max(1, choice.lineNumber - before),
+      end_line: choice.lineNumber + after,
+      stripPreamble: STRIP_PREAMBLE,
+    });
+    if (!read.ok || !read.content) continue;
+    onRead(choice.rel, read.content, { pin: true });
+    if (!added.includes(choice.rel)) added.push(choice.rel);
+  }
+  return added;
+}
+
 function excerptCovers(readCache, rel, startLine, endLine) {
   const excerpt = readCache?.get(rel);
   if (!excerpt) return false;
@@ -212,9 +330,18 @@ function prefersSource(question) {
 // end-to-end behavior) are often answered in an AGENTS.md/README the source code
 // only partially shows. These should NOT run source-only retrieval (maxDocFiles:0),
 // or the load-bearing doc is suppressed even when the retriever ranks it highly.
-// Narrow on purpose: only behavior/header/fallback framings, not every doc word.
+// Covers behavior/header/fallback framings AND doc-centric process questions
+// (release/install/workflow/overview), where a top-level README/process doc is
+// load-bearing and the source-focus root would otherwise exclude it.
 export function admitsDocs(question) {
-  return /\b(fallback|headers?|behaviou?rs?|end[- ]to[- ]end|convention|policy|documented)\b/i.test(String(question || ""));
+  return /\b(fallback|headers?|behaviou?rs?|end[- ]to[- ]end|convention|policy|documented|readme|overview|getting[- ]started|release|install(?:er|ers|ation)?|workflow|publish(?:ing)?|deploy(?:ment)?)\b/i.test(String(question || ""));
+}
+
+// End-to-end / forwarding questions whose answer can live in a sibling root the
+// source-focus filter excludes (e.g. a separate backend handler the gateway
+// forwards to). Gated narrowly so the cross-root top-up adds at most one file.
+function wantsCrossRoot(question) {
+  return /\b(end[- ]to[- ]end|backend|forward(?:s|ing|ed)?|passthrough|pass[- ]through|upstream|downstream|origin|proxy)\b/i.test(String(question || ""));
 }
 
 function allowArchive(question) {
@@ -523,7 +650,7 @@ export function importFollowSeeds({ workspace, question, anchors, focusRoots, ar
 
 // Seed the readCache with the host retriever (search-fast) so navigators start
 // from real, ranked, hydrated code instead of a blank slate.
-async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnly = false, focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, readCache = null, topDoc = false }) {
+async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnly = false, focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, readCache = null, topDoc = false, crossRoot = false }) {
   const seeded = [];
   let result;
   try {
@@ -543,15 +670,36 @@ async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnl
     onRead(rel, readCandidateWindow(workspace, c), { pin: true });
     if (!seeded.includes(rel)) seeded.push(rel);
   }
-  // Behavior/header/fallback questions are often answered in a module-root
-  // AGENTS.md/README that the source-focus root (e.g. gateway/src) excludes even
-  // though the retriever ranks it highly. Seed the single top doc candidate,
-  // focus-bypassed but still archive/test/wire-gated, so it is not lost.
+  // Doc-centric questions (behavior/header/fallback, release/install/overview) are
+  // often answered in a module-root AGENTS.md/README or a top-level process doc
+  // that the source-focus root (e.g. gateway/src) excludes even though the
+  // retriever ranks it highly. Seed the top doc candidates, focus-bypassed but
+  // still archive/test/wire-gated, so they are not lost.
   if (topDoc) {
+    const topDocs = envInt("UNITRACE_RT_TOP_DOCS", 2);
+    let docsSeeded = 0;
     for (const c of candidates) {
+      if (docsSeeded >= topDocs) break;
       if (c.cls !== "doc") continue;
       const rel = normalizeReadPath(workspace, c.path);
       if (!rel || seeded.includes(rel)) continue;
+      if (!candidatePassesFocus(rel, [], archiveOk, wireOk, testsOk)) continue;
+      if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
+      onRead(rel, readCandidateWindow(workspace, c), { pin: true });
+      seeded.push(rel);
+      docsSeeded += 1;
+    }
+  }
+  // End-to-end/forwarding questions can have a load-bearing file in a sibling root
+  // the focus filter excludes (e.g. a backend handler the gateway forwards to).
+  // Seed the single top-ranked SOURCE candidate that is retrievable but outside
+  // the focus roots. Capped at one file so this cannot reintroduce a retrieval
+  // flood; no-op when focus is unset or every top candidate is already in focus.
+  if (crossRoot && focusRoots.length) {
+    for (const c of candidates) {
+      const rel = normalizeReadPath(workspace, c.path);
+      if (!rel || seeded.includes(rel) || !isSourcePath(rel)) continue;
+      if (candidatePassesFocus(rel, focusRoots, archiveOk, wireOk, testsOk)) continue;
       if (!candidatePassesFocus(rel, [], archiveOk, wireOk, testsOk)) continue;
       if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
       onRead(rel, readCandidateWindow(workspace, c), { pin: true });
@@ -605,6 +753,7 @@ export async function runExploreNav({
     testsOk,
     readCache,
     topDoc: admitsDocs(question),
+    crossRoot: wantsCrossRoot(question),
   });
   const seedPaths = [...new Set([...explicitSeeds, ...hostSeeds])];
   usageFollowupReads({
@@ -617,8 +766,8 @@ export async function runExploreNav({
     archiveOk,
     wireOk,
     testsOk,
-    maxSymbols: 6,
-    maxReads: 6,
+    maxSymbols: envInt("UNITRACE_RT_USAGE_SYMBOLS", 8),
+    maxReads: envInt("UNITRACE_RT_USAGE_MAX", 8),
   });
   // One-hop call-graph follow from the high-confidence anchors so import-reachable
   // load-bearing files (which the lexical retriever often misses) are seeded.
@@ -696,6 +845,24 @@ export async function runExploreNav({
     // Stop when navigators are satisfied or nothing new was discovered.
     const discovered = fromPaths + fromTerms;
     if (allDone || (discovered === 0 && round > 0)) break;
+  }
+
+  // Depth pass: chase definition bodies of load-bearing symbols the explore reads
+  // reference but never defined, so submit cites the real implementation instead
+  // of hedging. Runs after breadth (seed + nav); host-driven, tightly capped.
+  if (filesRead.size < maxReads) {
+    const defFollowed = definitionFollowReads({
+      workspace,
+      question,
+      readCache,
+      onRead,
+      focusRoots,
+      archiveOk,
+      wireOk,
+      testsOk,
+    });
+    for (const rel of defFollowed) if (!seedPaths.includes(rel)) seedPaths.push(rel);
+    if (debug) process.stderr.write(`[nav] def_follow=${defFollowed.length} total=${filesRead.size}\n`);
   }
 
   if (!anyNavOk && !seedPaths.length) return null;

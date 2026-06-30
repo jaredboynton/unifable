@@ -96,7 +96,7 @@ const SUBMIT_SYSTEM = [
   "- opening_summary: 3-5 sentences answering the question directly — what happens end to end and the specific mechanism that makes it work. Lead with the answer, not background. (<= 160 words.)",
   "- Each section body: explain how the component works AND why it matters to the answer — the mechanism, the control/data flow, the key decision — grounded in the cited lines. 2-4 sentences; no padding, but do not truncate the explanation to a single clause. (<= 90 words.)",
   "- Trace the full path end to end: entry -> each transformation -> terminal effect. Do not stop at the first file.",
-  "- At most 5 code_passages; each span <= 40 lines.",
+  "- Up to 8 code_passages; each span <= 40 lines. Cite a distinct load-bearing span for every major step/branch/file in the answer — do not stop at a handful when more grounded spans exist.",
   "- Ground every claim in the explore tool log and read excerpts provided; if a cross-file header/return/forwarding/fail-open claim lacks a span, say coverage is thin instead of asserting it.",
   "- For implementation / end-to-end questions, prefer source files over AGENTS/README/docs for evidence; use docs only when the question is about policy, usage, or config.",
   "- For pipeline or end-to-end questions, name the real scripts/functions/modules in order instead of generic stage labels.",
@@ -153,7 +153,7 @@ const UNITRACE_MAX_READS = envInt("UNITRACE_RT_UNITRACE_MAX_READS", 20);
 const UNITRACE_MIN_READS = envInt("UNITRACE_RT_UNITRACE_MIN_READS", 4);
 const READ_EXCERPT_MAX = envInt("UNITRACE_RT_READ_EXCERPT_MAX", 6000);
 const READ_INDEX_PREVIEW_LINES = envInt("UNITRACE_RT_READ_INDEX_PREVIEW_LINES", 14);
-const SUBMIT_EXCERPT_FILES = envInt("UNITRACE_RT_SUBMIT_EXCERPT_FILES", 5);
+const SUBMIT_EXCERPT_FILES = envInt("UNITRACE_RT_SUBMIT_EXCERPT_FILES", 8);
 const UNITRACE_RT_MAP_SEED = envBool("UNITRACE_RT_MAP_SEED", true);
 const UNITRACE_RT_STOP_READS = envInt("UNITRACE_RT_STOP_READS", 12);
 const UNITRACE_RT_STOP_TOOL_CALLS = envInt("UNITRACE_RT_STOP_TOOL_CALLS", 3);

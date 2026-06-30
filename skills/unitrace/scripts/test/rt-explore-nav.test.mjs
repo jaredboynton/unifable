@@ -7,6 +7,7 @@ import {
   admitsDocs,
   buildNavIndex,
   dedupNavProposals,
+  definitionFollowReads,
   extractUsageSymbols,
   focusRootsFor,
   hydrateFromPaths,
@@ -107,9 +108,13 @@ test("extractUsageSymbols derives function symbols from seeded excerpts", () => 
   assert.deepEqual(out.map((s) => s.symbol), ["buildSubmitPacket", "seedExploreReads"]);
 });
 
-test("admitsDocs opens the doc lane only for behavior/header/fallback framings", () => {
+test("admitsDocs opens the doc lane for behavior/fallback and doc-centric process framings", () => {
   assert.equal(admitsDocs("How does the rate limiter work, from route handling to limit headers or fallback behavior?"), true);
   assert.equal(admitsDocs("Trace the end-to-end request forwarding"), true);
+  // doc-centric process questions (release/install/workflow/overview)
+  assert.equal(admitsDocs("How does the npm release flow work?"), true);
+  assert.equal(admitsDocs("How are the installer scripts generated and published?"), true);
+  // pure source/implementation questions stay source-only
   assert.equal(admitsDocs("How does unitrace.sh hand off to the realtime tracer?"), false);
   assert.equal(admitsDocs("Where is buildSubmitPacket defined?"), false);
 });
@@ -134,6 +139,47 @@ test("importFollowSeeds follows imports from a source anchor to load-bearing fil
   assert.ok(followed.includes("skills/unitrace/scripts/lib/render-trace-structured.mjs"));
   // Reads are tracked and confined to the focus root.
   assert.ok(added.every((rel) => rel.startsWith("skills/unitrace/scripts/")));
+});
+
+test("definitionFollowReads chases a referenced-but-undefined symbol to its definition body", () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  // Read cache holds an excerpt that CALLS orderReadCacheEntries but never defines
+  // it; the definition lives in rt-rehydrate-submit.mjs, not yet in the cache.
+  const readCache = new Map([
+    ["skills/unitrace/scripts/realtime-trace.mjs",
+      "650|  const orderedEntries = orderReadCacheEntries(readCache, seedPaths);\n651|  return orderedEntries;\n"],
+  ]);
+  const added = [];
+  const out = definitionFollowReads({
+    workspace: repoRoot,
+    question: "How does the submit packet order read cache entries?",
+    readCache,
+    onRead: (rel) => { if (!added.includes(rel)) added.push(rel); },
+    focusRoots: ["skills/unitrace/scripts"],
+    archiveOk: false,
+    wireOk: false,
+    testsOk: false,
+  });
+  assert.ok(out.includes("skills/unitrace/scripts/lib/rt-rehydrate-submit.mjs"));
+  assert.ok(added.every((rel) => rel.startsWith("skills/unitrace/scripts/")));
+});
+
+test("definitionFollowReads respects the disable flag", () => {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+  process.env.UNITRACE_RT_DEFFOLLOW = "0";
+  try {
+    const disabled = definitionFollowReads({
+      workspace: repoRoot,
+      question: "order read cache entries",
+      readCache: new Map([["a.mjs", "1|orderReadCacheEntries();\n"]]),
+      onRead: () => {},
+      focusRoots: ["skills/unitrace/scripts"],
+      archiveOk: false, wireOk: false, testsOk: false,
+    });
+    assert.deepEqual(disabled, []);
+  } finally {
+    delete process.env.UNITRACE_RT_DEFFOLLOW;
+  }
 });
 
 test("importFollowSeeds is a no-op for doc-only anchors and respects the disable flag", () => {
