@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.22.6 - 2026-06-30
+
+- Add a held-out gating set and de-noised reporting to the unitrace trace-vs-cursor
+  benchmark (`skills/unitrace/scripts/bench/trace-vs-cursor.mjs`). The harness now
+  medians each task across its repeats, reports per-task quality and speed
+  win/tie/loss with a win-rate, adds wall p25-p75 and composite-range spread, and
+  flags low-sample or within-noise runs in the verdict notes. New
+  `trace-repo-matrix-holdout.json` carries gating tasks on subsystems distinct from
+  the dev/tuning matrix so pipeline changes are not scored on the questions they were
+  tuned against.
+- Refine trace explore and submit grounding with question-agnostic mechanisms. The nav
+  explorer follows callers via generic symbol extraction and reads candidate windows for
+  usage coverage, search seeding scores env-var references better, and the submit prompt
+  now flags thin coverage for an unsupported cross-file header/return/forwarding/fail-open
+  claim instead of asserting it. Retire the unused `rt-pipeline-seed` helper.
+- Remove the question-specific assertions from `trace-schema.mjs` `validateTraceObject`
+  (hardcoded filenames and line ranges keyed to specific questions) and replace them with
+  question-agnostic schema tests.
+
+Verification:
+
+- `just test-all`
+- `python3 scripts/generate_docs.py --check`
+
 ## 1.22.5 - 2026-06-30
 
 - Harden MCP mutation detection for read-looking tool names and payloads. The

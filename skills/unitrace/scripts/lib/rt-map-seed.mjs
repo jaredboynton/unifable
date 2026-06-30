@@ -4,7 +4,6 @@ import { basename } from "node:path";
 import { mentionedIdentsFromQuery } from "../map-lib.mjs";
 import { confine, toolReadRange, toolGrep } from "./htools.mjs";
 import { normalizeReadPath } from "./trace-schema.mjs";
-import { pipelineSeedReads } from "./rt-pipeline-seed.mjs";
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 const STRIP_PREAMBLE = process.env.UNITRACE_RT_STRIP_COMMENTS !== "0";
@@ -128,35 +127,6 @@ export function requiredSeedPaths(question, workspace) {
   return out;
 }
 
-function curatedTraceSeeds(question, workspace) {
-  const q = String(question || "").toLowerCase();
-  const out = [];
-  const specs = [];
-  if (/\bunitrace(?:\.sh)?\b/.test(q)) {
-    specs.push({ path: "scripts/unitrace.sh", start_line: 1, end_line: 20 });
-  }
-  const wantsNavSeedSubmit = /\b(nav|seed|submit packet|submit-packet|build submit packet)\b/.test(q);
-  if (/\btrace-rt(?:\.sh)?\b|\brealtime-trace(?:\.mjs)?\b|\btrace rt\b/.test(q) || wantsNavSeedSubmit) {
-    specs.push({ path: "scripts/trace-rt.sh", start_line: 340, end_line: 405 });
-    if (/\b(render|rendered|rendering|pointer|rehydrate|submit|final)\b/.test(q)) {
-      specs.push({ path: "scripts/realtime-trace.mjs", start_line: 906, end_line: 1055 });
-    } else {
-      specs.push({ path: "scripts/realtime-trace.mjs", start_line: 190, end_line: 340 });
-    }
-    if (wantsNavSeedSubmit) {
-      specs.push({ path: "scripts/lib/rt-map-seed.mjs", start_line: 300, end_line: 390 });
-      specs.push({ path: "scripts/lib/rt-explore-nav.mjs", start_line: 294, end_line: 380 });
-      specs.push({ path: "scripts/realtime-trace.mjs", start_line: 632, end_line: 715 });
-    }
-  }
-  if (!specs.length) return out;
-  for (const spec of specs) {
-    const rel = resolveCandidate(workspace, spec.path);
-    if (rel) out.push({ rel, ...spec });
-  }
-  return out;
-}
-
 function readSeedSpec(workspace, spec, onRead, filesRead, readCache, lines) {
   const rel = typeof spec === "string" ? resolveCandidate(workspace, spec) : spec.rel || resolveCandidate(workspace, spec.path);
   if (!rel) return null;
@@ -193,10 +163,6 @@ function scoreMapRange(range, question, focusTerms) {
   for (const term of focusTerms) {
     if (term.length >= 4 && label.includes(term.toLowerCase())) score += 3;
   }
-  const q = String(question || "").toLowerCase();
-  if (/\b(lookup|looked up|required|route)\b/.test(q) && /getrequiredscope/.test(label)) score += 10;
-  if (/\b(enforc|missing|granted|insufficient)\b/.test(q) && /hasscope/.test(label)) score += 8;
-  if (/\b(public|passthrough|allowed)\b/.test(q) && /matchespathpolicy|public/.test(label)) score += 6;
   return score;
 }
 
@@ -274,18 +240,29 @@ function pickDefHit(matches, ident) {
   const decl = new RegExp(`\\b(function|class|def|const|let|var|interface|type|enum|struct|fn)\\s+${ident}\\b`);
   const keyOrAssign = new RegExp(`(^|\\s)${ident}\\s*[:=]`);
   const call = new RegExp(`\\b${ident}\\s*\\(`);
+  const envLike = /^[A-Z][A-Z0-9_]{2,}$/.test(ident);
+  const envRef = envLike
+    ? new RegExp(`\\b(?:process\\.env\\.|env\\[['"]?|\\$\\{?)${ident}\\b`)
+    : null;
   let best = null;
   for (const m of matches) {
     const c = String(m.content || "");
     let score = 0;
     if (decl.test(c)) score += 3;
     if (keyOrAssign.test(c)) score += 3;
+    if (envRef?.test(c)) score += 3;
     if (/\bexport\b/.test(c)) score += 1;
     if (call.test(c)) score += 1;
     if (!best || score > best.score) best = { lineNumber: m.lineNumber, score };
     if (best.score >= 4) break;
   }
   return best;
+}
+
+function seedPathBonus(rel, ident) {
+  if (!/^[A-Z][A-Z0-9_]{2,}$/.test(ident)) return 0;
+  const p = String(rel || "").toLowerCase();
+  return /(config|environment|settings|rc-file|release|installer|workflow)/.test(p) ? 2 : 0;
 }
 
 // Seed a read window centered on the *definition* of each mentioned identifier,
@@ -316,8 +293,9 @@ export function grepHitSeeds({
       if (!hit || hit.score < 2) continue;
       // Strictly-greater keeps the first (best-scoring) source file; ties do not
       // flip to a later alphabetical path.
-      if (!choice || hit.score > choice.hit.score) choice = { rel, hit };
-      if (choice.hit.score >= 4) break;
+      const rank = hit.score + seedPathBonus(rel, ident);
+      if (!choice || rank > choice.rank) choice = { rel, hit, rank };
+      if (choice.rank >= 4) break;
     }
     if (!choice) continue;
     // Read the definition window even if the file was already seeded as a header
@@ -365,10 +343,10 @@ export function seedExploreReads({
   max += grepAdded.length;
 
   if (seedFromMap) {
-    for (const spec of curatedTraceSeeds(question, workspace)) {
+    for (const rel of requiredSeedPaths(question, workspace)) {
       if (paths.length >= max) break;
-      const rel = readSeedSpec(workspace, { ...spec, pin: true }, onRead, filesRead, readCache, lines);
-      if (rel) record(rel);
+      const seeded = readSeedSpec(workspace, { rel, pin: true }, onRead, filesRead, readCache, lines);
+      if (seeded) record(seeded);
     }
     const mapRanges = parseMapLineRanges(mapBlock);
     const idents = mapFocusTerms(question, workspace);
@@ -406,9 +384,6 @@ export function seedExploreReads({
     const r = readSeedSpec(workspace, { rel, start_line: 1, end_line: defaultLines }, onRead, filesRead, readCache, lines);
     if (r) record(r);
   }
-
-  const pipelineAdded = pipelineSeedReads(question, workspace, filesRead, onRead);
-  for (const rel of pipelineAdded) record(rel);
 
   return paths;
 }

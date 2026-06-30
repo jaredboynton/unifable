@@ -70,12 +70,17 @@ export function pickDefHit(matches, ident) {
   const decl = new RegExp(`\\b(function|class|def|const|let|var|interface|type|enum|struct|fn|impl|trait)\\s+${ident}\\b`);
   const keyOrAssign = new RegExp(`(^|\\s)${ident}\\s*[:=]`);
   const call = new RegExp(`\\b${ident}\\s*\\(`);
+  const envLike = /^[A-Z][A-Z0-9_]{2,}$/.test(ident);
+  const envRef = envLike
+    ? new RegExp(`\\b(?:process\\.env\\.|env\\[['"]?|\\$\\{?)${ident}\\b`)
+    : null;
   let best = null;
   for (const m of matches) {
     const c = String(m.text || "");
     let score = 0;
     if (decl.test(c)) score += 3;
     if (keyOrAssign.test(c)) score += 3;
+    if (envRef?.test(c)) score += 3;
     if (/\bexport\b/.test(c)) score += 1;
     if (call.test(c)) score += 1;
     if (!best || score > best.score) best = { line: m.line, score };

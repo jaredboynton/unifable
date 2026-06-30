@@ -94,7 +94,7 @@ const SUBMIT_SYSTEM = [
   "Rules:",
   "- Be concise: opening_summary <= 120 words; each section body <= 45 words.",
   "- At most 5 code_passages; each span <= 40 lines.",
-  "- Ground every claim in the explore tool log and read excerpts provided.",
+  "- Ground every claim in the explore tool log and read excerpts provided; if a cross-file header/return/forwarding/fail-open claim lacks a span, say coverage is thin instead of asserting it.",
   "- For implementation / end-to-end questions, prefer source files over AGENTS/README/docs for evidence; use docs only when the question is about policy, usage, or config.",
   "- For pipeline or end-to-end questions, name the real scripts/functions/modules in order instead of generic stage labels.",
   "- For implementation questions, every flow step should name at least one concrete script or function from the evidence when one is available.",
@@ -176,12 +176,10 @@ const UNITRACE_RT_MAP_COMPACT_SUBMIT = envBool("UNITRACE_RT_MAP_COMPACT_SUBMIT",
 const UNITRACE_RT_DAEMON = envBool("UNITRACE_RT_DAEMON", true) && daemonEnabled();
 const UNITRACE_RT_NAMESPACE = (process.env.UNITRACE_RT_NAMESPACE || "trace").trim();
 const UNITRACE_RT_SYNTH_MODEL = (process.env.UNITRACE_RT_SYNTH_MODEL || "gpt-realtime-2").trim();
-// Explore strategy (A/B-decided): nav = host-driven micro-agent (mini navigators
-// + host hydration). On the kepler precision set nav delivered the best
-// quality-per-second (~2x faster than the agentic explore_exec loop at
-// comparable grounding) and fails open to agentic when the daemon is
-// unavailable. agentic = legacy full-model explore_exec loop; hybrid = nav with a
-// one-turn agentic top-up on thin coverage. See docs/benchmarks/trace-fast.md.
+// Explore strategy: nav = host-driven micro-agent (mini navigators + host
+// hydration) with fail-open fallback to the full-model explore_exec loop.
+// agentic = legacy full-model explore_exec loop; hybrid = nav with a one-turn
+// agentic top-up on thin coverage. See docs/benchmarks/trace-fast.md.
 const UNITRACE_RT_UNITRACE_MODE = (process.env.UNITRACE_RT_UNITRACE_MODE || "nav").trim();
 const UNITRACE_RT_NAV_MODEL = (process.env.UNITRACE_RT_NAV_MODEL || "gpt-realtime-mini").trim();
 
@@ -244,10 +242,6 @@ function extractAnchorSymbols(orderedEntries, { max = 10 } = {}) {
 function questionGuidance(question) {
   const q = String(question || "").toLowerCase();
   const rules = [];
-  if (/\b(seed|seed files|seeding)\b/.test(q) && /\b(submit packet|submit-packet|build submit packet)\b/.test(q)) {
-    rules.push("Focus on the producer/consumer handoff: explain the concrete seeding function(s) and the concrete packet-assembly function that consumes that state.");
-    rules.push("Prefer `seedExploreReads`, `runExploreNav`/`hostSeed`, and `buildSubmitPacket` over downstream transport or rendering details unless the question explicitly asks for them.");
-  }
   if (/\blooked up|lookup|required scopes?|enforced\b/.test(q)) {
     rules.push("For lookup/enforcement questions, show both the lookup helper definition and the exact handler branch that uses it.");
   }

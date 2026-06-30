@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
@@ -62,10 +64,18 @@ test("deriveSeedPaths falls back to query tokens for non-trace questions", () =>
 });
 
 test("deriveSeedPaths prefers ts twin over js when both exist", () => {
-  const map = `gateway/src/generated/scope-matrix.js:1-40 scope\ngateway/src/generated/scope-matrix.ts:1-40 scope`;
-  const paths = deriveSeedPaths("How does gateway scope enforcement work?", map, path.resolve(REPO_ROOT, "../kepler"), { max: 4 });
-  assert.ok(!paths.includes("gateway/src/generated/scope-matrix.js"));
-  assert.ok(paths.includes("gateway/src/generated/scope-matrix.ts"));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "unitrace-seed-twin-"));
+  try {
+    fs.mkdirSync(path.join(dir, "gateway", "src", "generated"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "gateway", "src", "generated", "access-matrix.js"), "module.exports = {};\n");
+    fs.writeFileSync(path.join(dir, "gateway", "src", "generated", "access-matrix.ts"), "export const accessMatrix = {};\n");
+    const map = `gateway/src/generated/access-matrix.js:1-40 access\ngateway/src/generated/access-matrix.ts:1-40 access`;
+    const paths = deriveSeedPaths("How does gateway access enforcement work?", map, dir, { max: 4 });
+    assert.ok(!paths.includes("gateway/src/generated/access-matrix.js"));
+    assert.ok(paths.includes("gateway/src/generated/access-matrix.ts"));
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("shouldStopExplore when required seeds and min reads met", () => {

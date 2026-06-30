@@ -1,0 +1,97 @@
+{
+  "_comment": "Held-out trace tasks for the gating verdict. Distinct subsystems and files from trace-repo-matrix.json (the dev/tuning set) so pipeline changes are not tuned against the questions they are scored on. All expected_paths verified to exist. Run with: node trace-vs-cursor.mjs --tasks trace-repo-matrix-holdout.json --repeats 3",
+  "tasks": [
+    {
+      "id": "unifable-holdout-quick-pretooluse",
+      "repo": "~/__devlocal/unifable",
+      "depth": "quick",
+      "question": "How does the pre-tool-use hook decide to block a disallowed tool call?",
+      "expected_paths": [
+        "hooks/pre_tool_use.py"
+      ]
+    },
+    {
+      "id": "unifable-holdout-medium-groundedness-ledger",
+      "repo": "~/__devlocal/unifable",
+      "depth": "medium",
+      "question": "How does the groundedness gate record evidence in the ledger and later look it up to decide whether a claim is grounded?",
+      "expected_paths": [
+        "scripts/gate/groundedness.py",
+        "scripts/gate/ledger.py"
+      ]
+    },
+    {
+      "id": "unifable-holdout-deep-pack-routing",
+      "repo": "~/__devlocal/unifable",
+      "depth": "deep",
+      "question": "Trace how pack routing goes from the router manifest definition to enforced inline discipline at tool-call time.",
+      "expected_paths": [
+        "packs/router-manifest.json",
+        "scripts/gate/pack_router.py",
+        "hooks/pre_tool_use.py"
+      ]
+    },
+    {
+      "id": "kepler-holdout-quick-request-logging",
+      "repo": "~/__devlocal/kepler",
+      "depth": "quick",
+      "question": "How does the gateway construct and emit structured request logs?",
+      "expected_paths": [
+        "gateway/src/logger.ts",
+        "gateway/src/index.ts"
+      ]
+    },
+    {
+      "id": "kepler-holdout-medium-pages-runtime-config",
+      "repo": "~/__devlocal/kepler",
+      "depth": "medium",
+      "question": "How does the Pages API function load runtime config and forward an incoming request?",
+      "expected_paths": [
+        "functions/api/[[path]].js",
+        "functions/api/runtime-config.generated.js"
+      ]
+    },
+    {
+      "id": "kepler-holdout-deep-pages-policy",
+      "repo": "~/__devlocal/kepler",
+      "depth": "deep",
+      "question": "Trace how the generated policy is applied to requests at the Pages edge function, from the generated policy module through request handling.",
+      "expected_paths": [
+        "functions/api/policy.generated.js",
+        "functions/api/[[path]].js",
+        "functions/api/runtime-config.generated.js"
+      ]
+    },
+    {
+      "id": "postman-holdout-quick-pkce-login",
+      "repo": "~/__devlocal/postman-cli",
+      "depth": "quick",
+      "question": "How does the CLI run the PKCE browser login flow?",
+      "expected_paths": [
+        "lib/login/pkce-auth.js",
+        "lib/login/index.js"
+      ]
+    },
+    {
+      "id": "postman-holdout-medium-config-resolution",
+      "repo": "~/__devlocal/postman-cli",
+      "depth": "medium",
+      "question": "How does the CLI resolve configuration from rc files and process environment variables?",
+      "expected_paths": [
+        "lib/config/rc-file.js",
+        "lib/config/process-env.js"
+      ]
+    },
+    {
+      "id": "postman-holdout-deep-collection-run",
+      "repo": "~/__devlocal/postman-cli",
+      "depth": "deep",
+      "question": "Trace how a collection run is set up and executed, from run options through run context to the unified run pipeline.",
+      "expected_paths": [
+        "lib/run/options.js",
+        "lib/run/run-context.js",
+        "lib/run/unified-run.js"
+      ]
+    }
+  ]
+}

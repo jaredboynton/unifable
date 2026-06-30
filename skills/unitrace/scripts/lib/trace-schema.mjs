@@ -271,22 +271,6 @@ export function validateTraceObject(obj, { workspace, filesRead, toolTurns, ques
     return "grounding_manifest.tool_turns mismatch";
   }
 
-  const q = question.toLowerCase();
-  if (/\b(seed|seed files|seeding)\b/.test(q) && /\b(submit packet|submit-packet|build submit packet)\b/.test(q) && !/\b(pointer|rehydrate|render(?:ed|ing)?|wire)\b/.test(q)) {
-    const passagePaths = new Set(obj.code_passages.map((p) => String(p.file_path || "")));
-    if (![...passagePaths].some((p) => /(^|\/)rt-map-seed\.mjs$/.test(p))) return "seed+submit question missing rt-map-seed passage";
-    if (![...passagePaths].some((p) => /(^|\/)rt-explore-nav\.mjs$/.test(p))) return "seed+submit question missing rt-explore-nav passage";
-    if (![...passagePaths].some((p) => /(^|\/)realtime-trace\.mjs$/.test(p))) return "seed+submit question missing realtime-trace passage";
-    const packetPassage = obj.code_passages.find((p) => /(^|\/)realtime-trace\.mjs$/.test(String(p.file_path || "")) && p.end_line >= 632 && p.start_line <= 715);
-    if (!packetPassage) return "seed+submit question missing buildSubmitPacket passage";
-    if ([...passagePaths].some((p) => /(^|\/)(rt-rehydrate-submit\.mjs|render-trace-structured\.mjs|rehydrate-explore-wire\.mjs)$/.test(p))) {
-      return "seed+submit question drifted into downstream rehydrate/render passages";
-    }
-    if (obj.code_passages.some((p) => /(^|\/)realtime-trace\.mjs$/.test(String(p.file_path || "")) && p.start_line >= 900)) {
-      return "seed+submit question drifted into downstream submit transport passages";
-    }
-  }
-
   return null;
 }
 

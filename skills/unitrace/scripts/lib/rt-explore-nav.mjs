@@ -16,7 +16,7 @@
 import { retrieveCandidates } from "../search-fast.mjs";
 import { codeSymbolIdents } from "../search-seed.mjs";
 import { buildReadIndex, orderReadCacheEntries } from "./rt-rehydrate-submit.mjs";
-import { toolReadRange, confine } from "./htools.mjs";
+import { toolReadRange, confine, toolGrep } from "./htools.mjs";
 import { normalizeReadPath } from "./trace-schema.mjs";
 import { daemonAskBatch } from "./daemon-client.mjs";
 import { namedPathsFromQuestion, seedExploreReads } from "./rt-map-seed.mjs";
@@ -50,6 +50,118 @@ function readCandidateWindow(workspace, candidate) {
   });
   if (read.ok && read.content) return read.content;
   return numberExcerpt(candidate.startLine || 1, candidate.content || "");
+}
+
+function excerptRanges(excerpt) {
+  const ranges = [];
+  for (const segment of String(excerpt || "").split("\n---\n")) {
+    const lines = segment.split("\n").filter(Boolean);
+    let min = Infinity;
+    let max = 0;
+    for (const line of lines) {
+      const m = line.match(/^(\d+)\|/);
+      if (!m) continue;
+      const n = Number(m[1]);
+      min = Math.min(min, n);
+      max = Math.max(max, n);
+    }
+    if (Number.isFinite(min) && max >= min) ranges.push([min, max]);
+  }
+  return ranges;
+}
+
+function looksLikeDefinitionLine(content, symbol) {
+  const text = String(content || "");
+  const decl = new RegExp(`\\b(function|class|def|const|let|var|interface|type|enum|struct|fn)\\s+${symbol}\\b`);
+  const keyOrAssign = new RegExp(`(^|\\s)${symbol}\\s*[:=]`);
+  return decl.test(text) || keyOrAssign.test(text);
+}
+
+function questionUsageSymbols(question) {
+  return codeSymbolIdents(question).slice(0, 8);
+}
+
+export function extractUsageSymbols(readCache, paths = [], { max = 4 } = {}) {
+  const out = [];
+  const seen = new Set();
+  const entries = paths.length
+    ? paths.map((p) => [p, readCache.get(p)]).filter(([, excerpt]) => excerpt)
+    : [...readCache.entries()];
+  const patterns = [
+    /^\d+\|\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_][A-Za-z0-9_]*)/gm,
+    /^\d+\|\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_][A-Za-z0-9_]*)\s*=/gm,
+    /^\d+\|\s*(?:export\s+)?class\s+([A-Za-z_][A-Za-z0-9_]*)/gm,
+  ];
+  for (const [rel, excerpt] of entries) {
+    const ranges = excerptRanges(excerpt);
+    for (const re of patterns) {
+      for (const match of String(excerpt || "").matchAll(re)) {
+        const symbol = match[1];
+        if (!symbol || seen.has(symbol)) continue;
+        seen.add(symbol);
+        out.push({ symbol, rel, ranges });
+        if (out.length >= max) return out;
+      }
+    }
+  }
+  return out;
+}
+
+function rangeCovers(ranges, lineNumber) {
+  return ranges.some(([start, end]) => lineNumber >= start && lineNumber <= end);
+}
+
+function prioritizedUsageSymbols(readCache, seedPaths, question, maxSymbols) {
+  const extracted = extractUsageSymbols(readCache, seedPaths, {
+    max: Math.max(maxSymbols, questionUsageSymbols(question).length + 2),
+  });
+  const bySymbol = new Map(extracted.map((item) => [item.symbol, item]));
+  const out = [];
+  const seen = new Set();
+  for (const symbol of [...questionUsageSymbols(question), ...extracted.map((item) => item.symbol)]) {
+    if (!symbol || seen.has(symbol)) continue;
+    seen.add(symbol);
+    out.push(bySymbol.get(symbol) || { symbol, rel: null, ranges: [] });
+    if (out.length >= maxSymbols) break;
+  }
+  return out;
+}
+
+function usageFollowupReads({ workspace, question, readCache, seedPaths, onRead, focusRoots, archiveOk, wireOk, testsOk, maxSymbols = 4, maxReads = 4 }) {
+  const symbols = prioritizedUsageSymbols(readCache, seedPaths, question, maxSymbols);
+  let added = 0;
+  const seen = new Set();
+  for (const item of symbols) {
+    if (added >= maxReads) break;
+    let grep;
+    try {
+      grep = toolGrep(workspace, { pattern: item.symbol });
+    } catch {
+      continue;
+    }
+    if (!grep?.ok) continue;
+    for (const fm of grep.fileMatches || []) {
+      const rel = normalizeReadPath(workspace, fm.file);
+      if (!rel || !candidatePassesFocus(rel, focusRoots, archiveOk, wireOk, testsOk)) continue;
+      for (const match of fm.matches || []) {
+        if (added >= maxReads) break;
+        if (item.rel && rel === item.rel && rangeCovers(item.ranges, match.lineNumber)) continue;
+        if (looksLikeDefinitionLine(match.content, item.symbol)) continue;
+        const key = `${rel}:${match.lineNumber}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const read = toolReadRange(workspace, rel, {
+          start_line: Math.max(1, match.lineNumber - 6),
+          end_line: match.lineNumber + 16,
+          stripPreamble: STRIP_PREAMBLE,
+        });
+        if (!read.ok || !read.content) continue;
+        onRead(rel, read.content, { pin: true });
+        added += 1;
+      }
+    }
+  }
+  return added;
 }
 
 function excerptCovers(readCache, rel, startLine, endLine) {
@@ -87,6 +199,9 @@ function prefersSource(question) {
   if (named.some((p) => isDocPath(p) && !isSourcePath(p))) return false;
   if (named.some((p) => isSourcePath(p))) return true;
   if (codeSymbolIdents(question).length) return true;
+  if (/\b(readme|docs?|document|install(?:er|ers|ation)?|release|workflow|package|config(?:uration)?|settings?|credential|account|runbook)\b/i.test(String(question || ""))) {
+    return false;
+  }
   return /\b(how|trace|flow|phase|pipeline|call|entry(?:point)?|render|submit|explore|function|script|module|implementation|implement|orchestr|worker|handler)\b/i.test(String(question || ""));
 }
 
@@ -100,14 +215,6 @@ function allowWire(question) {
 
 function allowTests(question) {
   return /\b(test|tests|fixture|benchmark|bench)\b/i.test(String(question || ""));
-}
-
-function suppressDownstream(question, rel) {
-  const q = String(question || "").toLowerCase();
-  const asksSeedSubmit = /\b(seed|seed files|seeding)\b/.test(q) && /\b(submit packet|submit-packet|build submit packet)\b/.test(q);
-  if (!asksSeedSubmit) return false;
-  if (/\b(pointer|rehydrate|render(?:ed|ing)?|wire)\b/.test(q)) return false;
-  return /(^|\/)(rt-rehydrate-submit\.mjs|render-trace-structured\.mjs|rehydrate-explore-wire\.mjs)$/.test(String(rel || ""));
 }
 
 function dirnameOf(rel) {
@@ -151,9 +258,9 @@ function candidatePassesFocus(rel, focusRoots, archiveOk, wireOk, testsOk) {
 
 function focusCandidates(candidates, focusRoots, archiveOk, wireOk, testsOk, question = "") {
   const ranked = (candidates || []).filter((c) => c && typeof c.path === "string");
-  const focused = ranked.filter((c) => !suppressDownstream(question, c.path) && candidatePassesFocus(c.path, focusRoots, archiveOk, wireOk, testsOk));
+  const focused = ranked.filter((c) => candidatePassesFocus(c.path, focusRoots, archiveOk, wireOk, testsOk));
   if (focused.length) return focused;
-  return ranked.filter((c) => !suppressDownstream(question, c.path) && candidatePassesFocus(c.path, [], archiveOk, wireOk, testsOk));
+  return ranked.filter((c) => candidatePassesFocus(c.path, [], archiveOk, wireOk, testsOk));
 }
 
 // Distinct framings so K navigators diversify WHAT they probe instead of all
@@ -290,7 +397,6 @@ export function hydrateFromPaths(workspace, readPaths, onRead, { focusRoots = []
   let added = 0;
   for (const entry of readPaths || []) {
     if (!entry || typeof entry.path !== "string") continue;
-    if (suppressDownstream(question, entry.path)) continue;
     if (!candidatePassesFocus(entry.path, focusRoots, archiveOk, wireOk, testsOk)) continue;
     const abs = confine(workspace, entry.path);
     if (!abs) continue;
@@ -377,6 +483,19 @@ export async function runExploreNav({
     readCache,
   });
   const seedPaths = [...new Set([...explicitSeeds, ...hostSeeds])];
+  usageFollowupReads({
+    workspace,
+    question,
+    readCache,
+    seedPaths,
+    onRead,
+    focusRoots,
+    archiveOk,
+    wireOk,
+    testsOk,
+    maxSymbols: 6,
+    maxReads: 6,
+  });
   if (debug) process.stderr.write(`[nav] seed_ms=${Date.now() - t0} seeded=${seedPaths.length}\n`);
 
   let toolTurnCount = 0;
@@ -416,8 +535,22 @@ export async function runExploreNav({
       testsOk,
       readCache,
     });
+    const fromUsage = usageFollowupReads({
+      workspace,
+      question,
+      readCache,
+      seedPaths: [...filesRead],
+      onRead,
+      focusRoots,
+      archiveOk,
+      wireOk,
+      testsOk,
+      maxSymbols: 4,
+      maxReads: 3,
+    });
     toolTurnCount += dedupTerms.length ? 1 : 0;
     toolTurnCount += fromPaths;
+    toolTurnCount += fromUsage;
     if (debug) {
       process.stderr.write(`[nav] round=${round} navs=${validCount}/${navCount} terms=${dedupTerms.length} paths=${dedupPaths.length} added=${filesRead.size - before} total=${filesRead.size}\n`);
     }

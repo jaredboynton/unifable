@@ -6,6 +6,7 @@ import {
   NAV_SCHEMA,
   buildNavIndex,
   dedupNavProposals,
+  extractUsageSymbols,
   focusRootsFor,
   hydrateFromPaths,
 } from "../lib/rt-explore-nav.mjs";
@@ -86,11 +87,20 @@ test("buildNavIndex renders a READ INDEX with seed ordering", () => {
 });
 
 test("focusRootsFor widens generated src seeds to the src root", () => {
-  const roots = focusRootsFor("scope enforcement", [
-    "gateway/src/generated/scope-matrix.ts",
-    "crates/kepler-server/src/middleware/audit.rs",
+  const roots = focusRootsFor("access enforcement", [
+    "gateway/src/generated/access-matrix.ts",
+    "crates/app-server/src/middleware/audit.rs",
   ]);
   assert.ok(Array.isArray(roots));
   assert.ok(roots.includes("gateway/src"));
-  assert.ok(roots.includes("crates/kepler-server/src"));
+  assert.ok(roots.includes("crates/app-server/src"));
+});
+
+test("extractUsageSymbols derives function symbols from seeded excerpts", () => {
+  const readCache = new Map([
+    ["a.js", "10|export async function buildSubmitPacket() {}\n"],
+    ["b.js", "20|const seedExploreReads = () => {}\n"],
+  ]);
+  const out = extractUsageSymbols(readCache, ["a.js", "b.js"], { max: 4 });
+  assert.deepEqual(out.map((s) => s.symbol), ["buildSubmitPacket", "seedExploreReads"]);
 });

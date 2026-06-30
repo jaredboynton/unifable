@@ -228,19 +228,19 @@ test("retrieval de-prioritizes test files so the implementation is not evicted b
 test("retrieval keeps path-signaled architecture files in the candidate pool", async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "uni-pathboost-"));
   try {
-    fs.mkdirSync(path.join(dir, "gateway", "src"), { recursive: true });
+    fs.mkdirSync(path.join(dir, "app", "src"), { recursive: true });
     fs.mkdirSync(path.join(dir, "server"), { recursive: true });
     fs.writeFileSync(
-      path.join(dir, "gateway", "src", "index.ts"),
-      "export function enforceScope() {\n  return getRequiredScopes();\n}\n",
+      path.join(dir, "app", "src", "router.ts"),
+      "export function authorizeRequest() {\n  return readAccessRules();\n}\n",
     );
     fs.writeFileSync(
       path.join(dir, "server", "audit.ts"),
-      Array.from({ length: 8 }, () => "function audit_scope_decision() { return 'scope'; }\n").join(""),
+      Array.from({ length: 8 }, () => "function audit_access_decision() { return 'access'; }\n").join(""),
     );
-    const { candidates } = await retrieveCandidates(dir, "how does the gateway scope enforcement work");
+    const { candidates } = await retrieveCandidates(dir, "how does the app router access enforcement work");
     assert.ok(candidates.length > 0);
-    assert.ok(candidates.some((c) => c.path.includes("gateway/src/index.ts")), "expected gateway path to be retained");
+    assert.ok(candidates.some((c) => c.path.includes("app/src/router.ts")), "expected app router path to be retained");
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

@@ -55,6 +55,15 @@ function median(nums) {
   return xs.length % 2 ? xs[mid] : (xs[mid - 1] + xs[mid]) / 2;
 }
 
+function quantile(nums, q) {
+  const xs = nums.filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+  if (!xs.length) return NaN;
+  const pos = (xs.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  return xs[base + 1] !== undefined ? xs[base] + rest * (xs[base + 1] - xs[base]) : xs[base];
+}
+
 function fmt(n, dp = 0) {
   if (n == null || Number.isNaN(n)) return "-";
   return typeof n === "number" ? n.toFixed(dp) : String(n);
@@ -152,30 +161,32 @@ function sliceForJudge(markdown, maxChars) {
 
 async function judgeTrace(task, markdown) {
   if (!markdown || !markdown.trim()) return { score: 0, reason: "empty trace" };
-  for (const maxChars of [20000, 12000, 8000]) {
-    const user = [
-      "QUESTION:",
-      task.question,
-      "",
-      `DEPTH: ${task.depth}`,
-      "",
-      "EXPECTED PATHS:",
-      task.expected_paths.join("\n"),
-      "",
-      "TRACE:",
-      sliceForJudge(markdown, maxChars),
-    ].join("\n");
-    try {
-      const out = await daemonAsk(
-        JUDGE_NAMESPACE,
-        { system: JUDGE_SYSTEM, user, schema: JUDGE_SCHEMA, schemaName: "judge_trace" },
-        { model: JUDGE_MODEL },
-      );
-      if (out && typeof out.score === "number") {
-        return { score: out.score, reason: String(out.reason || "") };
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    for (const maxChars of [20000, 12000, 8000, 5000]) {
+      const user = [
+        "QUESTION:",
+        task.question,
+        "",
+        `DEPTH: ${task.depth}`,
+        "",
+        "EXPECTED PATHS:",
+        task.expected_paths.join("\n"),
+        "",
+        "TRACE:",
+        sliceForJudge(markdown, maxChars),
+      ].join("\n");
+      try {
+        const out = await daemonAsk(
+          JUDGE_NAMESPACE,
+          { system: JUDGE_SYSTEM, user, schema: JUDGE_SCHEMA, schemaName: "judge_trace" },
+          { model: JUDGE_MODEL },
+        );
+        if (out && typeof out.score === "number") {
+          return { score: out.score, reason: String(out.reason || "") };
+        }
+      } catch {
+        // Retry with smaller slices, then retry the whole ladder.
       }
-    } catch {
-      // Try again with a smaller trace slice.
     }
   }
   return { score: NaN, reason: "judge failed" };
@@ -254,7 +265,38 @@ function summarizeArm(rows, arm) {
     medianCoverage: median(subset.map((r) => r.coverageRatio * 100)),
     medianQualityIndex: median(subset.map((r) => r.qualityIndex)),
     medianComposite: median(subset.map((r) => r.composite)),
+    p25WallMs: quantile(subset.map((r) => r.wallMs), 0.25),
+    p75WallMs: quantile(subset.map((r) => r.wallMs), 0.75),
+    minComposite: quantile(subset.map((r) => r.composite), 0),
+    maxComposite: quantile(subset.map((r) => r.composite), 1),
   };
+}
+
+// Aggregate each task across its repeats (median per arm) so the per-task
+// quality/speed winner is a stable signal, not a single noisy sample.
+function summarizeTasks(records, tasks) {
+  return tasks.map((t) => {
+    const u = records.filter((r) => r.taskId === t.id && r.arm === "unitrace");
+    const c = records.filter((r) => r.taskId === t.id && r.arm === "cursor");
+    const uComposite = median(u.map((r) => r.composite));
+    const cComposite = median(c.map((r) => r.composite));
+    const uWallMs = median(u.map((r) => r.wallMs));
+    const cWallMs = median(c.map((r) => r.wallMs));
+    return {
+      id: t.id,
+      depth: t.depth,
+      reps: u.length,
+      uComposite,
+      cComposite,
+      uJudge: median(u.map((r) => r.judgeScore)),
+      cJudge: median(c.map((r) => r.judgeScore)),
+      uWallMs,
+      cWallMs,
+      qualityWin: uComposite > cComposite,
+      qualityTie: uComposite === cComposite,
+      speedWin: uWallMs < cWallMs,
+    };
+  });
 }
 
 function summarizeDepth(rows, arm, depth) {
@@ -330,6 +372,13 @@ async function main() {
     depthSummary.push(summarizeDepth(records, "cursor", depth));
   }
 
+  const perTask = summarizeTasks(records, tasks);
+  const qWins = perTask.filter((t) => t.qualityWin).length;
+  const qTies = perTask.filter((t) => t.qualityTie).length;
+  const qLosses = perTask.length - qWins - qTies;
+  const sWins = perTask.filter((t) => t.speedWin).length;
+  const qualityWinRate = perTask.length ? qWins / perTask.length : 0;
+
   const unitraceOverall = overall.find((s) => s.arm === "unitrace");
   const cursorOverall = overall.find((s) => s.arm === "cursor");
   const verdict = {
@@ -339,6 +388,9 @@ async function main() {
       && unitraceOverall.medianWallMs < cursorOverall.medianWallMs
       && unitraceOverall.medianComposite > cursorOverall.medianComposite,
     reasons: [],
+    notes: [],
+    perTaskQuality: { wins: qWins, ties: qTies, losses: qLosses, winRate: qualityWinRate },
+    perTaskSpeed: { wins: sWins, total: perTask.length },
   };
   if (!Number.isFinite(unitraceOverall.medianJudge) || !Number.isFinite(cursorOverall.medianJudge)) {
     verdict.reasons.push("one or more judged quality scores were unavailable; verdict is invalid until both arms judge cleanly");
@@ -350,7 +402,20 @@ async function main() {
     verdict.reasons.push(`quality median ${fmt(unitraceOverall.medianComposite)} <= cursor ${fmt(cursorOverall.medianComposite)}`);
   }
 
-  const raw = { meta: args, tasks, records, overall, depthSummary, verdict };
+  // Stability notes: the aggregate median is noisy at low repeats. Surface the
+  // per-task majority and flag when it disagrees with the aggregate verdict.
+  verdict.notes.push(`per-task quality: ${qWins}W/${qTies}T/${qLosses}L (win-rate ${(qualityWinRate * 100).toFixed(0)}%)`);
+  verdict.notes.push(`per-task speed wins: ${sWins}/${perTask.length}`);
+  const medianSaysQualityWin = unitraceOverall.medianComposite > cursorOverall.medianComposite;
+  const majoritySaysQualityWin = qWins > qLosses;
+  if (medianSaysQualityWin !== majoritySaysQualityWin) {
+    verdict.notes.push("quality signal within noise: aggregate median and per-task majority disagree; raise --repeats before trusting the verdict");
+  }
+  if (args.repeats < 3) {
+    verdict.notes.push(`low-sample run (repeats=${args.repeats}); use --repeats 3 for a gating verdict`);
+  }
+
+  const raw = { meta: args, tasks, records, overall, depthSummary, perTask, verdict };
   writeFileSync(path.join(args.outDir, "raw.json"), JSON.stringify(raw, null, 2));
 
   const md = [];
@@ -359,12 +424,29 @@ async function main() {
   md.push(`## VERDICT: ${verdict.pass ? "PASS" : "FAIL"}`, "");
   for (const reason of verdict.reasons) md.push(`- ${reason}`);
   if (verdict.reasons.length) md.push("");
+  for (const note of verdict.notes) md.push(`- note: ${note}`);
+  if (verdict.notes.length) md.push("");
+
+  md.push("## Aggregate signal", "");
+  md.push(`- Quality: ${qWins}W / ${qTies}T / ${qLosses}L across ${perTask.length} tasks (win-rate ${(qualityWinRate * 100).toFixed(0)}%)`);
+  md.push(`- Speed: ${sWins}/${perTask.length} tasks faster`);
+  md.push("");
 
   md.push("## Overall", "");
-  md.push("| arm | runs | ok | med wall (ms) | med judge | med anchor % | med quality idx | med composite |");
-  md.push("|---|---|---|---|---|---|---|---|");
+  md.push("| arm | runs | ok | med wall (ms) | wall p25-p75 | med judge | med anchor % | med quality idx | med composite | comp range |");
+  md.push("|---|---|---|---|---|---|---|---|---|---|");
   for (const s of overall) {
-    md.push(`| ${s.arm} | ${s.runs} | ${s.ok} | ${fmt(s.medianWallMs)} | ${fmt(s.medianJudge, 1)} | ${fmt(s.medianCoverage, 0)} | ${fmt(s.medianQualityIndex, 0)} | ${fmt(s.medianComposite, 0)} |`);
+    md.push(`| ${s.arm} | ${s.runs} | ${s.ok} | ${fmt(s.medianWallMs)} | ${fmt(s.p25WallMs)}-${fmt(s.p75WallMs)} | ${fmt(s.medianJudge, 1)} | ${fmt(s.medianCoverage, 0)} | ${fmt(s.medianQualityIndex, 0)} | ${fmt(s.medianComposite, 0)} | ${fmt(s.minComposite)}-${fmt(s.maxComposite)} |`);
+  }
+  md.push("");
+
+  md.push("## Per task (median across repeats)", "");
+  md.push("| task | depth | reps | u wall | c wall | u judge | c judge | u comp | c comp | quality | speed |");
+  md.push("|---|---|---|---|---|---|---|---|---|---|---|");
+  for (const t of perTask) {
+    const qmark = t.qualityTie ? "tie" : (t.qualityWin ? "WIN" : "loss");
+    const smark = t.speedWin ? "WIN" : "loss";
+    md.push(`| ${t.id} | ${t.depth} | ${t.reps} | ${fmt(t.uWallMs)} | ${fmt(t.cWallMs)} | ${fmt(t.uJudge, 1)} | ${fmt(t.cJudge, 1)} | ${fmt(t.uComposite)} | ${fmt(t.cComposite)} | ${qmark} | ${smark} |`);
   }
   md.push("");
 

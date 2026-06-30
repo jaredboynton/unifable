@@ -20,10 +20,47 @@ a FAIL verdict so it can gate a default flip.
 | `corpus/multiformat/` | synthetic labeled corpus (code/doc/config/data + secrets) |
 | `queries/multiformat.jsonl`, `queries/unifable.jsonl` | labeled query sets (kept OUT of the searched roots) |
 | `borrow-callers-prompts.json` | enhance/websearch prompt sets |
+| `trace-vs-cursor.mjs` | trace quality+speed A/B: `unitrace.sh` vs `archive/trace-cursor.sh`, judged |
+| `trace-repo-matrix.json` | dev/tuning trace tasks (iterate against these) |
+| `trace-repo-matrix-holdout.json` | held-out trace tasks for the gating verdict (do NOT tune against these) |
 
 Query files live under `queries/`, never inside a searched corpus root — for the
 real-repo corpus the root IS the repo, so an in-tree queries file would pollute
 retrieval and inflate find-rate.
+
+## Trace vs cursor verdict (dev vs held-out)
+
+`trace-vs-cursor.mjs` scores trace quality (judge 0-10 + structural/citation
+heuristics -> composite) and wall speed for `unitrace.sh` against
+`archive/trace-cursor.sh`. The objective is to EXCEED cursor on BOTH speed and
+quality. Speed is decisively won (~3.5x); the open gap is quality on
+medium/deep synthesis.
+
+- **Two task sets, strict split.** `trace-repo-matrix.json` is the dev set you
+  iterate against. `trace-repo-matrix-holdout.json` is the gating set with
+  distinct subsystems/files/questions. Tune the pipeline on dev; report the
+  verdict on held-out. Never tune prompts/logic against the held-out questions
+  or expected paths, or the verdict is meaningless.
+- **Single samples are noisy.** Per-task composite swings double digits run to
+  run, so a single `--repeats 1` median flips the verdict. The gating run is
+  `--repeats 3` (or more); the harness flags low-sample runs in the verdict
+  notes.
+- **Trust the per-task win-rate, not just the aggregate median.** The summary
+  reports per-task quality W/T/L and speed wins (medianed across repeats) plus a
+  composite range. When the aggregate median and the per-task majority disagree,
+  the harness emits a "within noise" note: raise `--repeats` before trusting it.
+- **Keep the scorer honest.** Do not re-add question-specific assertions to
+  `lib/trace-schema.mjs` `validateTraceObject` (an earlier block hardcoded the
+  dev questions' filenames + line ranges; it was removed). Grounding checks must
+  be question-agnostic.
+
+Gating run:
+
+```bash
+node skills/unitrace/scripts/bench/trace-vs-cursor.mjs \
+  --tasks skills/unitrace/scripts/bench/trace-repo-matrix-holdout.json \
+  --repeats 3 --out /tmp/trace-vs-cursor-gating
+```
 
 ## Verdict contract (mechanical, auditable)
 
