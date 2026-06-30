@@ -5,7 +5,8 @@ then synthesizes them into one evidence-backed recommendation.**
 
 Unifusion is now a **Droid-native panel-and-synthesis harness** in the unifable family. The active path is
 no longer "spawn a pile of external CLIs and have the current Claude session judge them." Instead, one
-`droid exec` root session handles orchestration, parallel subagents, synthesis, and final output.
+GPT-5.5-backed `droid exec` root session handles orchestration, parallel subagents, synthesis, and final
+output.
 
 ## Active flow
 
@@ -13,7 +14,7 @@ no longer "spawn a pile of external CLIs and have the current Claude session jud
 |---|---|---|
 | Resolve brief | `resolve_session.sh` → `summarize_session.sh` → `compact-full-transcript.mjs` | best-effort factual-only session brief |
 | Build prompt | `scripts/unifusion.sh` | writes one canonical `panel_prompt.md` with context + verbatim task |
-| Orchestrate | `droid exec` root run | launches architect droids via Task in parallel, then synthesizes them in the root session |
+| Orchestrate | GPT-5.5 `droid exec` root run | launches architect droids via Task in parallel, then synthesizes them in the root session |
 | Architect panel | `architect`, `architect-opus`, `architect-glm`, `architect-kimi` | independent frontier-research reads on the same task |
 | Save | `save_run.sh` | provenance bundle under `~/.unifable/unifusion-runs/` |
 
@@ -47,6 +48,8 @@ The script prints a manifest with:
 
 - The session brief is still **factual state only**.
 - The user's task is still passed **verbatim**.
+- The root orchestrator defaults to GPT-5.5 so root-level web/tooling support does not depend on Opus
+  Bedrock's WebSearch behavior; Opus remains a panelist through `architect-opus`.
 - The old multi-CLI fan-out entrypoint is archived at `scripts/archive/unifusion_parallel_cli.sh`.
 - Legacy runner scripts such as `run_claude.sh`, `run_codex.sh`, `run_gemini.sh`, `run_kimi.sh`, and `run_glm.sh`
   are retained for reference, not on the active Unifusion path.

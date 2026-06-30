@@ -63,6 +63,33 @@ def test_read_like_mcp_name_with_write_payload_is_mutation_gated():
         assert "Evidence spec required" in stderr
 
 
+def test_read_like_mcp_name_with_graphql_mutation_payload_is_gated():
+    with tempfile.TemporaryDirectory() as tmp:
+        payload = {
+            "tool_name": "mcp__github__query",
+            "tool_input": {"query": "mutation CreateIssue { createIssue(input: {}) { id } }"},
+            "session_id": "mcp-read-name-graphql-mutation",
+            "cwd": tmp,
+            "turn_id": "turn-mcp-read-name-graphql-mutation",
+        }
+        rc, stdout, stderr = _run_pre_tool(payload, data_root=tmp)
+        assert rc == 2, (stdout, stderr)
+        assert "Evidence spec required" in stderr
+
+
+def test_read_like_mcp_name_with_select_sql_payload_stays_allowed():
+    with tempfile.TemporaryDirectory() as tmp:
+        payload = {
+            "tool_name": "mcp__db__query",
+            "tool_input": {"sql": "SELECT * FROM users"},
+            "session_id": "mcp-read-name-select",
+            "cwd": tmp,
+            "turn_id": "turn-mcp-read-name-select",
+        }
+        rc, stdout, stderr = _run_pre_tool(payload, data_root=tmp)
+        assert rc == 0, (stdout, stderr)
+
+
 def test_read_like_mcp_tool_is_not_a_director_scoped_mutation():
     for path in (HOOKS, GATE):
         if str(path) not in sys.path:
@@ -110,6 +137,80 @@ def test_claude_full_pretool_path_emits_structured_deny_for_mcp_mutation():
         assert hso["hookEventName"] == "PreToolUse"
         assert hso["permissionDecision"] == "deny"
         assert hso["permissionDecisionReason"]
+
+
+def test_claude_structured_deny_full_path_is_single_json_for_core_block_kinds():
+    cases = [
+        (
+            "spec",
+            {
+                "tool_name": "Edit",
+                "tool_input": {"file_path": "src/app.py", "old_string": "x", "new_string": "y"},
+            },
+        ),
+        (
+            "bash",
+            {
+                "tool_name": "Bash",
+                "tool_input": {"command": "npm test"},
+            },
+        ),
+        (
+            "delegation",
+            {
+                "tool_name": "Task",
+                "tool_input": {"description": "worker", "prompt": "fix it"},
+            },
+        ),
+        (
+            "protected",
+            {
+                "tool_name": "Edit",
+                "tool_input": {"file_path": ".unifable/state.json", "old_string": "x", "new_string": "y"},
+            },
+        ),
+    ]
+    for name, partial in cases:
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = {
+                **partial,
+                "session_id": f"claude-{name}-deny",
+                "cwd": tmp,
+                "hook_event_name": "PreToolUse",
+                "turn_id": f"turn-claude-{name}-deny",
+            }
+            rc, stdout, stderr = _run_pre_tool(payload, data_root=tmp, host="claude")
+            assert rc == 0, (name, stdout, stderr)
+            assert stderr == "", (name, stderr)
+            assert stdout.endswith("\n") and stdout.count("\n") == 1, (name, stdout)
+            parsed = json.loads(stdout)
+            hso = parsed["hookSpecificOutput"]
+            assert hso["hookEventName"] == "PreToolUse", name
+            assert hso["permissionDecision"] == "deny", name
+            assert hso["permissionDecisionReason"], name
+
+
+def test_codex_apply_patch_blocks_with_exit2_and_stderr():
+    patch = (
+        "*** Begin Patch\n"
+        "*** Update File: src/app.py\n"
+        "@@\n"
+        "-old\n"
+        "+new\n"
+        "*** End Patch\n"
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        payload = {
+            "tool_name": "apply_patch",
+            "tool_input": {"patch": patch},
+            "session_id": "codex-applypatch-block",
+            "cwd": tmp,
+            "turn_id": "turn-codex-applypatch-block",
+        }
+        rc, stdout, stderr = _run_pre_tool(payload, data_root=tmp, host="codex")
+        assert rc == 2, (stdout, stderr)
+        assert stdout == ""
+        assert "Evidence spec required" in stderr
 
 
 def test_mcp_mutation_protected_path_blocks_even_for_light_grade():

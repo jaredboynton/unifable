@@ -6,6 +6,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
@@ -15,6 +17,12 @@ import spec_judge  # noqa: E402
 import spec_stop_validate as ssv  # noqa: E402
 from spec import all_tasks_validated, auto_validate_spec, load_spec, save_spec, spec_template  # noqa: E402
 from spec_stop_validate import _apply_check_result  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _claude_stop_output_contract(monkeypatch):
+    """These tests assert Claude Stop additionalContext shaping, independent of runner host."""
+    monkeypatch.setenv("UNIFABLE_HOST", "claude")
 
 
 def _task(tid, status, **extra):

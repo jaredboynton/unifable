@@ -7,6 +7,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts" / "gate"))
 sys.path.insert(0, str(REPO / "hooks"))
@@ -15,6 +17,12 @@ import loop_release as lr  # noqa: E402
 from ledger import DEFAULT_LEDGER, load_ledger, save_ledger  # noqa: E402
 from spec import load_spec, save_spec, spec_template  # noqa: E402
 from verify_state import note_completion_block  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _claude_stop_output_contract(monkeypatch):
+    """These tests assert Claude Stop additionalContext shaping, independent of runner host."""
+    monkeypatch.setenv("UNIFABLE_HOST", "claude")
 
 
 def _task(tid, status, *, added_by=None, check="true"):

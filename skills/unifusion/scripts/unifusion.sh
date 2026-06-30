@@ -52,7 +52,7 @@ uid="${UNIFUSION_UID:-$(date +%Y%m%d_%H%M%S)_$$}"
 review_root="${HOME}/.factory/reviews/${review_session}/${uid}"
 mkdir -p "$review_root"
 
-droid_model="${UNIFUSION_DROID_MODEL:-custom:Opus-4.8-Bedrock}"
+droid_model="${UNIFUSION_DROID_MODEL:-custom:GPT-5.5-OAuth}"
 droid_reasoning="${UNIFUSION_DROID_REASONING_EFFORT:-high}"
 droid_timeout="${UNIFUSION_DROID_TIMEOUT:-1800}"
 
@@ -204,7 +204,7 @@ _run_with_timeout "$droid_timeout" droid exec \
   --reasoning-effort "$droid_reasoning" \
   --auto high \
   --cwd "$cwd" \
-  --enabled-tools Read,LS,Grep,Glob,FetchUrl,Create,Edit,ApplyPatch,Task \
+  --enabled-tools Read,LS,Grep,Glob,WebSearch,FetchUrl,Create,Edit,ApplyPatch,Task \
   --output-format json \
   -f "$droid_prompt" \
   >"$droid_result" 2>"$droid_log"

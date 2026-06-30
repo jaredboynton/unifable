@@ -67,6 +67,13 @@ def test_pretool_manifest_matchers_sync_with_canonical_gated_tools() -> None:
             assert not re.match(matcher, tool), f"{rel}: matcher unexpectedly catches {tool!r}"
 
 
+def test_plugins_without_hook_manifests_are_intentionally_not_matcher_synced() -> None:
+    """Factory/Devin plugin manifests currently ship no hook wiring to sync."""
+    for rel in (".factory-plugin/plugin.json", ".devin-plugin/plugin.json"):
+        data = json.loads((ROOT / rel).read_text(encoding="utf-8"))
+        assert "hooks" not in data
+
+
 def test_mcp_tool_classification_is_read_like_or_mutation() -> None:
     assert tr.is_mcp_read_like_tool("mcp__filesystem__read_file")
     assert tr.is_mcp_read_like_tool("mcp__github__search_repositories")
@@ -74,10 +81,19 @@ def test_mcp_tool_classification_is_read_like_or_mutation() -> None:
     assert tr.is_mcp_mutation_tool("mcp__memory__delete_entities")
     assert tr.is_mcp_mutation_tool("mcp__storage__upload_file")
     assert tr.is_mcp_mutation_tool("mcp__x__recompute")
+    assert tr.is_mcp_mutation_tool("mcp__cache__get_or_create")
+    assert tr.is_mcp_mutation_tool("mcp__db__list_and_purge")
     assert not tr.is_mcp_mutation_tool("WebSearch")
     assert tr.mcp_input_forces_mutation({"query": "UPDATE users SET name = 'x'"})
+    assert tr.mcp_input_forces_mutation({"query": "mutation UpdateRepo { updateRepo(id: 1) { id } }"})
+    assert tr.mcp_input_forces_mutation({"sql": "DELETE FROM users WHERE id = 1"})
+    assert tr.mcp_input_forces_mutation({"payload": {"title": "replacement"}})
+    assert tr.mcp_input_forces_mutation({"body": "replacement body"})
+    assert tr.mcp_input_forces_mutation({"value": "new setting"})
+    assert tr.mcp_input_forces_mutation({"script": "db.users.deleteMany({})"})
     assert tr.mcp_input_forces_mutation({"path": "x", "content": "new"})
     assert not tr.mcp_input_forces_mutation({"query": "SELECT * FROM users"})
+    assert not tr.mcp_input_forces_mutation({"sql": "SELECT * FROM users"})
 
 
 def test_pretool_breaker_block_appends_hook_owned_footer(tmp_path, monkeypatch, capsys) -> None:

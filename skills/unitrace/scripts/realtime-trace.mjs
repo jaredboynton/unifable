@@ -241,6 +241,19 @@ function extractAnchorSymbols(orderedEntries, { max = 10 } = {}) {
   return out;
 }
 
+function questionGuidance(question) {
+  const q = String(question || "").toLowerCase();
+  const rules = [];
+  if (/\b(seed|seed files|seeding)\b/.test(q) && /\b(submit packet|submit-packet|build submit packet)\b/.test(q)) {
+    rules.push("Focus on the producer/consumer handoff: explain the concrete seeding function(s) and the concrete packet-assembly function that consumes that state.");
+    rules.push("Prefer `seedExploreReads`, `runExploreNav`/`hostSeed`, and `buildSubmitPacket` over downstream transport or rendering details unless the question explicitly asks for them.");
+  }
+  if (/\blooked up|lookup|required scopes?|enforced\b/.test(q)) {
+    rules.push("For lookup/enforcement questions, show both the lookup helper definition and the exact handler branch that uses it.");
+  }
+  return rules;
+}
+
 // Per-file read cache that keeps two layers: "pinned" excerpts (grep-hit
 // definition windows — the answer locations) which always survive at the front,
 // and "recent" unpinned reads (model exploration) filling the remaining budget.
@@ -676,6 +689,14 @@ function buildSubmitPacket({
       "",
     );
   }
+  const qRules = questionGuidance(question);
+  if (qRules.length) {
+    parts.push(
+      "QUESTION-SPECIFIC GUIDANCE:",
+      ...qRules.map((rule) => `- ${rule}`),
+      "",
+    );
+  }
   if (!usePointerIndex) {
     parts.push(
       "CODE_PASSAGES FILE_PATH ENUM:",
@@ -819,7 +840,7 @@ async function runSubmitPhase(conn, {
       parsed = applyGroundingManifest(parsed, filesRead, toolTurns);
     }
 
-    const err = validateTraceObject(parsed, { workspace, filesRead, toolTurns });
+    const err = validateTraceObject(parsed, { workspace, filesRead, toolTurns, question });
     if (err) {
       lastError = err;
       if (attempt < (reask ? 1 : 0)) {
@@ -877,7 +898,7 @@ async function runDaemonPointerSubmit({
       question,
     });
 
-    const err = validateTraceObject(parsed, { workspace, filesRead, toolTurns });
+    const err = validateTraceObject(parsed, { workspace, filesRead, toolTurns, question });
     if (err) {
       if (attempt < (reask ? 1 : 0)) {
         userText = `${userText}\n\nVALIDATION FAILED: ${err}\nFix grounding and call ${SUBMIT_POINTER_SCHEMA_NAME} again.`;

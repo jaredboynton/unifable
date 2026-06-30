@@ -30,11 +30,12 @@ GROUNDEDNESS_BLOCKED_TOOLS = WRITE_TOOLS + SHELL_TOOLS
 RELEASE_TOOLS = INSPECTION_TOOLS + ("view_image",)
 
 _MCP_WRITE_RE = re.compile(
-    r"(?i)(write|create|update|delete|patch|apply|remove|insert|put|post|send|upload|modify|mutate|replace|move|upsert)"
+    r"(?i)(write|create|update|delete|patch|apply|remove|insert|put|post|send|upload|modify|mutate|replace|move|upsert|purge|clear|destroy|rename|copy)"
 )
 _MCP_READ_RE = re.compile(r"(?i)(read|get|fetch|content|search|file|view|lookup|list|query)")
 _MCP_WRITE_INPUT_KEYS = frozenset(
     {
+        "body",
         "content",
         "contents",
         "patch",
@@ -42,11 +43,20 @@ _MCP_WRITE_INPUT_KEYS = frozenset(
         "old_string",
         "new_string",
         "replacement",
+        "payload",
+        "value",
         "data",
         "bytes",
+        "script",
     }
 )
-_MCP_SQL_MUTATION_RE = re.compile(r"(?is)^\s*(?:insert|update|delete|drop|alter|create|truncate|merge|replace|grant|revoke)\b")
+_MCP_QUERY_KEYS = frozenset({"query", "sql", "statement", "graphql"})
+_MCP_QUERY_MUTATION_RE = re.compile(
+    r"(?is)^\s*(?:"
+    r"mutation\b|"
+    r"insert\b|update\b|delete\b|drop\b|alter\b|create\b|truncate\b|merge\b|replace\b|grant\b|revoke\b"
+    r")"
+)
 
 _FOOTER_TITLE = "Actions restricted to:"
 
@@ -119,9 +129,10 @@ def mcp_input_forces_mutation(tool_input) -> bool:
                 return True
             if any(key in lowered for key in _MCP_WRITE_INPUT_KEYS):
                 return True
-            query = lowered.get("query")
-            if isinstance(query, str) and _MCP_SQL_MUTATION_RE.search(query):
-                return True
+            for key in _MCP_QUERY_KEYS:
+                query = lowered.get(key)
+                if isinstance(query, str) and _MCP_QUERY_MUTATION_RE.search(query):
+                    return True
             return any(walk(v) for v in lowered.values())
         if isinstance(value, list):
             return any(walk(item) for item in value)

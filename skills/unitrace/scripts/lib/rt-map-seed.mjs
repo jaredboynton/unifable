@@ -135,12 +135,18 @@ function curatedTraceSeeds(question, workspace) {
   if (/\bunitrace(?:\.sh)?\b/.test(q)) {
     specs.push({ path: "scripts/unitrace.sh", start_line: 1, end_line: 20 });
   }
-  if (/\btrace-rt(?:\.sh)?\b|\brealtime-trace(?:\.mjs)?\b|\btrace rt\b/.test(q)) {
+  const wantsNavSeedSubmit = /\b(nav|seed|submit packet|submit-packet|build submit packet)\b/.test(q);
+  if (/\btrace-rt(?:\.sh)?\b|\brealtime-trace(?:\.mjs)?\b|\btrace rt\b/.test(q) || wantsNavSeedSubmit) {
     specs.push({ path: "scripts/trace-rt.sh", start_line: 340, end_line: 405 });
     if (/\b(render|rendered|rendering|pointer|rehydrate|submit|final)\b/.test(q)) {
       specs.push({ path: "scripts/realtime-trace.mjs", start_line: 906, end_line: 1055 });
     } else {
       specs.push({ path: "scripts/realtime-trace.mjs", start_line: 190, end_line: 340 });
+    }
+    if (wantsNavSeedSubmit) {
+      specs.push({ path: "scripts/lib/rt-map-seed.mjs", start_line: 300, end_line: 390 });
+      specs.push({ path: "scripts/lib/rt-explore-nav.mjs", start_line: 294, end_line: 380 });
+      specs.push({ path: "scripts/realtime-trace.mjs", start_line: 632, end_line: 715 });
     }
   }
   if (!specs.length) return out;

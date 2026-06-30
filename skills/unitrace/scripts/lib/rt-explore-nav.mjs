@@ -42,7 +42,7 @@ function numberExcerpt(startLine, content) {
 
 function readCandidateWindow(workspace, candidate) {
   const start = Math.max(1, (candidate.startLine || 1) - 2);
-  const end = Math.max(start, candidate.endLine || candidate.startLine || start) + 12;
+  const end = Math.max(start, candidate.endLine || candidate.startLine || start) + 20;
   const read = toolReadRange(workspace, candidate.path, {
     start_line: start,
     end_line: end,
@@ -102,6 +102,14 @@ function allowTests(question) {
   return /\b(test|tests|fixture|benchmark|bench)\b/i.test(String(question || ""));
 }
 
+function suppressDownstream(question, rel) {
+  const q = String(question || "").toLowerCase();
+  const asksSeedSubmit = /\b(seed|seed files|seeding)\b/.test(q) && /\b(submit packet|submit-packet|build submit packet)\b/.test(q);
+  if (!asksSeedSubmit) return false;
+  if (/\b(pointer|rehydrate|render(?:ed|ing)?|wire)\b/.test(q)) return false;
+  return /(^|\/)(rt-rehydrate-submit\.mjs|render-trace-structured\.mjs|rehydrate-explore-wire\.mjs)$/.test(String(rel || ""));
+}
+
 function dirnameOf(rel) {
   const s = String(rel || "").replace(/\/+$/, "");
   const idx = s.lastIndexOf("/");
@@ -141,11 +149,11 @@ function candidatePassesFocus(rel, focusRoots, archiveOk, wireOk, testsOk) {
   return focusRoots.some((root) => rel === root || rel.startsWith(`${root}/`));
 }
 
-function focusCandidates(candidates, focusRoots, archiveOk, wireOk, testsOk) {
+function focusCandidates(candidates, focusRoots, archiveOk, wireOk, testsOk, question = "") {
   const ranked = (candidates || []).filter((c) => c && typeof c.path === "string");
-  const focused = ranked.filter((c) => candidatePassesFocus(c.path, focusRoots, archiveOk, wireOk, testsOk));
+  const focused = ranked.filter((c) => !suppressDownstream(question, c.path) && candidatePassesFocus(c.path, focusRoots, archiveOk, wireOk, testsOk));
   if (focused.length) return focused;
-  return ranked.filter((c) => candidatePassesFocus(c.path, [], archiveOk, wireOk, testsOk));
+  return ranked.filter((c) => !suppressDownstream(question, c.path) && candidatePassesFocus(c.path, [], archiveOk, wireOk, testsOk));
 }
 
 // Distinct framings so K navigators diversify WHAT they probe instead of all
@@ -267,7 +275,7 @@ async function hydrateFromTerms(workspace, terms, onRead, { maxSpans, preferSour
     return 0;
   }
   let added = 0;
-  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk)) {
+  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk, query)) {
     const rel = normalizeReadPath(workspace, c.path);
     if (!rel) continue;
     if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
@@ -278,10 +286,11 @@ async function hydrateFromTerms(workspace, terms, onRead, { maxSpans, preferSour
 }
 
 // Read explicit path[+range] requests directly via htools (read-only, confined).
-export function hydrateFromPaths(workspace, readPaths, onRead, { focusRoots = [], archiveOk = false, wireOk = false, testsOk = false } = {}) {
+export function hydrateFromPaths(workspace, readPaths, onRead, { focusRoots = [], archiveOk = false, wireOk = false, testsOk = false, question = "" } = {}) {
   let added = 0;
   for (const entry of readPaths || []) {
     if (!entry || typeof entry.path !== "string") continue;
+    if (suppressDownstream(question, entry.path)) continue;
     if (!candidatePassesFocus(entry.path, focusRoots, archiveOk, wireOk, testsOk)) continue;
     const abs = confine(workspace, entry.path);
     if (!abs) continue;
@@ -313,7 +322,7 @@ async function hostSeed(workspace, question, onRead, { maxSpans, preferSourceOnl
   } catch {
     return seeded;
   }
-  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk)) {
+  for (const c of focusCandidates(result.candidates || [], focusRoots, archiveOk, wireOk, testsOk, question)) {
     const rel = normalizeReadPath(workspace, c.path);
     if (!rel) continue;
     if (excerptCovers(readCache, rel, c.startLine || 1, c.endLine || c.startLine || 1)) continue;
@@ -397,7 +406,7 @@ export async function runExploreNav({
     maxBatch = Math.max(maxBatch, validCount);
 
     const before = filesRead.size;
-    const fromPaths = hydrateFromPaths(workspace, dedupPaths, onRead, { focusRoots, archiveOk, wireOk, testsOk });
+    const fromPaths = hydrateFromPaths(workspace, dedupPaths, onRead, { focusRoots, archiveOk, wireOk, testsOk, question });
     const fromTerms = await hydrateFromTerms(workspace, dedupTerms, onRead, {
       maxSpans: roundSpans,
       preferSourceOnly,

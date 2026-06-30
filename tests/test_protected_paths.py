@@ -139,6 +139,21 @@ def test_bash_protected_write_catches_repo_local_relative_unifable():
         assert pp.bash_protected_write("printf x | tee .unifable/findings.json", cwd) is not None
 
 
+def test_bash_protected_write_catches_allowed_command_redirects():
+    with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
+        _with_data_root(dd)
+        state = str(Path(cwd) / ".unifable" / "state.json")
+        spec = str(Path(dd) / "specs" / "k" / "S" / "spec.json")
+        commands = [
+            f"find . -maxdepth 1 -type f > {state}",
+            f"pytest -q > {spec}",
+            f"python -m pytest -q >> {state}",
+            f"rg --files | sed -n '1,10p' > {spec}",
+        ]
+        for command in commands:
+            assert pp.bash_protected_write(command, cwd) is not None, command
+
+
 def test_bash_protected_write_ignores_nonmutating_and_unprotected():
     with tempfile.TemporaryDirectory() as cwd, tempfile.TemporaryDirectory() as dd:
         _with_data_root(dd)

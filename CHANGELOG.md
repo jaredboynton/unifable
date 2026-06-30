@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.22.5 - 2026-06-30
+
+- Harden MCP mutation detection for read-looking tool names and payloads. The
+  classifier now treats `get_or_create`, `list_and_purge`, GraphQL mutations,
+  SQL mutation payloads, and write-like `body` / `payload` / `value` / `script`
+  fields as mutation signals while preserving read-only `SELECT` coverage.
+- Strengthen hook contract tests around Claude and Codex output paths: Claude
+  PreToolUse blocks now have full-path single-JSON `permissionDecision:"deny"`
+  coverage across core block kinds, Codex `apply_patch` retains exit-2/stderr
+  coverage, and Claude Stop-output tests force `UNIFABLE_HOST=claude` so a Codex
+  runner env cannot mask additionalContext assertions.
+- Extend protected-path Bash coverage for newly allowed command shapes that
+  redirect output into `.unifable` or the global spec store (`find`, `pytest`,
+  `python -m pytest`, and `rg | sed -n`).
+- Switch the Droid-native Unifusion root orchestrator default to GPT-5.5 with
+  `WebSearch` enabled, keeping Opus 4.8 as an architect panelist instead of the
+  root orchestrator.
+- Improve unitrace trace grounding for nav seed-to-submit questions: steer
+  toward the seed producer and submit-packet consumer, suppress downstream
+  rehydrate/render drift when irrelevant, backfill required passages, and add
+  schema tests for that boundary.
+- Add `docs/plans/codexd-substrate.md`, recording the current plan to keep
+  `rtinferd` as the shared Codex-auth substrate rather than folding workflow
+  policy into a monolithic daemon.
+
+Verification:
+
+- `just test-all` (1528 passed, 9 subtests; 40/40 gate scenarios; 14/14 robustness checks)
+- `python3 scripts/generate_docs.py --check`
+- `bash skills/unifusion/scripts/selfcheck.sh`
+- Live tuistory probes: Claude haiku and Codex GPT-5.5 both passed fixture tests
+  with `hard_block_mentions=0`
+- Unifusion guidance reruns: 4/4 architect panelists returned
+
 ## 1.22.4 - 2026-06-30
 
 - Fix `test_research_bash_guidance.py` test that asserted on stale

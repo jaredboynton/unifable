@@ -13,10 +13,10 @@ description: >-
 
 # Unifusion
 
-Unifusion now runs through **one `droid exec` root session**. That root droid reads the verbatim task,
-launches several **frontier-research architect droids in parallel**, waits for their reports, synthesizes
-them in the root session, and returns a final answer. The current host session no longer hand-judges the
-panel afterward; the synthesis happens inside the Droid run.
+Unifusion now runs through **one GPT-5.5-backed `droid exec` root session**. That root droid reads the
+verbatim task, launches several **frontier-research architect droids in parallel**, waits for their reports,
+synthesizes them in the root session, and returns a final answer. The current host session no longer
+hand-judges the panel afterward; the synthesis happens inside the Droid run.
 
 The active architect panel is:
 
@@ -79,5 +79,7 @@ panelists were dropped, say so explicitly instead of treating absence as agreeme
 ## Notes
 
 - The shared session brief is still **state only**, not a proposed solution.
+- The root orchestrator defaults to GPT-5.5 so root-level web/tool behavior does not depend on Opus Bedrock;
+  Opus remains in the panel through `architect-opus`.
 - The old multi-CLI fan-out script is archived at `scripts/archive/unifusion_parallel_cli.sh`.
 - The Droid-native path depends on the user's configured custom droids and Factory models.

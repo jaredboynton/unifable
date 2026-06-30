@@ -8,7 +8,8 @@ Unifusion is now a **single-root Droid orchestration flow**.
 
 - The caller writes the user's question to a temp file.
 - `scripts/unifusion.sh` builds a factual-only shared context brief when possible.
-- That script launches **one** `droid exec` root run.
+- That script launches **one** GPT-5.5-backed `droid exec` root run, avoiding Opus Bedrock as the root
+  orchestrator while retaining Opus as a panelist.
 - The root Droid uses Task to fan out the architect droids in parallel:
   - `architect`
   - `architect-opus`
@@ -63,6 +64,8 @@ The active shell path is:
 - Keep the shared context **factual only**. No proposed approach belongs in the brief.
 - Keep the user's task **verbatim**.
 - Keep the active panel defined through custom droids, not hardcoded external CLI runners.
+- Keep GPT-5.5 as the default root orchestrator unless another root model is explicitly proven to support the
+  required web/tool behavior.
 - Prefer Exa-backed and primary-source research paths in the architect droids.
 - Do not reintroduce Gemini into the active panel unless its role is intentionally restored.
 

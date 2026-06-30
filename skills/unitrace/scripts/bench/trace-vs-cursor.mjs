@@ -207,11 +207,17 @@ async function runTrace(script, task, { arm, repeat, runsDir }) {
       env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    // cleanup-traps: ok - process signal handlers for child cleanup
+    const cleanup = () => { try { child.kill("SIGTERM"); } catch {} };
+    process.once("SIGINT", cleanup);
+    process.once("SIGTERM", cleanup);
     let stdout = "";
     let stderr = "";
     child.stdout.on("data", (d) => { stdout += d; });
     child.stderr.on("data", (d) => { stderr += d; });
     child.on("close", (code) => {
+      process.off("SIGINT", cleanup);
+      process.off("SIGTERM", cleanup);
       const wallMs = Date.now() - t0;
       const runDir = path.join(runRoot, runId);
       const outPath = path.join(runDir, "out.md");
