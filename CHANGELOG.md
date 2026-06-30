@@ -1,5 +1,39 @@
 # Changelog
 
+## 1.22.7 - 2026-06-30
+
+- Close trace retrieval gaps in the unitrace nav explorer with question-agnostic,
+  fail-open, env-gated mechanisms (`skills/unitrace/scripts/lib/rt-explore-nav.mjs`,
+  `rt-rehydrate-submit.mjs`). `importFollowSeeds` does a one-hop call-graph follow
+  from high-confidence anchors so import-reachable load-bearing files the lexical
+  retriever misses are seeded; `admitsDocs` + top-doc pinning stop suppressing a
+  load-bearing AGENTS.md/README for behavior/header/fallback prose questions;
+  `definitionFollowReads` chases the definition body of symbols the reads reference
+  but never defined; and `ensureKeyFileCoverage` reserves a citation slot for any
+  named key file that was actually read.
+- Add `phraseDefSeeds` (`rt-map-seed.mjs`) so symbol-free compound questions
+  ("how does the nav path seed files and build the submit packet") fold adjacent
+  prose words into camelCase definitions and seed each named target's body. Seeds
+  each distinct definition as its own anchor, drops AST-context blocks before
+  re-validating the def pattern, and ranks a real function/class definition over a
+  lower-line variable declaration.
+- Lift the binding citation/key-file throttle from 5 to 8 (`MAX_CODE_PASSAGES`) across
+  the schema, rehydrate eviction, submit prompt, and excerpt-files cap, and rewrite the
+  submit prompt + structured-output field descriptions for completeness over brevity.
+- Default trace submit reasoning to `omit` (still steered) and add a
+  `UNITRACE_RT_SUBMIT_STEER` override; thread `steer` through the daemon/realtime
+  clients.
+- Freeze the cursor comparator into a committed baseline
+  (`scripts/bench/cursor-baseline/`, `build-cursor-baseline.mjs`): the bench scores
+  live unitrace against stored cursor outputs with frozen judge scores reused when the
+  judge signature is unchanged, so the cursor agent is never re-run. Record the
+  high-water-mark convention in `bench/AGENTS.md`.
+
+Verification:
+
+- `just test-all`
+- `python3 scripts/generate_docs.py --check`
+
 ## 1.22.6 - 2026-06-30
 
 - Add a held-out gating set and de-noised reporting to the unitrace trace-vs-cursor
