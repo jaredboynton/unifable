@@ -47,8 +47,10 @@ try:
         append_event,
         breaker_lock,
         claim_already_adjudicated,
+        clear_director,
         load_breaker,
         record_adjudicated_claim,
+        record_director_turn,
         reinstate,
         save_breaker,
     )
@@ -90,11 +92,60 @@ except ImportError:  # pragma: no cover
         append_event,
         breaker_lock,
         claim_already_adjudicated,
+        clear_director,
         load_breaker,
         record_adjudicated_claim,
+        record_director_turn,
         reinstate,
         save_breaker,
     )
+
+
+def _scope_summary(scope: dict[str, Any] | None) -> str:
+    """Compact 'allow=[..] deny=[..]' string for a DIRECTIVE event record."""
+    if not isinstance(scope, dict):
+        return ""
+    allow = [t for t in (scope.get("allow") or []) if isinstance(t, str)]
+    deny = [t for t in (scope.get("deny") or []) if isinstance(t, str)]
+    parts = []
+    if allow:
+        parts.append("allow=" + ",".join(allow))
+    if deny:
+        parts.append("deny=" + ",".join(deny))
+    return " ".join(parts)
+
+
+def _persist_director(state: dict, director_out: dict[str, Any]) -> None:
+    """Persist the stepwise director's directive + scope (verdict==0 path).
+
+    Records the turn into the director's own self-history, logs DIRECTIVE and (when
+    the new scope releases a previously-denied tool) SCOPE_OPEN events for the judge's
+    next-call memory, and surfaces the directive on the allow path only when it is
+    genuinely NEW work (a near-duplicate of the last surfaced one stays silent)."""
+    directive = str(director_out.get("directive") or "")
+    scope = director_out.get("tool_scope")
+    scope = scope if isinstance(scope, dict) else {}
+    prev_scope = state.get("breaker_tool_scope")
+    prev_deny = (
+        {t for t in (prev_scope.get("deny") or []) if isinstance(t, str)}
+        if isinstance(prev_scope, dict)
+        else set()
+    )
+    new_deny = {t for t in (scope.get("deny") or []) if isinstance(t, str)}
+    state["breaker_directive"] = directive
+    state["breaker_tool_scope"] = scope
+    record_director_turn(state, directive, scope)
+    if directive or scope:
+        append_event(state, "DIRECTIVE", directive=directive, tool_scope=_scope_summary(scope))
+    opened = sorted(prev_deny - new_deny)
+    if opened:
+        append_event(state, "SCOPE_OPEN", reason=", ".join(opened))
+    if directive and not directives_near_duplicate(
+        directive, str(state.get("breaker_last_directive_surfaced") or "")
+    ):
+        existing = str(state.get("breaker_pending_notify") or "")
+        state["breaker_pending_notify"] = f"{existing}\n{directive}".strip() if existing else directive
+        state["breaker_last_directive_surfaced"] = directive
 
 
 def _dispatch_auto_verify(
@@ -219,10 +270,16 @@ def evaluate_pre_tool(
     try:
         armed = bool(state.get("breaker_armed"))
         provisional = bool(state.get("breaker_provisional"))
+        # A director scope/history persisted under a DIFFERENT prompt epoch is stale:
+        # drop it so a scope from a prior task can never gate the new one (mirrors the
+        # stale-arm drop below, but the director can be set while disarmed too).
+        if state.get("breaker_tool_scope") and state.get("breaker_key") not in ("", key):
+            clear_director(state)
         if (armed or provisional) and state.get("breaker_key") != key:
             stale_claim = str(state.get("breaker_claim") or "")
             append_event(state, "STALE_ARM_DROPPED", claim=stale_claim)
             disarm(state)
+            clear_director(state)
             armed = False
             provisional = False
             stale_notify = _stale_arm_message(stale_claim)
@@ -270,7 +327,7 @@ def evaluate_pre_tool(
             state["breaker_judge_call_at"] = now
             director_out: dict[str, Any] = {}
             verdict, steering, claim = arm_judge(
-                segment, events=events, judge=judge, input_data=input_data, out=director_out
+                segment, events=events, judge=judge, input_data=input_data, out=director_out, state=state
             )
             if verdict == 1 and claim and claim_already_adjudicated(
                 claim, events, extra_claims=state.get("breaker_adjudicated_claims")
@@ -282,9 +339,7 @@ def evaluate_pre_tool(
             # let steering carry the instruction. When disarmed, enforce the scope
             # and surface the directive on the allow path (~once per debounce window).
             if verdict == 1:
-                state["breaker_directive"] = ""
-                state["breaker_tool_scope"] = {}
-                state["breaker_last_directive_surfaced"] = ""
+                clear_director(state)
                 # Auto-grounding: if the judge decomposed the claim into sanctioned
                 # verification tasks, dispatch them to the background runner now. The
                 # arm still blocks the first mutation; later calls poll for results.
@@ -292,21 +347,7 @@ def evaluate_pre_tool(
                 if isinstance(vtasks, list) and vtasks and claim and not coalesce:
                     _dispatch_auto_verify(input_data, state, claim, vtasks, now)
             else:
-                directive = str(director_out.get("directive") or "")
-                scope = director_out.get("tool_scope")
-                state["breaker_directive"] = directive
-                state["breaker_tool_scope"] = scope if isinstance(scope, dict) else {}
-                # Surface a directive only when it is genuinely NEW work. Byte-exact
-                # equality misses the real re-request failure mode -- the judge
-                # re-WORDING an already-satisfied step every debounce window -- so a
-                # near-duplicate of the last surfaced directive stays silent too.
-                if directive and not directives_near_duplicate(
-                    directive, str(state.get("breaker_last_directive_surfaced") or "")
-                ):
-                    msg = directive
-                    existing = str(state.get("breaker_pending_notify") or "")
-                    state["breaker_pending_notify"] = f"{existing}\n{msg}".strip() if existing else msg
-                    state["breaker_last_directive_surfaced"] = directive
+                _persist_director(state, director_out)
         elif armed:
             # Auto-grounding owns the disarm decision while a background verification
             # is dispatched: poll the sidecar instead of judging the transcript. Once

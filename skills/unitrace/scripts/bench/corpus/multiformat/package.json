@@ -1,0 +1,8 @@
+{
+  "name": "multiformat-demo",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "tsc -p .",
+    "test": "node --test"
+  }
+}

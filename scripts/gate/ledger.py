@@ -15,6 +15,7 @@ import hashlib
 import json
 import os
 import re
+import threading
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
@@ -187,10 +188,30 @@ def redact(text: Any, limit: int = 500) -> str:
     return value
 
 
+_resolve_lock = threading.Lock()
+_resolved_cache: dict[str, Path] = {}
+
+
+def resolve_path(path: str | Path) -> Path:
+    """Thread-safe cached Path.resolve(); avoids macOS segfault under heavy concurrency."""
+    key = str(path)
+    hit = _resolved_cache.get(key)
+    if hit is not None:
+        return hit
+    with _resolve_lock:
+        hit = _resolved_cache.get(key)
+        if hit is not None:
+            return hit
+        resolved = Path(path).expanduser().resolve()
+        _resolved_cache[key] = resolved
+        return resolved
+
+
 def data_root() -> Path:
     env_data = os.environ.get("UNIFABLE_DATA")
-    base = Path(env_data).expanduser() if env_data else Path.home() / ".unifable"
-    return base.resolve()
+    if env_data:
+        return resolve_path(env_data)
+    return resolve_path(Path.home() / ".unifable")
 
 
 def ledger_key(input_data: dict[str, Any]) -> str:

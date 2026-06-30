@@ -1,0 +1,7 @@
+server:
+  request_timeout_seconds: 30
+  max_connections: 100
+  retries: 3
+
+logging:
+  level: info

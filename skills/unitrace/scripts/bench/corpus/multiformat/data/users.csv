@@ -1,0 +1,4 @@
+id,email,display_name,role,created_at
+1,ada@example.com,Ada,admin,2026-01-02
+2,grace@example.com,Grace,member,2026-01-03
+3,alan@example.com,Alan,member,2026-01-04

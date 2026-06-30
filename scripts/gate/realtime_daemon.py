@@ -73,6 +73,27 @@ def _env_bool(name: str, default: bool) -> bool:
 IDLE_TTL = _env_float("UNIFABLE_JUDGE_DAEMON_IDLE", 120.0)
 REQUEST_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_REQUEST", 90.0)
 FRAME_READ_TIMEOUT = _env_float("UNIFABLE_JUDGE_DAEMON_FRAME_TIMEOUT", 30.0)
+# Version-stamped self-exit: when runtime_sync flips ~/.unifable/current to a new
+# plugin version, a daemon spawned from the old version keeps running stale code
+# until idle. Detect the flip and drain+exit so the next connectOrSpawn relaunches
+# this daemon on fresh code (mirrors cse-toold's "old poller dies, new daemon sees
+# current"). Fail-open: any resolve error is treated as 'no change'.
+SELF_UPDATE = _env_bool("UNIFABLE_DAEMON_SELF_UPDATE", True)
+SELF_UPDATE_CHECK_S = _env_float("UNIFABLE_DAEMON_SELF_UPDATE_CHECK", 5.0)
+
+
+def _runtime_version() -> str | None:
+    """Identity of the runtime this daemon booted from: the basename that
+    ~/.unifable/current resolves to (current -> versions/<v>). None when
+    unresolvable, which callers treat as 'no change' so a transient resolve
+    hiccup never triggers a self-exit."""
+    home = os.environ.get("UNIFABLE_HOME", "").strip()
+    base = Path(home).expanduser() if home else (Path.home() / ".unifable")
+    try:
+        resolved = os.path.basename(os.path.realpath(base / "current"))
+    except OSError:
+        return None
+    return resolved or None
 # Max time select() blocks with no events; bounds how fast we notice _stop and
 # service keepalive pongs. NOT a per-request poll: requests wake the loop via the
 # self-pipe and ws frames wake it directly, both instantly.
@@ -375,6 +396,8 @@ class JudgeDaemon:
         self._cid_counter = 0
         self._cid_to_worker: dict[int, _Worker] = {}
         self._last_activity = time.monotonic()
+        self._boot_version = _runtime_version()
+        self._last_version_check = time.monotonic()
         self._srv: socket.socket | None = None
         self._lock_fh: Any = None
         # Sticky family->worker routing for Realtime prompt-cache locality.
@@ -511,11 +534,26 @@ class JudgeDaemon:
         if all(w.idle() for w in self._workers) and (time.monotonic() - self._last_activity) > IDLE_TTL:
             self._stop.set()
 
+    def _maybe_self_update_exit(self) -> None:
+        """Drain+exit when ~/.unifable/current was flipped to a new version since
+        boot. The accept loop exits on _stop and in-flight requests finish via the
+        worker join, so the next connectOrSpawn relaunches on fresh code."""
+        if not SELF_UPDATE or self._boot_version is None:
+            return
+        now = time.monotonic()
+        if (now - self._last_version_check) < SELF_UPDATE_CHECK_S:
+            return
+        self._last_version_check = now
+        current = _runtime_version()
+        if current is not None and current != self._boot_version:
+            self._stop.set()
+
     def _idle_monitor(self) -> None:
         while not self._stop.is_set():
             if self._stop.wait(1.0):
                 break
             self._maybe_idle_shutdown()
+            self._maybe_self_update_exit()
 
     # --- lifecycle ----------------------------------------------------------
     def serve(self) -> int:

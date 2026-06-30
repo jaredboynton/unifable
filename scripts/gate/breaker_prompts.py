@@ -211,6 +211,13 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "by number; reference a listed file by its index in double brackets (e.g. [[2]]) "
                 "INSTEAD of typing the path -- the host rehydrates the exact path, so you never "
                 "truncate a long name. Type a path literally only for a file not in the FILE INDEX. "
+                "A DIRECTOR STATE block at the END lists your OWN prior directives and the tool the "
+                "agent is now attempting. If the transcript shows the agent ALREADY did the latest "
+                "directive's action, ADVANCE: issue the NEXT step, never a paraphrase of the "
+                "satisfied one. The directive's action and its tool_scope MUST be consistent -- if "
+                "the directive tells the model to write/record/list/produce/edit/run, the scope must "
+                "ALLOW the tool that does so (Write/Edit/Bash); never pair such a directive with a "
+                "scope that denies its own tool. "
                 "Be terse and concrete; empty only when there is genuinely nothing useful left to add."
             ),
         },
@@ -222,7 +229,13 @@ _JUDGE_SCHEMA: dict[str, Any] = {
                 "phase -- e.g. research (allow reads/searches, deny Edit/Write), implement (allow "
                 "Edit/Write/Bash), verify (allow Bash). This shapes the mutation/delegation phase only; "
                 "it does NOT control inspection tools or hook-allowed research Bash. "
-                "Those remain reachable regardless, so never rely on denying them. Leave both arrays "
+                "Those remain reachable regardless, so never rely on denying them. "
+                "The scope MUST be consistent with your directive: if the directive asks the model "
+                "to write/record/list/produce/edit/run, ALLOW that tool -- never deny the tool the "
+                "directive needs, or the agent cannot carry out the step and is trapped. Once the "
+                "DIRECTOR STATE / transcript shows the prior step was performed, OPEN the scope (move "
+                "the now-needed tool from deny to allow) rather than re-denying it. "
+                "Leave both arrays "
                 "empty to impose no restriction this step."
             ),
             "properties": {
@@ -397,7 +410,12 @@ _JUDGE_SYSTEM = (
     "SEPARATELY, on EVERY call (whatever the verdict), act as a stepwise director: write a "
     "terse `directive` naming the single best next action toward the goal, and a `tool_scope` "
     "(allow/deny tool names) keeping the model in the right phase for that action. The directive "
-    "and tool_scope are independent of the arm verdict. Call the function exactly once."
+    "and tool_scope are independent of the arm verdict. A DIRECTOR STATE block at the end of the "
+    "input shows your OWN prior directives and the tool the agent is now attempting; if the "
+    "transcript shows the agent already performed the latest directive, ADVANCE to the next step "
+    "and OPEN the scope (move the now-needed tool from deny to allow) instead of re-paraphrasing "
+    "the satisfied step. Keep directive and tool_scope consistent -- never deny the very tool the "
+    "directive requires. Call the function exactly once."
 )
 
 

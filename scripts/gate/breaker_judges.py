@@ -315,12 +315,62 @@ def _parse_director_fields(obj: dict[str, Any]) -> tuple[str, dict[str, Any]]:
         return "", {}
 
 
+def _director_state_block(state: dict[str, Any] | None, input_data: dict | None) -> str:
+    """Render the director's OWN recent turns + the tool the agent is now attempting.
+
+    The director judge is a stateless one-shot, so without this it cannot see what it
+    previously told the model and re-paraphrases the same block forever. This block
+    gives it that memory plus the imminent tool, so it can RELEASE (advance the step,
+    move a now-needed tool from deny to allow) once the transcript shows the step was
+    done. Fail-safe: any error yields '' (no block, judge behaves as before)."""
+    try:
+        if not isinstance(state, dict):
+            return ""
+        history = state.get("breaker_directive_history")
+        if not isinstance(history, list) or not history:
+            return ""
+        tool = str((input_data or {}).get("tool_name") or "").strip()
+        lines: list[str] = [
+            "DIRECTOR STATE -- your OWN prior directives this session (most recent last). "
+            "If the transcript above shows the agent ALREADY performed the latest directive's "
+            "action, you MUST advance: issue the next step and OPEN the scope (move the "
+            "now-needed tool from deny to allow). Do NOT re-issue a paraphrase of an "
+            "already-satisfied directive, and never deny the only tool that could carry it out.",
+        ]
+        for h in history[-6:]:
+            if not isinstance(h, dict):
+                continue
+            d = str(h.get("directive") or "").strip()
+            deny = [t for t in (h.get("deny") or []) if isinstance(t, str)]
+            allow = [t for t in (h.get("allow") or []) if isinstance(t, str)]
+            scope_bits = []
+            if allow:
+                scope_bits.append("allow=" + ",".join(allow))
+            if deny:
+                scope_bits.append("deny=" + ",".join(deny))
+            scope_str = (" [" + " ".join(scope_bits) + "]") if scope_bits else ""
+            lines.append(f"- {d}{scope_str}")
+        if tool:
+            blocked = ""
+            scope = state.get("breaker_tool_scope")
+            if isinstance(scope, dict):
+                deny = {t for t in (scope.get("deny") or []) if isinstance(t, str)}
+                allow = {t for t in (scope.get("allow") or []) if isinstance(t, str)}
+                if tool in deny or (allow and tool not in allow):
+                    blocked = " (currently BLOCKED by your scope)"
+            lines.append(f"IMMINENT TOOL the agent is attempting: {tool}{blocked}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
 def arm_judge(
     segment: str,
     events: list[dict[str, Any]] | None = None,
     judge: JudgeFn | None = None,
     input_data: dict | None = None,
     out: dict[str, Any] | None = None,
+    state: dict[str, Any] | None = None,
 ) -> tuple[int, str, str]:
     if not segment.strip():
         return 0, "", ""
@@ -344,6 +394,8 @@ def arm_judge(
             f"\n\nALREADY ADJUDICATED -- do NOT flag any of the following claims; they "
             f"have already been grounded or released:\n{claims_str}"
         )
+    director_state = _director_state_block(state, input_data)
+    appended += ("\n\n" + director_state) if director_state else ""
     if appended:
         room = JUDGE_EFFECTIVE_MAX_CHARS - len(_JUDGE_SYSTEM) - len(segment)
         if room > 0:

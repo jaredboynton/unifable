@@ -1,5 +1,44 @@
 # Changelog
 
+## 1.21.8 - 2026-06-30
+
+- Fix intermittent pytest-xdist worker crashes on macOS under concurrent load.
+  `pathlib.Path.resolve()` is not thread-safe when hammered from many OS threads;
+  `load_ledger` / `save_ledger` / `add_finding` each re-resolved paths on every
+  call. New thread-safe cached `resolve_path()` in `ledger.py` backs `data_root()`,
+  `findings._resolved_root()`, and `spec_io.canonical_project_root()` (which also
+  fixed a cache-before-resolve bug that still called `resolve()` on every cache
+  hit). Regression: `tests/test_resolve_path.py` (32 threads x 4000 resolves).
+
+- Stepwise director memory: the groundedness director judge is stateless, so it
+  re-paraphrased the same block forever. `breaker_directive_history` (bounded,
+  survives `/compact`) plus a DIRECTOR STATE block in `arm_judge` gives the judge
+  its own recent turns and the imminent tool attempt, so it can RELEASE once the
+  transcript shows the step was done. `clear_director()` on disarm prevents stale
+  deny-scopes after release. Verification: `tests/test_director.py`.
+
+- Realtime judge daemon self-update: when `runtime_sync` flips
+  `~/.unifable/current` to a new plugin version, a running daemon drains and exits
+  so the next connect respawns on fresh code (`UNIFABLE_DAEMON_SELF_UPDATE`, default
+  on). Verification: `tests/test_daemon_self_update.py`.
+
+- Unitrace search multiformat fast path: hydrate and score docs/config/data files
+  alongside code (line-window hydration + doc-aware rubric), exclude true binaries
+  and lockfiles, and return `[]` instead of `null` when nothing clears the floor
+  (`UNITRACE_SEARCH_FAST_NULL_FALLBACK`). New JS mirror of the judge rtinfer client
+  (`lib/rtinfer-client.mjs`) for optional shared-daemon scoring borrow
+  (`UNITRACE_DAEMON_RTINFER`, OFF by default; presence-hint gated so bare hosts
+  never probe). Node tests wired into `just test-all` via `test-search.sh`.
+
+- Unifusion skill docs refreshed for panel workflow. Unitrace bench harnesses for
+  search-multiformat A/B and rtinfer borrow callers.
+
+Verification:
+
+- `just test-all`
+- `node --test skills/unitrace/scripts/test/rtinfer-client.test.mjs`
+- `node --test skills/unitrace/scripts/test/search-multiformat.test.mjs`
+
 ## 1.21.7 - 2026-06-30
 
 - Let the judge borrow the shared cse-tools rtinfer daemon when present. New

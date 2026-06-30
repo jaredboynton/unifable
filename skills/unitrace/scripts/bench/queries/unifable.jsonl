@@ -1,0 +1,23 @@
+{"query": "where is the pre tool use hook implemented", "gold": "hooks/pre_tool_use.py", "class": "code"}
+{"query": "the groundedness breaker gate logic", "gold": "scripts/gate/groundedness.py", "class": "code"}
+{"query": "evidence ledger storage and lookup", "gold": "scripts/gate/ledger.py", "class": "code"}
+{"query": "stale state reaper for the unifable data dir", "gold": "scripts/gate/janitor.py", "class": "code"}
+{"query": "pack routing manifest inline discipline router", "gold": "scripts/gate/pack_router.py", "class": "code"}
+{"query": "alive registry process host", "gold": "scripts/gate/process_host.py", "class": "code"}
+{"query": "maintain a stable runtime under dot unifable decoupled from the plugin cache", "gold": "scripts/gate/runtime_sync.py", "class": "code"}
+{"query": "warm socket realtime daemon process pool", "gold": "scripts/gate/realtime_daemon.py", "class": "code"}
+{"query": "daemon version stamped self exit on runtime flip", "gold": "scripts/gate/realtime_daemon.py", "class": "code"}
+{"query": "bump the plugin version across all manifests", "gold": "scripts/bump_version.py", "class": "code"}
+{"query": "evidence gate design document", "gold": "docs/evidence-gate-design.md", "class": "doc"}
+{"query": "prime directive enforced behavior ships as a hook not a skill", "gold": "AGENTS.md", "class": "doc"}
+{"query": "release conventions and version bump flow", "gold": "AGENTS.md", "class": "doc"}
+{"query": "pack router manifest definition", "gold": "packs/router-manifest.json", "class": "doc"}
+{"query": "hook wiring configuration file", "gold": "hooks/hooks.json", "class": "doc"}
+{"query": "fast path multi-format retrieval file classification", "gold": "skills/unitrace/scripts/search-fast.mjs", "class": "code"}
+{"query": "where does the changelog list user-visible changes", "gold": "CHANGELOG.md", "class": "doc"}
+{"query": "product overview and the full hook table", "gold": "README.md", "class": "doc"}
+{"query": "how does the kubernetes ingress controller route traffic", "gold": null, "class": "negative"}
+{"query": "terraform aws vpc subnet module", "gold": null, "class": "negative"}
+{"query": "react useEffect cleanup dependency array", "gold": null, "class": "negative"}
+{"query": "protobuf grpc service stub generation", "gold": null, "class": "negative"}
+{"query": "celery distributed task queue broker", "gold": null, "class": "negative"}

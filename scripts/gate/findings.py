@@ -26,8 +26,10 @@ from typing import Any
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     import db
+    from ledger import resolve_path
 except ImportError:  # pragma: no cover
     from scripts.gate import db
+    from scripts.gate.ledger import resolve_path
 
 SEVERITIES = ("low", "medium", "high", "critical")
 STATUSES = ("open", "blocked", "resolved", "rejected")
@@ -37,13 +39,17 @@ BLOCKING_STATUSES = {"open", "blocked"}
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
+def _resolved_root(root: str | Path) -> Path:
+    return resolve_path(root)
+
+
 def _findings_path(root: str | Path) -> Path:
     """Legacy on-disk location, retained for messages and one-time import."""
-    return Path(root).resolve() / ".unifable" / "findings.json"
+    return _resolved_root(root) / ".unifable" / "findings.json"
 
 
 def _root_hash(root: str | Path) -> str:
-    return hashlib.sha256(str(Path(root).resolve()).encode("utf-8", "replace")).hexdigest()[:16]
+    return hashlib.sha256(str(_resolved_root(root)).encode("utf-8", "replace")).hexdigest()[:16]
 
 
 def _slug(title: str) -> str:
@@ -61,7 +67,7 @@ def _import_legacy_findings(root: str | Path, root_hash: str) -> None:
         return
     if not isinstance(data, dict) or not data.get("findings"):
         return
-    db.findings_replace(root_hash, str(Path(root).resolve()), data)
+    db.findings_replace(root_hash, str(_resolved_root(root)), data)
 
 
 def load_findings(root: str | Path) -> dict[str, Any]:
@@ -74,7 +80,7 @@ def load_findings(root: str | Path) -> dict[str, Any]:
 
 
 def save_findings(root: str | Path, data: dict[str, Any]) -> Path:
-    db.findings_replace(_root_hash(root), str(Path(root).resolve()), data)
+    db.findings_replace(_root_hash(root), str(_resolved_root(root)), data)
     return _findings_path(root)
 
 
@@ -93,7 +99,7 @@ def add_finding(
     load_findings(root)
     fid = db.finding_add(
         _root_hash(root),
-        str(Path(root).resolve()),
+        str(_resolved_root(root)),
         _slug(title),
         title,
         severity,

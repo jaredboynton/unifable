@@ -6,10 +6,10 @@ description: >-
   (file:line, command output, source URLs) and verifying current versions and docs — then Opus 4.8 judges
   every response into a structured analysis (consensus, contradictions, partial coverage, unique insights,
   blind spots) and writes a final answer grounded in it. One script does it all: it auto-detects every
-  model CLI installed and fans the panel out automatically — Opus 4.8 (via the `cb` Bedrock CLI), plus
-  GPT-5.5 (codex), Gemini 3.5 Flash (agy), Kimi K2.7 (kimi), and GLM-5.2 (glm-acp-agent) when present, falling back
-  to two independent Opus 4.8 runs when no external CLI exists. Each panelist runs isolated (plugins and
-  non-Exa MCP stripped; cb/codex keep live standard user hooks and fast mode). Saves a timestamped
+  model CLI installed and fans the panel out automatically — Opus 4.8 (via the `claude` CLI), plus
+  GPT-5.5 (codex), Gemini 3.5 Flash (gemini), Kimi K2.7 (kimi), and GLM-5.2 (glm-acp-agent) when present,
+  falling back to two independent Opus 4.8 runs when no external CLI exists. Each panelist runs isolated
+  (plugins and non-Exa MCP stripped; claude/codex keep live standard user hooks and fast mode). Saves a timestamped
   provenance .md per run.
   Use whenever the user asks to "run it through Unifusion", says /unifusion, or wants a multi-model / panel
   / ensemble / cross-checked / higher-confidence answer with consensus and blind spots surfaced — even if
@@ -28,9 +28,9 @@ answer grounded in that analysis.
 Every panelist gets the user's task **verbatim** — **no assigned "lenses" or personas** — and answers it
 cold. (See `references/panel.md`.)
 
-**Opus 4.8 always judges and writes the final answer.** Opus also runs as a panelist (via the `cb` CLI), but
-those are separate clean Bedrock processes; the orchestrator session that judges is never one of them, so
-the pipeline can't be reversed.
+**Opus 4.8 always judges and writes the final answer.** Opus also runs as a panelist (via the `claude`
+CLI), but those are separate clean processes; the orchestrator session that judges is never one of them,
+so the pipeline can't be reversed.
 
 The whole panel is run by **one script** — `scripts/unifusion.sh`. It auto-detects which model CLIs are
 installed, builds a best-effort session-context brief, assembles the single shared prompt, and fans every
@@ -67,15 +67,16 @@ bash <skill_dir>/scripts/unifusion.sh /tmp/unifusion_question.txt
 
 That single call does everything that used to be separate steps:
 
-- **Detects** the panel: Opus (always, via `cb`) plus every external CLI present — GPT-5.5 (`codex`),
-  Gemini 3.5 Flash (`agy`), Kimi K2.7 (`kimi`), GLM-5.2 (`glm-acp-agent`). With no external CLI it runs **two**
+- **Detects** the panel: Opus (always, via `claude`) plus every external CLI present — GPT-5.5 (`codex`),
+  Gemini 3.5 Flash (`gemini`, with `run_agy.sh` kept only as a comparison baseline), Kimi K2.7 (`kimi`),
+  GLM-5.2 (`glm-acp-agent`). With no external CLI it runs **two**
   independent Opus runs (the `opus4.8-4.8` fallback).
 - **Builds** a best-effort factual session-context brief and prepends the *identical* brief to every
   panelist prompt (skipped silently if it can't be built). This is the panel's one shared prior.
 - **Assembles** the canonical prompt (`[SESSION CONTEXT]?` + uniform `[INSTRUCTIONS]` + verbatim `[TASK]`)
   once, and gives the same prompt to every panelist.
 - **Fans out** all panelists in parallel and blind, each **isolated** (plugins/skills and non-Exa MCP
-  stripped; cb/codex keep live standard user hooks with fast mode; glm/kimi strip hooks/skills — so
+  stripped; claude/codex keep live standard user hooks with fast mode; glm/kimi strip hooks/skills — so
   plugin harness hooks or a slow MCP server can never stall or correlate the panel),
   each against a throwaway copy of the repo so its file writes never touch your checkout.
 - **Waits** for all, then prints a manifest. It never gates and never aborts: a missing or failing CLI
@@ -88,13 +89,13 @@ Read the manifest it prints. The lines you act on:
 RUN_DIR=/tmp/unifusion-panel.XXXXXX        # everything for this run lives here
 PANEL_PROMPT=/.../panel_prompt.md          # the exact prompt every panelist got
 SLUG=opus4.8-gpt5.5-gemini3.5flash-kimi2.7-glm5.2
-PANELIST opus-A ok /.../cb_out.md
+PANELIST opus-A ok /.../claude_out.md
 PANELIST gpt5.5 ok /.../codex_out.md
 PANELIST gemini3.5flash dropped:timeout /.../gemini_out.md
 ...
 ```
 
-Read every panelist file marked **`ok`** (e.g. `cb_out.md`, `codex_out.md`, ...). Treat any panelist marked
+Read every panelist file marked **`ok`** (e.g. `claude_out.md`, `codex_out.md`, ...). Treat any panelist marked
 `dropped:*` as **absent** — never as silent agreement. Note the degradation for Step 4.
 
 ## Step 3 — Judge (pick the track that fits the task)

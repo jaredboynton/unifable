@@ -239,6 +239,136 @@ def test_arming_clears_director_scope(monkeypatch) -> None:
     assert state["breaker_tool_scope"] == {}
 
 
+class _CapturingJudge:
+    """Records the user payload passed to the arm call and returns a fixed object."""
+
+    def __init__(self, obj):
+        self.obj = obj
+        self.arm_user = None
+
+    def __call__(self, system, user, schema):
+        if "release monitor" in system.lower():
+            return {
+                "grounded": 1,
+                "needed": "",
+                "load_bearing": 0,
+                "provisional_release": 0,
+                "lift_reason": "",
+                "lift_scope": "",
+            }
+        self.arm_user = user
+        return dict(self.obj)
+
+
+def test_director_history_recorded_and_clearing() -> None:
+    from breaker_state import clear_director, default_breaker, record_director_turn
+
+    state = default_breaker()
+    record_director_turn(state, "Read foo.py and trace it.", {"deny": ["Write"], "allow": ["Read"]})
+    record_director_turn(state, "Read foo.py and trace it.", {"deny": ["Write"], "allow": ["Read"]})  # dup
+    assert len(state["breaker_directive_history"]) == 1
+    record_director_turn(state, "Now write the fix.", {"allow": ["Write"]})
+    assert len(state["breaker_directive_history"]) == 2
+    # Empty turn is skipped.
+    record_director_turn(state, "", {})
+    assert len(state["breaker_directive_history"]) == 2
+    clear_director(state)
+    assert state["breaker_directive_history"] == []
+    assert state["breaker_tool_scope"] == {}
+    assert state["breaker_directive"] == ""
+    assert state["breaker_last_directive_surfaced"] == ""
+
+
+def test_arm_judge_injects_director_state(monkeypatch) -> None:
+    """The stateless director judge must SEE its own prior directives + the imminent
+    tool, so it can advance/release instead of re-paraphrasing a block."""
+    state = default_breaker()
+    state["breaker_directive_history"] = [
+        {"directive": "Read foo.py and list the parked conditions.", "deny": ["Write"], "allow": ["Read"]}
+    ]
+    state["breaker_tool_scope"] = {"deny": ["Write"], "allow": ["Read"], "directive": "Read foo.py and list the parked conditions."}
+    cj = _CapturingJudge(
+        {"verdict": 0, "steering": "", "claim": "", "load_bearing": 0, "directive": "next", "tool_scope": {"allow": ["Write"]}}
+    )
+    gb.arm_judge("a non-empty segment", judge=cj, input_data={"tool_name": "Write"}, state=state, out={})
+    assert cj.arm_user is not None
+    assert "DIRECTOR STATE" in cj.arm_user
+    assert "list the parked conditions" in cj.arm_user
+    assert "Write" in cj.arm_user
+    assert "BLOCKED" in cj.arm_user  # Write is denied by the current scope
+
+
+def test_arm_judge_no_director_state_without_history() -> None:
+    """No prior director turns -> no DIRECTOR STATE block (byte-stable prefix)."""
+    state = default_breaker()
+    cj = _CapturingJudge({"verdict": 0, "steering": "", "claim": "", "load_bearing": 0, "directive": "x", "tool_scope": {}})
+    gb.arm_judge("seg", judge=cj, input_data={"tool_name": "Write"}, state=state, out={})
+    assert cj.arm_user is not None
+    assert "DIRECTOR STATE" not in cj.arm_user
+
+
+def test_director_advance_opens_scope_and_emits_events(monkeypatch) -> None:
+    """End-to-end: a prior deny[Write] scope, then the judge advances to allow[Write].
+    The deterministic predicate must then permit Write, and a SCOPE_OPEN event logs it."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    from tool_scope import in_scope
+
+    state = default_breaker()
+    # Window 1: research phase, deny Write.
+    dj = DirectorJudge(verdict=0, directive="Read foo.py and trace it.", scope={"allow": ["Read"], "deny": ["Write"]})
+    gb.evaluate_pre_tool(_pre("Write"), state, now=0.0, active_task="P", judge=dj)
+    assert state["breaker_tool_scope"]["deny"] == ["Write"]
+    ok, _ = in_scope("Write", state["breaker_tool_scope"])
+    assert ok is False
+    assert len(state["breaker_directive_history"]) == 1
+    # Window 2: judge advances -> allow Write (the step was done).
+    dj.directive = "Now write the fix to foo.py."
+    dj.scope = {"allow": ["Read", "Write", "Edit"], "deny": []}
+    gb.evaluate_pre_tool(_pre("Write"), state, now=3.0, active_task="P", judge=dj)
+    ok, _ = in_scope("Write", state["breaker_tool_scope"])
+    assert ok is True
+    kinds = [e.get("kind") for e in state["events"]]
+    assert "SCOPE_OPEN" in kinds
+    assert "DIRECTIVE" in kinds
+
+
+def test_grounded_release_clears_director_scope(monkeypatch) -> None:
+    """When the breaker disarms (claim grounded), the stale director scope must clear
+    too -- otherwise a deny scope keeps blocking after release."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    # Arm first.
+    dj = DirectorJudge(verdict=1)
+    state = default_breaker()
+    gb.evaluate_pre_tool(_pre("Edit"), state, now=0.0, active_task="P", judge=dj)
+    assert state["breaker_armed"] is True
+    # Manually seed a stale director scope alongside the arm (defensive).
+    state["breaker_tool_scope"] = {"deny": ["Write"], "directive": "stale"}
+    state["breaker_directive"] = "stale"
+    state["breaker_directive_history"] = [{"directive": "stale", "deny": ["Write"], "allow": []}]
+    # Next window: disarm judge grounds the claim -> release.
+    dj.grounded = 1
+    gb.evaluate_pre_tool(_pre("Read"), state, now=3.0, active_task="P", judge=dj)
+    assert state["breaker_armed"] is False
+    assert state["breaker_tool_scope"] == {}
+    assert state["breaker_directive"] == ""
+    assert state["breaker_directive_history"] == []
+
+
+def test_stale_director_scope_dropped_on_key_change(monkeypatch) -> None:
+    """A director scope persisted under a prior prompt epoch must not gate a new task."""
+    monkeypatch.setattr("breaker_runtime.transcript_segment", lambda d, **k: "transcript")
+    state = default_breaker()
+    state["breaker_key"] = "old-session|old-task"
+    state["breaker_tool_scope"] = {"deny": ["Write"], "directive": "stale"}
+    state["breaker_directive"] = "stale"
+    state["breaker_directive_history"] = [{"directive": "stale", "deny": ["Write"], "allow": []}]
+    # New task: judge issues no restriction.
+    dj = DirectorJudge(verdict=0, directive="Read bar.py.", scope={})
+    gb.evaluate_pre_tool(_pre("Write", session="NEW"), state, now=10.0, active_task="NEWTASK", judge=dj)
+    # The stale deny scope must be gone (replaced by the new empty scope).
+    assert state["breaker_tool_scope"].get("deny") in (None, [])
+
+
 if __name__ == "__main__":
     import pytest
 

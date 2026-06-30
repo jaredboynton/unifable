@@ -848,7 +848,7 @@ export function printResults(refs, jsonMode = false) {
     return;
   }
   if (!refs.length) {
-    process.stdout.write("No relevant code found.\n");
+    process.stdout.write("No relevant results found.\n");
     return;
   }
   process.stdout.write("## Code references\n\n");

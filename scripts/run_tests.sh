@@ -62,6 +62,15 @@ run_job python3 tests/eval_gate_proof.py &
 pids+=("$!")
 run_job python3 tests/test_gate_robustness.py &
 pids+=("$!")
+# Deterministic node unit tests for the unitrace search path (multiformat
+# retrieval + rtinfer borrow). The wrapper skips its live block unless
+# UNITRACE_SEARCH_LIVE=1, so this stays hermetic. Skipped if node is absent.
+if command -v node >/dev/null 2>&1; then
+  run_job bash skills/unitrace/scripts/test-search.sh &
+  pids+=("$!")
+else
+  echo "node not found; skipping unitrace node search tests" >&2
+fi
 
 for pid in "${pids[@]}"; do
   if ! wait "$pid"; then

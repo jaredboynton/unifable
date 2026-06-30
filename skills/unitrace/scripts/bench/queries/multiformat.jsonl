@@ -1,0 +1,35 @@
+{"query": "do not push directly to main rule", "gold": "AGENTS.md", "class": "doc"}
+{"query": "no emojis anywhere style rule", "gold": "AGENTS.md", "class": "doc"}
+{"query": "what does the frobnicate option do", "gold": "docs/retries.md", "class": "doc"}
+{"query": "exponential backoff ceiling for retries", "gold": "docs/retries.md", "class": "doc"}
+{"query": "domain layer must not depend on transport or storage", "gold": "docs/architecture.md", "class": "doc"}
+{"query": "the three layers and dependency direction", "gold": "docs/architecture.md", "class": "doc"}
+{"query": "how to roll back a bad release", "gold": "docs/deployment.md", "class": "doc"}
+{"query": "when is a deploy considered landed", "gold": "docs/deployment.md", "class": "doc"}
+{"query": "how do I install and build the project", "gold": "README.md", "class": "doc"}
+{"query": "server request timeout configuration value", "gold": "config/app.yaml", "class": "doc"}
+{"query": "maximum number of connections setting", "gold": "config/app.yaml", "class": "doc"}
+{"query": "postgres connection pool size", "gold": "config/database.toml", "class": "doc"}
+{"query": "database ssl mode requirement", "gold": "config/database.toml", "class": "doc"}
+{"query": "the build script command", "gold": "package.json", "class": "doc"}
+{"query": "feature flags template environment variable", "gold": "config/.env.example", "class": "doc"}
+{"query": "api base url example configuration", "gold": "config/.env.example", "class": "doc"}
+{"query": "continuous integration lint and test jobs", "gold": ".github/workflows/ci.yml", "class": "doc"}
+{"query": "user roles and emails dataset", "gold": "data/users.csv", "class": "doc"}
+{"query": "login and purchase event records", "gold": "data/events.jsonl", "class": "doc"}
+{"query": "where is the authenticate function defined", "gold": "src/auth.py", "class": "code"}
+{"query": "how are credentials verified for a session token", "gold": "src/auth.py", "class": "code"}
+{"query": "lru cache get and set behavior", "gold": "src/cache.ts", "class": "code"}
+{"query": "cache eviction when over the limit", "gold": "src/cache.ts", "class": "code"}
+{"query": "http readiness probe handler", "gold": "src/server.go", "class": "code"}
+{"query": "convert a title into a url-safe slug", "gold": "src/utils/strings.rs", "class": "code"}
+{"query": "enqueue and dequeue queue implementation", "gold": "src/queue.js", "class": "code"}
+{"query": "frobnicate flag toggles fast mode", "gold": "docs/retries.md", "class": "doc", "must_not": ".env"}
+{"query": "database password value for production", "gold": null, "class": "negative", "must_not": ".env"}
+{"query": "ssh deploy private key contents", "gold": null, "class": "negative", "must_not": "deploy.key"}
+{"query": "where is the quantum flux capacitor module implemented", "gold": null, "class": "negative"}
+{"query": "kafka consumer rebalance partition assignment strategy", "gold": null, "class": "negative"}
+{"query": "graphql subscription websocket resolver", "gold": null, "class": "negative"}
+{"query": "tensorflow model training checkpoint restore", "gold": null, "class": "negative"}
+{"query": "redis cluster failover sentinel configuration", "gold": null, "class": "negative"}
+{"query": "stripe webhook signature verification middleware", "gold": null, "class": "negative"}

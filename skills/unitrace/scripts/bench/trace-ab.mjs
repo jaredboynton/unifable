@@ -50,6 +50,13 @@ const VARIANTS = {
   "nav-mini-6x2": { UNITRACE_RT_UNITRACE_MODE: "nav", UNITRACE_RT_NAV_MODEL: "gpt-realtime-mini", UNITRACE_RT_SYNTH_MODEL: "gpt-realtime-2", UNITRACE_RT_NAV_COUNT: "6", UNITRACE_RT_NAV_ROUNDS: "2" },
   "nav-mini-synthmini": { UNITRACE_RT_UNITRACE_MODE: "nav", UNITRACE_RT_NAV_MODEL: "gpt-realtime-mini", UNITRACE_RT_SYNTH_MODEL: "gpt-realtime-mini", UNITRACE_RT_NAV_COUNT: "4", UNITRACE_RT_NAV_ROUNDS: "2" },
   "hybrid-mini-4x2": { UNITRACE_RT_UNITRACE_MODE: "hybrid", UNITRACE_RT_NAV_MODEL: "gpt-realtime-mini", UNITRACE_RT_SYNTH_MODEL: "gpt-realtime-2", UNITRACE_RT_NAV_COUNT: "4", UNITRACE_RT_NAV_ROUNDS: "2" },
+  // Borrow on/off pair: identical nav/synth config, only the shared-daemon
+  // rtinfer transport differs. Run BOTH (`--variants borrow-off,borrow-on`) to
+  // prove the borrow holds trace quality (median score) and latency parity for
+  // the trace + nav callers before the broad UNITRACE_DAEMON_RTINFER flag is
+  // removed. The trace daemon stays on (UNITRACE_RT_DAEMON=1) in both arms.
+  "borrow-off": { UNITRACE_RT_UNITRACE_MODE: "nav", UNITRACE_RT_NAV_MODEL: "gpt-realtime-mini", UNITRACE_RT_SYNTH_MODEL: "gpt-realtime-2", UNITRACE_RT_NAV_COUNT: "4", UNITRACE_RT_NAV_ROUNDS: "2", UNITRACE_RT_DAEMON: "1", UNITRACE_DAEMON_RTINFER: "0", UNITRACE_DAEMON_DEBUG: "1" },
+  "borrow-on": { UNITRACE_RT_UNITRACE_MODE: "nav", UNITRACE_RT_NAV_MODEL: "gpt-realtime-mini", UNITRACE_RT_SYNTH_MODEL: "gpt-realtime-2", UNITRACE_RT_NAV_COUNT: "4", UNITRACE_RT_NAV_ROUNDS: "2", UNITRACE_RT_DAEMON: "1", UNITRACE_DAEMON_RTINFER: "1", UNITRACE_DAEMON_DEBUG: "1", CSE_RTINFER_URL: (process.env.CSE_RTINFER_URL || "http://127.0.0.1:8787").trim(), CSE_RTINFER_STRICT_URL: "1" },
 };
 
 const JUDGE_INSTRUCTIONS = [
@@ -96,6 +103,18 @@ function parsePhases(errLog) {
   return out;
 }
 
+// Tally `[daemon] ns=... served rtinfer=N uds=M` markers (emitted under
+// UNITRACE_DAEMON_DEBUG=1) so the borrow proof can show the borrow ACTUALLY
+// served vs silently fell through to the per-session UDS pool.
+function parseServed(errLog) {
+  let rtinfer = 0, uds = 0;
+  for (const m of String(errLog || "").matchAll(/\[daemon\] ns=\S+ served rtinfer=(\d+) uds=(\d+)/g)) {
+    rtinfer += parseInt(m[1], 10);
+    uds += parseInt(m[2], 10);
+  }
+  return { rtinfer, uds };
+}
+
 function runTrace({ question, env, repo, runsDir, runId }) {
   return new Promise((resolve) => {
     const childEnv = {
@@ -123,7 +142,7 @@ function runTrace({ question, env, repo, runsDir, runId }) {
       let errLog = "";
       try { outMd = readFileSync(path.join(runDir, "out.md"), "utf8"); } catch { /* ignore */ }
       try { errLog = readFileSync(path.join(runDir, "err.log"), "utf8"); } catch { /* ignore */ }
-      resolve({ code, wallMs, outMd: outMd || stdout, errLog: errLog || stderr, phases: parsePhases(errLog) });
+      resolve({ code, wallMs, outMd: outMd || stdout, errLog: errLog || stderr, phases: parsePhases(errLog), served: parseServed(errLog || stderr) });
     });
   });
 }
@@ -188,6 +207,7 @@ async function main() {
           submitMs: res.phases.submit_ms ?? null,
           connectMs: res.phases.connect_ms ?? null,
           filesRead: res.phases.files_read ?? null,
+          servedRtinfer: res.served.rtinfer, servedUds: res.served.uds,
           score: q.score, reason: q.reason,
         };
         records.push(rec);
@@ -209,19 +229,43 @@ async function main() {
     const medSubmit = median(recs.map((r) => r.submitMs).filter((x) => x != null));
     const fails = recs.filter((r) => r.code !== 0).length;
     const qps = Number.isFinite(medScore) && medWall > 0 ? medScore / (medWall / 1000) : NaN;
-    return { variant, runs: recs.length, fails, medWallMs: medWall, medExploreMs: medExplore, medSubmitMs: medSubmit, medScore, qualityPerSec: qps };
+    const rt = recs.reduce((a, r) => a + (r.servedRtinfer || 0), 0);
+    const uds = recs.reduce((a, r) => a + (r.servedUds || 0), 0);
+    const servedRate = rt + uds ? Math.round((100 * rt) / (rt + uds)) : 0;
+    return { variant, runs: recs.length, fails, medWallMs: medWall, medExploreMs: medExplore, medSubmitMs: medSubmit, medScore, qualityPerSec: qps, servedRtinfer: rt, servedUds: uds, servedRate };
   }).sort((a, b) => (b.qualityPerSec || -1) - (a.qualityPerSec || -1));
 
-  writeFileSync(path.join(resultsDir, "raw.json"), JSON.stringify({ repo, repeats, variants: variantNames, records, summary }, null, 2));
+  // Borrow verdict: when both borrow-off and borrow-on ran, prove parity. The
+  // borrow must hold trace quality (median score within 0.5) and not regress
+  // wall latency by more than 10%, and must actually have served via rtinfer.
+  const off = summary.find((s) => s.variant === "borrow-off");
+  const on = summary.find((s) => s.variant === "borrow-on");
+  let borrowVerdict = null;
+  if (off && on) {
+    const reasons = [];
+    let pass = true;
+    if (on.servedRate < 90) { pass = false; reasons.push(`borrow-on served-rate ${on.servedRate}% < 90% (daemon absent or falling through; run invalid)`); }
+    if (Number.isFinite(off.medScore) && Number.isFinite(on.medScore) && on.medScore < off.medScore - 0.5) { pass = false; reasons.push(`borrow-on median score ${fmt(on.medScore, 1)} < borrow-off ${fmt(off.medScore, 1)} - 0.5`); }
+    if (off.medWallMs > 0 && on.medWallMs > off.medWallMs * 1.10) { pass = false; reasons.push(`borrow-on med wall ${fmt(on.medWallMs)}ms > borrow-off ${fmt(off.medWallMs)}ms +10%`); }
+    if (on.fails > 0) { pass = false; reasons.push(`borrow-on had ${on.fails} failed run(s)`); }
+    borrowVerdict = { pass, reasons };
+  }
+
+  writeFileSync(path.join(resultsDir, "raw.json"), JSON.stringify({ repo, repeats, variants: variantNames, records, summary, borrowVerdict }, null, 2));
 
   const md = [];
   md.push(`# Trace A/B results — ${stamp}`, "");
   md.push(`Repo: \`${repo}\` · prompts: ${prompts.length} · repeats: ${repeats}`, "");
+  if (borrowVerdict) {
+    md.push(`## BORROW VERDICT: ${borrowVerdict.pass ? "PASS" : "FAIL"}`, "");
+    for (const r of borrowVerdict.reasons) md.push(`- ${r}`);
+    md.push("");
+  }
   md.push("## Variant summary (sorted by quality-per-second)", "");
-  md.push("| variant | runs | fails | med wall (ms) | med explore | med submit | med score | quality/sec |");
-  md.push("|---|---|---|---|---|---|---|---|");
+  md.push("| variant | runs | fails | med wall (ms) | med explore | med submit | med score | quality/sec | served-rt% |");
+  md.push("|---|---|---|---|---|---|---|---|---|");
   for (const s of summary) {
-    md.push(`| ${s.variant} | ${s.runs} | ${s.fails} | ${fmt(s.medWallMs)} | ${fmt(s.medExploreMs)} | ${fmt(s.medSubmitMs)} | ${fmt(s.medScore)} | ${fmt(s.qualityPerSec, 3)} |`);
+    md.push(`| ${s.variant} | ${s.runs} | ${s.fails} | ${fmt(s.medWallMs)} | ${fmt(s.medExploreMs)} | ${fmt(s.medSubmitMs)} | ${fmt(s.medScore)} | ${fmt(s.qualityPerSec, 3)} | ${s.servedRate}% |`);
   }
   md.push("", "## Per-run detail", "");
   md.push("| variant | prompt | rep | code | wall (ms) | explore | submit | files | score | reason |");
@@ -233,6 +277,7 @@ async function main() {
   writeFileSync(path.join(resultsDir, "summary.md"), md.join("\n"));
 
   process.stdout.write(`\n${md.join("\n")}\n\nResults: ${resultsDir}\n`);
+  if (borrowVerdict && !borrowVerdict.pass) process.exit(2);
 }
 
 function fmt(n, dp = 0) {

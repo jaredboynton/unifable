@@ -20,6 +20,9 @@ node --test "$SCRIPT_DIR/test/map-ast-extract.test.mjs"
 node --test "$SCRIPT_DIR/test/map-pagerank.test.mjs"
 node --test "$SCRIPT_DIR/test/ast-context.test.mjs"
 node --test "$SCRIPT_DIR/test/search-seed.test.mjs"
+node --test "$SCRIPT_DIR/test/search-multiformat.test.mjs"
+node --test "$SCRIPT_DIR/test/rtinfer-client.test.mjs"
+node --test "$SCRIPT_DIR/test/daemon-attribution.test.mjs"
 
 if [ "${UNITRACE_SEARCH_LIVE:-}" != "1" ]; then
   echo "search live integration skipped (set UNITRACE_SEARCH_LIVE=1 to run)"
@@ -48,7 +51,7 @@ assert_hits() {
   local query="$2"
   local out
   out="$(cd "$UNIFABLE" && "$SCRIPT_DIR/search.sh" "$query")"
-  if printf '%s' "$out" | grep -q 'No relevant code found'; then
+  if printf '%s' "$out" | grep -q 'No relevant results found'; then
     printf 'live search failed (empty): %s\n' "$label" >&2
     printf '%s\n' "$out" >&2
     exit 1
@@ -71,7 +74,7 @@ assert_hits "frontier adoption" \
   "How does frontier adoption resolution work in evidence spec and heavy workflow? Where is rejected_approach vs solution state?"
 
 neg="$(cd "$UNIFABLE" && "$SCRIPT_DIR/search.sh" "where is the quantum_flux_capacitor module implemented")"
-if ! printf '%s' "$neg" | grep -q 'No relevant code found'; then
+if ! printf '%s' "$neg" | grep -q 'No relevant results found'; then
   printf 'live negative control failed\n' >&2
   printf '%s\n' "$neg" >&2
   exit 1

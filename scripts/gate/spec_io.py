@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -25,10 +26,10 @@ except ImportError:  # pragma: no cover
 
 try:  # bare import when scripts/gate is on sys.path (hooks + tests); package import otherwise
     from heavy_workflow import clear_stale_heavy_workflow
-    from ledger import data_root
+    from ledger import data_root, resolve_path
 except ImportError:  # pragma: no cover
     from scripts.gate.heavy_workflow import clear_stale_heavy_workflow
-    from scripts.gate.ledger import data_root
+    from scripts.gate.ledger import data_root, resolve_path
 
 try:
     from spec_schema import spec_template
@@ -86,6 +87,7 @@ _PROJECT_MARKERS = (".git", "pyproject.toml", "go.mod", "Cargo.toml", "package.j
 
 
 _CANONICAL_ROOT_CACHE: dict[str, Path] = {}
+_canonical_root_lock = threading.Lock()
 
 
 def _git_toplevel(start: Path) -> Path | None:
@@ -100,7 +102,7 @@ def _git_toplevel(start: Path) -> Path | None:
         if proc.returncode == 0:
             top = proc.stdout.strip()
             if top:
-                return Path(top).resolve()
+                return resolve_path(top)
     except (OSError, subprocess.TimeoutExpired):
         pass
     return None
@@ -113,33 +115,38 @@ def canonical_project_root(cwd: str | Path | None = None) -> Path:
     walk up for common project markers, else resolved *cwd*."""
     override = os.environ.get("UNIFABLE_PROJECT_ROOT")
     if override:
-        return Path(override).expanduser().resolve()
+        return resolve_path(override)
 
-    start = Path(cwd or os.getcwd()).resolve()
-    cache_key = str(start)
+    cache_key = str(Path(cwd or os.getcwd()))
     cached = _CANONICAL_ROOT_CACHE.get(cache_key)
     if cached is not None:
         return cached
 
-    git_root = _git_toplevel(start)
-    if git_root is not None:
-        _CANONICAL_ROOT_CACHE[cache_key] = git_root
-        return git_root
+    with _canonical_root_lock:
+        cached = _CANONICAL_ROOT_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
 
-    found = start
-    current = start
-    while True:
-        for marker in _PROJECT_MARKERS:
-            if (current / marker).exists():
-                found = current
+        start = Path(cwd or os.getcwd())
+        git_root = _git_toplevel(start)
+        if git_root is not None:
+            _CANONICAL_ROOT_CACHE[cache_key] = git_root
+            return git_root
+
+        found = start
+        current = start
+        while True:
+            for marker in _PROJECT_MARKERS:
+                if (current / marker).exists():
+                    found = current
+                    break
+            if current.parent == current:
                 break
-        if current.parent == current:
-            break
-        current = current.parent
+            current = current.parent
 
-    root = found.resolve()
-    _CANONICAL_ROOT_CACHE[cache_key] = root
-    return root
+        root = resolve_path(found)
+        _CANONICAL_ROOT_CACHE[cache_key] = root
+        return root
 
 
 _SAFE_KEY_RE = re.compile(r"[^A-Za-z0-9._-]+")

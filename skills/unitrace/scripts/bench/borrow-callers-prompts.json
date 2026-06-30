@@ -1,0 +1,22 @@
+{
+  "enhance": [
+    { "id": "lock-release", "prompt": "Why might the trace loop hang and fail to release its lock, and how should I fix it?" },
+    { "id": "gate-fail-open", "prompt": "How does the evidence gate fail open when a hook errors, and where is that enforced?" },
+    { "id": "daemon-pool", "prompt": "How does the realtime daemon achieve parallel latency and where is the pool size chosen?" },
+    { "id": "runtime-sync", "prompt": "How does the plugin keep a stable runtime under ~/.unifable separate from the host cache?" },
+    { "id": "pack-routing", "prompt": "How does pack routing decide which inline pack to load for a prompt?" },
+    { "id": "groundedness", "prompt": "How does the groundedness breaker detect ungrounded citations?" },
+    { "id": "janitor-reap", "prompt": "How does the janitor decide which stale sockets and locks to reap?" },
+    { "id": "version-bump", "prompt": "How do I bump the plugin version across every manifest in one pass?" }
+  ],
+  "websearch": [
+    { "id": "rg-hidden", "goal": "ripgrep how to include hidden files but still honor gitignore" },
+    { "id": "uds-frame", "goal": "node unix domain socket length-prefixed framing best practice" },
+    { "id": "realtime-api", "goal": "OpenAI Realtime API structured function calling reasoning effort" },
+    { "id": "launchagent", "goal": "macOS launchd LaunchAgent self-update stable binary path TCC identity" },
+    { "id": "semver-match", "goal": "semantic version major compatibility matching in a client contract" },
+    { "id": "npm-poll", "goal": "npm registry metadata cache CDN TTL polling interval for updates" },
+    { "id": "flock-single", "goal": "single instance daemon flock non-blocking lock pattern" },
+    { "id": "atomic-symlink", "goal": "atomic symlink swap rename current version pointer posix" }
+  ]
+}

@@ -28,6 +28,7 @@ import fs from "node:fs";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { withReasoningSteer } from "./realtime_client.mjs";
+import { rtinferAsk, rtinferEnabled } from "./rtinfer-client.mjs";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 // daemon-client is at <repo>/skills/unitrace/scripts/lib; the shared daemon lives
@@ -205,18 +206,64 @@ export async function warmDaemonPool(namespace, size = POOL_SIZE, { model = SCOR
   );
 }
 
-// Run one structured request over slot 0's warm socket. Returns the parsed
-// arguments object, or null to signal fail-open fallback.
-export async function daemonAsk(namespace, req, { model = SCORER_MODEL } = {}) {
-  if (!daemonEnabled()) return null;
-  return askOnSlot(namespace, model, 0, req);
+// Preferred transport: the always-on shared cse-tools rtinfer daemon (when
+// UNITRACE_DAEMON_RTINFER=1 and a cse-toold is reachable). One warm pool, no
+// per-session spawn, no per-repo namespace key. Fail-open: a null result falls
+// through to the per-session UDS slot below. Off by default so the mature pool
+// path stays byte-identical until the bench proves the borrow. reasoningEffort
+// is forwarded so the borrow matches askOnSlot's steer + reasoning_effort.
+async function rtinferTry(req, model) {
+  if (!rtinferEnabled()) return null;
+  const obj = await rtinferAsk({
+    system: req.system,
+    user: req.user,
+    schema: req.schema,
+    schemaName: req.schemaName,
+    model,
+    reasoningEffort: req.reasoningEffort,
+  });
+  if (!obj) return null;
+  return req.withUsage ? { object: obj, usage: {} } : obj;
 }
 
-// Run N structured requests in genuine parallel, one per pool slot (round-robin
-// when N > pool size). Returns an array aligned to `requests`; any element is
-// null on that request's failure (caller decides fallback). Returns null only
-// when the daemon path is disabled.
+// Transport attribution (debug-only, fail-open). The live borrow bench parses
+// these tallies to prove the borrow ACTUALLY served vs silently fell through to
+// the UDS pool, per namespace. `served rtinfer=N uds=M` counts only requests a
+// transport answered (a null from both is an agentic-fallback, counted in
+// neither). Distinct from the `[search-rt] fast path declined` retrieval marker.
+function daemonDebugOn() {
+  return process.env.UNITRACE_DAEMON_DEBUG === "1" || process.env.UNITRACE_SEARCH_DEBUG === "1";
+}
+function emitServed(namespace, rtinfer, uds) {
+  if (!daemonDebugOn()) return;
+  try { process.stderr.write(`[daemon] ns=${namespace} served rtinfer=${rtinfer} uds=${uds}\n`); } catch { /* ignore */ }
+}
+
+// Run one structured request: prefer rtinfer, else slot 0's warm UDS socket.
+// Returns the parsed arguments object, or null to signal fail-open fallback.
+export async function daemonAsk(namespace, req, { model = SCORER_MODEL } = {}) {
+  if (!daemonEnabled()) return null;
+  const rt = await rtinferTry(req, model);
+  if (rt) { emitServed(namespace, 1, 0); return rt; }
+  const r = await askOnSlot(namespace, model, 0, req);
+  emitServed(namespace, 0, r != null ? 1 : 0);
+  return r;
+}
+
+// Run N structured requests in genuine parallel: each prefers rtinfer, else its
+// own UDS pool slot (round-robin when N > pool size). Returns an array aligned to
+// `requests`; any element is null on that request's failure (caller decides
+// fallback). Returns null only when the daemon path is disabled.
 export async function daemonAskBatch(namespace, requests, { model = SCORER_MODEL } = {}) {
   if (!daemonEnabled()) return null;
-  return Promise.all(requests.map((req, i) => askOnSlot(namespace, model, i % POOL_SIZE, req)));
+  let rtN = 0, udsN = 0;
+  const results = await Promise.all(requests.map(async (req, i) => {
+    const rt = await rtinferTry(req, model);
+    if (rt) { rtN += 1; return rt; }
+    const r = await askOnSlot(namespace, model, i % POOL_SIZE, req);
+    if (r != null) udsN += 1;
+    return r;
+  }));
+  emitServed(namespace, rtN, udsN);
+  return results;
 }

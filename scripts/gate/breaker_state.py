@@ -37,6 +37,8 @@ EVENT_KINDS = frozenset(
         "SCOPE_HINT",
         "VERIFY_DISPATCH",
         "VERIFY_RESULT",
+        "DIRECTIVE",
+        "SCOPE_OPEN",
     }
 )
 MAX_EVENTS = 50
@@ -59,6 +61,14 @@ DEFAULT_BREAKER: dict[str, Any] = {
     # Last director directive actually surfaced to the model, so an unchanged
     # directive is not re-emitted every debounce window (token-aware/minimal).
     "breaker_last_directive_surfaced": "",
+    # Bounded log of the director's OWN recent turns ({directive, allow, deny, ts}),
+    # injected into the next judge call as DIRECTOR STATE so the stateless director
+    # judge can see what it previously told the model and the tool the agent keeps
+    # retrying -- and RELEASE (advance the step, open the deny-scope) once the
+    # transcript shows the step was performed, instead of re-paraphrasing a block.
+    # Survives the bounded `events` trim and /compact. Must live in DEFAULT_BREAKER
+    # or load_breaker drops it on every load.
+    "breaker_directive_history": [],
     "breaker_claim": "",
     # Judge-granted evidence-gate lift (scripts/gate/gate_lift.py): a scoped grant
     # ({signature, command, paths, scope, uses}) authorizing one blocked mutation,
@@ -187,6 +197,8 @@ def render_events(events: list[dict[str, Any]]) -> str:
             "subclaim",
             "command",
             "exit",
+            "directive",
+            "tool_scope",
         ):
             value = event.get(key)
             if value not in (None, "", False):
@@ -315,6 +327,45 @@ def clear_provisional_lift(state: dict[str, Any]) -> None:
     state["breaker_lift_reason"] = ""
     state["breaker_lift_scope"] = ""
     state["breaker_pending_notify"] = ""
+
+
+_DIRECTOR_HISTORY_MAX = 6
+
+
+def clear_director(state: dict[str, Any]) -> None:
+    """Reset the stepwise director so a release fully reopens the scope.
+
+    disarm() (and the stale-arm drop path) call this: clearing only the arm fields
+    while leaving breaker_tool_scope/breaker_directive intact would keep enforcing a
+    stale deny-scope after release. Mirrors clear_provisional_lift's role for the
+    provisional lift."""
+    state["breaker_tool_scope"] = {}
+    state["breaker_directive"] = ""
+    state["breaker_last_directive_surfaced"] = ""
+    state["breaker_directive_history"] = []
+
+
+def record_director_turn(state: dict[str, Any], directive: str, scope: dict[str, Any] | None) -> None:
+    """Append the director's own turn to its bounded self-history.
+
+    Injected into the next judge call as DIRECTOR STATE so the stateless director
+    sees its prior directive + scope and can recognize an already-satisfied step.
+    Skips empty turns and consecutive byte-identical duplicates (the near-dup guard
+    upstream handles paraphrases)."""
+    directive = str(directive or "").strip()
+    scope = scope if isinstance(scope, dict) else {}
+    allow = [t for t in (scope.get("allow") or []) if isinstance(t, str)]
+    deny = [t for t in (scope.get("deny") or []) if isinstance(t, str)]
+    if not directive and not allow and not deny:
+        return
+    history = state.get("breaker_directive_history")
+    if not isinstance(history, list):
+        history = []
+    entry = {"directive": directive, "allow": allow, "deny": deny, "ts": _event_ts()}
+    if history and history[-1].get("directive") == directive and history[-1].get("deny") == deny:
+        return
+    history.append(entry)
+    state["breaker_directive_history"] = history[-_DIRECTOR_HISTORY_MAX:]
 
 
 def lift_provisional(

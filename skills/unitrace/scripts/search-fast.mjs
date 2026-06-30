@@ -9,11 +9,13 @@
 //
 // Env:
 //   UNITRACE_SEARCH_FAST=0              disable fast path (pure legacy loop)
-//   UNITRACE_SEARCH_FAST_MAX_FILES      max ranked files to hydrate (default 12)
+//   UNITRACE_SEARCH_FAST_MAX_FILES      max ranked CODE files to hydrate (default 12)
+//   UNITRACE_SEARCH_FAST_MAX_DOC_FILES  max ranked DOC/DATA files to hydrate (default 4)
 //   UNITRACE_SEARCH_FAST_MAX_SPANS      max total hydrated spans/candidates (default 32)
 //   UNITRACE_SEARCH_FAST_SPANS_PER_FILE max AST-node spans per file (default 6)
 //   UNITRACE_SEARCH_FAST_HYDRATE_SPAN   max lines per hydrated span (default 40)
 //   UNITRACE_SEARCH_FAST_GREP_CAP       max rg matches parsed (default 4000)
+//   UNITRACE_SEARCH_FAST_NULL_FALLBACK  0 to return [] (not null) when nothing scores (default on)
 
 import { execFile } from "node:child_process";
 import {
@@ -24,12 +26,31 @@ import {
 } from "./ast-context.mjs";
 import { codeSymbolIdents } from "./search-seed.mjs";
 
-const NON_SOURCE_RE = /\.(md|markdown|json|ndjson|jsonl|txt|log|csv|tsv|ya?ml|toml|lock|svg|png|jpe?g|gif|ico)$/i;
+// True binaries / build noise: never candidates, in any class.
+const EXCLUDE_RE = /\.(svg|png|jpe?g|gif|ico|webp|bmp|tiff?|pdf|woff2?|ttf|otf|eot|lock|map|wasm|so|dll|dylib|pyc|class|jar|zip|gz|tar|tgz|bz2|xz|7z|mp4|mov|mp3|wav|ogg|log)$/i;
+const MINIFIED_RE = /\.min\.(js|css)$|\.generated\./i;
+// Text-bearing non-code: docs, config, data. Eligible as candidates with
+// line-window hydration and the doc-aware scoring rubric.
+const DOC_EXT_RE = /\.(md|markdown|mdx|txt|rst|adoc|json|jsonl|ndjson|ya?ml|toml|ini|cfg|conf|env|properties|csv|tsv|xml|html?|tex)$/i;
+const DOC_NAME_RE = /(^|\/)(README|AGENTS|CLAUDE|LICENSE|NOTICE|CHANGELOG|CONTRIBUTING|Dockerfile|Makefile|Justfile)[^/]*$/i;
+// Lockfiles: machine-generated dependency graphs, never an answer. (.lock-ext
+// lockfiles -- yarn/cargo/poetry/Gemfile/composer -- are already cut by
+// EXCLUDE_RE; these are the json/yaml-named ones it misses.)
+const LOCKFILE_RE = /(^|\/)(package-lock\.json|npm-shrinkwrap\.json|pnpm-lock\.yaml)$/i;
+// .env templates carry NO real values -- searchable. A bare .env / .env.<x>
+// holds live secrets and is excluded by SECRET_RE below.
+const ENV_TEMPLATE_RE = /(^|\/)\.env\.(example|sample|template|dist|defaults)$/i;
+// Secrets: never candidates even when --hidden surfaces them; dropped before any
+// hydration/scoring so live credentials never reach the model.
+const SECRET_RE = /(^|\/)(\.env(\.[^/]+)?|[^/]*\.(pem|key|p12|pfx|crt|cer|credentials)|id_rsa[^/]*|id_ed25519[^/]*)$/i;
 const GREP_EXCLUDES = [
   ".git", "node_modules", ".pnpm", ".yarn", "vendor", "Pods", ".bundle",
   "__pycache__", ".venv", "venv", "dist", "build", "out", "target", ".next", ".nuxt",
   ".cache", ".turbo", "generated", "*.min.js", "*.min.css", "*.map", "*.generated.*",
 ];
+// Secret-bearing file globs excluded at the rg layer so they are never even read
+// off disk (defense in depth on top of SECRET_RE classification).
+const SECRET_GLOBS = ["*.pem", "*.key", "*.p12", "*.pfx", "*.credentials", "id_rsa*", "id_ed25519*"];
 const DECL_KW = "fn|func|def|class|struct|trait|impl|enum|type|interface|const|function|pub|module|fun";
 const STOPWORDS = new Set([
   "this", "that", "with", "from", "what", "when", "where", "which", "while", "does",
@@ -67,10 +88,20 @@ export function contentWords(query) {
   return out;
 }
 
-function isSourceFile(rel) {
-  if (!rel || NON_SOURCE_RE.test(rel)) return false;
-  if (/(^|\/)fixtures\//.test(rel)) return false;
-  return Boolean(langForPath(rel));
+// Classify a repo-relative path into the retrieval lane it belongs to:
+//   "code" -> AST hydration + code scoring rubric
+//   "doc"  -> line-window hydration + doc/config/data scoring rubric
+//   null   -> excluded (binary, build noise, or fixture)
+export function fileClass(rel) {
+  if (!rel) return null;
+  if (/(^|\/)fixtures\//.test(rel)) return null;
+  if (EXCLUDE_RE.test(rel) || MINIFIED_RE.test(rel)) return null;
+  if (LOCKFILE_RE.test(rel)) return null;
+  if (ENV_TEMPLATE_RE.test(rel)) return "doc";
+  if (SECRET_RE.test(rel)) return null;
+  if (langForPath(rel)) return "code";
+  if (DOC_EXT_RE.test(rel) || DOC_NAME_RE.test(rel)) return "doc";
+  return null;
 }
 
 // ONE combined ripgrep over the alternation of all terms (case-insensitive).
@@ -81,7 +112,12 @@ function runCombinedRg(repoRoot, terms, cap) {
   const args = [
     "--no-config", "--no-heading", "--with-filename", "--line-number",
     "--color=never", "--trim", "--max-columns=400", "--ignore-case",
+    // --hidden surfaces dotfile docs/config (.github/*.yml, .env.example) while
+    // .gitignore is still honored (no --no-ignore) so gitignored secrets/build
+    // stay out; .git is excluded below.
+    "--hidden",
     ...GREP_EXCLUDES.flatMap((e) => ["-g", `!${e}`]),
+    ...SECRET_GLOBS.flatMap((e) => ["-g", `!${e}`]),
     ...terms.flatMap((t) => ["-e", t]),
     ".",
   ];
@@ -95,8 +131,9 @@ function runCombinedRg(repoRoot, terms, cap) {
         const m = line.match(/^(.+?):(\d+):(.*)$/);
         if (!m) continue;
         const file = m[1].replace(/^\.\//, "");
-        if (!isSourceFile(file)) continue;
-        hits.push({ file, line: parseInt(m[2], 10), text: m[3] });
+        const cls = fileClass(file);
+        if (!cls) continue;
+        hits.push({ file, line: parseInt(m[2], 10), text: m[3], cls });
         n += 1;
       }
       resolve(hits);
@@ -121,7 +158,7 @@ export function classifyHits(hits, terms) {
   const docFreq = new Map(); // term -> # files containing it
   for (const h of hits) {
     let f = files.get(h.file);
-    if (!f) { f = { file: h.file, def: 0, ref: 0, terms: new Set(), hits: [] }; files.set(h.file, f); }
+    if (!f) { f = { file: h.file, cls: h.cls || "code", def: 0, ref: 0, terms: new Set(), hits: [] }; files.set(h.file, f); }
     const isDef = declRe ? declRe.test(h.text) : false;
     if (isDef) f.def += 1; else f.ref += 1;
     const matched = [];
@@ -154,7 +191,7 @@ export function scoreCandidates({ files, docFreq }) {
     if (GENERATOR_RE.test(f.file)) score -= 4;
     const hitWeight = (h) => h.matched.reduce((s, t) => s + rarity(t), 0) + (h.isDef ? 2 : 0);
     const hits = [...f.hits].sort((a, b) => hitWeight(b) - hitWeight(a) || a.line - b.line);
-    scored.push({ file: f.file, score, hits, defCount: f.def, refCount: f.ref, termCount: f.terms.size });
+    scored.push({ file: f.file, cls: f.cls, score, hits, defCount: f.def, refCount: f.ref, termCount: f.terms.size });
   }
   scored.sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
   return scored;
@@ -169,6 +206,7 @@ export function scoreCandidates({ files, docFreq }) {
 // { candidates:[{path,startLine,endLine,content,score}], terms }.
 export async function retrieveCandidates(repoRoot, query, {
   maxFiles = envInt("UNITRACE_SEARCH_FAST_MAX_FILES", 12),
+  maxDocFiles = envInt("UNITRACE_SEARCH_FAST_MAX_DOC_FILES", 4),
   maxSpans = envInt("UNITRACE_SEARCH_FAST_MAX_SPANS", 32),
   spansPerFile = envInt("UNITRACE_SEARCH_FAST_SPANS_PER_FILE", 6),
   hydrateSpan = envInt("UNITRACE_SEARCH_FAST_HYDRATE_SPAN", 40),
@@ -189,24 +227,53 @@ export async function retrieveCandidates(repoRoot, query, {
   ensureAstTool({ install: process.env.UNITRACE_AST_SKIP_INSTALL !== "1" });
   const binary = detectAstBinary();
 
-  // ONE combined ripgrep; classify + rank files in node, then hydrate the top
-  // files' hits into AST-node spans.
+  // ONE combined ripgrep; classify + rank files in node. Code and doc/data files
+  // get SEPARATE file budgets so a noisy doc pool (changelogs, generated configs)
+  // can never evict real code on a code query, while a doc-answer query still
+  // gets its files hydrated. The two lanes are then merged best-first.
   const hits = await runCombinedRg(repoRoot, terms, grepCap);
-  const ranked = scoreCandidates(classifyHits(hits, terms)).slice(0, maxFiles);
+  const scoredFiles = scoreCandidates(classifyHits(hits, terms));
+  const codeFiles = scoredFiles.filter((f) => f.cls === "code").slice(0, maxFiles);
+  const docFiles = scoredFiles.filter((f) => f.cls === "doc").slice(0, maxDocFiles);
+  const ranked = [...codeFiles, ...docFiles].sort((a, b) => b.score - a.score || a.file.localeCompare(b.file));
 
-  const candidates = [];
+  // Hydrate each ranked file once (bounded by the code+doc file budgets above).
+  // Docs/data cannot be AST-parsed: hydrate them with a clamped line window.
+  const perFile = [];
   for (const r of ranked) {
-    if (candidates.length >= maxSpans) break;
     const blocks = hydrateHitsToBlocks(repoRoot, r.hits, {
       maxBlocks: spansPerFile,
       binary,
       maxSpan: hydrateSpan,
+      lineWindowOnly: r.cls === "doc",
     });
+    if (blocks.length) perFile.push({ r, blocks });
+  }
+
+  const candidates = [];
+  const taken = new Set();
+  const keyOf = (b) => `${b.path}:${b.startLine}:${b.endLine}`;
+  const pushBlock = (r, b) => {
+    candidates.push({ path: b.path, startLine: b.startLine, endLine: b.endLine, content: b.content, score: r.score, cls: r.cls });
+    taken.add(keyOf(b));
+  };
+
+  // Reserve one span per selected doc file FIRST so a flood of higher-scoring
+  // code spans can never starve a doc-only answer out of the global span budget.
+  for (const { r, blocks } of perFile) {
+    if (r.cls !== "doc" || candidates.length >= maxSpans) continue;
+    if (blocks[0]) pushBlock(r, blocks[0]);
+  }
+  // Fill remaining budget best-first across all files.
+  for (const { r, blocks } of perFile) {
+    if (candidates.length >= maxSpans) break;
     for (const b of blocks) {
       if (candidates.length >= maxSpans) break;
-      candidates.push({ path: b.path, startLine: b.startLine, endLine: b.endLine, content: b.content, score: r.score });
+      if (!taken.has(keyOf(b))) pushBlock(r, b);
     }
   }
+  // Present highest-score first regardless of reservation order.
+  candidates.sort((a, b) => b.score - a.score || a.path.localeCompare(b.path) || a.startLine - b.startLine);
   return { candidates, terms };
 }
 
@@ -216,7 +283,7 @@ const MAX_POOL_CHARS = 16000;
 export function buildRankPrompt(query, candidates) {
   const parts = [
     "<candidates>",
-    "Pre-retrieved, ranked code windows (highest score first; already confirmed on disk).",
+    "Pre-retrieved, ranked windows of code or docs/config/data (highest score first; already confirmed on disk).",
     "Select the file(s) and line ranges that answer the query and call finish NOW.",
     "Cite path:start-end straight from these windows. Do NOT call grep_search, read, glob, or list_directory.",
     "If none are relevant, call finish with an empty files string.",
@@ -233,13 +300,13 @@ export function buildRankPrompt(query, candidates) {
 }
 
 const RANK_INSTRUCTIONS = [
-  "You are a code-search ranker. You are given pre-retrieved, ranked code windows",
-  "that were already confirmed to exist on disk by host-side ripgrep.",
+  "You are a search ranker over a local repository. You are given pre-retrieved, ranked",
+  "windows of code or docs/config/data that were already confirmed to exist on disk by host-side ripgrep.",
   "Select ONLY the windows that actually answer the query and call finish exactly once.",
   "Cite repo-relative path:start-end taken directly from the window headers.",
-  "Prefer the definition/implementation over call sites. If several windows are part of",
-  "the same answer, list each on its own line. If NONE are relevant, call finish with an",
-  "empty files string. Do not invent paths or ranges.",
+  "Prefer the definition/implementation (for code) or the direct statement/setting (for docs) over",
+  "incidental mentions. If several windows are part of the same answer, list each on its own line.",
+  "If NONE are relevant, call finish with an empty files string. Do not invent paths or ranges.",
 ].join(" ");
 
 export const SCORE_INSTRUCTIONS = [
@@ -286,6 +353,47 @@ export function scorePromptFor(query, c) {
   ].join("\n");
 }
 
+// Doc/config/data scorer: the answer is a statement, rule, setting, or data
+// entry -- NOT a code definition. A code-biased rubric scores legitimate prose
+// answers 2-3 and filters them below the floor, which is the false negative this
+// fixes. Path is a strong signal (AGENTS.md, package.json, README).
+export const DOC_SCORE_INSTRUCTIONS = [
+  "You are a documentation, config, and data relevance scorer. You will be given a QUERY and exactly one TEXT window from a non-code file (markdown, plain text, JSON/YAML/TOML config, CSV/data).",
+  "Decide how directly the TEXT answers the QUERY, then return a single integer 0-10 via the score tool.",
+  "The answer may be a sentence, rule, instruction, heading, setting, or key/value -- it is NOT required to be a code definition. Do not penalize a window for being prose or config rather than code.",
+  "Use this exact scale:",
+  "0-1: unrelated (the window is about something else).",
+  "2-3: same general area but does not answer the query (a passing mention, an unrelated section).",
+  "4-5: related supporting context (adjacent information or a pointer) but not the answer itself.",
+  "6-7: part of the answer (one of the statements, settings, or entries the query asks about).",
+  "8-10: the definitive answer (this window directly states the rule, setting, fact, or value the query asks for).",
+  "The file path is a strong signal. Judge ONLY this window. Score conservatively and consistently. Return only the integer score.",
+].join("\n");
+
+export function docScorePromptFor(query, c) {
+  return [
+    "QUERY:",
+    query,
+    "",
+    `TEXT (${c.path} lines ${c.startLine}-${c.endLine}):`,
+    c.content,
+    "",
+    "How directly does this TEXT answer the QUERY? Return the integer score 0-10 now.",
+  ].join("\n");
+}
+
+// Pick the rubric + prompt for a candidate by its retrieval class.
+function scoreRequestFor(query, c, reasoningEffort) {
+  const isDoc = c.cls === "doc";
+  return {
+    system: isDoc ? DOC_SCORE_INSTRUCTIONS : SCORE_INSTRUCTIONS,
+    user: isDoc ? docScorePromptFor(query, c) : scorePromptFor(query, c),
+    schema: SCORE_SCHEMA,
+    schemaName: "score",
+    reasoningEffort,
+  };
+}
+
 // Fast path: host retrieve -> hydrate -> PARALLEL per-candidate relevance scoring
 // across the warm daemon pool -> coalesce. Returns parsed finish files
 // [{path,lines}] on success, an empty array for the clean "no relevant code"
@@ -297,9 +405,11 @@ export function scorePromptFor(query, c) {
 //          score, retrieval score), capped to FINISH_MAX. No final model turn.
 //   coalesce (A2): same scoring, then ONE finish turn over the survivors so the
 //          model can merge/compare them.
-export async function runFastPath(repoRoot, query, { debug = false } = {}) {
+export async function runFastPath(repoRoot, query, { debug = false, daemon = null } = {}) {
   if (!fastEnabled()) return null;
-  const { daemonAsk, daemonAskBatch, warmDaemonPool } = await import("./lib/daemon-client.mjs");
+  // `daemon` is an injection seam for tests; production passes nothing and the
+  // real warm-pool client is imported.
+  const { daemonAsk, daemonAskBatch, warmDaemonPool } = daemon || await import("./lib/daemon-client.mjs");
   const { validateFinishFiles } = await import("./search-lib.mjs");
 
   const reasoningEffort = process.env.UNITRACE_SEARCH_REASONING_EFFORT || "minimal";
@@ -321,13 +431,7 @@ export async function runFastPath(repoRoot, query, { debug = false } = {}) {
   const tScore = Date.now();
   const scored = await daemonAskBatch(
     repoRoot,
-    candidates.map((c) => ({
-      system: SCORE_INSTRUCTIONS,
-      user: scorePromptFor(query, c),
-      schema: SCORE_SCHEMA,
-      schemaName: "score",
-      reasoningEffort,
-    })),
+    candidates.map((c) => scoreRequestFor(query, c, reasoningEffort)),
   );
   if (scored == null) return null; // daemon disabled -> fall back
   const survivors = candidates
@@ -338,8 +442,13 @@ export async function runFastPath(repoRoot, query, { debug = false } = {}) {
     process.stderr.write(`[search-fast] score_ms=${Date.now() - tScore} mode=${mode} survivors=${survivors.length}/${candidates.length}\n`);
   }
   if (!survivors.length) {
-    // Pool returned scores but nothing cleared the floor: genuine no-match only
-    // if scoring actually ran; if every score is -1 (all failed) fall back.
+    // Nothing cleared the floor. By default fall back to the agentic loop (which
+    // reads BOTH code and docs) rather than declaring "no relevant code" -- the
+    // fast path's candidate/scoring pool can miss a doc answer the loop finds.
+    // Set UNITRACE_SEARCH_FAST_NULL_FALLBACK=0 to keep the old behavior: return
+    // [] (a confident negative) when scoring actually ran, null only when every
+    // score failed.
+    if (process.env.UNITRACE_SEARCH_FAST_NULL_FALLBACK !== "0") return null;
     const anyScored = scored.some((s) => s && typeof s.score === "number");
     return anyScored ? [] : null;
   }

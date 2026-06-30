@@ -81,7 +81,7 @@ if (fastEnabled()) {
     const fastFiles = await runFastPath(REPO_ROOT, QUERY, { debug: DEBUG });
     if (fastFiles !== null) {
       if (!fastFiles.length) {
-        if (!jsonMode) process.stdout.write("No relevant code found.\n");
+        if (!jsonMode) process.stdout.write("No relevant results found.\n");
         else process.stdout.write("[]\n");
         process.exit(0);
       }
@@ -147,7 +147,7 @@ try {
 }
 
 if (!files || !files.length) {
-  if (!jsonMode) process.stdout.write("No relevant code found.\n");
+  if (!jsonMode) process.stdout.write("No relevant results found.\n");
   else process.stdout.write("[]\n");
   process.exit(0);
 }

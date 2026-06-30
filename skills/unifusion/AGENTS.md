@@ -8,8 +8,8 @@ changing the scripts or the skill's structure. Do not duplicate `SKILL.md` here.
 
 Fanned-out multi-model panel + synthesis. The orchestrator (Opus 4.8, Claude Code) writes the user's
 question to a temp file, then runs ONE script — `scripts/unifusion.sh` — which auto-detects every panelist
-CLI and fans the SAME prompt to all of them **in parallel, blind, and clean-room** (Opus via the `cb`
-Bedrock CLI; external models via `scripts/run_*.sh`). Opus then judges every answer and writes the final
+CLI and fans the SAME prompt to all of them **in parallel, blind, and clean-room** (Opus via the `claude`
+CLI; external models via `scripts/run_*.sh`). Opus then judges every answer and writes the final
 deliverable. Opus is always the judge and is never one of the panelist processes, so the pipeline can't be
 reversed. Claude Code is the only runtime (no Codex/Cursor variant here).
 
@@ -21,17 +21,18 @@ the caller only judges + saves. "Always use all available," automatically.
 
 Plain bash + two interpreter helpers; no build step.
 
-- `scripts/unifusion.sh <question_file> [run_dir]` — THE entrypoint. Detects panelist CLIs (cb/codex/agy/
-  kimi/glm), builds the best-effort session brief, assembles the one canonical prompt
+- `scripts/unifusion.sh <question_file> [run_dir]` — THE entrypoint. Detects panelist CLIs (claude/codex/
+  gemini/kimi/glm, with `run_agy.sh` kept only as a Gemini comparison baseline), builds the best-effort
+  session brief, assembles the one canonical prompt
   (`panel_prompt.md`), fans every available panelist out as parallel background jobs into
-  `<run_dir>/<label>_out.md` (always Opus via `cb`; a 2nd `cb` if no external CLI → the `opus4.8-4.8`
+  `<run_dir>/<label>_out.md` (always Opus via `claude`; a 2nd `claude` if no external CLI → the `opus4.8-4.8`
   fallback), waits, and prints a manifest (`RUN_DIR=`, `PANEL_PROMPT=`, `CONTEXT=`, `SLUG=`, one
   `PANELIST <label> <ok|dropped:reason> <out>` line each, `ESTIMATE=`). Never judges, never gates, always
   exits 0. Folds in the old `detect_panel.sh` + `preflight.sh` (both removed).
-- `scripts/run_cb.sh` — Opus 4.8 panelist via `cb -p --model opus --output-format text` (stdin
+- `scripts/run_claude.sh` — Opus 4.8 panelist via `claude -p --model opus --output-format text` (stdin
   prompt). Isolated `CLAUDE_CONFIG_DIR` with live standard user hooks (from `~/.claude/settings.json`),
-  no plugins, `fastMode`, plus `--mcp-config` Exa only (`--strict-mcp-config`). The `cb` wrapper
-  auto-adds `--dangerously-skip-permissions` for web+bash. Override model via `UNIFUSION_OPUS_MODEL`.
+  no plugins, `fastMode`, plus `--mcp-config` Exa only (`--strict-mcp-config`). Override model via
+  `UNIFUSION_OPUS_MODEL`.
 - `scripts/resolve_session.sh [--path|--id|--json] [--fingerprint-file <f>]` — host-agnostic resolver:
   walks process ancestry to the host agent (claude/codex/droid/glm), reads its session id (env/argv/
   session store), maps id→transcript path, and uses the fingerprint (the verbatim question) to disambiguate
@@ -71,7 +72,7 @@ Plain bash + two interpreter helpers; no build step.
   with no TTY) while surviving a socket stdin (headless/cmux).
 - `scripts/save_run.sh` — writes the provenance `.md` under `${UNIFABLE_DATA:-~/.unifable}/unifusion-runs/`
   only. Accepts a
-  single `<run_dir>` 5th arg and auto-discovers `*_out.md` (mapping cb_out→opus-A, cb_out_b→opus-B,
+  single `<run_dir>` 5th arg and auto-discovers `*_out.md` (mapping claude_out→opus-A, claude_out_b→opus-B,
   codex_out→gpt5.5, gemini_out→gemini3.5flash, kimi_out→kimi2.7, glm_out→glm5.2), or an explicit
   `LABEL=path` list as fallback.
 - `references/panel.md`, `references/judge_rubric.md` — panel composition + the two judge tracks.
@@ -81,10 +82,10 @@ Plain bash + two interpreter helpers; no build step.
 Plugin harness hooks (unifable, hookd, etc.) stall or correlate panelists — most visibly the groundedness
 breaker, which blocks mutation tools in a loop until timeout, and codex MCP startup, which hangs / "nests"
 into a shared app-server across concurrent runs. So every runner strips **plugins and non-Exa MCP**; Exa is
-the one server panelists keep for web research. For **cb** and **codex**, standard user hooks from the live
+the one server panelists keep for web research. For **claude** and **codex**, standard user hooks from the live
 home config are preserved (hook scripts stay at `~/.claude/hooks/` and `~/.codex/hooks/`):
 
-- **cb** → isolated `CLAUDE_CONFIG_DIR`: live hooks from `~/.claude/settings.json`, hardcoded panel
+- **claude** → isolated `CLAUDE_CONFIG_DIR`: live hooks from `~/.claude/settings.json`, hardcoded panel
   `skillOverrides`/`permissions`, `enabledPlugins: {}`, `fastMode: true`, plus `--mcp-config` Exa only
   (`--strict-mcp-config`).
 - **codex** → isolated `CODEX_HOME` (throwaway dir: `config.toml` with `service_tier = "fast"`,
@@ -117,10 +118,10 @@ panel runs from any cwd whether or not the plugin is enabled in the current sess
 
 - Signature `run_<cli>.sh <prompt_file> <output_file> [extra]`; writes ONLY the model's clean final
   answer to `<output_file>`.
-- cb/codex/kimi/glm run the model against a **throwaway copy** of the repo/workdir (deleted on exit), so a
+- claude/codex/kimi/glm run the model against a **throwaway copy** of the repo/workdir (deleted on exit), so a
   panelist's file writes never touch the live checkout.
-- Run **panel isolation**: strip plugins/skills and non-Exa MCP (see Panel isolation above). cb/codex keep
-  live standard user hooks; glm/kimi strip hooks/skills. Exa MCP is injected (cb/codex/glm throwaways)
+- Run **panel isolation**: strip plugins/skills and non-Exa MCP (see Panel isolation above). claude/codex keep
+  live standard user hooks; glm/kimi strip hooks/skills. Exa MCP is injected (claude/codex/glm throwaways)
   or read from user config (kimi/agy).
 - Strip the CLI's wrapper to clean Markdown (ANSI + control bytes; kimi also has a leading bullet +
   2-space hanging indent).
@@ -134,8 +135,8 @@ panel runs from any cwd whether or not the plugin is enabled in the current sess
 | Var | Default | Effect |
 |-----|---------|--------|
 | `UNIFUSION_TIMEOUT` | `600` | per-panelist deadline (seconds) |
-| `UNIFUSION_EXA_MCP_URL` | (see `_unifusion_lib.sh`) | Exa MCP endpoint for cb/codex/glm throwaway configs |
-| `UNIFUSION_OPUS_MODEL` | `opus` | cb model alias for the Opus panelist(s) |
+| `UNIFUSION_EXA_MCP_URL` | (see `_unifusion_lib.sh`) | Exa MCP endpoint for claude/codex/glm throwaway configs |
+| `UNIFUSION_OPUS_MODEL` | `opus` | claude model alias for the Opus panelist(s) |
 | `UNIFUSION_CODEX_MODEL` | `gpt-5.5` | model in the isolated codex config |
 | `KIMI_MODEL` | (unset → kimi `default_model`) | optional Kimi model override |
 | `UNIFUSION_KIMI_BIN` | `~/.kimi-code/bin/kimi` | real kimi binary (bypasses shell alias) |
@@ -166,7 +167,7 @@ panel runs from any cwd whether or not the plugin is enabled in the current sess
 No harness besides `selfcheck.sh`. Smoke-test each script directly:
 
 - `printf 'what is the latest node LTS?' > /tmp/q.md && bash scripts/run_<cli>.sh /tmp/q.md /tmp/o.md;
-  echo "exit=$?"; cat /tmp/o.md` → clean Markdown, no wrapper artifacts. (For each of cb/codex/gemini/kimi/
+  echo "exit=$?"; cat /tmp/o.md` → clean Markdown, no wrapper artifacts. (For each of claude/codex/gemini/kimi/
   glm; confirm it returns in seconds, not blocked by plugin hooks/MCP — that's panel isolation working.)
 - `bash scripts/unifusion.sh /tmp/q.md /tmp/ufrun` → a manifest with one `PANELIST ... ok ...` per installed
   CLI; every `*_out.md` in `/tmp/ufrun` is non-empty and distinct. After, `ps aux | grep kimi-code | grep -v
@@ -183,9 +184,9 @@ No harness besides `selfcheck.sh`. Smoke-test each script directly:
 ## Safe-change rules
 
 - Keep Opus as the sole judge; the orchestrator session must stay separate from the panel. Opus panelists
-  run as separate `cb` processes and can't call back out to spawn the judge (see `references/panel.md`,
+  run as separate `claude` processes and can't call back out to spawn the judge (see `references/panel.md`,
   `judge_rubric.md`).
-- Keep every panelist isolated (strip plugins/skills and non-Exa MCP; cb/codex keep standard user hooks).
+- Keep every panelist isolated (strip plugins/skills and non-Exa MCP; claude/codex keep standard user hooks).
   Plugin harness hooks — especially the groundedness breaker — must not load or they block a panelist's
   tools in a loop until timeout, or correlate the panel.
 - Never paste one panelist's output into another's prompt — independence is the mechanism.

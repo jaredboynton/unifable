@@ -274,10 +274,16 @@ function fileLineCount(absPath) {
 // HYDRATE_MAX_SPAN, and comment-strip. Returns [{path,startLine,endLine,content}]
 // (path is repo-relative). Shared by grep hydration and the fast search path so
 // both get the same proven multi-span behavior. Unsupported files are skipped.
-export function hydrateHitsToBlocks(repoRoot, hits, { maxBlocks = 12, binary = null, maxSpan = HYDRATE_MAX_SPAN, pad = HYDRATE_PAD } = {}) {
-  if (!astContextEnabled() || !hits?.length) return [];
-  ensureAstTool({ install: process.env.UNITRACE_AST_SKIP_INSTALL !== "1" });
-  const bin = binary || detectAstBinary();
+//
+// `lineWindowOnly`: for non-code text (docs, config, data) that AST cannot parse.
+// Skips the language gate AND the AST expansion, using only the clamped line
+// window (with comment-stripping off, since markdown/config "comment" syntax is
+// content). Lets doc/data files hydrate through the same dedup/clamp machinery.
+export function hydrateHitsToBlocks(repoRoot, hits, { maxBlocks = 12, binary = null, maxSpan = HYDRATE_MAX_SPAN, pad = HYDRATE_PAD, lineWindowOnly = false } = {}) {
+  if (!hits?.length) return [];
+  if (!lineWindowOnly && !astContextEnabled()) return [];
+  if (!lineWindowOnly) ensureAstTool({ install: process.env.UNITRACE_AST_SKIP_INSTALL !== "1" });
+  const bin = lineWindowOnly ? null : (binary || detectAstBinary());
 
   const blocks = [];
   const acceptedByFile = new Map(); // rel -> [[startLine, endLine]] already hydrated
@@ -285,7 +291,7 @@ export function hydrateHitsToBlocks(repoRoot, hits, { maxBlocks = 12, binary = n
     if (blocks.length >= maxBlocks) break;
     const rel = hit.file.startsWith("/") ? path.relative(repoRoot, hit.file) : hit.file;
     const abs = path.isAbsolute(hit.file) ? hit.file : path.resolve(repoRoot, rel);
-    if (!langForPath(abs)) continue;
+    if (!lineWindowOnly && !langForPath(abs)) continue;
 
     const accepted = acceptedByFile.get(rel) || [];
     if (accepted.some(([as, ae]) => hit.line >= as && hit.line <= ae)) continue;
@@ -305,7 +311,7 @@ export function hydrateHitsToBlocks(repoRoot, hits, { maxBlocks = 12, binary = n
     if (total) e = Math.min(e, total);
     if (e - s + 1 > maxSpan) e = s + maxSpan - 1;
 
-    const content = readLines(abs, s, e, { strip: stripCommentsEnabled() });
+    const content = readLines(abs, s, e, { strip: stripCommentsEnabled() && !lineWindowOnly });
     if (!content.trim()) continue;
     accepted.push([s, e]);
     acceptedByFile.set(rel, accepted);

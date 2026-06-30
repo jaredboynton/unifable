@@ -43,23 +43,23 @@ rules above still hold: panelists never see each other's answers, and the task i
 
 The panel is always Opus 4.8 plus every external model CLI installed, one panelist per CLI:
 
-- Opus 4.8 — always present, run via the `cb` CLI (Claude in Bedrock mode, `--safe-mode`). Slug token
+- Opus 4.8 — always present, run via the `claude` CLI in print mode. Slug token
   `opus4.8`.
 - GPT-5.5 (`codex`) — slug token `gpt5.5`.
-- Gemini 3.5 Flash (`agy`) — slug token `gemini3.5flash`.
+- Gemini 3.5 Flash (`gemini`) — slug token `gemini3.5flash`.
 - Kimi K2.7 (`kimi`) — slug token `kimi2.7`.
 - GLM-5.2 (`glm-acp-agent`) — slug token `glm5.2`.
 
 So the full panel is `opus4.8-gpt5.5-gemini3.5flash-kimi2.7-glm5.2`. With fewer external CLIs the panel is
 the richest available subset; with **none**, it runs `opus4.8-4.8` — the **same prompt run twice** as two
-independent Opus 4.8 panelists (two cold `cb` runs), then judged.
+independent Opus 4.8 panelists (two cold `claude` runs), then judged.
 
 `scripts/unifusion.sh` auto-detects this and fans the whole panel out itself; the slug it prints reflects
 the panelists that actually returned. A missing or failing CLI drops only its own panelist; the rest of the
 panel continues.
 
 In every case Opus 4.8 is also the judge/synthesizer, and the judge is kept separate from the panelists:
-the panelists are separate processes (the `cb` Opus runs and the external CLIs), and the orchestrator
+the panelists are separate processes (the `claude` Opus runs and the external CLIs), and the orchestrator
 session that judges is never one of them, so the synthesis reads the answers fresh rather than defending one
 it wrote itself. Opus always judges and writes the final answer — the pipeline can't be reversed, since the
 panelist processes can't call back out to spawn the judge.

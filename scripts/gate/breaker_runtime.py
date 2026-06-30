@@ -25,6 +25,7 @@ try:
     )
     from breaker_state import (
         append_event,
+        clear_director,
         clear_provisional_lift,
         lift_provisional,
         record_adjudicated_claim,
@@ -48,6 +49,7 @@ except ImportError:  # pragma: no cover
     )
     from scripts.gate.breaker_state import (
         append_event,
+        clear_director,
         clear_provisional_lift,
         lift_provisional,
         record_adjudicated_claim,
@@ -434,6 +436,7 @@ def _apply_release(state: dict, claim: str, verdict: ReleaseVerdict) -> tuple[bo
         append_event(state, "DISARM", claim=claim, grounded=True)
         record_adjudicated_claim(state, claim)
         disarm(state)
+        clear_director(state)
         return True, ""
     if verdict.provisional and verdict.lift_reason and verdict.lift_scope:
         notify = _provisional_lift_message(verdict.lift_reason, verdict.lift_scope)

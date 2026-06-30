@@ -19,7 +19,7 @@ model executes.
 |---|---|---|
 | Run the panel | `unifusion.sh` | auto-detect installed CLIs, build the brief, assemble the shared prompt, fan **every** available panelist out in parallel + blind + clean-room, print a manifest |
 | Brief *(auto)* | `resolve_session.sh` → `summarize_session.sh` → `compact-full-transcript.mjs` | resolve **this** session's transcript host-agnostically, summarize it to a **factual-only** brief shared identically by every panelist |
-| Fan out | `run_cb.sh`, `run_codex.sh`, `run_gemini.sh`, `run_kimi.sh`, `run_glm.sh` | every model answers the **same** prompt in parallel, blind, with web + bash, citing real evidence |
+| Fan out | `run_claude.sh`, `run_codex.sh`, `run_gemini.sh`, `run_kimi.sh`, `run_glm.sh` | every model answers the **same** prompt in parallel, blind, with web + bash, citing real evidence |
 | Judge | `references/judge_rubric.md` | Opus 4.8 **merges** (Track A, code) or **synthesizes** (Track B, five sections) |
 | Save | `save_run.sh` | timestamped provenance under `~/.unifable/unifusion-runs/` (override root with `UNIFABLE_DATA`; auto-discovers the run dir) |
 
@@ -27,15 +27,15 @@ Panel composition scales to whatever is installed, one panelist per CLI:
 
 | CLI | Panelist | Slug token |
 |---|---|---|
-| `cb` | Opus 4.8 (Claude/Bedrock, standard hooks, no plugins) | `opus4.8` |
+| `claude` | Opus 4.8 (Claude Code CLI, standard hooks, no plugins) | `opus4.8` |
 | `codex` | GPT-5.5 | `-gpt5.5` |
-| `agy` | Gemini 3.5 Flash | `-gemini3.5flash` |
+| `gemini` | Gemini 3.5 Flash | `-gemini3.5flash` |
 | `kimi` | Kimi K2.7 | `-kimi2.7` |
 | `glm-acp-agent` | GLM-5.2 | `-glm5.2` |
 
 With no external CLI present, unifusion still runs as `opus4.8-4.8` — two independent Opus passes, judged.
 
-Every panelist runs **isolated** — plugins, skills, and non-Exa MCP stripped; cb/codex keep live standard
+Every panelist runs **isolated** — plugins, skills, and non-Exa MCP stripped; claude/codex keep live standard
 user hooks with fast mode (isolated `CLAUDE_CONFIG_DIR` / `CODEX_HOME`, ACP client shim with Exa via session params, empty kimi
 skills dir) — so plugin harness hooks (e.g. the groundedness breaker that would block a panelist's tools in
 a loop) or a slow MCP server can never stall or correlate the panel.
@@ -49,7 +49,7 @@ The scripts enforce what makes a panel work, so the orchestrator cannot accident
   or summarizing the question.
 - **No personas.** No "skeptic / optimizer" lenses — those bias every member the same way. Diversity comes
   for free from running the same prompt cold across different systems.
-- **The judge is separate.** Panelists run as separate processes (the `cb` Opus runs and the external
+- **The judge is separate.** Panelists run as separate processes (the `claude` Opus runs and the external
   CLIs); the orchestrator session that judges is never one of them and they can't call back out to spawn it,
   so the pipeline only flows one way (panel → judge). Opus reads the answers fresh, with none of its own to
   defend.
@@ -115,9 +115,9 @@ fallback: two cold Opus runs, judged.
 ## Install
 
 Drop this directory at `~/.agents/skills/unifusion/` (Claude Code's skills home; `~/.claude/skills` may
-symlink there). The Opus panelist needs the `cb` CLI (Claude in Bedrock mode) on `PATH`; the other panelists
-are added automatically when their CLI is on `PATH` (see the CLI table above). The optional session brief
-needs Node and a `GEMINI_API_KEY` (or `GOOGLE_API_KEY`); without them it is skipped.
+symlink there). The Opus panelist needs the `claude` CLI on `PATH`; the other panelists are added
+automatically when their CLI is on `PATH` (see the CLI table above). The optional session brief needs Node
+and a `GEMINI_API_KEY` (or `GOOGLE_API_KEY`); without them it is skipped.
 
 ## Use
 
@@ -150,7 +150,7 @@ unifusion/
   references/
     panel.md            panel composition + the independence rules
     judge_rubric.md     the two judge tracks (merge code / synthesize research)
-  scripts/              unifusion.sh (entrypoint), resolver + summarizer, run_* panelists (cb/codex/agy/kimi/glm), save_run, helpers
+  scripts/              unifusion.sh (entrypoint), resolver + summarizer, run_* panelists (claude/codex/gemini/kimi/glm), save_run, helpers
 ```
 
 ## Sources
