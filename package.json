@@ -1,0 +1,5 @@
+{
+  "dependencies": {
+    "@jaredboynton/rtinfer": "^0.1.1"
+  }
+}

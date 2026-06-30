@@ -64,9 +64,9 @@ def test_daemon_failure_falls_back(monkeypatch):
     monkeypatch.setattr("ledger.update_ledger", lambda input_data, fn: fn({}))
 
     def boom(*a, **k):
-        raise RuntimeError("daemon exploded")
+        raise RuntimeError("rtinfer exploded")
 
-    monkeypatch.setattr("judge_client.daemon_ask", boom)
+    monkeypatch.setattr("rtinfer_client.ask_structured", boom)
 
     def fake(system, user, schema, *, schema_name="result", on_usage=None, **kw):
         return {"fallback": True}

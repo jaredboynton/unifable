@@ -63,14 +63,14 @@ def test_recon_gather_coalesces_observations(monkeypatch):
 
     def fake_ask(system, user, schema, *, schema_name="result", model=None, **kw):
         assert model == rl.RECON_MODEL
-        return {"found": True, "where": "scripts/gate/realtime_daemon.py", "note": "JudgeDaemon class"}
+        return {"found": True, "where": "scripts/gate/rtinfer_client.py", "note": "rtinfer client shim"}
 
     monkeypatch.setattr(judge_transport, "ask_structured", fake_ask)
-    out = rl.recon_gather(["where is the daemon?"], ".")
+    out = rl.recon_gather(["where is the rtinfer client?"], ".")
     assert out[0]["found"] is True
-    assert "realtime_daemon" in out[0]["where"]
+    assert "rtinfer_client" in out[0]["where"]
     blob = rl.coalesce_recon(out)
-    assert "found @ scripts/gate/realtime_daemon.py" in blob
+    assert "found @ scripts/gate/rtinfer_client.py" in blob
     # No status / verdict leaks into the coalesced evidence.
     assert "validated" not in blob and "verdict" not in blob
 

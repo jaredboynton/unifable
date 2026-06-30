@@ -21,8 +21,8 @@
 //   UNITRACE_AST_SKIP_INSTALL           set to 1 to skip ast-grep network install
 //                                      (line-window hydration fallback; bench-used)
 //
-// The daemon pool is shared with the judge via scripts/gate/realtime_daemon.py;
-// this namespace is distinct so it never contends with judge/search/trace sockets.
+// The rtinferd daemon pool is shared across all callers (search, enhance,
+// judge); this namespace is distinct so it never contends with judge calls.
 
 import { retrieveCandidates } from "./search-fast.mjs";
 import { daemonAsk, daemonAskBatch, warmDaemonPool } from "./lib/daemon-client.mjs";

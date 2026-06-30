@@ -5,11 +5,11 @@ run directly by scripts/commit.sh (`python3 tests/test_gate_robustness.py`). It 
 not importable as a pytest module, so exclude it from collection here -- this is
 what commit.sh's `--ignore` did, baked in so a bare `pytest tests/` also works.
 
-The warm-socket judge daemon (realtime_daemon.py) is an opt-in latency/cost
-optimization. It is disabled by default during tests so no test can accidentally
-spawn a background daemon or make a live Realtime call through a hook subprocess;
-the direct codex_judge path is exercised exactly as before. Daemon-specific tests
-override UNIFABLE_JUDGE_DAEMON via monkeypatch.setenv.
+The judge transport now prefers the shared rtinferd daemon (borrowed via the
+canonical client). It is disabled by default during tests so no test can
+accidentally make a live Realtime call through a hook subprocess; the direct
+codex_judge path is exercised exactly as before. Tests that exercise the
+daemon path override UNIFABLE_JUDGE_DAEMON via monkeypatch.setenv.
 """
 
 import os

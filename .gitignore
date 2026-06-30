@@ -14,3 +14,4 @@ scripts/gate/bench/
 .jscpd-report/
 .claude/
 .plans/
+node_modules/

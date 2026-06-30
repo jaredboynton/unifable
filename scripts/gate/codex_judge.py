@@ -74,9 +74,8 @@ ORIGINATOR = _ws.ORIGINATOR
 JudgeError = _ws.JudgeError
 
 # Transport-owned WebSocket + auth helpers. Re-exported under their historical
-# private names so call sites (realtime_daemon.py) and tests that monkeypatch
-# ``cj._ws_connect`` / ``cj._fresh_tokens`` / build frames with ``cj._encode_frame``
-# keep working unchanged.
+# private names so tests that monkeypatch ``cj._ws_connect`` / ``cj._fresh_tokens``
+# / build frames with ``cj._encode_frame`` keep working unchanged.
 _fresh_tokens = _ws._fresh_tokens
 _encode_frame = _ws._encode_frame
 _read_frame = _ws._read_frame
