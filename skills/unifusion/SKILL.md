@@ -1,33 +1,41 @@
 ---
 name: unifusion
 description: >-
-  Answer a hard technical question by running one Droid root orchestrator that launches a panel of
-  frontier-research architect droids in parallel, then synthesizes their findings into one evidence-backed
-  final answer. The active panel is GPT-5.5, Opus 4.8, GLM-5.2, and Kimi K2.7 via custom droids
-  (`architect`, `architect-opus`, `architect-glm`, `architect-kimi`). The root Droid synthesizes their
-  reports directly and the script also writes analysis/final artifacts plus a timestamped provenance record.
-  Use whenever the user asks to "run it through Unifusion", wants a multi-model / panel / ensemble answer,
-  or wants the best current approach grounded in code evidence, official docs, flagship GitHub repos,
-  benchmarks, or research papers.
+  Answer a hard technical question by running a panel of frontier-research architects in parallel on one
+  warm OpenCode daemon, then synthesizing their findings into one evidence-backed final answer. The active
+  panel is GPT-5.5, Opus 4.8, GLM-5.2, and Kimi K2.7, each run as its own `opencode run --attach` thread
+  against a single `opencode serve`; a final GPT-5.5 synthesis thread reads every report and returns the
+  answer. The script also writes analysis/final artifacts plus a timestamped provenance record. Use whenever
+  the user asks to "run it through Unifusion", wants a multi-model / panel / ensemble answer, or wants the
+  best current approach grounded in code evidence, official docs, flagship GitHub repos, benchmarks, or
+  research papers.
 ---
 
 # Unifusion
 
-Unifusion now runs through **one GPT-5.5-backed `droid exec` root session**. That root droid reads the
-verbatim task, launches several **frontier-research architect droids in parallel**, waits for their reports,
-synthesizes them in the root session, and returns a final answer. The current host session no longer
-hand-judges the panel afterward; the synthesis happens inside the Droid run.
+Unifusion runs a frontier-research architecture panel on **OpenCode**. One `opencode serve` daemon is started
+with a skill-local config; the four architect agents each run as their own parallel `opencode run --attach`
+thread (deterministic shell-level fan-out, one warm daemon, no root-orchestrator reasoning tax); a final
+`unifusion-synth` thread reads every architect report and returns the answer. The daemon is killed when the
+run finishes.
 
 The active architect panel is:
 
-- `architect` — GPT-5.5
-- `architect-opus` — Opus 4.8
-- `architect-glm` — GLM-5.2
-- `architect-kimi` — Kimi K2.7
+- `architect` — GPT-5.5 (`openai-ws/gpt-5.5`, variant medium)
+- `architect-opus` — Opus 4.8 (`anthropic/claude-opus-4-8`)
+- `architect-glm` — GLM-5.2 (`zai-coding-plan/glm-5.2`)
+- `architect-kimi` — Kimi K2.7 (`kimi-for-coding/k2p7`)
 
-Gemini is not part of the active Droid-native panel.
+Synthesis is `unifusion-synth` — GPT-5.5. Gemini is not part of the active panel.
 
 Throughout, `<skill_dir>` is the directory containing this `SKILL.md`.
+
+## Prerequisites
+
+- `opencode` CLI installed and authenticated (`~/.local/share/opencode/auth.json`) for the openai-ws,
+  anthropic, zai-coding-plan, and kimi-for-coding providers.
+- The skill config (`<skill_dir>/opencode/opencode.json`) is merged over the user's global OpenCode config,
+  so the Exa MCP and provider auth come from the user's global setup.
 
 ## Step 1 — Write the question, verbatim
 
@@ -50,10 +58,12 @@ That one command:
 
 - builds a best-effort **factual-only** session brief when a current host transcript can be resolved
 - assembles the shared `panel_prompt.md`
-- launches **one** Droid root orchestrator
-- has that root orchestrator fan out the architect droids with the same task
-- synthesizes the architect reports in the root Droid response
-- writes:
+- starts one warm `opencode serve` daemon (skill-local config)
+- fans out the four architect agents as parallel `opencode run --attach` threads, one session each, and
+  captures each thread's final message as its report
+- runs one `unifusion-synth` thread on the same daemon that reads the inlined reports and returns
+  `[FINAL]`/`[ANALYSIS]`
+- kills the daemon (and any `opencode acp` workers it spawned) and writes:
   - `analysis.md`
   - `final.md`
   - a provenance markdown record under `~/.unifable/unifusion-runs/`
@@ -65,9 +75,9 @@ RUN_DIR=/tmp/unifusion-panel.XXXXXX
 PANEL_PROMPT=/.../panel_prompt.md
 ANALYSIS=/.../analysis.md
 FINAL=/.../final.md
-PROVENANCE=/.../2026-..._droidexec-....md
-PANELIST gpt5.5 ok /Users/.../.factory/reviews/.../architect.md
-PANELIST opus4.8 ok /Users/.../.factory/reviews/.../architect-opus.md
+PROVENANCE=/.../2026-..._opencode-....md
+PANELIST gpt5.5 ok /.../reports/architect.md
+PANELIST opus4.8 ok /.../reports/architect-opus.md
 ...
 ```
 
@@ -79,7 +89,11 @@ panelists were dropped, say so explicitly instead of treating absence as agreeme
 ## Notes
 
 - The shared session brief is still **state only**, not a proposed solution.
-- The root orchestrator defaults to GPT-5.5 so root-level web/tool behavior does not depend on Opus Bedrock;
-  Opus remains in the panel through `architect-opus`.
-- The old multi-CLI fan-out script is archived at `scripts/archive/unifusion_parallel_cli.sh`.
-- The Droid-native path depends on the user's configured custom droids and Factory models.
+- The architects are read-only (no write/edit/patch/bash); the shell captures each thread's final message as
+  its report. The synth thread reads the reports **inlined into its prompt** because OpenCode auto-rejects
+  reads outside the repo cwd in headless mode.
+- Reasoning effort knobs: `UNIFUSION_ARCH_TIMEOUT` (per-architect seconds, default 900),
+  `UNIFUSION_SYNTH_TIMEOUT` (default 600), `UNIFUSION_AGENTS` (comma list of `agent:label:variant` to
+  override the panel), `UNIFUSION_SAVE_RUN=0` to skip provenance.
+- The old Droid-native entrypoint is archived at `scripts/archive/unifusion_droid.sh`; the pre-Droid
+  multi-CLI fan-out is at `scripts/archive/unifusion_parallel_cli.sh`.

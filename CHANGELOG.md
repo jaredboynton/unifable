@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.22.8 - 2026-07-01
+
+- Migrate Unifusion from a single Droid `droid exec` root orchestrator to an OpenCode
+  serve + parallel attach flow (`skills/unifusion/scripts/unifusion.sh`). One warm
+  `opencode serve` daemon fans out the four architect agents (GPT-5.5, Opus 4.8,
+  GLM-5.2, Kimi K2.7) as independent `opencode run --attach` threads with
+  deterministic shell-level parallelism, then runs a GPT-5.5 synthesis thread that
+  reads the inlined reports and returns `[FINAL]`/`[ANALYSIS]`.
+- Add skill-local OpenCode config and helpers under `skills/unifusion/opencode/`:
+  `opencode.json` (five read-only agents plus secret-free `openai-ws/gpt-5.5`
+  provider block), shared architect/synth prompts, and `parse_events.py` to extract
+  final assistant text from `--format json` NDJSON event streams.
+- Archive the Droid-native entrypoint at
+  `skills/unifusion/scripts/archive/unifusion_droid.sh` and update `SKILL.md` /
+  `AGENTS.md` for the OpenCode path (stdin redirect, pre-created attach sessions,
+  inlined synth reports, orphaned `opencode acp` cleanup).
+
+Verification:
+
+- `bash -n skills/unifusion/scripts/*.sh`
+- `bash skills/unifusion/scripts/selfcheck.sh`
+- `uvx ruff check skills/unifusion/opencode/parse_events.py`
+- paid smoke: `bash skills/unifusion/scripts/unifusion.sh /tmp/q.md /tmp/ufrun` (4/4
+  panelists, non-empty final/analysis, zero leftover opencode processes)
+
 ## 1.22.7 - 2026-06-30
 
 - Close trace retrieval gaps in the unitrace nav explorer with question-agnostic,
