@@ -1,5 +1,33 @@
 # Changelog
 
+## 1.22.9 - 2026-07-01
+
+- Fix Unifusion Opus 4.8 panelist drops in the OpenCode path: route `architect-opus`
+  through Bedrock (`amazon-bedrock/us.anthropic.claude-opus-4-8`) with a
+  `UNIFUSION_OPUS_MODEL` runtime override in `skills/unifusion/scripts/unifusion.sh`.
+- Pass `--auto` and `--dir "$cwd"` on every headless `opencode run --attach`
+  invocation (architects and synth) so cross-repo reads and tool-heavy panelists
+  are not auto-rejected in headless mode.
+- Harden `skills/unifusion/opencode/parse_events.py` to capture the final turn's
+  assistant text (with fallback across the stream) and surface stream `error`
+  events via `--error` for drop diagnostics.
+- Classify panelist drops in the manifest and provenance note (`dropped:timeout`,
+  `dropped:exit-N`, `dropped:empty-events`, `dropped:error:<code>`,
+  `dropped:parse-empty`) instead of an undifferentiated `dropped:missing`; echo
+  the dropped panelist's log tail to stderr.
+- Update `skills/unifusion/SKILL.md`, `AGENTS.md`, and `README.md` for Bedrock
+  routing, `--auto`, `UNIFUSION_OPUS_MODEL`, and drop-reason strings.
+
+Verification:
+
+- `bash -n skills/unifusion/scripts/unifusion.sh`
+- `bash skills/unifusion/scripts/selfcheck.sh`
+- `uvx ruff check skills/unifusion/opencode/parse_events.py`
+- Bedrock smoke: isolated `architect-opus` with
+  `-m amazon-bedrock/us.anthropic.claude-opus-4-8 --auto` returned non-empty text
+- paid panel: `bash skills/unifusion/scripts/unifusion.sh /tmp/q.md /tmp/ufrun`
+  (4/4 panelists including `opus4.8 ok`, clean opencode teardown)
+
 ## 1.22.8 - 2026-07-01
 
 - Migrate Unifusion from a single Droid `droid exec` root orchestrator to an OpenCode

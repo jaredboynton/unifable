@@ -15,7 +15,7 @@ Unifusion is an **OpenCode serve + parallel attach** flow.
   each. Fan-out is deterministic at the shell level; there is no root orchestrator spending reasoning tokens
   deciding to parallelize.
   - `architect` — GPT-5.5 (`openai-ws/gpt-5.5`)
-  - `architect-opus` — Opus 4.8 (`anthropic/claude-opus-4-8`)
+  - `architect-opus` — Opus 4.8 on Bedrock (`amazon-bedrock/us.anthropic.claude-opus-4-8`)
   - `architect-glm` — GLM-5.2 (`zai-coding-plan/glm-5.2`)
   - `architect-kimi` — Kimi K2.7 (`kimi-for-coding/k2p7`)
 - Each thread's final assistant message is captured (via `opencode/parse_events.py`) as that panelist's
@@ -60,8 +60,22 @@ Legacy per-CLI runner scripts remain in `scripts/` for reference and are **not**
   passed as `--session <id>`. Attach will not auto-create one ("Session not found").
 - `--format json` output is **NDJSON**; assistant prose is in events with `type=="text"` and
   `part.type=="text"`. Reasoning/tool/step events are separate.
-- The synth agent **cannot read files outside the repo cwd** (opencode auto-rejects `external_directory` in
-  headless mode). Reports are inlined into the synth prompt instead of passed as paths.
+- Headless attach runs **auto-reject** `external_directory` (and other non-denied) permission requests
+  unless `--auto` is passed. Every architect and the synth thread run with `--auto` (parity with the
+  archived Droid `--auto high`). Without it, tool-heavy panelists that insist on reading source first —
+  Opus especially — stall out and emit no final text, which the collector then scores as a drop.
+- The synth agent **cannot read files outside the repo cwd** even so; reports are inlined into the synth
+  prompt instead of passed as paths.
+- Opus routes through **Bedrock**, not the direct Anthropic API. The agent is pinned to
+  `amazon-bedrock/us.anthropic.claude-opus-4-8` in `opencode.json`, and `run_thread` also passes
+  `-m "$UNIFUSION_OPUS_MODEL"` (same default) so the provider can be overridden at runtime without editing
+  the config. Both `anthropic` and `amazon-bedrock` are authenticated in the user's opencode `auth.json`.
+- `parse_events.py` captures the **final turn** (all text at/after the last `step_start`), falling back to
+  all text parts if that turn is empty, so a report that lands before a trailing tool/empty turn is not
+  lost. It also exposes `--error` to surface the last stream `error` event for drop diagnostics.
+- Drops are classified, not opaque: the collector records a per-panelist reason (`ok`, `timeout`,
+  `exit-N`, `empty-events`, `error:<code>`, `parse-empty`), prints it in the manifest as `dropped:<reason>`,
+  carries it into the provenance panel note, and echoes the dropped panelist's log tail to stderr.
 - `opencode serve` spawns `opencode acp` worker children that get orphaned on client exit. Cleanup snapshots
   pre-existing opencode PIDs and kills only the new ones, so any ambient opencode daemon the user runs is
   left alone.

@@ -22,7 +22,7 @@ run finishes.
 The active architect panel is:
 
 - `architect` — GPT-5.5 (`openai-ws/gpt-5.5`, variant medium)
-- `architect-opus` — Opus 4.8 (`anthropic/claude-opus-4-8`)
+- `architect-opus` — Opus 4.8 on Bedrock (`amazon-bedrock/us.anthropic.claude-opus-4-8`)
 - `architect-glm` — GLM-5.2 (`zai-coding-plan/glm-5.2`)
 - `architect-kimi` — Kimi K2.7 (`kimi-for-coding/k2p7`)
 
@@ -90,10 +90,19 @@ panelists were dropped, say so explicitly instead of treating absence as agreeme
 
 - The shared session brief is still **state only**, not a proposed solution.
 - The architects are read-only (no write/edit/patch/bash); the shell captures each thread's final message as
-  its report. The synth thread reads the reports **inlined into its prompt** because OpenCode auto-rejects
-  reads outside the repo cwd in headless mode.
+  its report. Every thread runs with `--auto` so read/grep/webfetch/external_directory requests that are not
+  explicitly denied are approved; without it, headless attach runs auto-reject cross-repo reads and
+  tool-heavy panelists (notably Opus) stall out with no final answer. The synth thread reads the reports
+  **inlined into its prompt** rather than by path.
+- Opus routes through Bedrock by default. Override the model without editing the config via
+  `UNIFUSION_OPUS_MODEL` (default `amazon-bedrock/us.anthropic.claude-opus-4-8`; e.g. set an `eu.`/`global.`
+  inference profile or `anthropic/claude-opus-4-8` for the direct API).
+- When a panelist drops, the manifest names the cause (`dropped:timeout`, `dropped:exit-N`,
+  `dropped:empty-events`, `dropped:error:<code>`, `dropped:parse-empty`) and the run stderr carries the tail
+  of that panelist's log.
 - Reasoning effort knobs: `UNIFUSION_ARCH_TIMEOUT` (per-architect seconds, default 900),
   `UNIFUSION_SYNTH_TIMEOUT` (default 600), `UNIFUSION_AGENTS` (comma list of `agent:label:variant` to
-  override the panel), `UNIFUSION_SAVE_RUN=0` to skip provenance.
+  override the panel), `UNIFUSION_OPUS_MODEL` (Opus provider/model override), `UNIFUSION_SAVE_RUN=0` to skip
+  provenance.
 - The old Droid-native entrypoint is archived at `scripts/archive/unifusion_droid.sh`; the pre-Droid
   multi-CLI fan-out is at `scripts/archive/unifusion_parallel_cli.sh`.

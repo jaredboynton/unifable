@@ -32,9 +32,9 @@
       "tools": { "write": false, "edit": false, "patch": false, "bash": false }
     },
     "architect-opus": {
-      "description": "Unifusion frontier-research architect backed by Claude Opus 4.8.",
+      "description": "Unifusion frontier-research architect backed by Claude Opus 4.8 on Bedrock.",
       "mode": "primary",
-      "model": "anthropic/claude-opus-4-8",
+      "model": "amazon-bedrock/us.anthropic.claude-opus-4-8",
       "prompt": "{file:./architect_prompt.md}",
       "tools": { "write": false, "edit": false, "patch": false, "bash": false }
     },

@@ -98,10 +98,22 @@ fi
 synth_agent="${UNIFUSION_SYNTH_AGENT:-unifusion-synth}"
 synth_variant="${UNIFUSION_SYNTH_VARIANT:-medium}"
 
+# Opus routes through Bedrock by default (the agent pin in opencode.json agrees); override the
+# provider/model at runtime without editing the committed config via UNIFUSION_OPUS_MODEL.
+opus_model="${UNIFUSION_OPUS_MODEL:-amazon-bedrock/us.anthropic.claude-opus-4-8}"
+
 agent_of()   { printf '%s' "${1%%:*}"; }
 label_of()   { local r="${1#*:}"; printf '%s' "${r%%:*}"; }
 variant_of() { printf '%s' "${1##*:}"; }
 report_path_for() { printf '%s/%s.md\n' "$review_root" "$1"; }
+
+# model_of <agent> — print a runtime model override for an agent, or empty to use the agent's config pin.
+model_of() {
+  case "$1" in
+    architect-opus) printf '%s' "$opus_model" ;;
+    *) printf '' ;;
+  esac
+}
 
 # ---- best-effort shared session-context brief ----------------------------------------------------
 context_file="$run_dir/context.md"
@@ -195,12 +207,16 @@ new_session() {
     | python3 -c 'import sys,json;print((json.load(sys.stdin) or {}).get("id",""))' 2>/dev/null
 }
 
-# run_thread <agent> <variant> <session> <events_out> <log_out>
+# run_thread <agent> <variant> <model> <session> <events_out> <log_out>
 # Reads the panel prompt on stdin; writes the raw NDJSON event stream to <events_out>.
+# --auto approves read/grep/webfetch/external_directory requests that are not explicitly denied
+# (parity with the archived Droid `--auto high`); without it, headless attach runs auto-reject
+# cross-repo file reads and tool-heavy panelists (notably Opus) stall out with no final answer.
 run_thread() {
-  local agent="$1" variant="$2" session="$3" events="$4" log="$5"
-  local args=(run --attach "$server_url" --session "$session" --agent "$agent" --format json)
+  local agent="$1" variant="$2" model="$3" session="$4" events="$5" log="$6"
+  local args=(run --attach "$server_url" --session "$session" --dir "$cwd" --agent "$agent" --auto --format json)
   [ -n "$variant" ] && args+=(--variant "$variant")
+  [ -n "$model" ] && args+=(-m "$model")
   OPENCODE_CONFIG="$OPENCODE_CFG" _run_with_timeout "$arch_timeout" \
     "$OPENCODE_BIN" "${args[@]}" <"$panel_prompt" >"$events" 2>"$log"
 }
@@ -210,6 +226,7 @@ pids=(); statuses=()
 for spec in "${panel_specs[@]}"; do
   agent="$(agent_of "$spec")"
   variant="$(variant_of "$spec")"
+  model="$(model_of "$agent")"
   sid="$(new_session)"
   events="$run_dir/${agent}.events.json"
   log="$run_dir/${agent}.log"
@@ -219,7 +236,7 @@ for spec in "${panel_specs[@]}"; do
     continue
   fi
   printf '%s\n' "$sid" >"$run_dir/${agent}.session"
-  run_thread "$agent" "$variant" "$sid" "$events" "$log" &
+  run_thread "$agent" "$variant" "$model" "$sid" "$events" "$log" &
   pids+=("$!")
 done
 
@@ -229,19 +246,47 @@ for i in "${!pids[@]}"; do
 done
 
 # ---- collect reports -----------------------------------------------------------------------------
+# reasons[i] is aligned with panel_specs[i]: "ok" or a specific drop cause so the manifest names the
+# real failure mode (timeout / non-zero exit / no events / stream error / empty parse) instead of an
+# undifferentiated "missing". macOS bash 3.2 has no associative arrays, so this stays index-aligned.
+reasons=()
 for i in "${!panel_specs[@]}"; do
   spec="${panel_specs[$i]}"
   agent="$(agent_of "$spec")"
   events="$run_dir/${agent}.events.json"
+  log="$run_dir/${agent}.log"
   report="$(report_path_for "$agent")"
-  if [ "${statuses[$i]}" -eq 0 ] && [ -s "$events" ]; then
+  status="${statuses[$i]}"
+  reason=""
+  if [ "$status" -eq 124 ]; then
+    reason="timeout"
+  elif [ "$status" -ne 0 ]; then
+    reason="exit-$status"
+  elif [ ! -s "$events" ]; then
+    reason="empty-events"
+  else
     python3 "$PARSE_EVENTS" "$events" >"$report" 2>/dev/null || true
+    if _has_content "$report"; then
+      reason="ok"
+    else
+      err="$(python3 "$PARSE_EVENTS" "$events" --error 2>/dev/null)"
+      reason="parse-empty"
+      [ -n "$err" ] && reason="error:${err%% *}"
+    fi
+  fi
+  reasons+=("$reason")
+  if [ "$reason" != "ok" ]; then
+    {
+      echo "[unifusion] $agent dropped ($reason); tail of ${agent}.log:"
+      tail -5 "$log" 2>/dev/null
+    } >&2
   fi
 done
 
 # ---- synthesis thread ----------------------------------------------------------------------------
 ok_labels=(); missing_labels=(); label_specs=(); ok_pairs=()
-for spec in "${panel_specs[@]}"; do
+for i in "${!panel_specs[@]}"; do
+  spec="${panel_specs[$i]}"
   agent="$(agent_of "$spec")"
   label="$(label_of "$spec")"
   report="$(report_path_for "$agent")"
@@ -250,7 +295,7 @@ for spec in "${panel_specs[@]}"; do
     label_specs+=("${label}=${report}")
     ok_pairs+=("${label}=${report}")
   else
-    missing_labels+=("$label")
+    missing_labels+=("${label} (${reasons[$i]:-unknown})")
   fi
 done
 
@@ -286,7 +331,7 @@ if [ -z "$synth_session" ]; then
 fi
 printf '%s\n' "$synth_session" >"$run_dir/synth.session"
 
-synth_args=(run --attach "$server_url" --session "$synth_session" --agent "$synth_agent" --format json)
+synth_args=(run --attach "$server_url" --session "$synth_session" --dir "$cwd" --agent "$synth_agent" --auto --format json)
 [ -n "$synth_variant" ] && synth_args+=(--variant "$synth_variant")
 OPENCODE_CONFIG="$OPENCODE_CFG" _run_with_timeout "$synth_timeout" \
   "$OPENCODE_BIN" "${synth_args[@]}" <"$synth_prompt" >"$synth_events" 2>"$synth_log"
@@ -377,14 +422,15 @@ echo "FINAL=$final_path"
 [ -n "$provenance_path" ] && echo "PROVENANCE=$provenance_path"
 echo "ESTIMATE=$estimate"
 echo "panel (${#ok_labels[@]}/${#panel_specs[@]} returned):"
-for spec in "${panel_specs[@]}"; do
-  agent="$(agent_of "$spec")"
+for i in "${!panel_specs[@]}"; do
+  spec="${panel_specs[$i]}"
   label="$(label_of "$spec")"
-  report="$(report_path_for "$agent")"
-  if _has_content "$report"; then
+  report="$(report_path_for "$(agent_of "$spec")")"
+  reason="${reasons[$i]:-unknown}"
+  if [ "$reason" = "ok" ]; then
     printf 'PANELIST %s ok %s\n' "$label" "$report"
   else
-    printf 'PANELIST %s dropped:missing %s\n' "$label" "$report"
+    printf 'PANELIST %s dropped:%s %s\n' "$label" "$reason" "$report"
   fi
 done
 
